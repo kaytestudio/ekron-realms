@@ -9,7 +9,7 @@
 namespace sandbox {
 enum Material { Asphalt=0, Concrete=1, Brick=2, Rust=3, Plain=4 };
 struct Box { float x,y,z,w,h,d,r,g,b; int material=Concrete; };
-struct Object { int type,rotation; float x,z; };
+struct Object { int type,rotation; float x,z; float y=0; };
 struct WallSegment {float ax,az,bx,bz;};
 inline bool intersectsWall(const Box &box,const WallSegment &wall){
     // Slab test against a narrow 5 cm wall; respects diagonal walls and door gaps.
@@ -45,7 +45,7 @@ public:
     static Box bounds(const Object &o) {
         static const float dims[8][3]={{3,2.8f,.25f},{3,.18f,3},{2,2.4f,.22f},{1.1f,2.3f,.18f},{1.8f,.9f,1},{.6f,1.05f,.65f},{1.4f,2.1f,.65f},{2.3f,1,.95f}};
         auto p=dims[o.type];
-        return {o.x,p[1]/2,o.z,o.rotation%2?p[2]:p[0],p[1],o.rotation%2?p[0]:p[2],.5f,.43f,.32f,o.type<=1?Concrete:Plain};
+        return {o.x,o.y+p[1]/2,o.z,o.rotation%2?p[2]:p[0],p[1],o.rotation%2?p[0]:p[2],.5f,.43f,.32f,o.type<=1?Concrete:Plain};
     }
     static bool overlap(const Box&a,const Box&b) {
         return std::abs(a.x-b.x)<(a.w+b.w)/2 && std::abs(a.z-b.z)<(a.d+b.d)/2;
@@ -65,7 +65,7 @@ public:
     }
     Object preview() const { return {selected,rotation,std::round((x-std::sin(yaw)*4)*2)/2,std::round((z-std::cos(yaw)*4)*2)/2}; }
     bool canPlace(const Object &o) const {
-        if(o.type<0||o.type>=8||o.rotation<0||o.rotation>=4||!std::isfinite(o.x)||!std::isfinite(o.z)||std::abs(o.x)>62||std::abs(o.z)>62) return false;
+        if(o.type<0||o.type>=8||o.rotation<0||o.rotation>=4||!std::isfinite(o.x)||!std::isfinite(o.z)||!std::isfinite(o.y)||std::abs(o.y)>200||std::abs(o.x)>62||std::abs(o.z)>62) return false;
         auto b=bounds(o);
         return !blocked(b)&&!overlap(b,{x,0,z,.7f,2,.7f,0,0,0});
     }
@@ -73,7 +73,7 @@ public:
     bool remove() {
         // Select the closest player-built object along the horizontal sight ray.
         size_t chosen=objects.size();float nearest=9;
-        const float fx=-std::sin(yaw),fz=-std::cos(yaw);
+        const float fx=-std::sin(yaw)*std::cos(pitch),fy=std::sin(pitch),fz=-std::cos(yaw)*std::cos(pitch);
         for(size_t i=0;i<objects.size();++i) {
             auto b=bounds(objects[i]);float lo=0,hi=9;
             auto slab=[&](float origin,float dir,float center,float half) {
@@ -82,21 +82,21 @@ public:
                 if(a>c)std::swap(a,c);
                 lo=std::max(lo,a);hi=std::min(hi,c);return lo<=hi;
             };
-            if(slab(x,fx,b.x,b.w/2)&&slab(z,fz,b.z,b.d/2)&&lo<nearest){nearest=lo;chosen=i;}
+            if(slab(x,fx,b.x,b.w/2)&&slab(y,fy,b.y,b.h/2)&&slab(z,fz,b.z,b.d/2)&&lo<nearest){nearest=lo;chosen=i;}
         }
         if(chosen==objects.size())return false;
         objects.erase(objects.begin()+chosen);return true;
     }
     bool save(const std::string &path) const {
         const std::string temporary=path+".tmp";
-        {std::ofstream f(temporary);if(!f)return false;f<<"EKRON_SANDBOX_1\n"<<objects.size()<<'\n';for(auto o:objects)f<<o.type<<' '<<o.rotation<<' '<<o.x<<' '<<o.z<<'\n';f.flush();if(!f)return false;}
+        {std::ofstream f(temporary);if(!f)return false;f<<"EKRON_SANDBOX_2\n"<<objects.size()<<'\n';for(auto o:objects)f<<o.type<<' '<<o.rotation<<' '<<o.x<<' '<<o.z<<' '<<o.y<<'\n';f.flush();if(!f)return false;}
         return std::rename(temporary.c_str(),path.c_str())==0;
     }
     bool load(const std::string &path) {
         std::ifstream f(path);std::string magic;int count;
-        if(!(f>>magic>>count)||magic!="EKRON_SANDBOX_1"||count<0||count>limit)return false;
+        if(!(f>>magic>>count)||(magic!="EKRON_SANDBOX_1"&&magic!="EKRON_SANDBOX_2")||count<0||count>limit)return false;
         std::vector<Object> incoming;
-        for(int i=0;i<count;i++){Object o{};if(!(f>>o.type>>o.rotation>>o.x>>o.z)||o.type<0||o.type>=8||o.rotation<0||o.rotation>=4||!std::isfinite(o.x)||!std::isfinite(o.z)||std::abs(o.x)>62||std::abs(o.z)>62)return false;incoming.push_back(o);}
+        for(int i=0;i<count;i++){Object o{};if(!(f>>o.type>>o.rotation>>o.x>>o.z)||(magic=="EKRON_SANDBOX_2"&&!(f>>o.y))||o.type<0||o.type>=8||o.rotation<0||o.rotation>=4||!std::isfinite(o.x)||!std::isfinite(o.z)||!std::isfinite(o.y)||std::abs(o.y)>200||std::abs(o.x)>62||std::abs(o.z)>62)return false;incoming.push_back(o);}
         objects=std::move(incoming);return true;
     }
 private:

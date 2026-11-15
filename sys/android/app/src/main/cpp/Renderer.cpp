@@ -16,6 +16,7 @@
 namespace {
 std::mutex commandMutex;
 std::vector<int> commands;
+float lookDx=0,lookDy=0;
 // Retain transient controls and camera when Android recreates only the EGL surface.
 // Accessed exclusively by the native game thread, never the Java UI thread.
 std::optional<sandbox::World> retainedWorld;
@@ -136,7 +137,7 @@ void object(std::vector<Vertex>&v,const sandbox::Object&o,bool preview=false,boo
  // Local-space furniture parts rotated by 90 degree increments.
  auto part=[&](float x,float y,float z,float w,float h,float d,float r,float g,float b){
   for(int i=0;i<o.rotation;i++){float old=x;x=z;z=-old;std::swap(w,d);}
-  cube(v,{o.x+x,y,o.z+z,w,h,d,r,g,b,sandbox::Plain});
+  cube(v,{o.x+x,y+o.y,o.z+z,w,h,d,r,g,b,sandbox::Plain});
  };
  if(o.type==4||o.type==5){bool table=o.type==4;float w=table?1.8f:.6f,d=table?1.f:.65f,top=table?.82f:.46f;
   part(0,top,0,w,.15f,d,.54f,.4f,.27f);
@@ -150,6 +151,10 @@ void object(std::vector<Vertex>&v,const sandbox::Object&o,bool preview=false,boo
 }
 
 extern "C" JNIEXPORT void JNICALL Java_com_example_realms_MainActivity_nativeReady(JNIEnv*,jobject,jboolean ready){gameplayReady=ready;if(!ready){stickRight=0;stickForward=0;verticalInput=0;}}
+extern "C" JNIEXPORT void JNICALL Java_com_example_realms_MainActivity_nativeLook(JNIEnv*,jobject,jfloat dx,jfloat dy){
+ if(!gameplayReady||!std::isfinite(dx)||!std::isfinite(dy))return;
+ std::lock_guard<std::mutex> lock(commandMutex);lookDx=std::clamp(lookDx+dx,-400.f,400.f);lookDy=std::clamp(lookDy+dy,-400.f,400.f);
+}
 extern "C" JNIEXPORT void JNICALL Java_com_example_realms_MainActivity_nativeMove(JNIEnv*,jobject,jfloat right,jfloat forward){
  stickRight=gameplayReady&&std::isfinite(right)?std::clamp(right,-1.f,1.f):0;
  stickForward=gameplayReady&&std::isfinite(forward)?std::clamp(forward,-1.f,1.f):0;
@@ -227,6 +232,7 @@ Renderer::Renderer(android_app *app):app_(app),last_(std::chrono::steady_clock::
    world_.x=config.x;world_.z=config.z;world_.yaw=config.yawDegrees*.01745329252f;world_.pitch=0;
    world_.y=config.y;flying_=config.startFlying;
   }
+  player_.setBoundary(city_.scene().minimum[0],city_.scene().maximum[0],city_.scene().minimum[2],city_.scene().maximum[2]);
   player_.reset(world_.x,world_.y,world_.z);
   rebuildBuiltCollision();
   __android_log_print(ANDROID_LOG_INFO,"Ekron","Spawn XYZ %.3f %.3f %.3f flight=%d",world_.x,world_.y,world_.z,flying_);
@@ -250,7 +256,7 @@ Renderer::~Renderer(){
 }
 void Renderer::resetInput(){verticalInput=0;leftId_=rightId_=-1;moveX_=moveY_=0;last_=std::chrono::steady_clock::now();}
 void Renderer::handleInput(){
- std::vector<int> pending;{std::lock_guard<std::mutex> lock(commandMutex);pending.swap(commands);}
+ std::vector<int> pending;{std::lock_guard<std::mutex> lock(commandMutex);pending.swap(commands);if(gameplayReady){world_.yaw-=lookDx*.004f;world_.pitch=std::clamp(world_.pitch-lookDy*.004f,-1.3f,1.3f);}lookDx=lookDy=0;}
  if(!gameplayReady){pending.clear();resetInput();}
  if(roadJob_.valid()&&roadJob_.wait_for(std::chrono::seconds(0))==std::future_status::ready){
   auto point=roadJob_.get();if(point){world_.x=(*point)[0];world_.z=(*point)[1];
@@ -268,7 +274,10 @@ void Renderer::handleInput(){
   else if(command==33&&tools_.tool==sandbox::HandTool::GRAVITY_GUN)tools_.rotate(world_);
   else if(command==1&&building_)world_.selected=(world_.selected+1)%8;
   else if(command==2&&building_)world_.rotation=(world_.rotation+1)%4;
-  else if(command==3&&building_)changed=world_.place();
+  else if(command==3&&building_&&city_.ready()){
+   auto point=sandbox::RaycastPlacement::preview(world_,*city_.scene().collision,builtCollision_,city_.scene().minimum,city_.scene().maximum);
+   if(point){world_.objects.push_back(*point);changed=true;}
+  }
   else if(command==4&&tools_.tool==sandbox::HandTool::DELETE_TOOL)changed=world_.remove();
   else if(command==6){flying_=!flying_;verticalInput=0;player_.reset(world_.x,world_.y,world_.z);}
   else if(command==8)player_.jump();
@@ -289,21 +298,8 @@ void Renderer::handleInput(){
   saveJob_=std::async(std::launch::async,[saved=std::move(saved),path](){return saved.save(path);});saveDirty_=false;
  }
  auto *buffer=android_app_swap_input_buffers(app_);if(!buffer)return;
- for(uint64_t i=0;gameplayReady&&i<buffer->motionEventsCount;i++){
-  const auto &event=buffer->motionEvents[i];const int action=event.action&AMOTION_EVENT_ACTION_MASK;
-  const int selected=(event.action&AMOTION_EVENT_ACTION_POINTER_INDEX_MASK)>>AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT;
-  if(action==AMOTION_EVENT_ACTION_CANCEL){resetInput();continue;}
-  if(action==AMOTION_EVENT_ACTION_DOWN||action==AMOTION_EVENT_ACTION_POINTER_DOWN){
-   if(selected<0||selected>=event.pointerCount)continue;const auto &p=event.pointers[selected];float x=GameActivityPointerAxes_getX(&p),y=GameActivityPointerAxes_getY(&p);
-   if(x<width_*.42f&&leftId_<0){leftId_=p.id;originX_=x;originY_=y;}else if(rightId_<0){rightId_=p.id;rightX_=x;rightY_=y;}
-  }else if(action==AMOTION_EVENT_ACTION_UP||action==AMOTION_EVENT_ACTION_POINTER_UP){
-   if(selected<0||selected>=event.pointerCount)continue;int id=event.pointers[selected].id;if(id==leftId_){leftId_=-1;moveX_=moveY_=0;}if(id==rightId_)rightId_=-1;
-  }else if(action==AMOTION_EVENT_ACTION_MOVE){for(uint32_t p=0;p<event.pointerCount;p++){
-   const auto &pointer=event.pointers[p];float x=GameActivityPointerAxes_getX(&pointer),y=GameActivityPointerAxes_getY(&pointer);
-   if(pointer.id==leftId_){float radius=std::max(40.f,height_*.14f);moveX_=(x-originX_)/radius;moveY_=(originY_-y)/radius;const float length=std::max(1.f,std::hypot(moveX_,moveY_));moveX_/=length;moveY_/=length;}
-   if(pointer.id==rightId_){world_.yaw-=(x-rightX_)*.004f;world_.pitch=std::clamp(world_.pitch-(y-rightY_)*.004f,-1.3f,1.3f);rightX_=x;rightY_=y;}
-  }}
- }
+ // Both movement and look are handled by sibling Android views with split pointer IDs.
+ // Drain the old GameActivity motion stream: processing it too would rotate twice.
  android_app_clear_motion_events(buffer);android_app_clear_key_events(buffer);
 }
 void Renderer::render(){
@@ -312,13 +308,20 @@ void Renderer::render(){
  const auto now=std::chrono::steady_clock::now();float dt=std::clamp(std::chrono::duration<float>(now-last_).count(),0.f,.05f);last_=now;if(gameplayReady){if(flying_)city::fly(world_,stickRight.load(),stickForward.load(),verticalInput.load(),dt);
  else if(city_.ready())player_.update(*city_.scene().collision,stickRight.load(),stickForward.load(),world_.yaw,dt,crouched_,world_.x,world_.y,world_.z,&builtCollision_,prone_);
  else world_.move(stickRight.load(),stickForward.load(),dt);}
+ if(city_.ready()){
+  const auto &lo=city_.scene().minimum,&hi=city_.scene().maximum;
+  world_.x=std::clamp(world_.x,lo[0]+.25f,hi[0]-.25f);world_.z=std::clamp(world_.z,lo[2]+.25f,hi[2]-.25f);
+ }
  if(gameplayReady)tools_.pull(world_,dt);
  std::vector<Vertex> vertices;vertices.reserve((world_.scenery.size()+world_.objects.size()*10+1)*36);
  for(const auto &b:world_.scenery)cube(vertices,b);for(size_t i=0;i<world_.objects.size();i++){
   if(int(i)==tools_.held){auto visual=world_.objects[i];visual.x=tools_.display.x;visual.z=tools_.display.z;size_t begin=vertices.size();object(vertices,visual);float dy=tools_.display.y-sandbox::World::bounds(visual).y;for(size_t j=begin;j<vertices.size();j++)vertices[j].y+=dy;}
   else object(vertices,world_.objects[i]);
  }
- if(building_){const auto p=world_.preview();object(vertices,p,true,world_.objects.size()<sandbox::World::limit&&world_.canPlace(p));}
+ if(building_&&city_.ready()){
+  auto point=sandbox::RaycastPlacement::preview(world_,*city_.scene().collision,builtCollision_,city_.scene().minimum,city_.scene().maximum);
+  if(point)object(vertices,*point,true,true);
+ }
  glViewport(0,0,width_,height_);glClearColor(.56f,.61f,.63f,1);glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
  glBindVertexArray(vao_);
  if(skyProgram_){glDisable(GL_DEPTH_TEST);glDepthMask(GL_FALSE);glUseProgram(skyProgram_);

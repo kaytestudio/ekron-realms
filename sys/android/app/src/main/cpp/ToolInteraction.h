@@ -35,8 +35,8 @@ public:
  void rotate(World&w){if(holding())w.objects[held].rotation=(w.objects[held].rotation+1)%4;}
  bool release(World&w){
   if(!holding())return false;
-  Object candidate=w.objects[held];candidate.x=std::round(display.x*2)/2;candidate.z=std::round(display.z*2)/2;
-  // Existing save format supports grounded XZ constructions only. Validate before committing.
+  Object candidate=w.objects[held];candidate.x=std::round(display.x*2)/2;candidate.z=std::round(display.z*2)/2;candidate.y=original.y;
+  // Preserve the original support height on release; reject occupied destinations.
   Object saved=w.objects[held];w.objects.erase(w.objects.begin()+held);
   if(!w.canPlace(candidate)){w.objects.insert(w.objects.begin()+held,saved);return false;}
   w.objects.insert(w.objects.begin()+held,candidate);held=-1;return true;

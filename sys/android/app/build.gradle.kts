@@ -12,8 +12,8 @@ android {
         applicationId = "com.example.realms"
         minSdk = 30
         targetSdk = 34
-        versionCode = 12
-        versionName = "0.12-context-tools"
+        versionCode = 13
+        versionName = "0.13-input-placement-fix"
         externalNativeBuild {
             cmake { cppFlags += "-std=c++17" }
         }

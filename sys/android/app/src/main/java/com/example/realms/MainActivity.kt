@@ -34,6 +34,8 @@ class MainActivity : GameActivity() {
     private external fun nativeStatus(): FloatArray
     private external fun nativeVertical(value: Float)
     private external fun nativeMove(right: Float, forward: Float)
+    private external fun nativeLook(dx: Float, dy: Float)
+    private lateinit var lookArea: LookView
     private var paused = false
     private var worldReady = false
     private var flyingNow = false
@@ -116,6 +118,8 @@ class MainActivity : GameActivity() {
         super.onCreate(savedInstanceState)
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         val overlay = FrameLayout(this).apply { isMotionEventSplittingEnabled = true }
+        lookArea=LookView(this) { dx,dy -> nativeLook(dx,dy) }
+        overlay.addView(lookArea,FrameLayout.LayoutParams(-1,-1))
         val heading = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(12), dp(8), dp(12), dp(8))
@@ -284,7 +288,7 @@ class MainActivity : GameActivity() {
             }.setNegativeButton("Отмена",null).show()
     }
     private fun setPaused(value: Boolean) {
-        paused=value;joystick.reset();nativeVertical(0f)
+        paused=value;joystick.reset();lookArea.reset();nativeVertical(0f)
         nativeReady(worldReady && active && !paused)
     }
     private fun showPauseMenu() {
@@ -306,7 +310,7 @@ class MainActivity : GameActivity() {
     }
     override fun onPause() {
         active = false; nativeReady(false)
-        if (::joystick.isInitialized) joystick.reset()
+        if (::joystick.isInitialized) joystick.reset();if (::lookArea.isInitialized)lookArea.reset()
         try { player?.pause() } catch (_: IllegalStateException) {}
         handler.removeCallbacks(poll); nativeVertical(0f)
         super.onPause()
@@ -319,7 +323,7 @@ class MainActivity : GameActivity() {
     override fun onDestroy() { nativeReady(false); player?.release(); player = null; handler.removeCallbacks(poll); super.onDestroy() }
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) hideSystemUi() else { nativeVertical(0f); if (::joystick.isInitialized) joystick.reset() }
+        if (hasFocus) hideSystemUi() else { nativeVertical(0f); if (::joystick.isInitialized) joystick.reset();if (::lookArea.isInitialized)lookArea.reset() }
     }
     @Suppress("DEPRECATION")
     private fun hideSystemUi() {

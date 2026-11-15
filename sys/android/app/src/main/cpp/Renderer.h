@@ -4,6 +4,7 @@
 #include <chrono>
 #include "SandboxWorld.h"
 #include "ToolInteraction.h"
+#include "RaycastPlacement.h"
 #include "PlayerPhysics.h"
 #include <future>
 #include <optional>

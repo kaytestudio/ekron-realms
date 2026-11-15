@@ -8,6 +8,8 @@ class PlayerController {
     float velocity_=0,accumulator_=0,height_=1.8f,eye_=1.7f,camera_=1.7f;
     bool initialized_=false,grounded_=false,jump_=false;
     static constexpr float radius=.25f;
+    float minX_=-1e6f,maxX_=1e6f,minZ_=-1e6f,maxZ_=1e6f;
+    void confine(){feet_.x=std::clamp(feet_.x,minX_+radius,maxX_-radius);feet_.z=std::clamp(feet_.z,minZ_+radius,maxZ_-radius);}
     Bounds bodyBounds(Vec3 feet,float height)const{Bounds b;b.add(feet+Vec3{-radius,-.02f,-radius});b.add(feet+Vec3{radius,height+.02f,radius});return b;}
     bool contacts(const CollisionMesh&mesh,Vec3 feet,float height)const{
         bool hit=false;mesh.query(bodyBounds(feet,height),[&](const Triangle&t){Vec3 n;float d=capsuleTriangle(feet+Vec3{0,radius,0},feet+Vec3{0,height-radius,0},t,n);if(d<radius-.002f)hit=true;});return hit;
@@ -45,15 +47,17 @@ class PlayerController {
                 Vec3 n;float d=capsuleTriangle(feet_+Vec3{0,radius,0},feet_+Vec3{0,height_-radius,0},t,n);
                 if(d>=radius-.0001f)return;
                 float depth=radius-d+.0002f;hit=true;
-                if(n.y>.64f&&feet_.y>=std::min({t.a.y,t.b.y,t.c.y})-.3f){
+                bool walkableFace=std::abs(normalized(cross(t.b-t.a,t.c-t.a)).y)>.64f;
+                if(walkableFace&&n.y>.64f&&feet_.y>=std::min({t.a.y,t.b.y,t.c.y})-.3f){
                     feet_.y+=depth/n.y;grounded_=true;if(velocity_<0)velocity_=0;
-                }else if(n.y<-.64f){feet_.y-=depth/-n.y;if(velocity_>0)velocity_=0;}
+                }else if(walkableFace&&n.y<-.64f){feet_.y-=depth/-n.y;if(velocity_>0)velocity_=0;}
                 else{float horizontal=std::hypot(n.x,n.z);if(horizontal>.001f){feet_.x+=n.x/horizontal*depth;feet_.z+=n.z/horizontal*depth;}}
             });
             if(!hit)break;
         }
     }
 public:
+    void setBoundary(float minX,float maxX,float minZ,float maxZ){minX_=minX;maxX_=maxX;minZ_=minZ;maxZ_=maxZ;}
     void reset(float x,float eyeY,float z){feet_={x,eyeY-eye_,z};velocity_=accumulator_=0;camera_=eyeY;grounded_=false;initialized_=true;jump_=false;}
     void jump(){jump_=true;}
     bool grounded()const{return grounded_;}
@@ -78,7 +82,7 @@ public:
             feet_.z+=(-std::sin(yaw)*right-std::cos(yaw)*forward)/lengthInput*speed*step;
             bool stepped=wasGrounded&&velocity_<=0&&height_>.6f&&tryStep(mesh,extra,before,feet_);
             if(!stepped){velocity_=std::max(-30.f,velocity_-18.f*step);feet_.y+=velocity_*step;grounded_=false;}
-            solve(mesh);if(extra)solve(*extra);
+            confine();solve(mesh);if(extra)solve(*extra);confine();
             // Follow small downhill changes, but NEVER snap over an actual pit or from mid-air.
             if(wasGrounded&&!grounded_&&velocity_<=0){
                 float floor=mesh.groundHeight(feet_.x,feet_.z,feet_.y+.08f,feet_.y-.18f);
