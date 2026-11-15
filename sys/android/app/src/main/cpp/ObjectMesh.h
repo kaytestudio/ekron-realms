@@ -5,7 +5,7 @@ inline void appendObject(std::vector<MeshVertex>&v,const sandbox::Object&o,bool 
  size_t begin=v.size();
  auto body=sandbox::World::bounds(o);
  body.material=o.type==3||o.type==4||o.type==5||o.type==6?sandbox::Wood:o.type==7?sandbox::Fabric:body.material;
- if(preview){body.r=valid?.25f:.9f;body.g=valid?.8f:.25f;body.b=.4f;body.material=sandbox::Plain;appendCube(v,body);return;}
+ (void)preview;(void)valid; // Preview uses identical geometry/materials; hologram is a render pass.
  // Local-space furniture parts rotated by 90 degree increments.
  auto part=[&](float x,float y,float z,float w,float h,float d,float r,float g,float b,int material=-1){
   for(int i=0;i<o.rotation;i++){float old=x;x=z;z=-old;std::swap(w,d);}

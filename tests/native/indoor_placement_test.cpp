@@ -20,6 +20,10 @@ int main(){
   assert(slab->tiltX==0&&slab->tiltZ==0&&std::abs(flat.z-flat.d/2+4)<.001f);
  }
  w.rotation=0;
+ // Commit the shown transform even if the look direction moved slightly after the frame.
+ w.selected=1;w.rotation=0;auto shown=sandbox::RaycastPlacement::preview(w,room,built,lo,hi);assert(shown);
+ w.yaw=.05f;auto placed=sandbox::RaycastPlacement::commitPreview(w,shown,room,built,lo,hi);assert(placed&&placed->x==shown->x&&placed->y==shown->y&&placed->z==shown->z&&placed->rotation==shown->rotation);
+ w.rotation=1;assert(!sandbox::RaycastPlacement::commitPreview(w,shown,room,built,lo,hi));w.rotation=0;w.yaw=0;
  // Ceiling attachment at less than two metres works; it does not drop when dynamics run.
  w.selected=1;w.pitch=1.3f;auto ceiling=sandbox::RaycastPlacement::preview(w,room,built,lo,hi);assert(ceiling&&ceiling->anchored);
  assert(std::abs(ceiling->y+.18f-3)<.001f);w.objects.push_back(*ceiling);

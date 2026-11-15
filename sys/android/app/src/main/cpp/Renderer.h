@@ -37,6 +37,7 @@ private:
     float seatTime_=0;
     physics::Vec3 seatFrom_{};
     bool carWasAnchored_=false;
+    std::optional<sandbox::Object> placementPreview_;
     bool building_=false;
     bool flying_=false;
     sandbox::World world_;

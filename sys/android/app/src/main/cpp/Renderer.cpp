@@ -80,6 +80,7 @@ in vec3 toEye;
 uniform sampler2DArray albedo;
 uniform bool texturesReady;
 uniform bool modelPass;
+uniform bool previewPass;
 uniform bool modelTextured;
 uniform sampler2D modelAlbedo;
 uniform vec4 baseColorFactor;
@@ -108,6 +109,7 @@ void main(){
   if(alphaMode==1&&alpha<alphaCutoff)discard;
   if(alphaMode!=2)alpha=1.0;
  }
+ if(previewPass){base=mix(base,base*vec3(.35,1.25,.55)+vec3(.01,.035,.015),.32);alpha*=.62;}
  vec3 n=normalize(worldNormal);
  if(modelPass&&!gl_FrontFacing)n=-n;
  float diffuse=max(dot(n,normalize(-lightDirection)),0.0);
@@ -315,8 +317,8 @@ void Renderer::handleInput(){
   else if(command==2&&building_)world_.rotation=(world_.rotation+1)%4;
   else if((command==3||(command>=200&&command<=212))&&building_&&city_.ready()){
    if(command>=200){world_.selected=command-200;world_.surface=sandbox::World::fixedSurface(world_.selected);}
-   auto point=sandbox::RaycastPlacement::preview(world_,*city_.scene().collision,builtCollision_,city_.scene().minimum,city_.scene().maximum);
-   if(point&&(point->type!=8||car_.ready())){world_.objects.push_back(*point);changed=true;}
+   auto point=sandbox::RaycastPlacement::commitPreview(world_,placementPreview_,*city_.scene().collision,builtCollision_,city_.scene().minimum,city_.scene().maximum);
+   if(point&&(point->type!=8||car_.ready())){world_.objects.push_back(*point);placementPreview_.reset();changed=true;}
   }
   else if(command==4&&tools_.tool==sandbox::HandTool::SPAWN_GUN)changed=world_.remove();
   else if(command==6){flying_=!flying_;verticalInput=0;player_.reset(world_.x,world_.y,world_.z);}
@@ -400,9 +402,10 @@ void Renderer::render(){
    cube(vertices,{box.x+a*box.w/2,box.y+b*box.h/2,box.z,.025f,.025f,box.d+.04f,.15f,1,.3f,sandbox::Plain});
   }
  }
- if(building_&&city_.ready()){
-  auto point=sandbox::RaycastPlacement::preview(world_,*city_.scene().collision,builtCollision_,city_.scene().minimum,city_.scene().maximum);
-  if(point)sandbox::appendObject(vertices,*point,true,true);
+ placementPreview_.reset();
+ if(building_&&seatedCar_<0&&city_.ready()){
+  placementPreview_=sandbox::RaycastPlacement::preview(world_,*city_.scene().collision,builtCollision_,city_.scene().minimum,city_.scene().maximum);
+  if(placementPreview_&&placementPreview_->type==8&&!car_.ready())placementPreview_.reset();
  }
  glViewport(0,0,width_,height_);glClearColor(.56f,.61f,.63f,1);glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
  glBindVertexArray(vao_);
@@ -412,6 +415,7 @@ void Renderer::render(){
   glDrawArrays(GL_TRIANGLES,0,3);glDepthMask(GL_TRUE);glEnable(GL_DEPTH_TEST);
  }
  glUseProgram(program_);
+ glUniform1i(glGetUniformLocation(program_,"previewPass"),0);
  const float identity[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
  glUniformMatrix4fv(glGetUniformLocation(program_,"objectTransform"),1,GL_FALSE,identity);
  textures_.bind();glUniform1i(glGetUniformLocation(program_,"albedo"),0);
@@ -424,16 +428,29 @@ void Renderer::render(){
  glUniform3f(glGetUniformLocation(program_,"eye"),world_.x,world_.y,world_.z);glUniform2f(glGetUniformLocation(program_,"angles"),world_.yaw,world_.pitch);glUniform1f(glGetUniformLocation(program_,"aspect"),float(width_)/height_);
  glBindVertexArray(vao_);glBindBuffer(GL_ARRAY_BUFFER,buffer_);glBufferData(GL_ARRAY_BUFFER,vertices.size()*sizeof(Vertex),vertices.data(),GL_STREAM_DRAW);glDrawArrays(GL_TRIANGLES,0,static_cast<GLsizei>(vertices.size()));
  city_.draw(program_,world_.x,world_.z);
- for(size_t i=0;i<world_.objects.size();i++)if(world_.objects[i].type==8){
-  const auto&o=world_.objects[i];auto b=sandbox::World::bounds(o);physics::Vec3 target{b.x,b.y,b.z};if(int(i)==tools_.held)target=tools_.display;
+ auto drawCar=[&](const sandbox::Object&o,bool held,bool hologram){auto b=sandbox::World::bounds(o);physics::Vec3 target{b.x,b.y,b.z};if(held)target=tools_.display;
   const auto &lo=car_.scene().minimum,&hi=car_.scene().maximum;physics::Vec3 source{(lo[0]+hi[0])/2,(lo[1]+hi[1])/2,(lo[2]+hi[2])/2};
   float ax=o.tiltX,az=o.tiltZ,ay=o.rotation*1.57079632679f;
   auto rotate=[&](physics::Vec3 p){float x=std::cos(ay)*p.x+std::sin(ay)*p.z,z=-std::sin(ay)*p.x+std::cos(ay)*p.z;float y=std::cos(ax)*p.y-std::sin(ax)*z;z=std::sin(ax)*p.y+std::cos(ax)*z;return physics::Vec3{std::cos(az)*x-std::sin(az)*y,std::sin(az)*x+std::cos(az)*y,z};};
   auto x=rotate({1,0,0}),y=rotate({0,1,0}),z=rotate({0,0,1}),t=target-rotate(source);
   float matrix[16]={x.x,x.y,x.z,0,y.x,y.y,y.z,0,z.x,z.y,z.z,0,t.x,t.y,t.z,1};
-  glUniformMatrix4fv(glGetUniformLocation(program_,"objectTransform"),1,GL_FALSE,matrix);car_.draw(program_,world_.x,world_.z);
- }
+  glUniformMatrix4fv(glGetUniformLocation(program_,"objectTransform"),1,GL_FALSE,matrix);car_.draw(program_,world_.x,world_.z,hologram);
+ };
+ for(size_t i=0;i<world_.objects.size();i++)if(world_.objects[i].type==8)drawCar(world_.objects[i],int(i)==tools_.held,false);
+
  glUniformMatrix4fv(glGetUniformLocation(program_,"objectTransform"),1,GL_FALSE,identity);
+ if(placementPreview_){
+  glUniform1i(glGetUniformLocation(program_,"previewPass"),1);
+  if(placementPreview_->type==8)drawCar(*placementPreview_,false,true);
+  else{
+   std::vector<Vertex> ghost;sandbox::appendObject(ghost,*placementPreview_,true,true);
+   glUniform1i(glGetUniformLocation(program_,"modelPass"),0);textures_.bind();
+   glEnable(GL_BLEND);glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);glDepthMask(GL_TRUE);
+   glBindVertexArray(vao_);glBindBuffer(GL_ARRAY_BUFFER,buffer_);glBufferData(GL_ARRAY_BUFFER,ghost.size()*sizeof(Vertex),ghost.data(),GL_STREAM_DRAW);glDrawArrays(GL_TRIANGLES,0,static_cast<GLsizei>(ghost.size()));
+  }
+  glDisable(GL_BLEND);glDepthMask(GL_TRUE);glUniform1i(glGetUniformLocation(program_,"previewPass"),0);
+  glUniformMatrix4fv(glGetUniformLocation(program_,"objectTransform"),1,GL_FALSE,identity);
+ }
  if(eglSwapBuffers(display_,surface_)==EGL_TRUE){
   {std::lock_guard<std::mutex> lock(snapshotMutex);snapshot={world_.x,world_.y,world_.z,flying_?1.f:0.f};}
   if(loadStage==5){loadStage=6;loadPercent=100;}

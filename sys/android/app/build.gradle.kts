@@ -12,8 +12,8 @@ android {
         applicationId = "com.example.realms"
         minSdk = 30
         targetSdk = 34
-        versionCode = 27
-        versionName = "0.27-no-respawn-free-rotation"
+        versionCode = 28
+        versionName = "0.28-textured-hologram"
         externalNativeBuild {
             cmake { cppFlags += "-std=c++17" }
         }

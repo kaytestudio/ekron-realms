@@ -8,6 +8,12 @@
 #include <string>
 
 int main() {
+    for(int type:{0,1,2,3,4,5,6,7,9,10,11,12})for(int rotation=0;rotation<4;rotation++){
+        sandbox::Object o{type,rotation,2,3};o.y=1;
+        std::vector<sandbox::MeshVertex> real,ghost;sandbox::appendObject(real,o);sandbox::appendObject(ghost,o,true,true);
+        assert(real.size()==ghost.size());
+        for(size_t i=0;i<real.size();i++){const auto&a=real[i];const auto&b=ghost[i];assert(a.x==b.x&&a.y==b.y&&a.z==b.z&&a.u==b.u&&a.v==b.v&&a.layer==b.layer&&a.r==b.r&&a.g==b.g&&a.b==b.b);}
+    }
     for(int type:{0,9,10,11,3,4,5,6,7}){
         sandbox::Object item{type,0,0,0};item.surface=sandbox::Rust;
         std::vector<sandbox::MeshVertex> mesh;sandbox::appendObject(mesh,item);

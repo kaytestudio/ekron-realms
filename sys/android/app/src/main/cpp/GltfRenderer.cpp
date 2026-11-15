@@ -57,7 +57,7 @@ bool GltfRenderer::uploadStep(std::string &log){
     for(auto&batch:scene_.batches)std::vector<Vertex>().swap(batch.vertices);
     return ready();
 }
-void GltfRenderer::draw(GLuint program,float eyeX,float eyeZ){
+void GltfRenderer::draw(GLuint program,float eyeX,float eyeZ,bool hologram){
     if(!ready())return;
     glUniform1i(glGetUniformLocation(program,"modelPass"),1);glUniform1i(glGetUniformLocation(program,"modelAlbedo"),1);
     glActiveTexture(GL_TEXTURE1);glVertexAttrib3f(1,1,1,1);glVertexAttrib1f(4,4);
@@ -69,7 +69,7 @@ void GltfRenderer::draw(GLuint program,float eyeX,float eyeZ){
         glUniform4fv(glGetUniformLocation(program,"baseColorFactor"),1,material.color.data());glUniform1i(glGetUniformLocation(program,"modelTextured"),material.image>=0&&mesh.material>=0&&size_t(mesh.material)<textures_.size());
         glUniform1i(glGetUniformLocation(program,"alphaMode"),material.alphaMode);glUniform1f(glGetUniformLocation(program,"alphaCutoff"),material.cutoff);
         if(mesh.material>=0&&size_t(mesh.material)<textures_.size())glBindTexture(GL_TEXTURE_2D,textures_[mesh.material]);
-        if(material.alphaMode==2){glEnable(GL_BLEND);glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);glDepthMask(GL_FALSE);}else{glDisable(GL_BLEND);glDepthMask(GL_TRUE);}
+        if(hologram||material.alphaMode==2){glEnable(GL_BLEND);glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);glDepthMask(hologram?GL_TRUE:GL_FALSE);}else{glDisable(GL_BLEND);glDepthMask(GL_TRUE);}
         // Reflected/baked scene nodes and double-sided walls are rendered without culling.
         glDisable(GL_CULL_FACE);glBindVertexArray(mesh.vao);glDrawArrays(GL_TRIANGLES,0,mesh.count);
     }

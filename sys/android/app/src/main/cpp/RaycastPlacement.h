@@ -5,6 +5,10 @@
 namespace sandbox {
 class RaycastPlacement {
 public:
+ static std::optional<Object> commitPreview(const World&w,const std::optional<Object>&shown,const physics::CollisionMesh&city,const physics::CollisionMesh&built,const std::array<float,3>&lo,const std::array<float,3>&hi){
+  if(!shown||shown->type!=w.selected||shown->rotation!=w.rotation||w.objects.size()>=World::limit||!valid(w,*shown,city,built,lo,hi))return {};
+  return shown; // Preserve the displayed transform, do not raycast a new one on tap.
+ }
  static bool valid(const World&w,const Object&o,const physics::CollisionMesh&city,const physics::CollisionMesh&built,const std::array<float,3>&lo,const std::array<float,3>&hi){
   if(o.type<0||o.type>12||!std::isfinite(o.y)||!std::isfinite(o.x)||!std::isfinite(o.z))return false;
   auto b=World::bounds(o);physics::Vec3 center{b.x,b.y,b.z},half{b.w/2,b.h/2,b.d/2};
