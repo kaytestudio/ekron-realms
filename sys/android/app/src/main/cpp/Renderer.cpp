@@ -239,7 +239,7 @@ void Renderer::advanceLoading(){
   if(!retainedWorld){world_.objects.clear();restoredWorld=world_.load(savePath_);}
   carParking_={8,0,data.parkingX,data.parkingZ};carParking_.y=data.parkingY;carParkingValid_=data.carValid;
   bool exists=std::any_of(world_.objects.begin(),world_.objects.end(),[](const sandbox::Object&o){return o.type==8;});
-  if(data.carValid&&!restoredWorld&&!exists&&world_.objects.size()<sandbox::World::limit){sandbox::Object car{8,0,data.parkingX,data.parkingZ};car.y=data.parkingY;world_.objects.push_back(car);}
+  if(data.carValid&&!restoredWorld&&!exists&&world_.objects.size()<sandbox::World::limit){sandbox::Object car{8,0,data.parkingX,data.parkingZ};car.y=data.parkingY+.03f;world_.objects.push_back(car);}
   const auto config=readSpawnConfig(app_);
   if(!retainedWorld&&config.enabled){world_.x=config.x;world_.y=config.y;world_.z=config.z;world_.yaw=config.yawDegrees*.01745329252f;world_.pitch=0;flying_=config.startFlying;}
   player_.setBoundary(city_.scene().minimum[0],city_.scene().maximum[0],city_.scene().minimum[2],city_.scene().maximum[2]);
@@ -331,7 +331,7 @@ void Renderer::handleInput(){
    auto lo=city_.scene().minimum,hi=city_.scene().maximum;
    roadJob_=std::async(std::launch::async,[navigation,lo,hi]()->std::optional<std::array<float,2>>{city::SpawnPoint p;if(city::findRoadSpawn(*navigation,lo,hi,-3.4f,32.7f,p))return std::array<float,2>{p.x,p.z};return {};});
   }
-  if(changed){for(auto&o:world_.objects)if(!o.anchored)o.awake=true;saveDirty_=true;rebuildBuiltCollision();}
+  if(changed){saveDirty_=true;rebuildBuiltCollision();}
  }
  currentTool=int(tools_.tool);holdingObject=tools_.holding();currentSelection=world_.selected;currentSurface=world_.surface;
  if(saveJob_.valid()&&saveJob_.wait_for(std::chrono::seconds(0))==std::future_status::ready){if(!saveJob_.get())__android_log_print(ANDROID_LOG_ERROR,"Ekron","Save failed");}

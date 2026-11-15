@@ -45,14 +45,14 @@ public:
   float inertiaX=mass*(b.h*b.h+b.d*b.d)/12,inertiaZ=mass*(b.w*b.w+b.h*b.h)/12;
   o.spinX+=std::clamp(-o.vz*mass*.12f/inertiaX,-4.f,4.f);
   o.spinZ+=std::clamp(impulse*mass*.08f/inertiaZ,-4.f,4.f);
-  o.embeddedTime=0;
+  o.embeddedTime=0;o.restTime=0;
   o.frozen=false;o.awake=true;o.anchored=false;held=-1;return true;
  }
  bool freeze(World&w,const physics::CollisionMesh*city){
   int index=holding()?held:target(w,city);if(index<0)return false;
   auto&o=w.objects[index];
   if(holding()){auto b=World::bounds(o);o.x=display.x;o.z=display.z;o.y=display.y-b.h/2;held=-1;}
-  o.frozen=!o.frozen;o.vx=o.vy=o.vz=o.spinX=o.spinZ=0;o.awake=!o.frozen;
+  o.frozen=!o.frozen;o.vx=o.vy=o.vz=o.spinX=o.spinZ=0;o.awake=!o.frozen;o.restTime=0;
   if(!o.frozen)o.anchored=false;
   return true;
  }
