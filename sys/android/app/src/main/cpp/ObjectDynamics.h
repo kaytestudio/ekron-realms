@@ -29,6 +29,9 @@ public:
       float h=mesh.groundHeight(o.x+dx,o.z+dz,oldBottom+.08f,oldBottom-.12f);if(std::isfinite(h))supported=true;
       for(size_t j=0;j<w.objects.size();j++)if(j!=index&&int(j)!=held&&!w.objects[j].frozen){auto other=World::bounds(w.objects[j]);float top=other.y+other.h/2;if(std::abs(o.x+dx-other.x)<=other.w/2&&std::abs(o.z+dz-other.z)<=other.d/2&&std::abs(oldBottom-top)<.12f)supported=true;}
      }
+     // Older saves can contain a sleeping diagonal door. Let it finish
+     // settling rather than treating one corner contact as a stable pose.
+     if(o.type==3&&(std::abs(std::cos(o.tiltX))>.02f||std::abs(std::sin(o.tiltZ))>.02f))supported=false;
      if(supported){o.vx=o.vy=o.vz=o.spinX=o.spinZ=0;continue;}
      o.awake=true;o.restTime=0;
     }
@@ -66,8 +69,7 @@ public:
     if(unstable&&o.vy<=0&&nextY+half.y-oldRadius<=support+.08f){
      float awayX=-balanceX/contacts,awayZ=balanceZ/contacts;
      if(!o.edgeKick){o.spinX+=awayZ*.8f;o.spinZ-=awayX*.8f;o.vx+=awayX*.5f;o.vz+=awayZ*.5f;o.edgeKick=true;}
-     o.x=o.x+awayX*.65f*step;
-     o.z=o.z+awayZ*.65f*step;
+     // No kinematic downhill translation: motion comes only from velocity.
      support=-1e6f; // no centre-of-mass support: keep falling, never sleep here
     }
     o.tiltX+=o.spinX*step;o.tiltZ+=o.spinZ*step;
