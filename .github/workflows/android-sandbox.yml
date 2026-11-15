@@ -23,6 +23,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Test native world logic
         run: |
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic tests/native/pickup_settle_delete_test.cpp -o /tmp/ekron-pickup-settle-test
+          /tmp/ekron-pickup-settle-test
           g++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic tests/native/fence_gravity_test.cpp -o /tmp/ekron-fence-gravity-test
           /tmp/ekron-fence-gravity-test
           g++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic tests/native/swept_floor_test.cpp -o /tmp/ekron-swept-floor-test

@@ -9,7 +9,7 @@
 namespace sandbox {
 enum Material { Asphalt=0, Concrete=1, Brick=2, Rust=3, Plain=4, Wood=5, Fabric=6, Glass=7 };
 struct Box { float x,y,z,w,h,d,r,g,b; int material=Concrete; };
-struct Object { int type,rotation; float x,z; float y=0; float vx=0,vy=0,vz=0,tiltX=0,tiltZ=0;bool awake=true,anchored=false;int surface=-1;float doorAngle=0,doorTarget=0;bool frozen=false;float spinX=0,spinZ=0;float supportCheckTime=0;float restTime=0;float embeddedTime=0;bool destroyed=false;bool floorRecoveryUsed=false; };
+struct Object { int type,rotation; float x,z; float y=0; float vx=0,vy=0,vz=0,tiltX=0,tiltZ=0;bool awake=true,anchored=false;int surface=-1;float doorAngle=0,doorTarget=0;bool frozen=false;float spinX=0,spinZ=0;float supportCheckTime=0;float restTime=0;float embeddedTime=0;bool destroyed=false;bool floorRecoveryUsed=false;bool edgeKick=false; };
 struct WallSegment {float ax,az,bx,bz;};
 inline bool intersectsWall(const Box &box,const WallSegment &wall){
     // Slab test against a narrow 5 cm wall; respects diagonal walls and door gaps.
@@ -72,19 +72,32 @@ public:
         return !blocked(b)&&!overlap(b,{x,0,z,.7f,2,.7f,0,0,0});
     }
     bool place() { const auto o=preview();if(objects.size()>=limit||!canPlace(o))return false;objects.push_back(o);return true; }
+    static float rayDistance(const Object&o,float ox,float oy,float oz,float dx,float dy,float dz,float limit){
+        auto b=bounds(o);
+        float x=ox-b.x,y=oy-b.y,z=oz-b.z;
+        auto local=[&](float &a,float &v,float &c){
+            float u=std::cos(o.tiltZ)*a+std::sin(o.tiltZ)*v;
+            float w=-std::sin(o.tiltZ)*a+std::cos(o.tiltZ)*v;
+            a=u;v=std::cos(o.tiltX)*w+std::sin(o.tiltX)*c;c=-std::sin(o.tiltX)*w+std::cos(o.tiltX)*c;
+        };
+        local(x,y,z);local(dx,dy,dz);
+        if(o.type==3&&std::abs(o.doorAngle)>.0001f){
+            float hx=-.55f,hz=0;for(int i=0;i<o.rotation;i++){float old=hx;hx=hz;hz=-old;}
+            float a=x-hx,c=z-hz,cosine=std::cos(o.doorAngle),sine=std::sin(o.doorAngle);
+            x=hx+cosine*a-sine*c;z=hz+sine*a+cosine*c;
+            float old=dx;dx=cosine*dx-sine*dz;dz=sine*old+cosine*dz;
+        }
+        float lo=0,hi=limit;
+        auto slab=[&](float p,float d,float half){if(std::abs(d)<1e-6f)return std::abs(p)<=half;float a=(-half-p)/d,c=(half-p)/d;if(a>c)std::swap(a,c);lo=std::max(lo,a);hi=std::min(hi,c);return lo<=hi;};
+        return slab(x,dx,b.w/2)&&slab(y,dy,b.h/2)&&slab(z,dz,b.d/2)?lo:limit;
+    }
     bool remove() {
         // Select the closest player-built object along the horizontal sight ray.
         size_t chosen=objects.size();float nearest=9;
         const float fx=-std::sin(yaw)*std::cos(pitch),fy=std::sin(pitch),fz=-std::cos(yaw)*std::cos(pitch);
         for(size_t i=0;i<objects.size();++i) {
-            auto b=bounds(objects[i]);float lo=0,hi=9;
-            auto slab=[&](float origin,float dir,float center,float half) {
-                if(std::abs(dir)<.0001f)return std::abs(origin-center)<=half;
-                float a=(center-half-origin)/dir,c=(center+half-origin)/dir;
-                if(a>c)std::swap(a,c);
-                lo=std::max(lo,a);hi=std::min(hi,c);return lo<=hi;
-            };
-            if(slab(x,fx,b.x,b.w/2)&&slab(y,fy,b.y,b.h/2)&&slab(z,fz,b.z,b.d/2)&&lo<nearest){nearest=lo;chosen=i;}
+            float hit=rayDistance(objects[i],x,y,z,fx,fy,fz,nearest);
+            if(hit<nearest){nearest=hit;chosen=i;}
         }
         if(chosen==objects.size())return false;
         objects.erase(objects.begin()+chosen);return true;

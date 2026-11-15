@@ -12,8 +12,8 @@ android {
         applicationId = "com.example.realms"
         minSdk = 30
         targetSdk = 34
-        versionCode = 31
-        versionName = "0.31-fence-gravity-collision"
+        versionCode = 32
+        versionName = "0.32-pickup-delete-settle"
         externalNativeBuild {
             cmake { cppFlags += "-std=c++17" }
         }

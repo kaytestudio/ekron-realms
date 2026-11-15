@@ -2,6 +2,7 @@
 #include "SandboxWorld.h"
 #include "CollisionMesh.h"
 #include "ObjectCcd.h"
+#include "ObjectOverlap.h"
 namespace sandbox {
 // Lightweight box dynamics, deliberately separate from the immutable city triangle BVH.
 class ObjectDynamics {
@@ -64,8 +65,7 @@ public:
     bool unstable=(!std::isfinite(centre)||centre<support-.22f)&&(support-lowest>.5f)&&contacts>0&&(contacts<3)&&(std::abs(balanceX)>.5f||std::abs(balanceZ)>.5f);
     if(unstable&&o.vy<=0&&nextY+half.y-oldRadius<=support+.08f){
      float awayX=-balanceX/contacts,awayZ=balanceZ/contacts;
-     o.spinX+=awayZ*5*step;o.spinZ-=awayX*5*step;
-     o.vx+=awayX*4*step;o.vz+=awayZ*4*step;
+     if(!o.edgeKick){o.spinX+=awayZ*.8f;o.spinZ-=awayX*.8f;o.vx+=awayX*.5f;o.vz+=awayZ*.5f;o.edgeKick=true;}
      o.x=o.x+awayX*.65f*step;
      o.z=o.z+awayZ*.65f*step;
      support=-1e6f; // no centre-of-mass support: keep falling, never sleep here
@@ -77,10 +77,25 @@ public:
      o.y=support+.003f;o.vy=std::abs(o.vy)>2?-o.vy*.3f:0;
      // Rest on the current rotated body, not on an upright replacement.
      o.y=support+verticalRadius-half.y+.005f;
+     // A dropped thin door settles onto its broad face on an actually flat
+     // support, rather than damping to an impossible balanced diagonal pose.
+     bool settlingDoor=false;
+     if(o.type==3&&support-lowest<.08f&&std::hypot(o.vx,o.vz)<.5f){
+      constexpr float pi=3.14159265f;
+      Object settled=o;
+      float targetX=std::round((o.tiltX-pi/2)/pi)*pi+pi/2;
+      float targetZ=std::round(o.tiltZ/pi)*pi;
+      settled.tiltX+=std::clamp(targetX-o.tiltX,-step*1.8f,step*1.8f);
+      settled.tiltZ+=std::clamp(targetZ-o.tiltZ,-step*1.8f,step*1.8f);
+      float r=std::abs(std::sin(settled.tiltZ))*half.x+std::abs(std::cos(settled.tiltZ)*std::cos(settled.tiltX))*half.y+std::abs(std::cos(settled.tiltZ)*std::sin(settled.tiltX))*half.z;
+      settled.y=support+r-half.y+.005f;auto bounds=World::bounds(settled);
+      if(!objectOverlap(mesh,settled,{bounds.x,bounds.y,bounds.z})){o=settled;o.spinX=o.spinZ=0;}
+      settlingDoor=std::abs(targetX-o.tiltX)+std::abs(targetZ-o.tiltZ)>.01f;
+     }
      // Contact is dissipative. Terrain gradients must not continuously inject
      // angular energy into a stationary car (the former levitation feedback).
      o.vx*=.94f;o.vz*=.94f;
-     if(std::hypot(o.vx,o.vz)<.08f&&o.vy==0&&std::hypot(o.spinX,o.spinZ)<.03f&&!unstable){
+     if(std::hypot(o.vx,o.vz)<.08f&&o.vy==0&&std::hypot(o.spinX,o.spinZ)<.03f&&(!unstable||std::hypot(o.vx,o.vz)<.05f)&&!settlingDoor){
       o.restTime+=step;
       if(o.restTime>.35f){o.vx=o.vy=o.vz=o.spinX=o.spinZ=0;o.awake=false;}
      }else o.restTime=0;
