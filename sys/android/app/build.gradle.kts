@@ -12,8 +12,8 @@ android {
         applicationId = "com.example.realms"
         minSdk = 30
         targetSdk = 34
-        versionCode = 32
-        versionName = "0.32-pickup-delete-settle"
+        versionCode = 33
+        versionName = "0.33-panel-rest"
         externalNativeBuild {
             cmake { cppFlags += "-std=c++17" }
         }

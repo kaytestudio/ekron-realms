@@ -18,6 +18,7 @@ public:
     }
     if(o.destroyed)continue;
     if(int(index)==held||o.anchored||o.frozen)continue;
+    auto panel=[](int t){return t==0||t==2||t==3||t==9||t==10||t==11;};
     Object beforeStep=o;
     auto b=World::bounds(o);physics::Vec3 half{b.w/2,b.h/2,b.d/2};float oldY=o.y,oldX=o.x,oldZ=o.z;
     auto radius=[&](){return std::abs(std::sin(o.tiltZ))*half.x+std::abs(std::cos(o.tiltZ)*std::cos(o.tiltX))*half.y+std::abs(std::cos(o.tiltZ)*std::sin(o.tiltX))*half.z;};
@@ -31,20 +32,21 @@ public:
      }
      // Older saves can contain a sleeping diagonal door. Let it finish
      // settling rather than treating one corner contact as a stable pose.
-     if(o.type==3&&(std::abs(std::cos(o.tiltX))>.02f||std::abs(std::sin(o.tiltZ))>.02f))supported=false;
+     if(panel(o.type)&&(half.z<half.x?(std::abs(std::cos(o.tiltX))>.02f||std::abs(std::sin(o.tiltZ))>.02f):std::abs(std::cos(o.tiltZ))>.02f))supported=false;
      if(supported){o.vx=o.vy=o.vz=o.spinX=o.spinZ=0;continue;}
      o.awake=true;o.restTime=0;
     }
     auto collides=[&](float x,float y,float z){
-     physics::Vec3 center{x,y+half.y,z},inset{std::max(.01f,half.x-.015f),std::max(.01f,half.y-.04f),std::max(.01f,half.z-.015f)};
-     if(mesh.intersectsBox(center,inset))return true;
+     physics::Vec3 center{x,y+half.y,z};
+     Object candidate=o;candidate.x=x;candidate.y=y;candidate.z=z;
+     if(objectOverlap(mesh,candidate,center))return true;
      for(size_t j=0;j<w.objects.size();j++)if(j!=index&&int(j)!=held&&!w.objects[j].frozen){auto other=World::bounds(w.objects[j]);
       if(std::abs(x-other.x)<half.x+other.w/2-.02f&&std::abs(y+half.y-other.y)<half.y+other.h/2-.02f&&std::abs(z-other.z)<half.z+other.d/2-.02f)return true;
      }return false;
     };
     float nx=o.x+o.vx*step,nz=o.z+o.vz*step;
-    if(collides(nx,o.y,o.z))o.vx*=-.48f;else o.x=nx;
-    if(collides(o.x,o.y,nz))o.vz*=-.48f;else o.z=nz;
+    if(collides(nx,o.y,o.z))o.vx=std::abs(o.vx)<.5f?0:-o.vx*.35f;else o.x=nx;
+    if(collides(o.x,o.y,nz))o.vz=std::abs(o.vz)<.5f?0:-o.vz*.35f;else o.z=nz;
     o.vy=std::max(-25.f,o.vy-18.f*step);float nextY=o.y+o.vy*step;
     std::array<float,4> heights{};int probe=0;
     float support=-1e6f;
@@ -82,11 +84,11 @@ public:
      // A dropped thin door settles onto its broad face on an actually flat
      // support, rather than damping to an impossible balanced diagonal pose.
      bool settlingDoor=false;
-     if(o.type==3&&support-lowest<.08f&&std::hypot(o.vx,o.vz)<.5f){
+     if(panel(o.type)&&support-lowest<.08f&&std::hypot(o.vx,o.vz)<.5f){
       constexpr float pi=3.14159265f;
       Object settled=o;
-      float targetX=std::round((o.tiltX-pi/2)/pi)*pi+pi/2;
-      float targetZ=std::round(o.tiltZ/pi)*pi;
+      float targetX=half.z<half.x?std::round((o.tiltX-pi/2)/pi)*pi+pi/2:std::round(o.tiltX/pi)*pi;
+      float targetZ=half.z<half.x?std::round(o.tiltZ/pi)*pi:std::round((o.tiltZ-pi/2)/pi)*pi+pi/2;
       settled.tiltX+=std::clamp(targetX-o.tiltX,-step*1.8f,step*1.8f);
       settled.tiltZ+=std::clamp(targetZ-o.tiltZ,-step*1.8f,step*1.8f);
       float r=std::abs(std::sin(settled.tiltZ))*half.x+std::abs(std::cos(settled.tiltZ)*std::cos(settled.tiltX))*half.y+std::abs(std::cos(settled.tiltZ)*std::sin(settled.tiltX))*half.z;

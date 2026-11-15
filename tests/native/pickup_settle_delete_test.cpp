@@ -11,5 +11,12 @@ int main(){using namespace sandbox;using namespace physics;
  w.objects={{8,0,0,-3}};w.y=1.7f;w.z=0;w.pitch=0;assert(tool.grab(w,&floor));float start=tool.display.y;for(int i=0;i<30;i++)tool.pull(w,1.f/120,&floor);assert(tool.display.y>start+.1f);tool.cancel(w);
  w.objects[0].frozen=true;assert(w.remove()&&w.objects.empty());
  w.objects={{8,0,0,0}};w.objects[0].y=.03f;for(int i=0;i<1200;i++)sim.update(w,floor,1.f/120,-1,lo,hi);auto car=w.objects[0];for(int i=0;i<6000;i++)sim.update(w,floor,1.f/120,-1,lo,hi);assert(w.objects[0].x==car.x&&w.objects[0].z==car.z&&w.objects[0].y==car.y);
+ for(int type:{0,2,3,9,10,11})for(int rotation:{0,1}){
+  w.objects={{type,rotation,0,0}};w.objects[0].y=1;w.objects[0].tiltX=.4f;w.objects[0].tiltZ=.3f;w.objects[0].awake=false;
+  for(int i=0;i<2400;i++)sim.update(w,floor,1.f/120,-1,lo,hi);
+  assert(w.objects.size()==1);auto o=w.objects[0];assert(!o.awake);
+  auto b=World::bounds(o);float height=std::abs(std::sin(o.tiltZ))*b.w+std::abs(std::cos(o.tiltZ)*std::cos(o.tiltX))*b.h+std::abs(std::cos(o.tiltZ)*std::sin(o.tiltX))*b.d;
+  assert(height<.3f);
+ }
  std::cout<<"Door broad-face settling, tilted/frozen deletion, UAZ ground pickup and idle stability OK\n";
 }
