@@ -176,14 +176,14 @@ Renderer::Renderer(android_app *app):app_(app),last_(std::chrono::steady_clock::
  loadStage=2;
  std::string cityLog;
  if(city_.load(app_->activity->assetManager,"models/abandoned_city_street_for_games.glb",cityLog)){
-  world_.scenery.clear();world_.walls=city_.scene().colliders;
+  world_.scenery.clear();world_.walls=city_.scene().colliders;world_.wallSegments=city_.scene().wallSegments;
   // Keep prototype saves separate: their coordinates refer to a different level.
   savePath_=std::string(app->activity->internalDataPath)+"/city-glb-v1.txt";
   if(!retainedWorld){world_.objects.clear();world_.load(savePath_);}
   loadStage=3;
   // Select an open main-road anchor before parking the vehicle.
   city::SpawnPoint anchor;
-  if(city::findRoadSpawn(world_,city_.scene().minimum,city_.scene().maximum,0,28,anchor)){
+  if(city::findRoadSpawn(world_,city_.scene().minimum,city_.scene().maximum,-3.4f,32.7f,anchor)){
    float parkingX=0,parkingZ=0;
    // Keep the car six metres away from the new spawn, even on a cold start.
    float oldX=world_.x,oldZ=world_.z;world_.x=anchor.x;world_.z=anchor.z;
@@ -193,7 +193,7 @@ Renderer::Renderer(android_app *app):app_(app),last_(std::chrono::steady_clock::
     std::string carLog;city::LoadOptions carOptions;carOptions.level=false;carOptions.targetExtent=4.3f;
     carOptions.x=parkingX;carOptions.z=parkingZ;carOptions.yaw=1.57079632679f;
     if(car_.load(app_->activity->assetManager,"models/crushed_sports_car.glb",carLog,carOptions)){
-     const auto &colliders=car_.scene().colliders;world_.walls.insert(world_.walls.end(),colliders.begin(),colliders.end());
+     // Decoration-only collision policy: the car remains visible but does not block walking.
     }
     __android_log_print(car_.ready()?ANDROID_LOG_INFO:ANDROID_LOG_ERROR,"Ekron","Car at %.2f %.2f: %s",parkingX,parkingZ,carLog.c_str());
    }
@@ -211,7 +211,7 @@ Renderer::Renderer(android_app *app):app_(app),last_(std::chrono::steady_clock::
    }
   }else if(!flying_){
    if(!city::recoverToRoad(world_,city_.scene().minimum,city_.scene().maximum,
-       retainedWorld?world_.x:0.f,retainedWorld?world_.z:28.f,bool(retainedWorld))){flying_=true;debugNotice=2;}
+       retainedWorld?world_.x:-3.4f,retainedWorld?world_.z:32.7f,bool(retainedWorld))){flying_=true;debugNotice=2;}
   }
   __android_log_print(ANDROID_LOG_INFO,"Ekron","Spawn XYZ %.3f %.3f %.3f flight=%d",world_.x,world_.y,world_.z,flying_);
  }
@@ -243,7 +243,7 @@ void Renderer::handleInput(){
  }else if(command==7){
   auto lo=city_.ready()?city_.scene().minimum:std::array<float,3>{-60,0,-60};
   auto hi=city_.ready()?city_.scene().maximum:std::array<float,3>{60,10,60};
-  if(city::recoverToRoad(world_,lo,hi,0,28,false)){flying_=false;world_.yaw=world_.pitch=0;debugNotice=0;}
+  if(city::recoverToRoad(world_,lo,hi,-3.4f,32.7f,false)){flying_=false;world_.yaw=world_.pitch=0;debugNotice=0;}
   else{flying_=true;debugNotice=2;}
   resetInput();
  }if(changed&&!world_.save(savePath_))__android_log_print(ANDROID_LOG_ERROR,"Ekron","Failed to save sandbox");}

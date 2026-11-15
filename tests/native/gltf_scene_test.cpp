@@ -4,6 +4,7 @@
 #include <iostream>
 #include <cstring>
 #include "../../sys/android/app/src/main/cpp/LevelPlacement.h"
+#include "../../sys/android/app/src/main/cpp/DebugPlayer.h"
 bool read(const std::string&p,std::vector<unsigned char>&b){std::ifstream f(p,std::ios::binary);if(!f)return false;b.assign(std::istreambuf_iterator<char>(f),{});return true;}
 int main(){
  // JSON glTF + external .bin, missing normals, node TRS and untextured material.
@@ -11,7 +12,16 @@ int main(){
  float points[]={-2,0,-2,2,0,2,2,0,-2,-2,0,-2,-2,0,2,2,0,2};
  city::ReadFile fixture=[&](const std::string&p,std::vector<unsigned char>&out){if(p=="fixture/scene.gltf"){out.assign(json.begin(),json.end());return true;}if(p=="fixture/floor.bin"){out.resize(sizeof(points));std::memcpy(out.data(),points,sizeof(points));return true;}return false;};
  city::Scene external;std::string details;assert(external.load("fixture/scene.gltf",fixture,details));assert(external.batches.size()==1&&external.batches[0].vertices.size()==6);assert(external.materials.empty());assert(std::abs(external.maximum[2]-external.minimum[2]-80)<.001f);
-city::Scene scene;std::string log;assert(!scene.load("/missing.glb",read,log));log.clear();bool ok=scene.load("sys/android/app/src/main/assets/models/abandoned_city_street_for_games.glb",read,log);std::cout<<log<<std::endl;assert(ok);assert(scene.batches.size()==92);assert(scene.images.size()==8);assert(scene.materials.size()==6);assert(!scene.colliders.empty());sandbox::World world;world.walls=scene.colliders;world.x=scene.spawnX;world.z=scene.spawnZ;assert(!world.blocked({world.x,0,world.z,.6f,2,.6f,0,0,0}));for(auto&i:scene.images){std::cout<<i.width<<'x'<<i.height<<'\n';assert(i.width>0&&i.height>0&&i.rgba.size()==size_t(i.width)*i.height*4);}std::cout<<"spawn "<<scene.spawnX<<' '<<scene.spawnZ<<" bounds "<<scene.minimum[0]<<' '<<scene.minimum[1]<<' '<<scene.minimum[2]<<" -> "<<scene.maximum[0]<<' '<<scene.maximum[1]<<' '<<scene.maximum[2]<<std::endl;
+city::Scene scene;std::string log;assert(!scene.load("/missing.glb",read,log));log.clear();bool ok=scene.load("sys/android/app/src/main/assets/models/abandoned_city_street_for_games.glb",read,log);std::cout<<log<<std::endl;assert(ok);assert(scene.batches.size()==92);assert(scene.images.size()==8);assert(scene.materials.size()==6);assert(!scene.colliders.empty());sandbox::World world;world.walls=scene.colliders;world.wallSegments=scene.wallSegments;world.x=scene.spawnX;world.z=scene.spawnZ;assert(!world.blocked({world.x,0,world.z,.6f,2,.6f,0,0,0}));for(auto&i:scene.images){std::cout<<i.width<<'x'<<i.height<<'\n';assert(i.width>0&&i.height>0&&i.rgba.size()==size_t(i.width)*i.height*4);}std::cout<<"spawn "<<scene.spawnX<<' '<<scene.spawnZ<<" bounds "<<scene.minimum[0]<<' '<<scene.minimum[1]<<' '<<scene.minimum[2]<<" -> "<<scene.maximum[0]<<' '<<scene.maximum[1]<<' '<<scene.maximum[2]<<std::endl;
+ world.x=-3.4f;world.z=32.7f;
+ assert(!world.blocked({world.x,0,world.z,.85f,2,.85f,0,0,0}));
+ city::SpawnPoint screenshot;assert(city::findRoadSpawn(world,scene.minimum,scene.maximum,-3.4f,32.7f,screenshot));
+ assert(screenshot.playerInRegion);
+ assert(city::recoverToRoad(world,scene.minimum,scene.maximum,-3.4f,32.7f,true));
+ assert(world.x==-3.4f&&world.y==1.7f&&world.z==32.7f);
+ for(int i=0;i<100;i++)world.move(0,1,.016f);
+ std::cout<<"Screenshot road walk endpoint "<<world.x<<' '<<world.z<<std::endl;
+ assert(world.z<26.f); // Previously support-mask cells stopped ordinary street walking.
  city::SpawnPoint anchor;assert(city::findRoadSpawn(world,scene.minimum,scene.maximum,0,28,anchor));
  std::cout<<"reachable "<<anchor.reachableCells<<std::endl;assert(anchor.reachableCells>=64);world.x=anchor.x;world.z=anchor.z;
  float carX=0,carZ=0;assert(city::findCarParking(world,scene.minimum,scene.maximum,anchor.x+3,anchor.z-9,carX,carZ));
@@ -21,6 +31,7 @@ city::Scene scene;std::string log;assert(!scene.load("/missing.glb",read,log));l
  assert(std::abs(car.maximum[2]-car.minimum[2]-4.3f)<.001f);
  assert(car.maximum[0]-car.minimum[0]<2.f&&car.maximum[1]<1.5f&&car.minimum[1]==0);
  assert(car.colliders.size()==1&&car.colliders[0].h<=1.2f);
+ // Optional prop colliders remain supported by the API; the 0.7 game does not enable them.
  world.walls.insert(world.walls.end(),car.colliders.begin(),car.colliders.end());
  assert(world.blocked({carX,0,carZ,.6f,2,.6f,0,0,0}));
  city::SpawnPoint finalSpawn;assert(city::findRoadSpawn(world,scene.minimum,scene.maximum,0,28,finalSpawn));

@@ -5,7 +5,7 @@
 namespace city {
 struct SpawnConfig {
     bool enabled=false,startFlying=false;
-    float x=.614487f,y=1.7f,z=31.625f,yawDegrees=0;
+    float x=-3.4f,y=1.7f,z=32.7f,yawDegrees=0;
 };
 inline bool parseSpawnConfig(const std::string &text,SpawnConfig &config,std::string &error){
     try{

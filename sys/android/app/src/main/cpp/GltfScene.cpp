@@ -1,5 +1,6 @@
 #include "GltfScene.h"
 #include "LevelPlacement.h"
+#include "BuildingCollision.h"
 #define TINYGLTF_IMPLEMENTATION
 #define TINYGLTF_NO_STB_IMAGE_WRITE
 #define TINYGLTF_NO_FS
@@ -20,7 +21,6 @@ using Matrix=std::array<double,16>;
 Matrix identity(){return {1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};}
 Matrix multiply(const Matrix&a,const Matrix&b){Matrix r{};for(int c=0;c<4;c++)for(int row=0;row<4;row++)for(int k=0;k<4;k++)r[c*4+row]+=a[k*4+row]*b[c*4+k];return r;}
 Vec point(const Matrix&m,Vec v){return {float(m[0]*v[0]+m[4]*v[1]+m[8]*v[2]+m[12]),float(m[1]*v[0]+m[5]*v[1]+m[9]*v[2]+m[13]),float(m[2]*v[0]+m[6]*v[1]+m[10]*v[2]+m[14])};}
-Vec sub(Vec a,Vec b){return {a[0]-b[0],a[1]-b[1],a[2]-b[2]};}
 Vec cross(Vec a,Vec b){return {a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]};}
 Vec normal(Vec a){float l=std::sqrt(a[0]*a[0]+a[1]*a[1]+a[2]*a[2]);return l>.000001f?Vec{a[0]/l,a[1]/l,a[2]/l}:Vec{0,1,0};}
 Matrix transform(const tinygltf::Node&n){
@@ -74,13 +74,6 @@ bool imageLoader(tinygltf::Image *image,int,std::string*,std::string *warn,int,i
  for(int y=0;y<rh;y++)for(int x=0;x<rw;x++)std::copy_n(p+(size_t(y*h/rh)*w+x*w/rw)*4,4,image->image.data()+(size_t(y)*rw+x)*4);
  stbi_image_free(p);return true;
 }
-// Projected triangle/cell SAT avoids a single giant AABB filling the whole street.
-bool cellHit(Vec a,Vec b,Vec c,float x,float z,float half){
- for(Vec axis:{Vec{1,0,0},Vec{0,0,1},Vec{-(b[2]-a[2]),0,b[0]-a[0]},Vec{-(c[2]-b[2]),0,c[0]-b[0]},Vec{-(a[2]-c[2]),0,a[0]-c[0]}}){
-  float pa=a[0]*axis[0]+a[2]*axis[2],pb=b[0]*axis[0]+b[2]*axis[2],pc=c[0]*axis[0]+c[2]*axis[2],center=x*axis[0]+z*axis[2],r=half*(std::abs(axis[0])+std::abs(axis[2]));
-  if(std::min({pa,pb,pc})>center+r||std::max({pa,pb,pc})<center-r)return false;
- }return true;
-}
 void prepare(Scene &s,const LoadOptions &options){
  Vec lo{1e20f,1e20f,1e20f},hi{-1e20f,-1e20f,-1e20f};size_t count=0;
  for(auto &b:s.batches)for(auto &v:b.vertices){Vec p{v.x,v.y,v.z};for(int i=0;i<3;i++){lo[i]=std::min(lo[i],p[i]);hi[i]=std::max(hi[i],p[i]);}count++;}
@@ -107,23 +100,24 @@ void prepare(Scene &s,const LoadOptions &options){
  float floor=lo[1];double weight=0;for(auto [key,value]:ground)if(value>weight){weight=value;floor=key/(10*scale);}
  for(auto &b:s.batches)for(auto &v:b.vertices){v.x=(v.x-cx)*scale;v.z=(v.z-cz)*scale;v.y=(v.y-floor)*scale;}
  s.minimum={(lo[0]-cx)*scale,(lo[1]-floor)*scale,(lo[2]-cz)*scale};s.maximum={(hi[0]-cx)*scale,(hi[1]-floor)*scale,(hi[2]-cz)*scale};
- constexpr float cell=.5f;constexpr int side=164;constexpr float origin=-41;
- std::vector<bool> blocked(side*side,false),supported(side*side,false);
- for(const auto &batch:s.batches)for(size_t i=0;i<batch.vertices.size();i+=3){
-  auto v=batch.vertices[i],w=batch.vertices[i+1],t=batch.vertices[i+2];Vec a{v.x,v.y,v.z},b{w.x,w.y,w.z},c{t.x,t.y,t.z};
-  auto n=normal(cross(sub(b,a),sub(c,a)));float minY=std::min({a[1],b[1],c[1]}),maxY=std::max({a[1],b[1],c[1]});
-  bool wall=std::abs(n[1])<.75f&&maxY>.3f&&minY<1.8f;
-  bool groundFace=std::abs(n[1])>.9f&&minY>-.3f&&maxY<.3f;
-  if(!wall&&!groundFace)continue;
-  int x0=std::clamp(int(std::floor((std::min({a[0],b[0],c[0]})-origin)/cell)),0,side-1),x1=std::clamp(int(std::floor((std::max({a[0],b[0],c[0]})-origin)/cell)),0,side-1);
-  int z0=std::clamp(int(std::floor((std::min({a[2],b[2],c[2]})-origin)/cell)),0,side-1),z1=std::clamp(int(std::floor((std::max({a[2],b[2],c[2]})-origin)/cell)),0,side-1);
-  for(int z=z0;z<=z1;z++)for(int x=x0;x<=x1;x++)if(cellHit(a,b,c,origin+(x+.5f)*cell,origin+(z+.5f)*cell,cell/2)){if(wall)blocked[z*side+x]=true;if(groundFace)supported[z*side+x]=true;}
+ // Only physical building wall slices block walking. Ground is the existing
+ // continuous y=0 walking plane: missing/uneven mesh coverage must NOT become a wall.
+ for(const auto &batch:s.batches){
+  bool opaque=batch.material<0||size_t(batch.material)>=s.materials.size()||s.materials[batch.material].alphaMode==0;
+  for(size_t i=0;i<batch.vertices.size();i+=3){
+   const auto &a=batch.vertices[i],&b=batch.vertices[i+1],&c=batch.vertices[i+2];
+   addBuildingWall(s.wallSegments,{a.x,a.y,a.z},{b.x,b.y,b.z},{c.x,c.y,c.z},opaque);
+  }
  }
- // Block unmodeled ground so the player does not walk off the street into the void.
- for(int z=0;z<side;z++)for(int x=0;x<side;){if(!blocked[z*side+x]&&supported[z*side+x]){x++;continue;}int start=x;while(x<side&&(blocked[z*side+x]||!supported[z*side+x]))x++;s.colliders.push_back({origin+(start+x)*cell/2,1,origin+(z+.5f)*cell,(x-start)*cell,2,cell,0,0,0});}
- sandbox::World collisionWorld;collisionWorld.walls=s.colliders;
+ // Thin outer perimeter only; never fill indoor areas or unsupported road cells.
+ float minX=s.minimum[0]-1,maxX=s.maximum[0]+1,minZ=s.minimum[2]-1,maxZ=s.maximum[2]+1;
+ s.colliders={{minX-.1f,1,(minZ+maxZ)/2,.2f,2,maxZ-minZ,0,0,0},
+              {maxX+.1f,1,(minZ+maxZ)/2,.2f,2,maxZ-minZ,0,0,0},
+              {(minX+maxX)/2,1,minZ-.1f,maxX-minX,.2f,.2f,0,0,0},
+              {(minX+maxX)/2,1,maxZ+.1f,maxX-minX,.2f,.2f,0,0,0}};
+ sandbox::World collisionWorld;collisionWorld.walls=s.colliders;collisionWorld.wallSegments=s.wallSegments;
  SpawnPoint spawn;
- if(!findRoadSpawn(collisionWorld,s.minimum,s.maximum,0,28,spawn))throw std::runtime_error("No connected, supported free spawn in the collision grid");
+ if(!findRoadSpawn(collisionWorld,s.minimum,s.maximum,-3.4f,32.7f,spawn))throw std::runtime_error("No connected, supported free spawn in the collision grid");
  s.spawnX=spawn.x;s.spawnZ=spawn.z;
 }
 }
@@ -176,7 +170,7 @@ bool Scene::load(const std::string &path,const ReadFile &read,std::string &diagn
   if(model.scenes.empty())throw std::runtime_error("No glTF scene");
   int scene=model.defaultScene>=0?model.defaultScene:0;for(int node:model.scenes.at(scene).nodes)visit(node,identity());
   if(!std::isfinite(options.targetExtent)||options.targetExtent<=0||!std::isfinite(options.x)||!std::isfinite(options.z)||!std::isfinite(options.yaw))throw std::runtime_error("Invalid scene placement options");
-  prepare(result,options);*this=std::move(result);diagnostics+="Loaded "+std::to_string(vertexCount/3)+" triangles, "+std::to_string(materials.size())+" materials, "+std::to_string(colliders.size())+" collision rows.\n";return true;
+  prepare(result,options);*this=std::move(result);diagnostics+="Loaded "+std::to_string(vertexCount/3)+" triangles, "+std::to_string(materials.size())+" materials, "+std::to_string(colliders.size())+" boxes, "+std::to_string(wallSegments.size())+" thin wall segments.\n";return true;
  }catch(const std::exception&e){diagnostics+="glTF load failed: "+std::string(e.what());return false;}
 }
 }
