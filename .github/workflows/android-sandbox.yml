@@ -1,0 +1,40 @@
+name: Native Android sandbox
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'sys/android/**'
+      - 'tests/native/**'
+      - '.github/workflows/android-sandbox.yml'
+  pull_request:
+    paths:
+      - 'sys/android/**'
+      - 'tests/native/**'
+      - '.github/workflows/android-sandbox.yml'
+permissions:
+  contents: read
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test native world logic
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/native/sandbox_world_test.cpp -o /tmp/ekron-world-test
+          /tmp/ekron-world-test
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android tools
+        run: sdkmanager 'platforms;android-34' 'build-tools;34.0.0' 'ndk;26.1.10909125' 'cmake;3.22.1'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build native debug APK
+        working-directory: sys/android
+        run: ./gradlew :app:assembleDebug :app:testDebugUnitTest --stacktrace
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ekron-native-sandbox-debug
+          path: sys/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error

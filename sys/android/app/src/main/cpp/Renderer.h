@@ -1,74 +1,26 @@
-#ifndef ANDROIDGLINVESTIGATIONS_RENDERER_H
-#define ANDROIDGLINVESTIGATIONS_RENDERER_H
-
+#pragma once
 #include <EGL/egl.h>
-#include <memory>
-
-#include "Model.h"
-#include "Shader.h"
-
+#include <GLES3/gl3.h>
+#include <chrono>
+#include "SandboxWorld.h"
 struct android_app;
-
 class Renderer {
 public:
-    /*!
-     * @param pApp the android_app this Renderer belongs to, needed to configure GL
-     */
-    inline Renderer(android_app *pApp) :
-            app_(pApp),
-            display_(EGL_NO_DISPLAY),
-            surface_(EGL_NO_SURFACE),
-            context_(EGL_NO_CONTEXT),
-            width_(0),
-            height_(0),
-            shaderNeedsNewProjectionMatrix_(true) {
-        initRenderer();
-    }
-
-    virtual ~Renderer();
-
-    /*!
-     * Handles input from the android_app.
-     *
-     * Note: this will clear the input queue
-     */
+    explicit Renderer(android_app *app);
+    ~Renderer();
     void handleInput();
-
-    /*!
-     * Renders all the models in the renderer
-     */
     void render();
-
+    void resetInput();
 private:
-    /*!
-     * Performs necessary OpenGL initialization. Customize this if you want to change your EGL
-     * context or application-wide settings.
-     */
-    void initRenderer();
-
-    /*!
-     * @brief we have to check every frame to see if the framebuffer has changed in size. If it has,
-     * update the viewport accordingly
-     */
-    void updateRenderArea();
-
-    /*!
-     * Creates the models for this sample. You'd likely load a scene configuration from a file or
-     * use some other setup logic in your full game.
-     */
-    void createModels();
-
     android_app *app_;
-    EGLDisplay display_;
-    EGLSurface surface_;
-    EGLContext context_;
-    EGLint width_;
-    EGLint height_;
-
-    bool shaderNeedsNewProjectionMatrix_;
-
-    std::unique_ptr<Shader> shader_;
-    std::vector<Model> models_;
+    EGLDisplay display_=EGL_NO_DISPLAY;
+    EGLSurface surface_=EGL_NO_SURFACE;
+    EGLContext context_=EGL_NO_CONTEXT;
+    GLuint program_=0,buffer_=0,vao_=0;
+    int width_=1,height_=1,leftId_=-1,rightId_=-1;
+    float originX_=0,originY_=0,rightX_=0,rightY_=0,moveX_=0,moveY_=0;
+    bool building_=false;
+    sandbox::World world_;
+    std::string savePath_;
+    std::chrono::steady_clock::time_point last_;
 };
-
-#endif //ANDROIDGLINVESTIGATIONS_RENDERER_H
