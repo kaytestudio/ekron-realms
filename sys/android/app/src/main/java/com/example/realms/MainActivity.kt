@@ -371,7 +371,7 @@ class MainActivity : GameActivity() {
                 layoutParams=AbsListView.LayoutParams(-1,dp(84))
                 background=GradientDrawable().apply {setColor(if(position==selected)0xaa477264.toInt() else 0x443b4652);cornerRadius=dp(6).toFloat();if(position==selected)setStroke(dp(1),0xff92d9ac.toInt())}
                 val item=BuildCatalog.entries[position]
-                val illustration: View=if(item.nativeType==0||item.nativeType==9||item.nativeType==10)MaterialBlockView(this@MainActivity,item.defaultSurface).apply { texture=materialImages[item.defaultSurface] }
+                val illustration: View=if(item.nativeType==0||item.nativeType==9||item.nativeType==10||item.nativeType==11)MaterialBlockView(this@MainActivity,item.defaultSurface).apply { texture=materialImages[item.defaultSurface] }
                 else ImageView(this@MainActivity).apply {
                     scaleType=ImageView.ScaleType.FIT_CENTER
                     val image=catalogImages[position]

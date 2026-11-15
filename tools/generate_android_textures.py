@@ -60,8 +60,8 @@ def generate():
             plank = 17 if (u*4)%1 < .012 else 0
             wear = detail*.25 + grain_line*7 - plank
             wood = (108+wear+coarse*20, 74+wear*.7+coarse*12, 42+wear*.4+coarse*8)
-            weave = 3*math.sin(tau*128*u)*math.sin(tau*128*v)
-            fabric = (43+detail*.16+weave, 56+detail*.2+weave, 48+detail*.16+weave)
+            weave = 5*math.sin(tau*64*u)*math.sin(tau*64*v) + 5*math.sin(tau*16*u)*math.sin(tau*16*v)
+            fabric = (43+detail*.3+weave+(coarse-.5)*20, 56+detail*.35+weave+(coarse-.5)*25, 48+detail*.3+weave+(coarse-.5)*20)
             streak=7*math.sin(tau*(24*u+.03*math.sin(tau*v)))+detail*.18
             glass=(142+streak,177+streak,182+streak)
             for name, color in [('asphalt', (asphalt, asphalt + 2, asphalt + 3)), ('concrete', (concrete, concrete - 2, concrete - 8)), ('brick', brick), ('rust', rust), ('wood', wood), ('fabric', fabric), ('glass', glass)]:

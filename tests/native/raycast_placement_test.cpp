@@ -5,6 +5,16 @@
 #include <iostream>
 using namespace physics;
 int main(){
+ {
+  sandbox::World cars;cars.objects.clear();cars.x=0;cars.y=1.7f;cars.z=0;cars.pitch=-.4f;cars.selected=8;
+  physics::CollisionMesh road,empty;road.addBox({-20,-.2f,-20},{20,0,20});road.build();empty.build();
+  std::array<float,3> low{-20,-1,-20},high{20,10,20};
+  auto car=sandbox::RaycastPlacement::preview(cars,road,empty,low,high);assert(car&&car->type==8&&!car->anchored);
+  cars.objects.push_back(*car);assert(!sandbox::RaycastPlacement::valid(cars,*car,road,empty,low,high));
+  sandbox::Object metal{11,0,6,-5};metal.surface=sandbox::Rust;cars.objects.push_back(metal);
+  const char*save="/tmp/ekron-car-metal-save.txt";assert(cars.save(save));sandbox::World loaded;assert(loaded.load(save));assert(loaded.objects.size()==2&&loaded.objects[0].type==8&&loaded.objects[1].type==11);std::remove(save);
+ }
+
  sandbox::World w;w.scenery.clear();w.walls.clear();w.wallSegments.clear();w.x=0;w.y=1.7f;w.z=0;w.selected=5;
  CollisionMesh city,built;city.addBox({-10,-.2f,-10},{10,0,10});city.addBox({-5,0,-6},{5,6,-5});city.build();built.build();
  std::array<float,3> lo{-10,-1,-10},hi{10,8,10};

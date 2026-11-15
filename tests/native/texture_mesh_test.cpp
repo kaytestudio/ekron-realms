@@ -8,7 +8,7 @@
 #include <string>
 
 int main() {
-    for(int type:{0,9,10,3,4,5,6,7}){
+    for(int type:{0,9,10,11,3,4,5,6,7}){
         sandbox::Object item{type,0,0,0};item.surface=sandbox::Rust;
         std::vector<sandbox::MeshVertex> mesh;sandbox::appendObject(mesh,item);
         assert(!mesh.empty());for(const auto&v:mesh){assert(v.layer==sandbox::World::fixedSurface(type));assert(v.r==1&&v.g==1&&v.b==1);}

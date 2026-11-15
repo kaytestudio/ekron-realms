@@ -274,15 +274,17 @@ void Renderer::handleInput(){
   if(command>=20&&command<=23){tools_.select(world_,static_cast<sandbox::HandTool>(command-20));building_=tools_.tool==sandbox::HandTool::SPAWN_GUN;rebuildBuiltCollision();}
   else if(command==34&&carParkingValid_){
    tools_.cancel(world_);
-   auto restored=sandbox::carRespawn(world_,carParking_,*city_.scene().collision,city_.scene().minimum,city_.scene().maximum);
+   auto parkingWorld=world_;auto previous=std::find_if(parkingWorld.objects.begin(),parkingWorld.objects.end(),[](const sandbox::Object&o){return o.type==8;});
+   if(previous!=parkingWorld.objects.end())parkingWorld.objects.erase(previous);
+   auto restored=sandbox::carRespawn(parkingWorld,carParking_,*city_.scene().collision,city_.scene().minimum,city_.scene().maximum);
    if(restored){
     bool exists=std::any_of(world_.objects.begin(),world_.objects.end(),[](const sandbox::Object&o){return o.type==8;});
-    if(exists||world_.objects.size()<sandbox::World::limit){world_.objects.erase(std::remove_if(world_.objects.begin(),world_.objects.end(),[](const sandbox::Object&o){return o.type==8;}),world_.objects.end());world_.objects.push_back(*restored);changed=true;debugNotice=0;}else debugNotice=3;
+    if(exists||world_.objects.size()<sandbox::World::limit){auto first=std::find_if(world_.objects.begin(),world_.objects.end(),[](const sandbox::Object&o){return o.type==8;});if(first!=world_.objects.end())*first=*restored;else world_.objects.push_back(*restored);changed=true;debugNotice=0;}else debugNotice=3;
    }else debugNotice=3;
    rebuildBuiltCollision();
   }
   else if(command==35)respawnPlayer();
-  else if(command>=100&&command<=110&&command!=108&&building_){world_.selected=command-100;world_.surface=sandbox::World::fixedSurface(world_.selected);}
+  else if(command>=100&&command<=111&&building_){world_.selected=command-100;world_.surface=sandbox::World::fixedSurface(world_.selected);}
   else if(command==31&&tools_.tool==sandbox::HandTool::SPAWN_GUN)world_.rotation=(world_.rotation+3)%4;
   else if(command==32&&tools_.tool==sandbox::HandTool::GRAVITY_GUN){
    if(tools_.holding())changed=tools_.release(world_);
@@ -294,7 +296,7 @@ void Renderer::handleInput(){
   else if(command==2&&building_)world_.rotation=(world_.rotation+1)%4;
   else if(command==3&&building_&&city_.ready()){
    auto point=sandbox::RaycastPlacement::preview(world_,*city_.scene().collision,builtCollision_,city_.scene().minimum,city_.scene().maximum);
-   if(point){world_.objects.push_back(*point);changed=true;}
+   if(point&&(point->type!=8||car_.ready())){world_.objects.push_back(*point);changed=true;}
   }
   else if(command==4&&tools_.tool==sandbox::HandTool::SPAWN_GUN)changed=world_.remove();
   else if(command==6){flying_=!flying_;verticalInput=0;player_.reset(world_.x,world_.y,world_.z);}
