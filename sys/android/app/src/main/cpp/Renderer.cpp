@@ -396,7 +396,7 @@ void Renderer::render(){
  }
  int highlight=tools_.holding()?tools_.held:tools_.target(world_,city_.scene().collision.get());
  freezeState=highlight>=0&&world_.objects[highlight].frozen?1:0;
- if(highlight>=0&&tools_.tool==sandbox::HandTool::GRAVITY_GUN){
+ if(tools_.holding()&&highlight>=0&&tools_.tool==sandbox::HandTool::GRAVITY_GUN){
   auto bounds=sandbox::World::bounds(world_.objects[highlight]);physics::Vec3 target{bounds.x,bounds.y,bounds.z};
   if(tools_.holding())target=tools_.display;
   sandbox::appendGravityBeam(vertices,world_,target);

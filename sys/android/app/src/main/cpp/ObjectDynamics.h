@@ -26,9 +26,11 @@ public:
     if(!o.awake){
      o.supportCheckTime+=step;if(o.supportCheckTime<.2f)continue;o.supportCheckTime=0;
      bool supported=false;
-     for(float dx:{-half.x*.85f,0.f,half.x*.85f})for(float dz:{-half.z*.85f,0.f,half.z*.85f}){
-      float h=mesh.groundHeight(o.x+dx,o.z+dz,oldBottom+.08f,oldBottom-.12f);if(std::isfinite(h))supported=true;
-      for(size_t j=0;j<w.objects.size();j++)if(j!=index&&int(j)!=held&&!w.objects[j].frozen){auto other=World::bounds(w.objects[j]);float top=other.y+other.h/2;if(std::abs(o.x+dx-other.x)<=other.w/2&&std::abs(o.z+dz-other.z)<=other.d/2&&std::abs(oldBottom-top)<.12f)supported=true;}
+     for(float cx:{-1.f,0.f,1.f})for(float cy:{-1.f,1.f})for(float cz:{-1.f,0.f,1.f}){
+      auto p=objectCorner(o,cx,cy,cz);
+      float h=mesh.groundHeight(p.x,p.z,p.y+.025f,p.y-.035f);
+      if(std::isfinite(h)&&std::abs(p.y-h)<.035f)supported=true;
+      for(size_t j=0;j<w.objects.size();j++)if(j!=index&&int(j)!=held&&!w.objects[j].frozen){auto other=World::bounds(w.objects[j]);float top=other.y+other.h/2;if(std::abs(p.x-other.x)<=other.w/2&&std::abs(p.z-other.z)<=other.d/2&&std::abs(p.y-top)<.035f)supported=true;}
      }
      // Older saves can contain a sleeping diagonal door. Let it finish
      // settling rather than treating one corner contact as a stable pose.
@@ -76,6 +78,23 @@ public:
     }
     o.tiltX+=o.spinX*step;o.tiltZ+=o.spinZ*step;
     float verticalRadius=radius();
+    // A surface below the upright footprint is NOT necessarily below the
+    // tilted body. Compute the permitted centre height from actual corners.
+    float actualSupport=-1e6f;physics::Vec3 contactPoint{};
+    for(float cx:{-1.f,0.f,1.f})for(float cy:{-1.f,1.f})for(float cz:{-1.f,0.f,1.f}){
+     auto p=objectCorner(o,cx,cy,cz);
+     float h=mesh.groundHeight(p.x,p.z,p.y+.04f,lo[1]-20);
+     for(size_t j=0;j<w.objects.size();j++)if(j!=index&&int(j)!=held&&!w.objects[j].frozen){auto other=World::bounds(w.objects[j]);float top=other.y+other.h/2;if(std::abs(p.x-other.x)<=other.w/2&&std::abs(p.z-other.z)<=other.d/2&&top<=p.y+.04f)h=std::max(h,top);}
+     if(std::isfinite(h)){float candidate=h-(p.y-(o.y+half.y-verticalRadius));if(candidate>actualSupport){actualSupport=candidate;contactPoint=p;}}
+    }
+    if(!unstable)support=actualSupport;
+    if(o.vy<=0&&nextY+half.y-verticalRadius<=actualSupport+.02f&&(!std::isfinite(centre)||centre<actualSupport-.3f)){
+     // Gravity about an off-centre support: do not balance indefinitely on
+     // a single edge. This is torque, never a forced X/Z translation.
+     o.spinZ+=std::clamp((contactPoint.x-o.x)*18.f/(half.x*half.x+half.y*half.y),-8.f,8.f)*step;
+     o.spinX-=std::clamp((contactPoint.z-o.z)*18.f/(half.z*half.z+half.y*half.y),-8.f,8.f)*step;
+    }
+
     if(o.vy<=0&&support>-1e5f&&nextY+half.y-verticalRadius<=support+.003f){
      o.spinX*=.85f;o.spinZ*=.85f;
      o.y=support+.003f;o.vy=std::abs(o.vy)>2?-o.vy*.3f:0;

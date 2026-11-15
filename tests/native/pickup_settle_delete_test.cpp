@@ -18,5 +18,12 @@ int main(){using namespace sandbox;using namespace physics;
   auto b=World::bounds(o);float height=std::abs(std::sin(o.tiltZ))*b.w+std::abs(std::cos(o.tiltZ)*std::cos(o.tiltX))*b.h+std::abs(std::cos(o.tiltZ)*std::sin(o.tiltX))*b.d;
   assert(height<.3f);
  }
+ // A patch under the OLD upright footprint must not suspend a tilted car.
+ CollisionMesh patch;patch.addBox({1.6f,-.2f,-2},{1.9f,0,2});patch.build();
+ w.objects={{8,0,0,0}};auto &floating=w.objects[0];floating.tiltZ=.8f;
+ auto dims=World::bounds(floating);floating.y=std::sin(.8f)*dims.w/2+std::cos(.8f)*dims.h/2-dims.h/2+.05f;floating.awake=false;
+ float suspendedY=floating.y;bool dropped=false;
+ for(int i=0;i<120;i++){sim.update(w,patch,1.f/120,-1,lo,hi);if(w.objects.empty()||w.objects[0].y<suspendedY-.25f){dropped=true;break;}}
+ assert(dropped);
  std::cout<<"Door broad-face settling, tilted/frozen deletion, UAZ ground pickup and idle stability OK\n";
 }
