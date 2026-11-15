@@ -270,6 +270,7 @@ void Renderer::handleInput(){
  }
  for(int command:pending){bool changed=false;
   if(command>=20&&command<=23){tools_.select(world_,static_cast<sandbox::HandTool>(command-20));building_=tools_.tool==sandbox::HandTool::SPAWN_GUN;rebuildBuiltCollision();}
+  else if(command>=40&&command<=45&&building_)world_.surface=command-40;
   else if(command==31&&tools_.tool==sandbox::HandTool::SPAWN_GUN)world_.rotation=(world_.rotation+3)%4;
   else if(command==32&&tools_.tool==sandbox::HandTool::GRAVITY_GUN){
    if(tools_.holding())changed=tools_.release(world_);
@@ -330,6 +331,7 @@ void Renderer::render(){
   size_t objectBegin=vertices.size();
   if(int(i)==tools_.held){auto visual=world_.objects[i];visual.x=tools_.display.x;visual.z=tools_.display.z;size_t begin=vertices.size();object(vertices,visual);float dy=tools_.display.y-sandbox::World::bounds(visual).y;for(size_t j=begin;j<vertices.size();j++)vertices[j].y+=dy;}
   else object(vertices,world_.objects[i]);
+  if(world_.objects[i].surface>=0)for(size_t j=objectBegin;j<vertices.size();j++){vertices[j].layer=float(world_.objects[i].surface);vertices[j].r=vertices[j].g=vertices[j].b=1;}
   if(int(i)!=tools_.held){const auto&o=world_.objects[i];auto b=sandbox::World::bounds(o);
    float cx=std::cos(o.tiltX),sx=std::sin(o.tiltX),cz=std::cos(o.tiltZ),sz=std::sin(o.tiltZ);
    for(size_t j=objectBegin;j<vertices.size();j++){auto &v=vertices[j];float x=v.x-b.x,y=v.y-b.y,z=v.z-b.z;float py=cx*y-sx*z,pz=sx*y+cx*z;v.x=b.x+cz*x-sz*py;v.y=b.y+sz*x+cz*py;v.z=b.z+pz;

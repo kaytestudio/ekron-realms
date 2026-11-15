@@ -10,6 +10,7 @@ class ToolState {
         private set
     fun select(next: HandTool) { tool = next; holding = false }
     fun confirmHolding(value: Boolean) { holding = tool == HandTool.GRAVITY_GUN && value }
+    val viewmodelVisible get() = tool == HandTool.SPAWN_GUN || tool == HandTool.GRAVITY_GUN
     val spawnVisible get() = tool == HandTool.SPAWN_GUN
     val gravityVisible get() = tool == HandTool.GRAVITY_GUN
     val rotateHeldVisible get() = gravityVisible && holding

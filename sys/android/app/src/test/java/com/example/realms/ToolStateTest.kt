@@ -14,6 +14,7 @@ class ToolStateTest {
             assertEquals(tool==HandTool.SPAWN_GUN,s.spawnVisible)
             assertEquals(tool==HandTool.GRAVITY_GUN,s.gravityVisible)
             assertEquals(tool==HandTool.DELETE_TOOL,s.deleteVisible)
+            assertEquals(tool==HandTool.SPAWN_GUN || tool==HandTool.GRAVITY_GUN,s.viewmodelVisible)
         }
     }
     @Test fun captureOnlyChangesOnWorldConfirmation() {

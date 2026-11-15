@@ -30,7 +30,7 @@ public:
   float extent=std::abs(hit.normal.x)*b.w/2+std::abs(hit.normal.y)*b.h/2+std::abs(hit.normal.z)*b.d/2;
   auto center=hit.position+hit.normal*(extent+.0005f);
   candidate.x=center.x;candidate.z=center.z;candidate.y=center.y-b.h/2;
-  candidate.anchored=true;
+  candidate.anchored=true;candidate.surface=w.surface;
   if(!valid(w,candidate,city,built,lo,hi)){
    // Slide the box ALONG the hit plane to fit under ceilings/next to corners.
    // Candidate shifts come from actual nearby surfaces, not navigation strips or the y=0 plane.

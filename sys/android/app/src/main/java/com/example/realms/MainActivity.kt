@@ -57,6 +57,16 @@ class MainActivity : GameActivity() {
     private val catalogImages=arrayOfNulls<Bitmap>(BuildCatalog.entries.size)
     private val catalogExecutor=Executors.newSingleThreadExecutor()
     private var catalogAdapter: BaseAdapter? = null
+    private lateinit var hud: FrameLayout
+    private lateinit var weapon: ToolArtView
+    private lateinit var selectedImage: ImageView
+    private lateinit var selectedSlot: FrameLayout
+    private lateinit var selectedSwatch: MaterialBlockView
+    private var popup: View? = null
+    private var selectedSurface=1
+    private val materialImages=arrayOfNulls<Bitmap>(6)
+    private val materialIds=intArrayOf(5,1,2,3)
+    private val materialNames=arrayOf("Дерево","Бетон","Кирпич","Металл")
     private var selected = 0
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var coordinates: TextView
@@ -88,6 +98,7 @@ class MainActivity : GameActivity() {
                 worldReady = stage == 6 && introFinished
                 val unlocked = worldReady && active
                 nativeReady(unlocked && !paused)
+                weapon.running=unlocked && !paused
                 loading.visibility = if (unlocked) View.GONE else View.VISIBLE
                 spinner.visibility = if (stage < 0) View.GONE else View.VISIBLE
                 if(state.size>=9)spinner.progress=state[8].toInt().coerceIn(0,100)
@@ -126,8 +137,11 @@ class MainActivity : GameActivity() {
         super.onCreate(savedInstanceState)
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         val overlay = FrameLayout(this).apply { isMotionEventSplittingEnabled = true }
+        hud=overlay
         lookArea=LookView(this) { dx,dy -> nativeLook(dx,dy) }
         overlay.addView(lookArea,FrameLayout.LayoutParams(-1,-1))
+        weapon=ToolArtView(this,true).apply { visibility=View.GONE }
+        overlay.addView(weapon,FrameLayout.LayoutParams(dp(200),dp(125),Gravity.BOTTOM or Gravity.END).apply { rightMargin=dp(125);bottomMargin=dp(78) })
         val heading = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(12), dp(8), dp(12), dp(8))
@@ -151,7 +165,7 @@ class MainActivity : GameActivity() {
         val screenHeight = resources.configuration.screenHeightDp
         val actionSize = (screenHeight * .145f).toInt().coerceIn(44, 88)
         val stickSize = (screenHeight * .32f).toInt().coerceIn(120, 184)
-        joystick = StickView(this) { right, forward -> nativeMove(right, forward) }
+        joystick = StickView(this) { right, forward -> weapon.moving=kotlin.math.hypot(right,forward)>.1f;nativeMove(right, forward) }
         overlay.addView(joystick, FrameLayout.LayoutParams(dp(stickSize), dp(stickSize), Gravity.BOTTOM or Gravity.START).apply {
             leftMargin = dp(14); bottomMargin = dp(22)
         })
@@ -192,7 +206,15 @@ class MainActivity : GameActivity() {
             parent.addView(control,LinearLayout.LayoutParams(dp(72),dp(64)).apply { bottomMargin=dp(4) })
             return control
         }
-        addControl(spawnActions,"Блоки","cube") { showBuildCatalog() }
+        selectedSlot=FrameLayout(this).apply {
+            background=GradientDrawable().apply { setColor(0xaa223b40.toInt());cornerRadius=dp(8).toFloat();setStroke(dp(1),0xff58dbb3.toInt()) }
+            setOnClickListener { showBuildCatalog() }
+        }
+        selectedImage=ImageView(this).apply { scaleType=ImageView.ScaleType.FIT_CENTER }
+        selectedSlot.addView(selectedImage,FrameLayout.LayoutParams(-1,-1))
+        selectedSwatch=MaterialBlockView(this,selectedSurface)
+        selectedSlot.addView(selectedSwatch,FrameLayout.LayoutParams(dp(25),dp(25),Gravity.BOTTOM or Gravity.END))
+        spawnActions.addView(selectedSlot,LinearLayout.LayoutParams(dp(72),dp(64)).apply { bottomMargin=dp(4) })
         addControl(spawnActions,"Поставить блок","cube") { nativeCommand(3) }
         val turns=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
         addControl(turns,"Влево","left") { nativeCommand(31) }
@@ -268,11 +290,45 @@ class MainActivity : GameActivity() {
         catalogExecutor.execute {
             for(index in BuildCatalog.entries.indices) {
                 val bitmap=try { assets.open(BuildCatalog.entries[index].asset).use { BitmapFactory.decodeStream(it) } } catch (_: Exception) { null }
-                handler.post { if(!isDestroyed){catalogImages[index]=bitmap;catalogAdapter?.notifyDataSetChanged()} }
+                handler.post { if(!isDestroyed){catalogImages[index]=bitmap;catalogAdapter?.notifyDataSetChanged();updateSelectedIcon()} }
+            }
+            val paths=mapOf(5 to "wood",1 to "concrete",2 to "brick",3 to "rust")
+            for((id,name) in paths){
+                val bitmap=try{assets.open("textures/$name.png").use { BitmapFactory.decodeStream(it) }}catch(_:Exception){null}
+                handler.post { if(!isDestroyed){materialImages[id]=bitmap;updateSelectedIcon()} }
             }
         }
     }
+    private fun updateSelectedIcon(){
+        if(!::selectedImage.isInitialized)return
+        val image=catalogImages[selected]
+        if(image!=null)selectedImage.setImageBitmap(image) else selectedImage.setImageResource(android.R.drawable.ic_menu_gallery)
+        selectedSwatch.materialId=selectedSurface;selectedSwatch.texture=materialImages[selectedSurface];selectedSwatch.invalidate()
+        val material=materialNames[materialIds.indexOf(selectedSurface).coerceAtLeast(0)]
+        selectedSlot.contentDescription="${items[selected]} · $material · открыть каталог"
+    }
+    private fun closePopup(){popup?.let { hud.removeView(it) };popup=null;catalogAdapter=null}
+    private fun panel(title: String): LinearLayout {
+        closePopup()
+        val panel=LinearLayout(this).apply {
+            orientation=LinearLayout.VERTICAL;isClickable=true;isMotionEventSplittingEnabled=true
+            background=GradientDrawable().apply { setColor(0xe6202b33.toInt());cornerRadius=dp(12).toFloat();setStroke(dp(1),0x887eaaa6.toInt()) }
+            setPadding(dp(8),dp(4),dp(8),dp(6))
+        }
+        val heading=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL }
+        heading.addView(label(title,13f),LinearLayout.LayoutParams(0,dp(32),1f))
+        heading.addView(label("×",24f).apply { gravity=Gravity.CENTER;contentDescription="Закрыть каталог";setOnClickListener { closePopup() } },LinearLayout.LayoutParams(dp(48),dp(32)))
+        panel.addView(heading)
+        val height=resources.configuration.screenHeightDp
+        val left=(height*.32f).toInt().coerceIn(120,184)+28
+        hud.addView(panel,FrameLayout.LayoutParams((hud.width-dp(left+150)).coerceAtLeast(dp(260)),dp((height-144).coerceAtLeast(152)),Gravity.TOP or Gravity.START).apply { leftMargin=dp(left);topMargin=dp(60) })
+        popup=panel;return panel
+    }
     private fun renderTools() {
+        weapon.tool=toolsState.tool
+        weapon.visibility=if(toolsState.viewmodelVisible)View.VISIBLE else View.GONE
+        if(!toolsState.spawnVisible && catalogAdapter!=null)closePopup()
+        updateSelectedIcon()
         spawnActions.visibility=if(toolsState.spawnVisible)View.VISIBLE else View.GONE
         gravityActions.visibility=if(toolsState.gravityVisible)View.VISIBLE else View.GONE
         removeControl.visibility=if(toolsState.deleteVisible)View.VISIBLE else View.GONE
@@ -284,59 +340,54 @@ class MainActivity : GameActivity() {
         }
     }
     private fun selectTool(tool: HandTool) {
-        requestedTool=tool;toolsState.select(tool);nativeCommand(20+tool.ordinal);renderTools()
+        closePopup();requestedTool=tool;toolsState.select(tool);nativeCommand(20+tool.ordinal);if(tool==HandTool.SPAWN_GUN)nativeCommand(40+selectedSurface);renderTools()
         if(tool==HandTool.SPAWN_GUN)showBuildCatalog()
     }
     private fun showToolsMenu() {
-        joystick.reset()
-        AlertDialog.Builder(this).setTitle("Инструмент в руках")
-            .setItems(arrayOf("Пустые руки","Спавн-пушка","Грави-пушка","Удалить")) { _,index -> selectTool(HandTool.values()[index]) }
-            .setNegativeButton("Отмена",null).show()
+        val menu=panel("Инструменты")
+        val row=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER }
+        val descriptions=arrayOf("Пустые руки","Спавн-пушка","Грави-пушка","Удалить")
+        for((index,tool) in HandTool.values().withIndex()){
+            row.addView(ToolArtView(this).apply {
+                this.tool=tool;contentDescription=descriptions[index]
+                background=GradientDrawable().apply { setColor(if(tool==toolsState.tool)0xaa477264.toInt() else 0x663b4652);cornerRadius=dp(6).toFloat() }
+                setOnClickListener { selectTool(tool) }
+            },LinearLayout.LayoutParams(0,dp(84),1f).apply { setMargins(dp(2),dp(8),dp(2),dp(8)) })
+        }
+        menu.addView(row)
     }
     private fun showBuildCatalog() {
-        joystick.reset();lookArea.reset()
-        val grid=GridView(this).apply {
-            numColumns=if(resources.configuration.screenWidthDp>=600)4 else 2
-            horizontalSpacing=dp(8);verticalSpacing=dp(8)
-            setPadding(dp(12),dp(8),dp(12),dp(8));clipToPadding=false
+        val container=panel("Строительство")
+        val materials=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
+        for((index,id) in materialIds.withIndex()){
+            materials.addView(MaterialBlockView(this,id).apply {
+                texture=materialImages[id];contentDescription=materialNames[index]
+                background=GradientDrawable().apply { setColor(if(selectedSurface==id)0xaa477264.toInt() else 0x223b4652);cornerRadius=dp(5).toFloat() }
+                setOnClickListener { selectedSurface=id;nativeCommand(40+id);showBuildCatalog();updateSelectedIcon() }
+            },LinearLayout.LayoutParams(0,dp(52),1f))
         }
+        container.addView(materials)
+        val grid=GridView(this).apply { numColumns=4;horizontalSpacing=dp(4);verticalSpacing=dp(4);clipToPadding=false;isMotionEventSplittingEnabled=true }
         val adapter=object : BaseAdapter() {
             override fun getCount()=items.size
             override fun getItem(position: Int)=items[position]
             override fun getItemId(position: Int)=position.toLong()
-            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
-                val card=LinearLayout(this@MainActivity).apply {
-                    orientation=LinearLayout.VERTICAL;gravity=Gravity.CENTER
-                    setPadding(dp(4),dp(4),dp(4),dp(4));minimumHeight=dp(124)
-                    contentDescription=items[position]
-                    background=GradientDrawable().apply {
-                        cornerRadius=dp(8).toFloat();setColor(if(position==selected)0xff405d50.toInt() else 0xff29343b.toInt())
-                        if(position==selected)setStroke(dp(2),0xff92d9ac.toInt())
-                    }
-                }
-                card.addView(ImageView(this@MainActivity).apply {
-                    scaleType=ImageView.ScaleType.FIT_CENTER
-                    val image=catalogImages[position]
-                    if(image!=null)setImageBitmap(image) else setImageResource(android.R.drawable.ic_menu_gallery)
-                    importantForAccessibility=View.IMPORTANT_FOR_ACCESSIBILITY_NO
-                },LinearLayout.LayoutParams(-1,dp(96)))
-                card.addView(label(items[position],12f).apply { gravity=Gravity.CENTER },LinearLayout.LayoutParams(-1,dp(24)))
-                return card
+            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View = ImageView(this@MainActivity).apply {
+                scaleType=ImageView.ScaleType.FIT_CENTER;contentDescription=items[position];minimumHeight=dp(60)
+                layoutParams=AbsListView.LayoutParams(-1,dp(60))
+                background=GradientDrawable().apply {setColor(if(position==selected)0xaa477264.toInt() else 0x443b4652);cornerRadius=dp(6).toFloat();if(position==selected)setStroke(dp(1),0xff92d9ac.toInt())}
+                val image=catalogImages[position]
+                if(image!=null)setImageBitmap(image) else setImageResource(android.R.drawable.ic_menu_gallery)
             }
         }
-        catalogAdapter=adapter;grid.adapter=adapter
-        val dialog=AlertDialog.Builder(this).setTitle("Выберите блок для установки")
-            .setView(grid).setNegativeButton("Отмена",null).create()
+        catalogAdapter=adapter;grid.adapter=adapter;container.addView(grid,LinearLayout.LayoutParams(-1,0,1f))
         grid.setOnItemClickListener { _,_,index,_ ->
             repeat((index-selected+items.size)%items.size) { nativeCommand(1) }
-            selected=index;dialog.dismiss()
+            selected=index;updateSelectedIcon();closePopup()
         }
-        dialog.setOnDismissListener { catalogAdapter=null;hideSystemUi() }
-        dialog.show()
-        dialog.window?.setLayout(dp(resources.configuration.screenWidthDp.coerceAtMost(720)-32),dp((resources.configuration.screenHeightDp-24).coerceAtMost(480)))
     }
     private fun setPaused(value: Boolean) {
-        paused=value;joystick.reset();lookArea.reset();nativeVertical(0f)
+        closePopup();paused=value;joystick.reset();lookArea.reset();weapon.running=!value && active;nativeVertical(0f)
         nativeReady(worldReady && active && !paused)
     }
     private fun showPauseMenu() {
@@ -357,6 +408,7 @@ class MainActivity : GameActivity() {
         if (::coordinates.isInitialized) { handler.removeCallbacks(poll); handler.post(poll) }
     }
     override fun onPause() {
+        closePopup();weapon.running=false
         active = false; nativeReady(false)
         if (::joystick.isInitialized) joystick.reset();if (::lookArea.isInitialized)lookArea.reset()
         try { player?.pause() } catch (_: IllegalStateException) {}
