@@ -67,11 +67,16 @@ struct Access {
   if(a.componentType==5125){uint32_t v;std::memcpy(&v,p,4);return v;}throw std::runtime_error("Invalid index type");
  }
 };
-bool imageLoader(tinygltf::Image *image,int,std::string*,std::string *warn,int,int,const unsigned char *bytes,int size,void*){
+struct DecodePolicy {bool selective=false;std::set<int> required;};
+bool imageLoader(tinygltf::Image *image,int index,std::string*,std::string *warn,int,int,const unsigned char *bytes,int size,void*user){
+ auto *policy=static_cast<DecodePolicy*>(user);
+ if(policy&&policy->selective&&index>=0&&!policy->required.count(index)){
+  image->width=image->height=1;image->component=4;image->bits=8;image->pixel_type=5121;image->image={255,255,255,255};return true;
+ }
  int w=0,h=0,c=0;unsigned char*p=nullptr;
  if(size>0&&stbi_info_from_memory(bytes,size,&w,&h,&c)&&w>0&&h>0&&w<=8192&&h<=8192)p=stbi_load_from_memory(bytes,size,&w,&h,&c,4);
  if(!p){image->width=image->height=1;image->component=4;image->bits=8;image->pixel_type=5121;image->image={255,255,255,255};if(warn)*warn+="Image decode failed; white fallback used.\n";return true;}
- int rw=std::min(w,2048),rh=std::min(h,2048);image->width=rw;image->height=rh;image->component=4;image->bits=8;image->pixel_type=5121;image->image.resize(size_t(rw)*rh*4);
+ int rw=std::min(w,1024),rh=std::min(h,1024);image->width=rw;image->height=rh;image->component=4;image->bits=8;image->pixel_type=5121;image->image.resize(size_t(rw)*rh*4);
  for(int y=0;y<rh;y++)for(int x=0;x<rw;x++)std::copy_n(p+(size_t(y*h/rh)*w+x*w/rw)*4,4,image->image.data()+(size_t(y)*rw+x)*4);
  stbi_image_free(p);return true;
 }
@@ -93,7 +98,8 @@ void prepare(Scene &s,const LoadOptions &options){
   s.minimum=minimum;s.maximum=maximum;
   float height=std::min(1.2f,maximum[1]-minimum[1]);
   s.colliders.push_back({(minimum[0]+maximum[0])/2,minimum[1]+height/2,(minimum[2]+maximum[2])/2,maximum[0]-minimum[0],height,maximum[2]-minimum[2],0,0,0});
-  buildSceneCollision(s);return;
+  if(options.buildPhysics){buildSceneCollision(s);}
+  return;
  }
  // Estimate ground from area-weighted horizontal triangles, rather than lowest rubble vertex.
  std::map<int,double> ground;
@@ -127,7 +133,22 @@ void prepare(Scene &s,const LoadOptions &options){
 bool Scene::load(const std::string &path,const ReadFile &read,std::string &diagnostics,const LoadOptions &options){
  try{
   Scene result;std::vector<unsigned char> bytes;if(!read(path,bytes)||bytes.empty()||bytes.size()>128*1024*1024)throw std::runtime_error("Model missing or exceeds 128 MiB");
-  tinygltf::TinyGLTF parser;parser.SetImageLoader(imageLoader,nullptr);
+  DecodePolicy policy;
+  try{
+   size_t offset=0,length=bytes.size();
+   if(bytes.size()>20&&std::memcmp(bytes.data(),"glTF",4)==0){uint32_t n=0;std::memcpy(&n,bytes.data()+12,4);offset=20;length=n;}
+   if(offset+length<=bytes.size()){
+    auto j=nlohmann::json::parse(bytes.begin()+offset,bytes.begin()+offset+length);
+    if(j.contains("materials")&&j.contains("textures")){
+     for(const auto&m:j["materials"])if(m.contains("pbrMetallicRoughness")&&m["pbrMetallicRoughness"].contains("baseColorTexture")){
+      int texture=m["pbrMetallicRoughness"]["baseColorTexture"]["index"].get<int>();
+      const auto&t=j["textures"].at(texture);if(t.contains("source"))policy.required.insert(t["source"].get<int>());
+     }
+     policy.selective=true;
+    }
+   }
+  }catch(const std::exception&){policy.selective=false;}
+  tinygltf::TinyGLTF parser;parser.SetImageLoader(imageLoader,&policy);
   tinygltf::FsCallbacks fs;
   fs.FileExists=[&](const std::string&p,void*){std::vector<unsigned char>b;return read(p,b);};
   fs.ExpandFilePath=[](const std::string&p,void*){return p;};

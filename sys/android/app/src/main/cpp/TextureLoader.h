@@ -1,5 +1,7 @@
 #pragma once
 #include <GLES3/gl3.h>
+#include <array>
+#include <vector>
 struct AAssetManager;
 
 // Layers must match the material IDs in SandboxWorld.h.
@@ -12,6 +14,9 @@ public:
     ~TextureLoader();
     TextureLoader(const TextureLoader&) = delete;
     TextureLoader& operator=(const TextureLoader&) = delete;
+    using Prepared=std::array<std::vector<unsigned char>,Layers>;
+    static Prepared prepare(AAssetManager *assets);
+    bool upload(const Prepared &images);
     bool load(AAssetManager *assets);
     void bind(GLuint unit = 0) const;
     void release();

@@ -84,16 +84,18 @@ class MainActivity : GameActivity() {
                 nativeReady(unlocked && !paused)
                 loading.visibility = if (unlocked) View.GONE else View.VISIBLE
                 spinner.visibility = if (stage < 0) View.GONE else View.VISIBLE
+                if(state.size>=9)spinner.progress=state[8].toInt().coerceIn(0,100)
                 loadingText.text = when (stage) {
                     0 -> "Подготовка графики…"
                     1 -> "Загрузка текстур…"
                     2 -> "Загрузка города и материалов…"
-                    3 -> "Размещение УАЗа…"
-                    4 -> "Проверка коллизий и безопасного спавна…"
+                    3 -> "Подготовка УАЗа и парковки…"
+                    4 -> "Загрузка моделей на GPU…"
                     5 -> "Подготовка первого кадра…"
                     6 -> "Мир готов"
                     else -> "Не удалось запустить рендерер.\nПерезапусти игру. Ошибка записана в logcat / Ekron."
                 }
+                if(stage in 0..5 && state.size>=9)loadingText.append(" ${state[8].toInt()}%")
                 notice.text = when (state[5].toInt()) {
                     1 -> "Точка из конфига небезопасна — спавн перенесён на открытое место."
                     2 -> "Нет безопасной точки ходьбы — оставлен полёт."
@@ -222,8 +224,8 @@ class MainActivity : GameActivity() {
         }
         loading.addView(label("ЭКРОН", 32f))
         loading.addView(label("Пока ждёте загрузку мира, вам будет показан короткий видео ролик", 14f).apply { setPadding(0, dp(12), 0, dp(20)) })
-        spinner = ProgressBar(this)
-        loading.addView(spinner, LinearLayout.LayoutParams(dp(48), dp(48)))
+        spinner = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply { max=100;isIndeterminate=false }
+        loading.addView(spinner, LinearLayout.LayoutParams(dp(240), dp(16)))
         loadingText = label("Подготовка мира…", 14f).apply { gravity = Gravity.CENTER; setPadding(dp(20), dp(18), dp(20), 0) }
         loading.addView(loadingText)
         overlay.addView(loading, FrameLayout.LayoutParams(-1, -1))

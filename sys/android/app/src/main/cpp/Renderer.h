@@ -4,6 +4,7 @@
 #include <chrono>
 #include "SandboxWorld.h"
 #include "ToolInteraction.h"
+#include "ObjectDynamics.h"
 #include "RaycastPlacement.h"
 #include "PlayerPhysics.h"
 #include <future>
@@ -34,6 +35,8 @@ private:
     bool flying_=false;
     sandbox::World world_;
     sandbox::ToolInteraction tools_;
+    sandbox::ObjectDynamics dynamics_;
+    float motionSaveTime_=0;
     physics::PlayerController player_;
     bool crouched_=false,prone_=false;
     std::future<bool> saveJob_;
@@ -41,6 +44,10 @@ private:
     std::future<std::optional<std::array<float,2>>> roadJob_;
     physics::CollisionMesh builtCollision_;
     void rebuildBuiltCollision();
+    struct PreparedAssets {city::Scene city,car;TextureLoader::Prepared textures;std::string log;float parkingX=0,parkingZ=0,parkingY=0;bool valid=false,carValid=false;};
+    std::future<PreparedAssets> assetsJob_;
+    void advanceLoading();
+    bool assetsInstalled_=false;
     std::string savePath_;
     std::chrono::steady_clock::time_point last_;
 };

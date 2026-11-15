@@ -63,15 +63,21 @@ void TextureLoader::release(){
     texture_=0;
 }
 void TextureLoader::bind(GLuint unit)const{glActiveTexture(GL_TEXTURE0+unit);glBindTexture(GL_TEXTURE_2D_ARRAY,texture_);}
-bool TextureLoader::load(AAssetManager *assets){
+TextureLoader::Prepared TextureLoader::prepare(AAssetManager *assets){
+ Prepared images;const std::array<const char*,4> names={"textures/asphalt.png","textures/concrete.png","textures/brick.png","textures/rust.png"};
+ for(int layer=0;layer<Layers;layer++)images[layer]=layer<4?decode(assets,names[layer],layer):fallback(layer);
+ return images;
+}
+bool TextureLoader::load(AAssetManager *assets){return upload(prepare(assets));}
+bool TextureLoader::upload(const Prepared &images){
+
     release();
     glGenTextures(1,&texture_);if(!texture_)return false;
     bind();
     // sRGB albedo is automatically decoded to linear RGB before lighting.
     glTexStorage3D(GL_TEXTURE_2D_ARRAY,10,GL_SRGB8_ALPHA8,Size,Size,Layers);
-    const std::array<const char*,4> names={"textures/asphalt.png","textures/concrete.png","textures/brick.png","textures/rust.png"};
     for(int layer=0;layer<Layers;layer++) {
-        auto rgba=layer<4?decode(assets,names[layer],layer):fallback(layer);
+        const auto &rgba=images[layer];
         glTexSubImage3D(GL_TEXTURE_2D_ARRAY,0,0,0,layer,Size,Size,1,GL_RGBA,GL_UNSIGNED_BYTE,rgba.data());
     }
     glTexParameteri(GL_TEXTURE_2D_ARRAY,GL_TEXTURE_WRAP_S,GL_REPEAT);

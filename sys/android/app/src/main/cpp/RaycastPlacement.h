@@ -28,7 +28,16 @@ public:
   float extent=std::abs(hit.normal.x)*b.w/2+std::abs(hit.normal.y)*b.h/2+std::abs(hit.normal.z)*b.d/2;
   auto center=hit.position+hit.normal*(extent+.012f);
   candidate.x=center.x;candidate.z=center.z;candidate.y=center.y-b.h/2;
-  if(!valid(w,candidate,city,built,lo,hi))return {};
+  candidate.anchored=std::abs(hit.normal.y)<.64f;
+  if(!valid(w,candidate,city,built,lo,hi)){
+   // Push out along the visible support normal, never through to the other side.
+   bool foundFit=false;
+   for(float push=.025f;push<=.6f;push+=.025f){
+    Object adjusted=candidate;adjusted.x+=hit.normal.x*push;adjusted.y+=hit.normal.y*push;adjusted.z+=hit.normal.z*push;
+    if(valid(w,adjusted,city,built,lo,hi)){candidate=adjusted;foundFit=true;break;}
+   }
+   if(!foundFit)return {};
+  }
   return candidate;
  }
 };

@@ -25,21 +25,27 @@ public:
   if(found<0)return false;
   // Reject a sight ray hidden by solid city geometry (including the alpha fence BVH).
   if(city)for(float t=0;t<nearest-.03f;t+=.04f){auto p=origin+dir*t;physics::Bounds area;area.add(p-physics::Vec3{.025f,.025f,.025f});area.add(p+physics::Vec3{.025f,.025f,.025f});bool hit=false;city->query(area,[&](const physics::Triangle&tri){if(physics::length(p-physics::closestTriangle(p,tri))<.03f)hit=true;});if(hit)return false;}
-  held=found;original=w.objects[held];auto b=World::bounds(original);display={b.x,b.y,b.z};return true;
+  held=found;original=w.objects[held];w.objects[held].awake=false;auto b=World::bounds(original);display={b.x,b.y,b.z};return true;
  }
- void pull(const World&w,float dt){
+ void pull(const World&w,float dt,const physics::CollisionMesh*mesh=nullptr){
   if(!holding())return;
   physics::Vec3 target{w.x-std::sin(w.yaw)*3.5f,w.y+std::sin(w.pitch)*2,w.z-std::cos(w.yaw)*3.5f};
-  display=display+(target-display)*(1-std::exp(-8*dt));
+  auto next=display+(target-display)*(1-std::exp(-8*dt));
+  if(mesh){auto b=World::bounds(w.objects[held]);physics::Vec3 half{b.w/2-.01f,b.h/2-.01f,b.d/2-.01f};if(mesh->intersectsBox(next,half))return;}
+  display=next;
  }
  void rotate(World&w){if(holding())w.objects[held].rotation=(w.objects[held].rotation+1)%4;}
  bool release(World&w){
   if(!holding())return false;
-  Object candidate=w.objects[held];candidate.x=std::round(display.x*2)/2;candidate.z=std::round(display.z*2)/2;candidate.y=original.y;
-  // Preserve the original support height on release; reject occupied destinations.
-  Object saved=w.objects[held];w.objects.erase(w.objects.begin()+held);
-  if(!w.canPlace(candidate)){w.objects.insert(w.objects.begin()+held,saved);return false;}
-  w.objects.insert(w.objects.begin()+held,candidate);held=-1;return true;
+  auto &o=w.objects[held];auto b=World::bounds(o);o.x=display.x;o.z=display.z;o.y=display.y-b.h/2;
+  float impulse=o.type==8?10.f:16.f;
+  o.vx=-std::sin(w.yaw)*std::cos(w.pitch)*impulse;o.vz=-std::cos(w.yaw)*std::cos(w.pitch)*impulse;o.vy=std::sin(w.pitch)*impulse+2;
+  o.awake=true;o.anchored=false;held=-1;return true;
+ }
+ int target(World&w,const physics::CollisionMesh*city){
+  if(tool!=HandTool::GRAVITY_GUN||holding())return -1;
+  if(!grab(w,city))return -1;
+  int result=held;w.objects[held]=original;held=-1;return result;
  }
 };
 }

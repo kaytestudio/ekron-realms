@@ -14,5 +14,5 @@ class ToolState {
     val gravityVisible get() = tool == HandTool.GRAVITY_GUN
     val rotateHeldVisible get() = gravityVisible && holding
     val deleteVisible get() = tool == HandTool.DELETE_TOOL
-    val grabCaption get() = if (holding) "Отпустить" else "Захват"
+    val grabCaption get() = if (holding) "Бросить" else "Захват"
 }

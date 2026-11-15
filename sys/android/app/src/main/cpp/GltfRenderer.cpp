@@ -16,12 +16,19 @@ bool readAsset(AAssetManager *manager,const std::string &path,std::vector<unsign
 }
 GLint wrap(int mode){return mode==GL_CLAMP_TO_EDGE||mode==GL_MIRRORED_REPEAT?mode:GL_REPEAT;}
 }
+bool GltfRenderer::prepare(AAssetManager *assets,const std::string&path,Scene &scene,std::string &log,const LoadOptions &options){
+ return scene.load(path,[&](const std::string&p,std::vector<unsigned char>&b){return readAsset(assets,p,b);},log,options);
+}
+void GltfRenderer::beginUpload(Scene scene){release();scene_=std::move(scene);nextMaterial_=nextBatch_=0;uploading_=true;}
 bool GltfRenderer::load(AAssetManager *assets,const std::string&path,std::string &log,const LoadOptions &options){
-    release();
-    if(!scene_.load(path,[&](const std::string&p,std::vector<unsigned char>&b){return readAsset(assets,p,b);},log,options))return false;
+ Scene scene;if(!prepare(assets,path,scene,log,options))return false;beginUpload(std::move(scene));while(uploading_)uploadStep(log);return ready();
+}
+bool GltfRenderer::uploadStep(std::string &log){
+    if(!uploading_)return ready();
     glActiveTexture(GL_TEXTURE1);glPixelStorei(GL_UNPACK_ALIGNMENT,1);
     // One per material preserves distinct glTF sampler wrapping modes.
-    for(const auto&material:scene_.materials){
+    if(nextMaterial_<scene_.materials.size()){
+        const auto&material=scene_.materials[nextMaterial_++];
         GLuint texture=0;glGenTextures(1,&texture);textures_.push_back(texture);glBindTexture(GL_TEXTURE_2D,texture);
         const unsigned char white[4]={255,255,255,255};const Image *image=nullptr;
         if(material.image>=0&&size_t(material.image)<scene_.images.size())image=&scene_.images[material.image];
@@ -29,9 +36,9 @@ bool GltfRenderer::load(AAssetManager *assets,const std::string&path,std::string
         glTexImage2D(GL_TEXTURE_2D,0,GL_SRGB8_ALPHA8,valid?image->width:1,valid?image->height:1,0,GL_RGBA,GL_UNSIGNED_BYTE,valid?image->rgba.data():white);
         glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,wrap(material.wrapS));glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,wrap(material.wrapT));
         glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR_MIPMAP_LINEAR);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);glGenerateMipmap(GL_TEXTURE_2D);
-    }
-    for(const auto&batch:scene_.batches){
-        if(batch.vertices.empty())continue;Mesh mesh;mesh.count=static_cast<GLsizei>(batch.vertices.size());mesh.material=batch.material;
+    }else if(nextBatch_<scene_.batches.size()){
+        const auto&batch=scene_.batches[nextBatch_++];
+        if(batch.vertices.empty())return false;Mesh mesh;mesh.count=static_cast<GLsizei>(batch.vertices.size());mesh.material=batch.material;
         for(const auto&v:batch.vertices){mesh.x+=v.x/mesh.count;mesh.z+=v.z/mesh.count;}
         glGenVertexArrays(1,&mesh.vao);glGenBuffers(1,&mesh.vbo);glBindVertexArray(mesh.vao);glBindBuffer(GL_ARRAY_BUFFER,mesh.vbo);
         glBufferData(GL_ARRAY_BUFFER,batch.vertices.size()*sizeof(Vertex),batch.vertices.data(),GL_STATIC_DRAW);
@@ -43,6 +50,8 @@ bool GltfRenderer::load(AAssetManager *assets,const std::string&path,std::string
     }
     glPixelStorei(GL_UNPACK_ALIGNMENT,4);glActiveTexture(GL_TEXTURE0);
     auto error=glGetError();if(error!=GL_NO_ERROR){log+="glTF GPU upload failed: "+std::to_string(error);release();return false;}
+    if(nextMaterial_<scene_.materials.size()||nextBatch_<scene_.batches.size())return false;
+    uploading_=false;
     // Static VBOs/textures own the uploaded content; do not retain decoded images on CPU.
     for(auto&image:scene_.images)std::vector<unsigned char>().swap(image.rgba);
     for(auto&batch:scene_.batches)std::vector<Vertex>().swap(batch.vertices);
@@ -65,5 +74,5 @@ void GltfRenderer::draw(GLuint program,float eyeX,float eyeZ){
     }
     glDisable(GL_BLEND);glDepthMask(GL_TRUE);glActiveTexture(GL_TEXTURE0);glUniform1i(glGetUniformLocation(program,"modelPass"),0);
 }
-void GltfRenderer::release(){for(auto&m:meshes_){if(m.vbo)glDeleteBuffers(1,&m.vbo);if(m.vao)glDeleteVertexArrays(1,&m.vao);}meshes_.clear();if(!textures_.empty())glDeleteTextures(static_cast<GLsizei>(textures_.size()),textures_.data());textures_.clear();scene_=Scene{};}
+void GltfRenderer::release(){for(auto&m:meshes_){if(m.vbo)glDeleteBuffers(1,&m.vbo);if(m.vao)glDeleteVertexArrays(1,&m.vao);}meshes_.clear();if(!textures_.empty())glDeleteTextures(static_cast<GLsizei>(textures_.size()),textures_.data());textures_.clear();scene_=Scene{};uploading_=false;}
 }
