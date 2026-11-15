@@ -14,7 +14,7 @@ public:
   float segmentLo=w.y-1.45f,segmentHi=w.y-.1f;
   float dy=std::max({0.f,b.y-half.y-segmentHi,segmentLo-(b.y+half.y)});
   if(dx*dx+dy*dy+dz*dz<.33f*.33f)return false;
-  for(const auto&existing:w.objects){auto other=World::bounds(existing);
+  for(const auto&existing:w.objects){if(existing.frozen)continue;auto other=World::bounds(existing);
    if(std::abs(b.x-other.x)<(b.w+other.w)/2-.0003f&&std::abs(b.y-other.y)<(b.h+other.h)/2-.0003f&&std::abs(b.z-other.z)<(b.d+other.d)/2-.0003f)return false;
   }
   physics::Vec3 inset=half-physics::Vec3{.0003f,.0003f,.0003f};

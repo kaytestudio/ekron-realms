@@ -84,6 +84,7 @@ class HudButton(context: Context, var caption: String, var symbol: String) : Vie
 
             "pause" -> { paint.style=Paint.Style.FILL; canvas.drawRect(29f,25f,42f,75f,paint); canvas.drawRect(58f,25f,71f,75f,paint) }
             "build" -> { line(33f,57f,65f,25f); line(48f,23f,69f,44f); line(58f,17f,76f,35f) }
+            "freeze" -> { for(i in 0..5){val a=i*Math.PI/3;val dx=kotlin.math.cos(a).toFloat();val dy=kotlin.math.sin(a).toFloat();line(50f,42f,50+dx*25,42+dy*25);val x=50+dx*16;val y=42+dy*16;line(x,y,x-dx*6-dy*6,y-dy*6+dx*6);line(x,y,x-dx*6+dy*6,y-dy*6-dx*6)} }
             "switch" -> { line(25f,34f,75f,34f);line(75f,34f,62f,21f);line(75f,34f,62f,47f);line(75f,65f,25f,65f);line(25f,65f,38f,52f);line(25f,65f,38f,78f) }
             "remove" -> { line(32f,32f,68f,68f);line(68f,32f,32f,68f) }
             "jump" -> { paint.style=Paint.Style.FILL; val path=Path();path.moveTo(50f,16f);path.lineTo(28f,42f);path.lineTo(42f,42f);path.lineTo(42f,68f);path.lineTo(58f,68f);path.lineTo(58f,42f);path.lineTo(72f,42f);path.close();canvas.drawPath(path,paint) }

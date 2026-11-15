@@ -12,8 +12,8 @@ android {
         applicationId = "com.example.realms"
         minSdk = 30
         targetSdk = 34
-        versionCode = 25
-        versionName = "0.25-place-hammer-icon"
+        versionCode = 26
+        versionName = "0.26-freeze-edge-physics"
         externalNativeBuild {
             cmake { cppFlags += "-std=c++17" }
         }

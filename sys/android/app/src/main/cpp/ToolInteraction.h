@@ -40,7 +40,15 @@ public:
   auto &o=w.objects[held];auto b=World::bounds(o);o.x=display.x;o.z=display.z;o.y=display.y-b.h/2;
   float impulse=o.type==8?10.f:16.f;
   o.vx=-std::sin(w.yaw)*std::cos(w.pitch)*impulse;o.vz=-std::cos(w.yaw)*std::cos(w.pitch)*impulse;o.vy=std::sin(w.pitch)*impulse+2;
-  o.awake=true;o.anchored=false;held=-1;return true;
+  o.frozen=false;o.awake=true;o.anchored=false;held=-1;return true;
+ }
+ bool freeze(World&w,const physics::CollisionMesh*city){
+  int index=holding()?held:target(w,city);if(index<0)return false;
+  auto&o=w.objects[index];
+  if(holding()){auto b=World::bounds(o);o.x=display.x;o.z=display.z;o.y=display.y-b.h/2;held=-1;}
+  o.frozen=!o.frozen;o.vx=o.vy=o.vz=o.spinX=o.spinZ=0;o.awake=!o.frozen;
+  if(!o.frozen)o.anchored=false;
+  return true;
  }
  int target(World&w,const physics::CollisionMesh*city){
   if(tool!=HandTool::GRAVITY_GUN||holding())return -1;

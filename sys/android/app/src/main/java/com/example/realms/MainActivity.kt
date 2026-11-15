@@ -52,6 +52,7 @@ class MainActivity : GameActivity() {
     private lateinit var spawnActions: LinearLayout
     private lateinit var gravityActions: LinearLayout
     private lateinit var removeControl: HudButton
+    private lateinit var freezeControl: HudButton
     private lateinit var grabControl: HudButton
     private lateinit var rotateHeldControl: HudButton
     private lateinit var crouchControl: HudButton
@@ -103,6 +104,7 @@ class MainActivity : GameActivity() {
                         interactionControl.caption=when(interactionCode){1->"Открыть";2->"Закрыть";3->"Сесть";4->"Выйти";else->""}
                         interactionControl.contentDescription=interactionControl.caption;interactionControl.invalidate()
                     }
+                    if(state.size>=13){freezeControl.caption=if(state[12]>.5f) "Разморозить" else "Заморозить";freezeControl.contentDescription=freezeControl.caption;freezeControl.invalidate()}
                     renderTools()
                 }
                 latest = state.copyOfRange(0, 3)
@@ -246,6 +248,7 @@ class MainActivity : GameActivity() {
         addControl(turns,"","right") { nativeCommand(2) }.apply { contentDescription="Повернуть вправо" }
         spawnActions.addView(turns)
         grabControl=addControl(gravityActions,"","grab") { nativeCommand(32) }.apply { contentDescription="Захват" }
+        freezeControl=addControl(gravityActions,"Заморозить","freeze") { nativeCommand(38) }
         rotateHeldControl=addControl(gravityActions,"Вращать","rotate") { nativeCommand(33) }
         toolActions.addView(spawnActions)
         toolActions.addView(gravityActions)
