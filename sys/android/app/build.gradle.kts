@@ -11,8 +11,11 @@ android {
         applicationId = "com.example.realms"
         minSdk = 30
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 6
+        versionName = "0.6-loading-noclip"
+        externalNativeBuild {
+            cmake { cppFlags += "-std=c++17" }
+        }
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

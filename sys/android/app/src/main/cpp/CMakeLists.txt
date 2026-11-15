@@ -1,32 +1,9 @@
-# For more information about using CMake with Android Studio, read the
-# documentation: https://d.android.com/studio/projects/add-native-code.html
-
 cmake_minimum_required(VERSION 3.22.1)
+project(realms LANGUAGES C CXX)
 
-project("realms")
-
-# Creates your game shared library. The name must be the same as the
-# one used for loading in your Kotlin/Java or AndroidManifest.txt files.
-add_library(realms SHARED
-        main.cpp
-        AndroidOut.cpp
-        Renderer.cpp
-        Shader.cpp
-        TextureAsset.cpp
-        Utility.cpp)
-
-# Searches for a package provided by the game activity dependency
+# The real Android entry point: GameActivity -> native_app_glue -> GLES sandbox.
+# No WebView, npm, JavaScript bundle or remote content is included in this APK.
+add_library(realms SHARED main.cpp AndroidOut.cpp Renderer.cpp TextureLoader.cpp ImageDecode.cpp GltfScene.cpp GltfRenderer.cpp)
+target_compile_features(realms PRIVATE cxx_std_17)
 find_package(game-activity REQUIRED CONFIG)
-
-# Configure libraries CMake uses to link your target library.
-target_link_libraries(realms
-        # The game activity
-        game-activity::game-activity
-
-        # EGL and other dependent libraries required for drawing
-        # and interacting with Android system
-        EGL
-        GLESv3
-        jnigraphics
-        android
-        log)
+target_link_libraries(realms game-activity::game-activity EGL GLESv3 android log)
