@@ -27,6 +27,8 @@ jobs:
           /tmp/ekron-world-test
           g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/native/texture_mesh_test.cpp -o /tmp/ekron-texture-test
           /tmp/ekron-texture-test
+          g++ -std=c++17 -O1 -Wall -Wextra -Werror -pedantic tests/native/gltf_scene_test.cpp sys/android/app/src/main/cpp/GltfScene.cpp sys/android/app/src/main/cpp/ImageDecode.cpp -o /tmp/ekron-gltf-test
+          /tmp/ekron-gltf-test
       - name: Validate GLSL ES shaders
         run: |
           sudo apt-get update -qq

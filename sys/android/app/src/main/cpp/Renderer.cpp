@@ -41,6 +41,7 @@ void main(){
 const char *fragment=R"(#version 300 es
 precision highp float;
 precision highp sampler2DArray;
+precision highp sampler2D;
 precision highp int;
 in vec3 tint;
 in vec3 worldNormal;
@@ -49,6 +50,12 @@ flat in int layer;
 in vec3 toEye;
 uniform sampler2DArray albedo;
 uniform bool texturesReady;
+uniform bool modelPass;
+uniform bool modelTextured;
+uniform sampler2D modelAlbedo;
+uniform vec4 baseColorFactor;
+uniform int alphaMode;
+uniform float alphaCutoff;
 uniform vec3 lightDirection;
 uniform vec3 lightColor;
 uniform vec3 ambientColor;
@@ -56,7 +63,15 @@ out vec4 outColor;
 void main(){
  vec3 base=pow(tint,vec3(2.2));
  if(texturesReady)base*=texture(albedo,vec3(texUV,float(layer))).rgb;
+ float alpha=1.0;
+ if(modelPass){
+  vec4 sampleColor=modelTextured?texture(modelAlbedo,texUV):vec4(1.0);
+  base=baseColorFactor.rgb*sampleColor.rgb;alpha=baseColorFactor.a*sampleColor.a;
+  if(alphaMode==1&&alpha<alphaCutoff)discard;
+  if(alphaMode!=2)alpha=1.0;
+ }
  vec3 n=normalize(worldNormal);
+ if(modelPass&&!gl_FrontFacing)n=-n;
  float diffuse=max(dot(n,normalize(-lightDirection)),0.0);
  // Broad, cool ambient light keeps overcast facades readable without hard shadows.
  float sky=.78+.22*max(n.y,0.0);
@@ -64,7 +79,7 @@ void main(){
  float d=max(length(toEye)-22.0,0.0);
  float fog=1.0-exp(-d*d*.00022);
  vec3 fogColor=pow(vec3(.56,.61,.63),vec3(2.2));
- outColor=vec4(pow(max(mix(lit,fogColor,fog),vec3(0.0)),vec3(1.0/2.2)),1.0);
+ outColor=vec4(pow(max(mix(lit,fogColor,fog),vec3(0.0)),vec3(1.0/2.2)),alpha);
 })";
 const char *skyVertex=R"(#version 300 es
 out vec2 screen;
@@ -127,6 +142,17 @@ Renderer::Renderer(android_app *app):app_(app),last_(std::chrono::steady_clock::
  if(surface_==EGL_NO_SURFACE||context_==EGL_NO_CONTEXT||!eglMakeCurrent(display_,surface_,surface_,context_))return;
  program_=link(vertex,fragment);skyProgram_=link(skyVertex,skyFragment);if(!program_)return;
  texturesReady_=textures_.load(app_->activity->assetManager);
+ std::string cityLog;
+ if(city_.load(app_->activity->assetManager,"models/abandoned_city_street_for_games.glb",cityLog)){
+  world_.scenery.clear();world_.walls=city_.scene().colliders;
+  // Keep prototype saves separate: their coordinates refer to a different level.
+  savePath_=std::string(app->activity->internalDataPath)+"/city-glb-v1.txt";
+  if(!retainedWorld){world_.objects.clear();world_.load(savePath_);}
+  if(!retainedWorld||world_.blocked({world_.x,0,world_.z,.6f,2,.6f,0,0,0})){
+   world_.x=city_.scene().spawnX;world_.z=city_.scene().spawnZ;
+  }
+ }
+ __android_log_print(city_.ready()?ANDROID_LOG_INFO:ANDROID_LOG_ERROR,"Ekron","%s",cityLog.c_str());
  glGenVertexArrays(1,&vao_);glGenBuffers(1,&buffer_);glBindVertexArray(vao_);glBindBuffer(GL_ARRAY_BUFFER,buffer_);
  glEnableVertexAttribArray(0);glVertexAttribPointer(0,3,GL_FLOAT,GL_FALSE,sizeof(Vertex),reinterpret_cast<void*>(offsetof(Vertex,x)));
  glEnableVertexAttribArray(1);glVertexAttribPointer(1,3,GL_FLOAT,GL_FALSE,sizeof(Vertex),reinterpret_cast<void*>(offsetof(Vertex,r)));
@@ -137,7 +163,7 @@ Renderer::Renderer(android_app *app):app_(app),last_(std::chrono::steady_clock::
 }
 Renderer::~Renderer(){
  retainedWorld=world_;retainedBuilding=building_;
- if(display_!=EGL_NO_DISPLAY){if(context_!=EGL_NO_CONTEXT&&surface_!=EGL_NO_SURFACE&&eglMakeCurrent(display_,surface_,surface_,context_)){textures_.release();if(skyProgram_)glDeleteProgram(skyProgram_);if(buffer_)glDeleteBuffers(1,&buffer_);if(vao_)glDeleteVertexArrays(1,&vao_);if(program_)glDeleteProgram(program_);}eglMakeCurrent(display_,EGL_NO_SURFACE,EGL_NO_SURFACE,EGL_NO_CONTEXT);if(context_!=EGL_NO_CONTEXT)eglDestroyContext(display_,context_);if(surface_!=EGL_NO_SURFACE)eglDestroySurface(display_,surface_);eglTerminate(display_);}
+ if(display_!=EGL_NO_DISPLAY){if(context_!=EGL_NO_CONTEXT&&surface_!=EGL_NO_SURFACE&&eglMakeCurrent(display_,surface_,surface_,context_)){city_.release();textures_.release();if(skyProgram_)glDeleteProgram(skyProgram_);if(buffer_)glDeleteBuffers(1,&buffer_);if(vao_)glDeleteVertexArrays(1,&vao_);if(program_)glDeleteProgram(program_);}eglMakeCurrent(display_,EGL_NO_SURFACE,EGL_NO_SURFACE,EGL_NO_CONTEXT);if(context_!=EGL_NO_CONTEXT)eglDestroyContext(display_,context_);if(surface_!=EGL_NO_SURFACE)eglDestroySurface(display_,surface_);eglTerminate(display_);}
 }
 void Renderer::resetInput(){leftId_=rightId_=-1;moveX_=moveY_=0;last_=std::chrono::steady_clock::now();}
 void Renderer::handleInput(){
@@ -177,10 +203,13 @@ void Renderer::render(){
  }
  glUseProgram(program_);textures_.bind();glUniform1i(glGetUniformLocation(program_,"albedo"),0);
  glUniform1i(glGetUniformLocation(program_,"texturesReady"),texturesReady_?1:0);
+ glUniform1i(glGetUniformLocation(program_,"modelPass"),0);
+ glUniform1i(glGetUniformLocation(program_,"modelAlbedo"),1);
  glUniform3f(glGetUniformLocation(program_,"lightDirection"),-.45f,-1.f,-.25f);
  glUniform3f(glGetUniformLocation(program_,"lightColor"),.55f,.52f,.48f);
  glUniform3f(glGetUniformLocation(program_,"ambientColor"),.55f,.59f,.65f);
  glUniform3f(glGetUniformLocation(program_,"eye"),world_.x,1.7f,world_.z);glUniform2f(glGetUniformLocation(program_,"angles"),world_.yaw,world_.pitch);glUniform1f(glGetUniformLocation(program_,"aspect"),float(width_)/height_);
  glBindVertexArray(vao_);glBindBuffer(GL_ARRAY_BUFFER,buffer_);glBufferData(GL_ARRAY_BUFFER,vertices.size()*sizeof(Vertex),vertices.data(),GL_STREAM_DRAW);glDrawArrays(GL_TRIANGLES,0,static_cast<GLsizei>(vertices.size()));
+ city_.draw(program_,world_.x,world_.z);
  eglSwapBuffers(display_,surface_);
 }

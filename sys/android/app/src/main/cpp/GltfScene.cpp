@@ -1,0 +1,169 @@
+#include "GltfScene.h"
+#define TINYGLTF_IMPLEMENTATION
+#define TINYGLTF_NO_STB_IMAGE_WRITE
+#define TINYGLTF_NO_FS
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-parameter"
+#include "third_party/tiny_gltf.h"
+#pragma GCC diagnostic pop
+#include <cstring>
+#include <limits>
+#include <stdexcept>
+#include <set>
+#include <optional>
+
+namespace city {
+namespace {
+using Vec=std::array<float,3>;
+using Matrix=std::array<double,16>;
+Matrix identity(){return {1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};}
+Matrix multiply(const Matrix&a,const Matrix&b){Matrix r{};for(int c=0;c<4;c++)for(int row=0;row<4;row++)for(int k=0;k<4;k++)r[c*4+row]+=a[k*4+row]*b[c*4+k];return r;}
+Vec point(const Matrix&m,Vec v){return {float(m[0]*v[0]+m[4]*v[1]+m[8]*v[2]+m[12]),float(m[1]*v[0]+m[5]*v[1]+m[9]*v[2]+m[13]),float(m[2]*v[0]+m[6]*v[1]+m[10]*v[2]+m[14])};}
+Vec sub(Vec a,Vec b){return {a[0]-b[0],a[1]-b[1],a[2]-b[2]};}
+Vec cross(Vec a,Vec b){return {a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]};}
+Vec normal(Vec a){float l=std::sqrt(a[0]*a[0]+a[1]*a[1]+a[2]*a[2]);return l>.000001f?Vec{a[0]/l,a[1]/l,a[2]/l}:Vec{0,1,0};}
+Matrix transform(const tinygltf::Node&n){
+ if(n.matrix.size()==16){Matrix m;std::copy(n.matrix.begin(),n.matrix.end(),m.begin());return m;}
+ Matrix t=identity(),r=identity(),s=identity();
+ if(n.translation.size()==3)for(int i=0;i<3;i++)t[12+i]=n.translation[i];
+ if(n.scale.size()==3)for(int i=0;i<3;i++)s[i*5]=n.scale[i];
+ if(n.rotation.size()==4){double x=n.rotation[0],y=n.rotation[1],z=n.rotation[2],w=n.rotation[3];double l=std::sqrt(x*x+y*y+z*z+w*w);if(l>0){x/=l;y/=l;z/=l;w/=l;}r={1-2*y*y-2*z*z,2*x*y+2*z*w,2*x*z-2*y*w,0,2*x*y-2*z*w,1-2*x*x-2*z*z,2*y*z+2*x*w,0,2*x*z+2*y*w,2*y*z-2*x*w,1-2*x*x-2*y*y,0,0,0,0,1};}
+ return multiply(t,multiply(r,s));
+}
+// Normal inverse-transpose handles nonuniform scale and reflected nodes.
+Vec transformedNormal(const Matrix&m,Vec n){
+ Vec a{float(m[0]),float(m[1]),float(m[2])},b{float(m[4]),float(m[5]),float(m[6])},c{float(m[8]),float(m[9]),float(m[10])};
+ auto u=cross(b,c),v=cross(c,a),w=cross(a,b);float det=a[0]*u[0]+a[1]*u[1]+a[2]*u[2];
+ if(std::abs(det)<1e-12f)return {0,1,0};
+ return normal({(u[0]*n[0]+v[0]*n[1]+w[0]*n[2])/det,(u[1]*n[0]+v[1]*n[1]+w[1]*n[2])/det,(u[2]*n[0]+v[2]*n[1]+w[2]*n[2])/det});
+}
+struct Access {
+ const tinygltf::Accessor &a;const std::vector<unsigned char>&data;size_t offset,stride,bytes;int channels;
+ Access(const tinygltf::Model&m,int index):a(m.accessors.at(index)),data(m.buffers.at(m.bufferViews.at(a.bufferView).buffer).data){
+  if(a.sparse.isSparse)throw std::runtime_error("Sparse accessors are not supported");
+  const auto &view=m.bufferViews.at(a.bufferView);
+  channels=tinygltf::GetNumComponentsInType(a.type);int component=tinygltf::GetComponentSizeInBytes(a.componentType);
+  if(channels<=0||component<=0)throw std::runtime_error("Invalid accessor type");
+  bytes=size_t(channels)*component;int step=a.ByteStride(view);if(step<0)throw std::runtime_error("Invalid accessor stride");stride=size_t(step);offset=view.byteOffset+a.byteOffset;
+  if(stride<bytes||view.byteOffset>data.size()||view.byteLength>data.size()-view.byteOffset||a.byteOffset>view.byteLength||offset>data.size()|| (a.count && (bytes>view.byteLength-a.byteOffset||(a.count-1)>(view.byteLength-a.byteOffset-bytes)/stride)))throw std::runtime_error("Accessor outside buffer");
+ }
+ float get(size_t i,int c)const{
+  if(i>=a.count||c>=channels)throw std::runtime_error("Accessor index out of range");
+  const auto*p=data.data()+offset+i*stride+c*(bytes/channels);
+  switch(a.componentType){case TINYGLTF_COMPONENT_TYPE_FLOAT:{float v;std::memcpy(&v,p,4);if(!std::isfinite(v))throw std::runtime_error("Non-finite vertex");return v;}
+   case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE:return a.normalized?*p/255.f:*p;
+   case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT:{uint16_t v;std::memcpy(&v,p,2);return a.normalized?v/65535.f:v;}
+   case TINYGLTF_COMPONENT_TYPE_BYTE:{int8_t v;std::memcpy(&v,p,1);return a.normalized?std::max(-1.f,v/127.f):v;}
+   case TINYGLTF_COMPONENT_TYPE_SHORT:{int16_t v;std::memcpy(&v,p,2);return a.normalized?std::max(-1.f,v/32767.f):v;}
+   default:throw std::runtime_error("Unsupported vertex component");}
+ }
+ size_t index(size_t i)const{
+  if(channels!=1||i>=a.count)throw std::runtime_error("Invalid index accessor");
+  auto*p=data.data()+offset+i*stride;
+  if(a.componentType==5121)return *p;
+  if(a.componentType==5123){uint16_t v;std::memcpy(&v,p,2);return v;}
+  if(a.componentType==5125){uint32_t v;std::memcpy(&v,p,4);return v;}throw std::runtime_error("Invalid index type");
+ }
+};
+bool imageLoader(tinygltf::Image *image,int,std::string*,std::string *warn,int,int,const unsigned char *bytes,int size,void*){
+ int w=0,h=0,c=0;unsigned char*p=nullptr;
+ if(size>0&&stbi_info_from_memory(bytes,size,&w,&h,&c)&&w>0&&h>0&&w<=8192&&h<=8192)p=stbi_load_from_memory(bytes,size,&w,&h,&c,4);
+ if(!p){image->width=image->height=1;image->component=4;image->bits=8;image->pixel_type=5121;image->image={255,255,255,255};if(warn)*warn+="Image decode failed; white fallback used.\n";return true;}
+ int rw=std::min(w,2048),rh=std::min(h,2048);image->width=rw;image->height=rh;image->component=4;image->bits=8;image->pixel_type=5121;image->image.resize(size_t(rw)*rh*4);
+ for(int y=0;y<rh;y++)for(int x=0;x<rw;x++)std::copy_n(p+(size_t(y*h/rh)*w+x*w/rw)*4,4,image->image.data()+(size_t(y)*rw+x)*4);
+ stbi_image_free(p);return true;
+}
+// Projected triangle/cell SAT avoids a single giant AABB filling the whole street.
+bool cellHit(Vec a,Vec b,Vec c,float x,float z,float half){
+ for(Vec axis:{Vec{1,0,0},Vec{0,0,1},Vec{-(b[2]-a[2]),0,b[0]-a[0]},Vec{-(c[2]-b[2]),0,c[0]-b[0]},Vec{-(a[2]-c[2]),0,a[0]-c[0]}}){
+  float pa=a[0]*axis[0]+a[2]*axis[2],pb=b[0]*axis[0]+b[2]*axis[2],pc=c[0]*axis[0]+c[2]*axis[2],center=x*axis[0]+z*axis[2],r=half*(std::abs(axis[0])+std::abs(axis[2]));
+  if(std::min({pa,pb,pc})>center+r||std::max({pa,pb,pc})<center-r)return false;
+ }return true;
+}
+void prepare(Scene &s){
+ Vec lo{1e20f,1e20f,1e20f},hi{-1e20f,-1e20f,-1e20f};size_t count=0;
+ for(auto &b:s.batches)for(auto &v:b.vertices){Vec p{v.x,v.y,v.z};for(int i=0;i<3;i++){lo[i]=std::min(lo[i],p[i]);hi[i]=std::max(hi[i],p[i]);}count++;}
+ if(!count)throw std::runtime_error("No triangle geometry");
+ const float extent=std::max(hi[0]-lo[0],hi[2]-lo[2]);if(extent<.01f)throw std::runtime_error("Degenerate scene bounds");
+ const float scale=80.f/extent,cx=(lo[0]+hi[0])/2,cz=(lo[2]+hi[2])/2;
+ // Estimate ground from area-weighted horizontal triangles, rather than lowest rubble vertex.
+ std::map<int,double> ground;
+ for(auto &b:s.batches)for(size_t i=0;i<b.vertices.size();i+=3){const auto&a=b.vertices[i],&v=b.vertices[i+1],&c=b.vertices[i+2];auto n=cross({v.x-a.x,v.y-a.y,v.z-a.z},{c.x-a.x,c.y-a.y,c.z-a.z});if(std::abs(normal(n)[1])>.9f)ground[int(std::round((a.y+v.y+c.y)/3*scale*10))]+=std::abs(n[1]);}
+ float floor=lo[1];double weight=0;for(auto [key,value]:ground)if(value>weight){weight=value;floor=key/(10*scale);}
+ for(auto &b:s.batches)for(auto &v:b.vertices){v.x=(v.x-cx)*scale;v.z=(v.z-cz)*scale;v.y=(v.y-floor)*scale;}
+ s.minimum={(lo[0]-cx)*scale,(lo[1]-floor)*scale,(lo[2]-cz)*scale};s.maximum={(hi[0]-cx)*scale,(hi[1]-floor)*scale,(hi[2]-cz)*scale};
+ constexpr float cell=.5f;constexpr int side=164;constexpr float origin=-41;
+ std::vector<bool> blocked(side*side,false),supported(side*side,false);
+ for(const auto &batch:s.batches)for(size_t i=0;i<batch.vertices.size();i+=3){
+  auto v=batch.vertices[i],w=batch.vertices[i+1],t=batch.vertices[i+2];Vec a{v.x,v.y,v.z},b{w.x,w.y,w.z},c{t.x,t.y,t.z};
+  auto n=normal(cross(sub(b,a),sub(c,a)));float minY=std::min({a[1],b[1],c[1]}),maxY=std::max({a[1],b[1],c[1]});
+  bool wall=std::abs(n[1])<.75f&&maxY>.3f&&minY<1.8f;
+  bool groundFace=std::abs(n[1])>.9f&&minY>-.3f&&maxY<.3f;
+  if(!wall&&!groundFace)continue;
+  int x0=std::clamp(int(std::floor((std::min({a[0],b[0],c[0]})-origin)/cell)),0,side-1),x1=std::clamp(int(std::floor((std::max({a[0],b[0],c[0]})-origin)/cell)),0,side-1);
+  int z0=std::clamp(int(std::floor((std::min({a[2],b[2],c[2]})-origin)/cell)),0,side-1),z1=std::clamp(int(std::floor((std::max({a[2],b[2],c[2]})-origin)/cell)),0,side-1);
+  for(int z=z0;z<=z1;z++)for(int x=x0;x<=x1;x++)if(cellHit(a,b,c,origin+(x+.5f)*cell,origin+(z+.5f)*cell,cell/2)){if(wall)blocked[z*side+x]=true;if(groundFace)supported[z*side+x]=true;}
+ }
+ // Block unmodeled ground so the player does not walk off the street into the void.
+ for(int z=0;z<side;z++)for(int x=0;x<side;){if(!blocked[z*side+x]&&supported[z*side+x]){x++;continue;}int start=x;while(x<side&&(blocked[z*side+x]||!supported[z*side+x]))x++;s.colliders.push_back({origin+(start+x)*cell/2,1,origin+(z+.5f)*cell,(x-start)*cell,2,cell,0,0,0});}
+ float nearest=1e20f;bool found=false;
+ for(int z=1;z<side-1;z++)for(int x=1;x<side-1;x++){
+  bool free=true;for(int dz=-1;dz<=1;dz++)for(int dx=-1;dx<=1;dx++)if(blocked[(z+dz)*side+x+dx]||!supported[(z+dz)*side+x+dx])free=false;
+  float px=origin+(x+.5f)*cell,pz=origin+(z+.5f)*cell,d=px*px+(pz-12)*(pz-12);
+  if(free&&d<nearest){nearest=d;s.spawnX=px;s.spawnZ=pz;found=true;}
+ }
+ if(!found)throw std::runtime_error("No supported free spawn in the collision grid");
+}
+}
+
+bool Scene::load(const std::string &path,const ReadFile &read,std::string &diagnostics){
+ try{
+  Scene result;std::vector<unsigned char> bytes;if(!read(path,bytes)||bytes.empty()||bytes.size()>128*1024*1024)throw std::runtime_error("Model missing or exceeds 128 MiB");
+  tinygltf::TinyGLTF parser;parser.SetImageLoader(imageLoader,nullptr);
+  tinygltf::FsCallbacks fs;
+  fs.FileExists=[&](const std::string&p,void*){std::vector<unsigned char>b;return read(p,b);};
+  fs.ExpandFilePath=[](const std::string&p,void*){return p;};
+  fs.ReadWholeFile=[&](std::vector<unsigned char>*b,std::string*,const std::string&p,void*){return read(p,*b);};
+  fs.WriteWholeFile=[](std::string*,const std::string&,const std::vector<unsigned char>&,void*){return false;};
+  fs.GetFileSizeInBytes=[&](size_t*size,std::string*,const std::string&p,void*){std::vector<unsigned char>b;if(!read(p,b))return false;*size=b.size();return true;};fs.user_data=nullptr;parser.SetFsCallbacks(fs);
+  tinygltf::Model model;std::string error,warn;const auto slash=path.find_last_of('/');const std::string base=slash==std::string::npos?"":path.substr(0,slash+1);
+  bool binary=bytes.size()>=4&&std::memcmp(bytes.data(),"glTF",4)==0;
+  bool ok=binary?parser.LoadBinaryFromMemory(&model,&error,&warn,bytes.data(),static_cast<unsigned>(bytes.size()),base):parser.LoadASCIIFromString(&model,&error,&warn,reinterpret_cast<const char*>(bytes.data()),static_cast<unsigned>(bytes.size()),base);
+  diagnostics=warn;if(!ok)throw std::runtime_error(error);
+  if(!model.extensionsRequired.empty())throw std::runtime_error("Required glTF extensions are not supported by this static renderer");
+  for(auto &image:model.images)result.images.push_back({image.width,image.height,std::move(image.image)});
+  for(const auto&m:model.materials){Material out;auto&p=m.pbrMetallicRoughness;for(int i=0;i<4;i++)out.color[i]=float(p.baseColorFactor.at(i));out.doubleSided=m.doubleSided;out.alphaMode=m.alphaMode=="BLEND"?2:m.alphaMode=="MASK"?1:0;out.cutoff=float(m.alphaCutoff);
+   if(p.baseColorTexture.index>=0){if(p.baseColorTexture.texCoord!=0)throw std::runtime_error("Only TEXCOORD_0 base color is supported");const auto&tex=model.textures.at(p.baseColorTexture.index);out.image=tex.source;if(tex.sampler>=0){auto &sampler=model.samplers.at(tex.sampler);out.wrapS=sampler.wrapS;out.wrapT=sampler.wrapT;}}
+   std::vector<unsigned char> overrideBytes;
+   if(read(base+"overrides/material_"+std::to_string(result.materials.size())+".png",overrideBytes)&&!overrideBytes.empty()&&overrideBytes.size()<=32*1024*1024){
+    tinygltf::Image image;imageLoader(&image,0,nullptr,&diagnostics,0,0,overrideBytes.data(),static_cast<int>(overrideBytes.size()),nullptr);
+    out.image=static_cast<int>(result.images.size());result.images.push_back({image.width,image.height,std::move(image.image)});
+   }
+   result.materials.push_back(out);
+  }
+  std::set<int> stack;size_t vertexCount=0;
+  std::function<void(int,const Matrix&)> visit=[&](int index,const Matrix &parent){
+   if(stack.size()>128||!stack.insert(index).second)throw std::runtime_error("Cyclic or excessively deep nodes");
+   const auto &node=model.nodes.at(index);auto matrix=multiply(parent,transform(node));
+   if(node.skin>=0)throw std::runtime_error("Skinned models are not supported");
+   if(node.mesh>=0)for(const auto &p:model.meshes.at(node.mesh).primitives){
+    if(p.mode!=-1&&p.mode!=TINYGLTF_MODE_TRIANGLES)throw std::runtime_error("Only triangle primitives are supported");
+    Access positions(model,p.attributes.at("POSITION"));if(positions.channels!=3)throw std::runtime_error("POSITION must be VEC3");
+    std::optional<Access> normals,uv,indices;if(p.attributes.count("NORMAL"))normals.emplace(model,p.attributes.at("NORMAL"));if(p.attributes.count("TEXCOORD_0"))uv.emplace(model,p.attributes.at("TEXCOORD_0"));if(p.indices>=0)indices.emplace(model,p.indices);
+    size_t count=indices?indices->a.count:positions.a.count;if(count%3||vertexCount+count>6000000)throw std::runtime_error("Invalid or excessive triangle count");vertexCount+=count;
+    Batch batch;batch.material=p.material;batch.vertices.reserve(count);
+    for(size_t i=0;i<count;i++){size_t idx=indices?indices->index(i):i;Vec v=point(matrix,{positions.get(idx,0),positions.get(idx,1),positions.get(idx,2)}),n=normals?transformedNormal(matrix,{normals->get(idx,0),normals->get(idx,1),normals->get(idx,2)}):Vec{0,1,0};batch.vertices.push_back({v[0],v[1],v[2],n[0],n[1],n[2],uv?uv->get(idx,0):0,uv?uv->get(idx,1):0});}
+    if(!normals)for(size_t i=0;i<count;i+=3){auto &a=batch.vertices[i],&b=batch.vertices[i+1],&c=batch.vertices[i+2];auto n=normal(cross({b.x-a.x,b.y-a.y,b.z-a.z},{c.x-a.x,c.y-a.y,c.z-a.z}));for(size_t k=i;k<i+3;k++){batch.vertices[k].nx=n[0];batch.vertices[k].ny=n[1];batch.vertices[k].nz=n[2];}}
+    const double det=matrix[0]*(matrix[5]*matrix[10]-matrix[9]*matrix[6])-matrix[4]*(matrix[1]*matrix[10]-matrix[9]*matrix[2])+matrix[8]*(matrix[1]*matrix[6]-matrix[5]*matrix[2]);
+    if(det<0)for(size_t i=0;i<count;i+=3)std::swap(batch.vertices[i+1],batch.vertices[i+2]);
+    result.batches.push_back(std::move(batch));
+   }
+   for(int child:node.children)visit(child,matrix);
+   stack.erase(index);
+  };
+  if(model.scenes.empty())throw std::runtime_error("No glTF scene");
+  int scene=model.defaultScene>=0?model.defaultScene:0;for(int node:model.scenes.at(scene).nodes)visit(node,identity());
+  prepare(result);*this=std::move(result);diagnostics+="Loaded "+std::to_string(vertexCount/3)+" triangles, "+std::to_string(materials.size())+" materials, "+std::to_string(colliders.size())+" collision rows.\n";return true;
+ }catch(const std::exception&e){diagnostics+="glTF load failed: "+std::string(e.what());return false;}
+}
+}
