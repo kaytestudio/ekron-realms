@@ -319,8 +319,8 @@ class MainActivity : GameActivity() {
         if(!::selectedImage.isInitialized)return
         val image=catalogImages[selected]
         if(image!=null)selectedImage.setImageBitmap(image) else selectedImage.setImageResource(android.R.drawable.ic_menu_gallery)
-        selectedSwatch.materialId=selectedSurface;selectedSwatch.texture=materialImages[selectedSurface];selectedSwatch.invalidate()
-        val material=if(selectedSurface==6) "Ткань" else materialNames[materialIds.indexOf(selectedSurface).coerceAtLeast(0)]
+        selectedSwatch.materialId=selectedSurface;selectedSwatch.texture=materialImages.getOrNull(selectedSurface);selectedSwatch.invalidate()
+        val material=if(selectedSurface<0) "Материалы модели" else if(selectedSurface==6) "Ткань" else materialNames[materialIds.indexOf(selectedSurface).coerceAtLeast(0)]
         selectedSlot.contentDescription="${items[selected]} · $material · открыть каталог"
     }
     private fun closePopup(){popup?.let { hud.removeView(it) };popup=null;catalogAdapter=null}
