@@ -22,6 +22,7 @@ std::optional<sandbox::World> retainedWorld;
 bool retainedBuilding = false,retainedFlying=false;
 std::atomic<int> loadStage{0},debugNotice{0};
 std::atomic<float> verticalInput{0};
+std::atomic<float> stickRight{0},stickForward{0};
 std::atomic<bool> gameplayReady{false};
 std::mutex snapshotMutex;
 std::array<float,4> snapshot{0,1.7f,0,0};
@@ -145,7 +146,11 @@ void object(std::vector<Vertex>&v,const sandbox::Object&o,bool preview=false,boo
 }
 }
 
-extern "C" JNIEXPORT void JNICALL Java_com_example_realms_MainActivity_nativeReady(JNIEnv*,jobject,jboolean ready){gameplayReady=ready;}
+extern "C" JNIEXPORT void JNICALL Java_com_example_realms_MainActivity_nativeReady(JNIEnv*,jobject,jboolean ready){gameplayReady=ready;if(!ready){stickRight=0;stickForward=0;verticalInput=0;}}
+extern "C" JNIEXPORT void JNICALL Java_com_example_realms_MainActivity_nativeMove(JNIEnv*,jobject,jfloat right,jfloat forward){
+ stickRight=gameplayReady&&std::isfinite(right)?std::clamp(right,-1.f,1.f):0;
+ stickForward=gameplayReady&&std::isfinite(forward)?std::clamp(forward,-1.f,1.f):0;
+}
 extern "C" JNIEXPORT void JNICALL Java_com_example_realms_MainActivity_nativeCommand(JNIEnv*,jobject,jint command){
  std::lock_guard<std::mutex> lock(commandMutex);if(commands.size()<64)commands.push_back(command);
 }
@@ -254,7 +259,8 @@ void Renderer::handleInput(){
   else if(command==4)changed=world_.remove();
   else if(command==6){flying_=!flying_;verticalInput=0;player_.reset(world_.x,world_.y,world_.z);}
   else if(command==8)player_.jump();
-  else if(command==9)crouched_=!crouched_;
+  else if(command==9){crouched_=!crouched_;prone_=false;}
+  else if(command==10){prone_=!prone_;crouched_=false;}
   else if(command==7&&!roadJob_.valid()&&city_.ready()){
    // Copy immutable navigation data once. BFS and allocations run only on the worker.
    auto navigation=std::make_shared<sandbox::World>();navigation->walls=world_.walls;navigation->wallSegments=world_.wallSegments;navigation->objects=world_.objects;
@@ -289,9 +295,9 @@ void Renderer::handleInput(){
 void Renderer::render(){
  if(!program_||surface_==EGL_NO_SURFACE)return;
  eglQuerySurface(display_,surface_,EGL_WIDTH,&width_);eglQuerySurface(display_,surface_,EGL_HEIGHT,&height_);if(width_<1||height_<1)return;
- const auto now=std::chrono::steady_clock::now();float dt=std::clamp(std::chrono::duration<float>(now-last_).count(),0.f,.05f);last_=now;if(gameplayReady){if(flying_)city::fly(world_,moveX_,moveY_,verticalInput.load(),dt);
- else if(city_.ready())player_.update(*city_.scene().collision,moveX_,moveY_,world_.yaw,dt,crouched_,world_.x,world_.y,world_.z,&builtCollision_);
- else world_.move(moveX_,moveY_,dt);}
+ const auto now=std::chrono::steady_clock::now();float dt=std::clamp(std::chrono::duration<float>(now-last_).count(),0.f,.05f);last_=now;if(gameplayReady){if(flying_)city::fly(world_,stickRight.load(),stickForward.load(),verticalInput.load(),dt);
+ else if(city_.ready())player_.update(*city_.scene().collision,stickRight.load(),stickForward.load(),world_.yaw,dt,crouched_,world_.x,world_.y,world_.z,&builtCollision_,prone_);
+ else world_.move(stickRight.load(),stickForward.load(),dt);}
  std::vector<Vertex> vertices;vertices.reserve((world_.scenery.size()+world_.objects.size()*10+1)*36);
  for(const auto &b:world_.scenery)cube(vertices,b);for(const auto&o:world_.objects)object(vertices,o);
  if(building_){const auto p=world_.preview();object(vertices,p,true,world_.objects.size()<sandbox::World::limit&&world_.canPlace(p));}

@@ -1,5 +1,7 @@
 package com.example.realms
 
+import android.app.AlertDialog
+import android.graphics.drawable.GradientDrawable
 import android.media.MediaPlayer
 import android.view.Surface
 import android.view.TextureView
@@ -31,6 +33,16 @@ class MainActivity : GameActivity() {
     private external fun nativeCommand(command: Int)
     private external fun nativeStatus(): FloatArray
     private external fun nativeVertical(value: Float)
+    private external fun nativeMove(right: Float, forward: Float)
+    private var paused = false
+    private var worldReady = false
+    private var flyingNow = false
+    private lateinit var joystick: StickView
+    private lateinit var removeControl: HudButton
+    private lateinit var placement: LinearLayout
+    private lateinit var buildControl: HudButton
+    private lateinit var crouchControl: HudButton
+    private lateinit var proneControl: HudButton
     private val items = arrayOf("Стена", "Пол", "Окно", "Дверь", "Стол", "Стул", "Шкаф", "Диван")
     private var selected = 0
     private var building = false
@@ -50,18 +62,20 @@ class MainActivity : GameActivity() {
                 latest = state.copyOfRange(0, 3)
                 coordinates.text = String.format(Locale.US, "X: %.1f   Y: %.1f   Z: %.1f", state[0], state[1], state[2])
                 val flying = state[3] > 0.5f
+                flyingNow = flying
                 flight.text = if (flying) "✈ Полёт: ВКЛ" else "✈ Полёт: ВЫКЛ"
                 altitude.visibility = if (flying) View.VISIBLE else View.GONE
                 val stage = state[4].toInt()
-                val unlocked = stage == 6 && introFinished && active
-                nativeReady(unlocked)
+                worldReady = stage == 6 && introFinished
+                val unlocked = worldReady && active
+                nativeReady(unlocked && !paused)
                 loading.visibility = if (unlocked) View.GONE else View.VISIBLE
                 spinner.visibility = if (stage < 0) View.GONE else View.VISIBLE
                 loadingText.text = when (stage) {
                     0 -> "Подготовка графики…"
                     1 -> "Загрузка текстур…"
                     2 -> "Загрузка города и материалов…"
-                    3 -> "Размещение разбитой машины…"
+                    3 -> "Размещение УАЗа…"
                     4 -> "Проверка коллизий и безопасного спавна…"
                     5 -> "Подготовка первого кадра…"
                     6 -> "Мир готов"
@@ -70,7 +84,7 @@ class MainActivity : GameActivity() {
                 notice.text = when (state[5].toInt()) {
                     1 -> "Точка из конфига небезопасна — спавн перенесён на открытое место."
                     2 -> "Нет безопасной точки ходьбы — оставлен полёт."
-                    else -> if (flying) "Сквозь стены · ↑ / ↓ — высота" else "Слева — ходьба · справа — обзор"
+                    else -> if (flying) "Сквозь стены · ↑ / ↓ — высота" else if (building) "Строительство: ${items[selected]}" else "Свободный режим"
                 }
             }
             if (!introFinished && videoEndedAt != Long.MAX_VALUE && SystemClock.elapsedRealtime() - videoEndedAt >= 3000) introFinished = true
@@ -89,7 +103,7 @@ class MainActivity : GameActivity() {
         val heading = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(12), dp(8), dp(12), dp(8))
-            setBackgroundColor(0xbb202a2d.toInt())
+            background = GradientDrawable().apply { setColor(0xaa263039.toInt()); cornerRadius = dp(5).toFloat() }
         }
         heading.addView(label("ЭКРОН • ПЕСОЧНИЦА", 14f))
         coordinates = label("X: —   Y: —   Z: —", 13f).apply {
@@ -101,71 +115,69 @@ class MainActivity : GameActivity() {
             }
         }
         heading.addView(coordinates)
-        notice = label("Слева — ходьба · справа — обзор", 10f)
+        notice = label("Свободный режим", 10f)
         heading.addView(notice)
         overlay.addView(heading, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START))
         overlay.addView(label("+", 26f), FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
-        flight = Button(this).apply {
-            text = "✈ Полёт: ВЫКЛ"; textSize = 12f; isAllCaps = false
-            setOnClickListener { nativeVertical(0f); nativeCommand(6) }
-        }
-        val debugButtons = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            addView(flight)
-            addView(Button(this@MainActivity).apply {
-                text = "На дорогу"; textSize = 11f; isAllCaps = false
-                setOnClickListener { nativeVertical(0f); nativeCommand(7) }
-            })
-        }
-        overlay.addView(debugButtons, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply {
-            topMargin = dp(8); rightMargin = dp(8)
+        // The reference HUD scales by available landscape height, not by a fixed phone resolution.
+        val screenHeight = resources.configuration.screenHeightDp
+        val actionSize = (screenHeight * .145f).toInt().coerceIn(44, 88)
+        val stickSize = (screenHeight * .32f).toInt().coerceIn(120, 184)
+        joystick = StickView(this) { right, forward -> nativeMove(right, forward) }
+        overlay.addView(joystick, FrameLayout.LayoutParams(dp(stickSize), dp(stickSize), Gravity.BOTTOM or Gravity.START).apply {
+            leftMargin = dp(14); bottomMargin = dp(22)
         })
-        altitude = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE }
+        fun action(caption: String, icon: String, click: () -> Unit): HudButton = HudButton(this, caption, icon).apply {
+            setOnClickListener { click() }
+        }
+        val pause = action("", "pause") { showPauseMenu() }
+        pause.contentDescription = "Пауза"
+        overlay.addView(pause, FrameLayout.LayoutParams(dp(48), dp(48), Gravity.TOP or Gravity.END).apply { topMargin=dp(6); rightMargin=dp(8) })
+        val tools = LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; gravity=Gravity.CENTER }
+        buildControl = action("Строить", "build") { showBuildCatalog() }
+        removeControl = action("Убрать", "remove") { if (building) nativeCommand(4) }.apply { visibility=View.GONE }
+        tools.addView(buildControl, LinearLayout.LayoutParams(dp(actionSize), dp(actionSize)))
+        tools.addView(removeControl, LinearLayout.LayoutParams(dp(actionSize), dp(actionSize)).apply { topMargin=dp(8) })
+        overlay.addView(tools, FrameLayout.LayoutParams(-2,-2,Gravity.TOP or Gravity.END).apply { topMargin=dp(64); rightMargin=dp(10) })
+        val movement = LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; gravity=Gravity.CENTER }
+        val jump = action("Прыжок", "jump") { nativeCommand(8) }
+        crouchControl = action("Присесть", "crouch") {
+            crouchControl.isSelected = !crouchControl.isSelected; proneControl.isSelected=false
+            nativeCommand(9)
+        }
+        proneControl = action("Лечь", "prone") {
+            proneControl.isSelected = !proneControl.isSelected; crouchControl.isSelected=false
+            nativeCommand(10)
+        }
+        for (control in listOf(jump,crouchControl,proneControl)) movement.addView(control, LinearLayout.LayoutParams(dp(actionSize),dp(actionSize)))
+        overlay.addView(movement, FrameLayout.LayoutParams(-2,-2,Gravity.BOTTOM or Gravity.END).apply { bottomMargin=dp(6);rightMargin=dp(10) })
+        placement = LinearLayout(this).apply {
+            orientation=LinearLayout.HORIZONTAL; gravity=Gravity.CENTER; visibility=View.GONE
+            setBackgroundColor(0xaa263039.toInt())
+        }
+        fun placementButton(text: String, click: () -> Unit) {
+            placement.addView(Button(this).apply { this.text=text;isAllCaps=false;textSize=11f;setOnClickListener { click() } }, LinearLayout.LayoutParams(-2,dp(48)))
+        }
+        placementButton("Повернуть") { nativeCommand(2) }
+        placementButton("Поставить") { nativeCommand(3) }
+        placementButton("Готово") { leaveBuilding() }
+        overlay.addView(placement,FrameLayout.LayoutParams(-2,-2,Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin=dp(8) })
+        // Flight is now in the pause menu; its altitude controls do not cover the action column.
+        flight = Button(this)
+        altitude = LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;visibility=View.GONE }
         fun verticalButton(text: String, direction: Float) {
-            val b = Button(this).apply {
-                this.text = text; isAllCaps = false; contentDescription = text
-                setOnTouchListener { v, event ->
-                    when (event.actionMasked) {
-                        MotionEvent.ACTION_DOWN -> { nativeVertical(direction); v.isPressed = true }
-                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                            nativeVertical(0f); v.isPressed = false
-                            if (event.actionMasked == MotionEvent.ACTION_UP) v.performClick()
-                        }
-                    }
-                    true
+            altitude.addView(Button(this).apply {
+                this.text=text;isAllCaps=false;textSize=11f
+                setOnTouchListener { v,e ->
+                    when(e.actionMasked) {
+                        MotionEvent.ACTION_DOWN -> { nativeVertical(direction);v.isPressed=true }
+                        MotionEvent.ACTION_UP,MotionEvent.ACTION_CANCEL -> { nativeVertical(0f);v.isPressed=false }
+                    };true
                 }
-            }
-            altitude.addView(b, LinearLayout.LayoutParams(dp(86), dp(56)))
+            },LinearLayout.LayoutParams(dp(84),dp(48)))
         }
-        verticalButton("↑ Вверх", 1f); verticalButton("↓ Вниз", -1f)
-        overlay.addView(altitude, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER_VERTICAL or Gravity.END).apply { rightMargin = dp(12) })
-        val bar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER
-            setBackgroundColor(0xbb202a2d.toInt())
-        }
-        fun button(label: String, action: (Button) -> Unit): Button {
-            val b = Button(this).apply {
-                text = label; textSize = 11f; isAllCaps = false
-                minWidth = 0; minimumWidth = 0; setPadding(dp(8), 0, dp(8), 0)
-                setOnClickListener { action(this) }
-            }
-            bar.addView(b, LinearLayout.LayoutParams(-2, -2)); return b
-        }
-        val catalog = button(items[selected]) { b -> selected = (selected + 1) % items.size; b.text = items[selected]; nativeCommand(1) }
-        val rotate = button("Повернуть") { nativeCommand(2) }
-        val place = button("Поставить") { nativeCommand(3) }
-        catalog.visibility = View.GONE; rotate.visibility = View.GONE; place.visibility = View.GONE
-        button("Строить") { b ->
-            building = !building; b.text = if (building) "Готово" else "Строить"
-            val visible = if (building) View.VISIBLE else View.GONE
-            catalog.visibility = visible; rotate.visibility = visible; place.visibility = visible
-            nativeCommand(0)
-        }
-        button("Прыжок") { nativeCommand(8) }
-        button("Присесть") { b -> b.isSelected = !b.isSelected; b.text = if (b.isSelected) "Встать" else "Присесть"; nativeCommand(9) }
-        button("Убрать своё") { nativeCommand(4) }
-        val scroll = HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; addView(bar) }
-        overlay.addView(scroll, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL))
+        verticalButton("↑ Вверх",1f);verticalButton("↓ Вниз",-1f)
+        overlay.addView(altitude,FrameLayout.LayoutParams(-2,-2,Gravity.CENTER_VERTICAL or Gravity.END).apply { rightMargin=dp(actionSize+20) })
 
         // Independent Android widgets remain responsive while GLB parsing runs on the native thread.
         loading = LinearLayout(this).apply {
@@ -210,6 +222,41 @@ class MainActivity : GameActivity() {
         addContentView(overlay, ViewGroup.LayoutParams(-1, -1))
         hideSystemUi()
     }
+    private fun refreshBuilding() {
+        removeControl.visibility = if (building) View.VISIBLE else View.GONE
+        placement.visibility = if (building) View.VISIBLE else View.GONE
+        buildControl.isSelected = building
+    }
+    private fun leaveBuilding() {
+        if (building) { building=false;nativeCommand(0) }
+        refreshBuilding()
+    }
+    private fun showBuildCatalog() {
+        joystick.reset()
+        AlertDialog.Builder(this).setTitle("Выберите блок для установки")
+            .setItems(items) { _, index ->
+                repeat((index-selected+items.size)%items.size) { nativeCommand(1) }
+                selected=index
+                if (!building) { building=true;nativeCommand(0) }
+                refreshBuilding()
+            }.setNegativeButton(if (building) "Закончить строительство" else "Отмена") { _, _ -> if (building) leaveBuilding() }
+            .show()
+    }
+    private fun setPaused(value: Boolean) {
+        paused=value;joystick.reset();nativeVertical(0f)
+        nativeReady(worldReady && active && !paused)
+    }
+    private fun showPauseMenu() {
+        setPaused(true)
+        val dialog=AlertDialog.Builder(this).setTitle("Пауза")
+            .setItems(arrayOf("Продолжить",if(flyingNow) "Выключить полёт" else "Включить полёт","На дорогу")) { _, which ->
+                setPaused(false)
+                if(which==1)nativeCommand(6)
+                if(which==2)nativeCommand(7)
+            }.create()
+        dialog.setOnDismissListener { setPaused(false);hideSystemUi() }
+        dialog.show()
+    }
     override fun onResume() {
         super.onResume()
         active = true
@@ -218,6 +265,7 @@ class MainActivity : GameActivity() {
     }
     override fun onPause() {
         active = false; nativeReady(false)
+        if (::joystick.isInitialized) joystick.reset()
         try { player?.pause() } catch (_: IllegalStateException) {}
         handler.removeCallbacks(poll); nativeVertical(0f)
         super.onPause()
@@ -230,7 +278,7 @@ class MainActivity : GameActivity() {
     override fun onDestroy() { nativeReady(false); player?.release(); player = null; handler.removeCallbacks(poll); super.onDestroy() }
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) hideSystemUi() else nativeVertical(0f)
+        if (hasFocus) hideSystemUi() else { nativeVertical(0f); if (::joystick.isInitialized) joystick.reset() }
     }
     @Suppress("DEPRECATION")
     private fun hideSystemUi() {

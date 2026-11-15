@@ -32,7 +32,7 @@ private:
     bool flying_=false;
     sandbox::World world_;
     physics::PlayerController player_;
-    bool crouched_=false;
+    bool crouched_=false,prone_=false;
     std::future<bool> saveJob_;
     bool saveDirty_=false;
     std::future<std::optional<std::array<float,2>>> roadJob_;

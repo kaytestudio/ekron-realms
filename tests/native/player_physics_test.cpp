@@ -25,5 +25,15 @@ int main(){
  for(int i=0;i<65;i++)opening.update(window,0,1,0,1.f/120,true,x,y,z);
  assert(z<-.3f);
  x=2;y=1.7f;z=1;p.reset(x,y,z);for(int i=0;i<100;i++)p.update(window,0,1,0,1.f/120,false,x,y,z);assert(z>.3f);
+ // Prone is real capsule geometry, not just a lower camera. Cannot stand in a low tunnel.
+ CollisionMesh tunnel;floorQuad(tunnel,0);tunnel.addBox({-3,.7f,-3},{3,1.1f,3});tunnel.build();
+ PlayerController crawling;x=0;y=1.7f;z=0;crawling.reset(x,y,z);
+ for(int i=0;i<120;i++)crawling.update(tunnel,0,0,0,1.f/120,false,x,y,z,nullptr,true);
+ assert(std::abs(crawling.eyeHeight()-.4f)<.001f&&std::abs(y-.4f)<.02f);
+ float before=z;
+ for(int i=0;i<60;i++)crawling.update(tunnel,0,1,0,1.f/120,false,x,y,z,nullptr,true);
+ assert(before-z>.45f&&before-z<.55f);
+ for(int i=0;i<30;i++)crawling.update(tunnel,0,0,0,1.f/120,false,x,y,z);
+ assert(crawling.eyeHeight()<.5f); // Refuse standing up through the ceiling.
  std::cout<<"Gravity, roof landing, pits, stable slopes, jump/crouch window and concrete frame OK\n";
 }

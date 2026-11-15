@@ -34,17 +34,19 @@ public:
     Vec3 feet()const{return feet_;}
     float eyeHeight()const{return eye_;}
     bool overlaps(const CollisionMesh&mesh,float x,float eyeY,float z)const{return contacts(mesh,{x,eyeY-1.7f,z},1.8f);}
-    void update(const CollisionMesh&mesh,float right,float forward,float yaw,float dt,bool crouched,float &x,float &y,float &z,const CollisionMesh *extra=nullptr){
+    void update(const CollisionMesh&mesh,float right,float forward,float yaw,float dt,bool crouched,float &x,float &y,float &z,const CollisionMesh *extra=nullptr,bool prone=false){
         if(!initialized_)reset(x,y,z);
         // Crouch keeps the feet still; standing up is refused under a concrete frame/ceiling.
-        if(crouched){height_=1.0f;eye_=.9f;}
-        else if(height_<1.8f&&!contacts(mesh,feet_,1.8f)){height_=1.8f;eye_=1.7f;}
+        float desired=prone?.55f:crouched?1.f:1.8f;
+        if(desired<=height_||(!contacts(mesh,feet_,desired)&&(!extra||!contacts(*extra,feet_,desired)))){
+            height_=desired;eye_=prone?.4f:crouched?.9f:1.7f;
+        }
         accumulator_+=std::clamp(dt,0.f,.05f);
         constexpr float step=1.f/120;
         while(accumulator_>=step){
             accumulator_-=step;bool wasGrounded=grounded_;
-            if(jump_&&grounded_){velocity_=6.5f;grounded_=false;wasGrounded=false;}jump_=false;
-            float lengthInput=std::max(1.f,std::hypot(right,forward)),speed=crouched?2.2f:4.5f;
+            if(jump_&&grounded_&&!prone){velocity_=6.5f;grounded_=false;wasGrounded=false;}jump_=false;
+            float lengthInput=std::max(1.f,std::hypot(right,forward)),speed=height_<.6f?1.f:height_<1.5f?2.2f:4.5f;
             feet_.x+=(std::cos(yaw)*right-std::sin(yaw)*forward)/lengthInput*speed*step;
             feet_.z+=(-std::sin(yaw)*right-std::cos(yaw)*forward)/lengthInput*speed*step;
             velocity_=std::max(-30.f,velocity_-18.f*step);feet_.y+=velocity_*step;grounded_=false;
