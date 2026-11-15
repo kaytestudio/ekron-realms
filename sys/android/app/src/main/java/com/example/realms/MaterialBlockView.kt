@@ -25,4 +25,3 @@ class MaterialBlockView(context: Context, var materialId: Int) : View(context) {
         c.restore()
     }
 }
-EOF
