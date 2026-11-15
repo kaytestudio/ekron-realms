@@ -1,4 +1,5 @@
 #include "Renderer.h"
+#include "ObjectMesh.h"
 #include <game-activity/native_app_glue/android_native_app_glue.h>
 #include <jni.h>
 #include <android/log.h>
@@ -96,6 +97,9 @@ void main(){
   vec3 world=toEye+eye;
   base*=.94+.035*sin(world.x*.21+world.z*.17)+.025*sin(world.y*.33-world.x*.13);
  }
+ // Screen-door transparency writes depth only for the retained glass samples;
+ // no object-order-dependent blending or opaque blue pane.
+ if(!modelPass && layer==7 && mod(floor(gl_FragCoord.x)+floor(gl_FragCoord.y)*2.0,4.0)>0.0)discard;
  float alpha=1.0;
  if(modelPass){
   vec4 sampleColor=modelTextured?texture(modelAlbedo,texUV):vec4(1.0);
@@ -109,8 +113,8 @@ void main(){
  // Broad, cool ambient light keeps overcast facades readable without hard shadows.
  float sky=.78+.22*max(n.y,0.0);
  vec3 lit=base*(ambientColor*sky+lightColor*diffuse);
- float roughness=modelPass?modelRoughness:(layer==3?.48:.94);
- float strength=modelPass?.035:(layer==3?.12:.006);
+ float roughness=modelPass?modelRoughness:(layer==7?.18:layer==3?.48:.94);
+ float strength=modelPass?.035:(layer==7?.28:layer==3?.12:.006);
  vec3 halfVector=normalize(normalize(-lightDirection)-normalize(toEye));
  float shine=pow(max(dot(n,halfVector),0.0),mix(90.0,8.0,roughness));
  lit+=lightColor*shine*strength*diffuse;
@@ -143,24 +147,7 @@ GLuint link(const char *vsText,const char *fsText){
 }
 using Vertex=sandbox::MeshVertex;
 void cube(std::vector<Vertex>&v,const sandbox::Box&b){sandbox::appendCube(v,b);}
-void object(std::vector<Vertex>&v,const sandbox::Object&o,bool preview=false,bool valid=false){
- auto body=sandbox::World::bounds(o);
- body.material=o.type==3||o.type==4||o.type==5||o.type==6?sandbox::Wood:o.type==7?sandbox::Fabric:body.material;
- if(preview){body.r=valid?.25f:.9f;body.g=valid?.8f:.25f;body.b=.4f;body.material=sandbox::Plain;cube(v,body);return;}
- // Local-space furniture parts rotated by 90 degree increments.
- auto part=[&](float x,float y,float z,float w,float h,float d,float r,float g,float b){
-  for(int i=0;i<o.rotation;i++){float old=x;x=z;z=-old;std::swap(w,d);}
-  cube(v,{o.x+x,y+o.y,o.z+z,w,h,d,r,g,b,o.type==4||o.type==5?sandbox::Wood:o.type==7?sandbox::Fabric:sandbox::Plain});
- };
- if(o.type==4||o.type==5){bool table=o.type==4;float w=table?1.8f:.6f,d=table?1.f:.65f,top=table?.82f:.46f;
-  part(0,top,0,w,.15f,d,.54f,.4f,.27f);
-  for(int a:{-1,1})for(int b:{-1,1})part(a*(w/2-.07f),top/2,b*(d/2-.07f),.1f,top,.1f,.43f,.31f,.2f);
-  if(!table)part(0,.79f,-.27f,w,.6f,.12f,.54f,.4f,.27f);
- }else if(o.type==2){
-  for(int side:{-1,1}){part(side*.96f,1.2f,0,.08f,2.4f,.22f,.68f,.69f,.63f);part(0,1.2f+side*1.16f,0,2,.08f,.22f,.68f,.69f,.63f);}part(0,1.2f,0,.06f,2.4f,.2f,.68f,.69f,.63f);part(0,1.2f,0,1.84f,2.24f,.05f,.29f,.44f,.5f);
- }else if(o.type==7){part(0,.32f,0,2.3f,.6f,.95f,.33f,.4f,.36f);part(0,.78f,-.38f,2.3f,.44f,.2f,.33f,.4f,.36f);for(int a:{-1,1})part(a*1.04f,.65f,0,.22f,.4f,.95f,.33f,.4f,.36f);
- }else cube(v,body);
-}
+
 }
 
 extern "C" JNIEXPORT void JNICALL Java_com_example_realms_MainActivity_nativeReady(JNIEnv*,jobject,jboolean ready){gameplayReady=ready;if(!ready){stickRight=0;stickForward=0;verticalInput=0;}}
@@ -295,7 +282,7 @@ void Renderer::handleInput(){
    rebuildBuiltCollision();
   }
   else if(command==35)respawnPlayer();
-  else if(command>=40&&command<=46&&building_)world_.surface=command-40;
+  else if(command>=100&&command<=110&&command!=108&&building_){world_.selected=command-100;world_.surface=sandbox::World::fixedSurface(world_.selected);}
   else if(command==31&&tools_.tool==sandbox::HandTool::SPAWN_GUN)world_.rotation=(world_.rotation+3)%4;
   else if(command==32&&tools_.tool==sandbox::HandTool::GRAVITY_GUN){
    if(tools_.holding())changed=tools_.release(world_);
@@ -356,9 +343,8 @@ void Renderer::render(){
  for(const auto &b:world_.scenery)cube(vertices,b);for(size_t i=0;i<world_.objects.size();i++){
   if(world_.objects[i].type==8)continue;
   size_t objectBegin=vertices.size();
-  if(int(i)==tools_.held){auto visual=world_.objects[i];visual.x=tools_.display.x;visual.z=tools_.display.z;size_t begin=vertices.size();object(vertices,visual);float dy=tools_.display.y-sandbox::World::bounds(visual).y;for(size_t j=begin;j<vertices.size();j++)vertices[j].y+=dy;}
-  else object(vertices,world_.objects[i]);
-  if(world_.objects[i].surface>=0)for(size_t j=objectBegin;j<vertices.size();j++){vertices[j].layer=float(world_.objects[i].surface);vertices[j].r=vertices[j].g=vertices[j].b=1;}
+  if(int(i)==tools_.held){auto visual=world_.objects[i];visual.x=tools_.display.x;visual.z=tools_.display.z;size_t begin=vertices.size();sandbox::appendObject(vertices,visual);float dy=tools_.display.y-sandbox::World::bounds(visual).y;for(size_t j=begin;j<vertices.size();j++)vertices[j].y+=dy;}
+  else sandbox::appendObject(vertices,world_.objects[i]);
   if(int(i)!=tools_.held){const auto&o=world_.objects[i];auto b=sandbox::World::bounds(o);
    float cx=std::cos(o.tiltX),sx=std::sin(o.tiltX),cz=std::cos(o.tiltZ),sz=std::sin(o.tiltZ);
    for(size_t j=objectBegin;j<vertices.size();j++){auto &v=vertices[j];float x=v.x-b.x,y=v.y-b.y,z=v.z-b.z;float py=cx*y-sx*z,pz=sx*y+cx*z;v.x=b.x+cz*x-sz*py;v.y=b.y+sz*x+cz*py;v.z=b.z+pz;
@@ -375,7 +361,7 @@ void Renderer::render(){
  }
  if(building_&&city_.ready()){
   auto point=sandbox::RaycastPlacement::preview(world_,*city_.scene().collision,builtCollision_,city_.scene().minimum,city_.scene().maximum);
-  if(point)object(vertices,*point,true,true);
+  if(point)sandbox::appendObject(vertices,*point,true,true);
  }
  glViewport(0,0,width_,height_);glClearColor(.56f,.61f,.63f,1);glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
  glBindVertexArray(vao_);

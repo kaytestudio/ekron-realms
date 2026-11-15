@@ -3,11 +3,24 @@
 #define STBI_ONLY_PNG
 #include "../../sys/android/app/src/main/cpp/third_party/stb_image.h"
 #include <cassert>
+#include "../../sys/android/app/src/main/cpp/ObjectMesh.h"
 #include <iostream>
 #include <string>
 
 int main() {
-    for(const char *name:{"asphalt","concrete","brick","rust","wood","fabric"}) {
+    for(int type:{0,9,10,3,4,5,6,7}){
+        sandbox::Object item{type,0,0,0};item.surface=sandbox::Rust;
+        std::vector<sandbox::MeshVertex> mesh;sandbox::appendObject(mesh,item);
+        assert(!mesh.empty());for(const auto&v:mesh){assert(v.layer==sandbox::World::fixedSurface(type));assert(v.r==1&&v.g==1&&v.b==1);}
+    }
+    for(int rotation=0;rotation<4;rotation++){
+        sandbox::Object window{2,rotation,0,0};window.surface=sandbox::Brick;
+        std::vector<sandbox::MeshVertex> mesh;sandbox::appendObject(mesh,window);
+        int frame=0,glass=0;for(const auto&v:mesh){if(v.layer==sandbox::Wood)frame++;if(v.layer==sandbox::Glass)glass++;}
+        assert(frame==5*36&&glass==36&&mesh.size()==6*36);
+    }
+
+    for(const char *name:{"asphalt","concrete","brick","rust","wood","fabric","glass"}) {
         std::string path="sys/android/app/src/main/assets/textures/"+std::string(name)+".png";
         int w=0,h=0,n=0;
         auto *p=stbi_load(path.c_str(),&w,&h,&n,4);

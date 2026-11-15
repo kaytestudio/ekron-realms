@@ -66,7 +66,6 @@ class MainActivity : GameActivity() {
     private var popup: View? = null
     private var pendingSelection: Int? = null
     private var pendingSurface: Int? = null
-    private var explicitMaterial=false
     private var selectedSurface=1
     private val materialImages=arrayOfNulls<Bitmap>(7)
     private val materialIds=intArrayOf(5,1,2,3)
@@ -92,9 +91,10 @@ class MainActivity : GameActivity() {
                     if(confirmed==toolsState.tool)toolsState.confirmHolding(state[6]>.5f)
                     if(state.size>=11 && state[4].toInt()==6){
                         val nativeType=state[9].toInt();val nativeSurface=state[10].toInt()
-                        if(pendingSelection==nativeType)pendingSelection=null
+                        val nativeIndex=BuildCatalog.entries.indexOfFirst { it.nativeType==nativeType }
+                        if(pendingSelection==nativeIndex)pendingSelection=null
                         if(pendingSurface==nativeSurface)pendingSurface=null
-                        if(pendingSelection==null && nativeType in items.indices)selected=nativeType
+                        if(pendingSelection==null && nativeIndex in items.indices){selected=nativeIndex;selectedSurface=BuildCatalog.entries[selected].defaultSurface}
                         if(pendingSurface==null && nativeSurface in listOf(1,2,3,5,6))selectedSurface=nativeSurface
                     }
                     renderTools()
@@ -311,7 +311,7 @@ class MainActivity : GameActivity() {
             val paths=mapOf(5 to "wood",1 to "concrete",2 to "brick",3 to "rust",6 to "fabric")
             for((id,name) in paths){
                 val bitmap=try{assets.open("textures/$name.png").use { BitmapFactory.decodeStream(it) }}catch(_:Exception){null}
-                handler.post { if(!isDestroyed){materialImages[id]=bitmap;updateSelectedIcon()} }
+                handler.post { if(!isDestroyed){materialImages[id]=bitmap;catalogAdapter?.notifyDataSetChanged();updateSelectedIcon()} }
             }
         }
     }
@@ -356,36 +356,37 @@ class MainActivity : GameActivity() {
         }
     }
     private fun selectTool(tool: HandTool) {
-        closePopup();requestedTool=tool;toolsState.select(tool);nativeCommand(20+tool.ordinal);if(tool==HandTool.SPAWN_GUN){pendingSurface=selectedSurface;nativeCommand(40+selectedSurface)};renderTools()
+        closePopup();requestedTool=tool;toolsState.select(tool);nativeCommand(20+tool.ordinal);renderTools()
     }
     private fun showBuildCatalog() {
         val container=panel("Строительство")
-        val materials=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
-        for((index,id) in materialIds.withIndex()){
-            materials.addView(MaterialBlockView(this,id).apply {
-                texture=materialImages[id];contentDescription=materialNames[index]
-                background=GradientDrawable().apply { setColor(if(selectedSurface==id)0xaa477264.toInt() else 0x223b4652);cornerRadius=dp(5).toFloat() }
-                setOnClickListener { explicitMaterial=true;pendingSurface=id;selectedSurface=id;nativeCommand(40+id);showBuildCatalog();updateSelectedIcon() }
-            },LinearLayout.LayoutParams(0,dp(52),1f))
-        }
-        container.addView(materials)
         val grid=GridView(this).apply { numColumns=4;horizontalSpacing=dp(4);verticalSpacing=dp(4);clipToPadding=false;isMotionEventSplittingEnabled=true }
         val adapter=object : BaseAdapter() {
             override fun getCount()=items.size
             override fun getItem(position: Int)=items[position]
             override fun getItemId(position: Int)=position.toLong()
-            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View = ImageView(this@MainActivity).apply {
-                scaleType=ImageView.ScaleType.FIT_CENTER;contentDescription=items[position];minimumHeight=dp(60)
-                layoutParams=AbsListView.LayoutParams(-1,dp(60))
+            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View = LinearLayout(this@MainActivity).apply {
+                orientation=LinearLayout.VERTICAL;gravity=Gravity.CENTER
+                contentDescription=items[position];minimumHeight=dp(84)
+                layoutParams=AbsListView.LayoutParams(-1,dp(84))
                 background=GradientDrawable().apply {setColor(if(position==selected)0xaa477264.toInt() else 0x443b4652);cornerRadius=dp(6).toFloat();if(position==selected)setStroke(dp(1),0xff92d9ac.toInt())}
-                val image=catalogImages[position]
-                if(image!=null)setImageBitmap(image) else setImageResource(android.R.drawable.ic_menu_gallery)
+                val item=BuildCatalog.entries[position]
+                val illustration: View=if(item.nativeType==0||item.nativeType==9||item.nativeType==10)MaterialBlockView(this@MainActivity,item.defaultSurface).apply { texture=materialImages[item.defaultSurface] }
+                else ImageView(this@MainActivity).apply {
+                    scaleType=ImageView.ScaleType.FIT_CENTER
+                    val image=catalogImages[position]
+                    if(image!=null)setImageBitmap(image) else setImageResource(android.R.drawable.ic_menu_gallery)
+                }
+                illustration.isClickable=false;illustration.isFocusable=false
+                addView(illustration,LinearLayout.LayoutParams(-1,0,1f))
+                addView(label(items[position],10f).apply { gravity=Gravity.CENTER;isClickable=false },LinearLayout.LayoutParams(-1,dp(22)))
             }
         }
         catalogAdapter=adapter;grid.adapter=adapter;container.addView(grid,LinearLayout.LayoutParams(-1,0,1f))
         grid.setOnItemClickListener { _,_,index,_ ->
-            repeat((index-selected+items.size)%items.size) { nativeCommand(1) }
-            pendingSelection=index;selected=index;if(!explicitMaterial){selectedSurface=BuildCatalog.entries[index].defaultSurface;pendingSurface=selectedSurface;nativeCommand(40+selectedSurface)};updateSelectedIcon();closePopup()
+            nativeCommand(100+BuildCatalog.entries[index].nativeType)
+            pendingSelection=index;selected=index;selectedSurface=BuildCatalog.entries[index].defaultSurface
+            updateSelectedIcon();closePopup()
         }
     }
     private fun setPaused(value: Boolean) {

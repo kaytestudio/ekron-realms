@@ -36,7 +36,7 @@ def png(path, pixels):
 def generate():
     DEST.mkdir(parents=True, exist_ok=True)
     fields = [noise_field(p, 810 + p) for p in (4, 16, 64, 128)]
-    result = {name: bytearray() for name in ('asphalt', 'concrete', 'brick', 'rust', 'wood', 'fabric')}
+    result = {name: bytearray() for name in ('asphalt', 'concrete', 'brick', 'rust', 'wood', 'fabric', 'glass')}
     tau = math.tau
     for y in range(SIZE):
         # Identical first/last rows and columns are intentional for easy seam tests.
@@ -52,7 +52,7 @@ def generate():
             row = int(v * 8) % 8
             bx, by = (u * 4 + (row % 2) * .5) % 1, (v * 8) % 1
             mortar = bx < .035 or bx > .965 or by < .065 or by > .935
-            brick = (97 + detail * .4, 94 + detail * .4, 84 + detail * .4) if mortar else (112 + detail*.85 + coarse*16, 91 + detail*.65, 72 + detail*.5)
+            brick = (97 + detail * .4, 94 + detail * .4, 84 + detail * .4) if mortar else (139 + detail*.85 + coarse*16, 69 + detail*.65, 46 + detail*.5)
             rust_weight = min(1, max(0, (coarse * .65 + medium * .35 - .36) * 3.4))
             rust = tuple(a * (1 - rust_weight) + b * rust_weight + detail * .5 for a, b in zip((65, 70, 68), (153, 72, 29)))
             # Periodic grain, plank seams and faded woven upholstery: all noise fields wrap.
@@ -62,7 +62,9 @@ def generate():
             wood = (108+wear+coarse*20, 74+wear*.7+coarse*12, 42+wear*.4+coarse*8)
             weave = 3*math.sin(tau*128*u)*math.sin(tau*128*v)
             fabric = (43+detail*.16+weave, 56+detail*.2+weave, 48+detail*.16+weave)
-            for name, color in [('asphalt', (asphalt, asphalt + 2, asphalt + 3)), ('concrete', (concrete, concrete - 2, concrete - 8)), ('brick', brick), ('rust', rust), ('wood', wood), ('fabric', fabric)]:
+            streak=7*math.sin(tau*(24*u+.03*math.sin(tau*v)))+detail*.18
+            glass=(142+streak,177+streak,182+streak)
+            for name, color in [('asphalt', (asphalt, asphalt + 2, asphalt + 3)), ('concrete', (concrete, concrete - 2, concrete - 8)), ('brick', brick), ('rust', rust), ('wood', wood), ('fabric', fabric), ('glass', glass)]:
                 result[name].extend(max(0, min(255, round(c))) for c in color)
     for name, pixels in result.items():
         path = DEST / (name + '.png')

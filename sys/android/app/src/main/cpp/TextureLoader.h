@@ -9,7 +9,7 @@ struct AAssetManager;
 class TextureLoader {
 public:
     static constexpr int Size = 512;
-    static constexpr int Layers = 7; // asphalt, concrete, brick, rust, untextured white, wood
+    static constexpr int Layers = 8; // asphalt, concrete, brick, rust, untextured white, wood
     TextureLoader() = default;
     ~TextureLoader();
     TextureLoader(const TextureLoader&) = delete;

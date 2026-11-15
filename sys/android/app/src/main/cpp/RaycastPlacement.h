@@ -6,7 +6,7 @@ namespace sandbox {
 class RaycastPlacement {
 public:
  static bool valid(const World&w,const Object&o,const physics::CollisionMesh&city,const physics::CollisionMesh&built,const std::array<float,3>&lo,const std::array<float,3>&hi){
-  if(o.type<0||o.type>7||!std::isfinite(o.y)||!std::isfinite(o.x)||!std::isfinite(o.z))return false;
+  if(o.type<0||o.type>10||o.type==8||!std::isfinite(o.y)||!std::isfinite(o.x)||!std::isfinite(o.z))return false;
   auto b=World::bounds(o);physics::Vec3 center{b.x,b.y,b.z},half{b.w/2,b.h/2,b.d/2};
   if(b.x-half.x<lo[0]||b.x+half.x>hi[0]||b.z-half.z<lo[2]||b.z+half.z>hi[2]||o.y<lo[1]-.1f||o.y+b.h>hi[1]+5)return false;
   // Indoor placement uses actual capsule clearance, not the old blanket two-metre exclusion.
@@ -30,7 +30,7 @@ public:
   float extent=std::abs(hit.normal.x)*b.w/2+std::abs(hit.normal.y)*b.h/2+std::abs(hit.normal.z)*b.d/2;
   auto center=hit.position+hit.normal*(extent+.0005f);
   candidate.x=center.x;candidate.z=center.z;candidate.y=center.y-b.h/2;
-  candidate.anchored=true;candidate.surface=w.surface;
+  candidate.anchored=true;candidate.surface=World::fixedSurface(candidate.type);
   if(!valid(w,candidate,city,built,lo,hi)){
    // Slide the box ALONG the hit plane to fit under ceilings/next to corners.
    // Candidate shifts come from actual nearby surfaces, not navigation strips or the y=0 plane.

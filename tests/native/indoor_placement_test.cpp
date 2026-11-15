@@ -8,9 +8,10 @@ int main(){
  CollisionMesh room,built;room.addBox({-3,-.2f,-5},{3,0,3});room.addBox({-3,3,-5},{3,3.2f,3});room.addBox({-3,0,-4.2f},{3,3,-4});room.addBox({-3.2f,0,-5},{-3,3,3});room.addBox({3,0,-5},{3.2f,3,3});room.build();built.build();
  std::array<float,3> lo{-10,-1,-10},hi{10,10,10};
  // A 2.8m wall fits in a 3m room by sliding down, while staying flush to its support wall.
- w.surface=sandbox::Wood;w.selected=0;auto wall=sandbox::RaycastPlacement::preview(w,room,built,lo,hi);assert(wall&&wall->surface==sandbox::Wood);
+ w.surface=sandbox::Wood;w.selected=0;auto wall=sandbox::RaycastPlacement::preview(w,room,built,lo,hi);assert(wall&&wall->surface==sandbox::Concrete);
  auto b=sandbox::World::bounds(*wall);assert(wall->y>=-.001f&&wall->y+b.h<=3.001f);
  assert(std::abs(b.z-b.d/2+4)<.001f);
+ for(int type:{9,10}){w.selected=type;auto block=sandbox::RaycastPlacement::preview(w,room,built,lo,hi);assert(block&&block->surface==sandbox::World::fixedSurface(type));}
  // Ceiling attachment at less than two metres works; it does not drop when dynamics run.
  w.selected=1;w.pitch=1.3f;auto ceiling=sandbox::RaycastPlacement::preview(w,room,built,lo,hi);assert(ceiling&&ceiling->anchored);
  assert(std::abs(ceiling->y+.18f-3)<.001f);w.objects.push_back(*ceiling);
@@ -28,7 +29,7 @@ int main(){
  for(int i=0;i<300;i++)physics.update(w,floors,1.f/120,-1,lo,hi);
  assert(w.objects[0].y>3.99f);
  const char*path="/tmp/ekron-material-save.txt";
- assert(w.save(path));sandbox::World restored;assert(restored.load(path));assert(restored.objects[0].surface==sandbox::Wood);std::remove(path);
+ assert(w.save(path));sandbox::World restored;assert(restored.load(path));assert(restored.objects[0].surface==sandbox::Concrete);std::remove(path);
  // Too tall still means too tall: do not tunnel into a low ceiling to allow construction.
  CollisionMesh low;low.addBox({-4,-.2f,-5},{4,0,3});low.addBox({-4,2.2f,-5},{4,2.4f,3});low.addBox({-4,0,-4.2f},{4,2.4f,-4});low.build();
  w.objects.clear();w.y=1.7f;w.pitch=0;w.selected=0;assert(!sandbox::RaycastPlacement::preview(w,low,empty,lo,hi));
