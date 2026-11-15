@@ -12,8 +12,8 @@ android {
         applicationId = "com.example.realms"
         minSdk = 30
         targetSdk = 34
-        versionCode = 22
-        versionName = "0.22-door-cabinet-slab"
+        versionCode = 23
+        versionName = "0.23-door-car-interaction"
         externalNativeBuild {
             cmake { cppFlags += "-std=c++17" }
         }

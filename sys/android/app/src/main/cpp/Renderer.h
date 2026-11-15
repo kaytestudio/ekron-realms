@@ -6,6 +6,7 @@
 #include "ToolInteraction.h"
 #include "ObjectDynamics.h"
 #include "WorldRecovery.h"
+#include "Interaction.h"
 #include "RaycastPlacement.h"
 #include "PlayerPhysics.h"
 #include <future>
@@ -32,6 +33,10 @@ private:
     bool texturesReady_=false;
     int width_=1,height_=1,leftId_=-1,rightId_=-1;
     float originX_=0,originY_=0,rightX_=0,rightY_=0,moveX_=0,moveY_=0;
+    int seatedCar_=-1;
+    float seatTime_=0;
+    physics::Vec3 seatFrom_{};
+    bool carWasAnchored_=false;
     bool building_=false;
     bool flying_=false;
     sandbox::World world_;

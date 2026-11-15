@@ -9,7 +9,7 @@
 namespace sandbox {
 enum Material { Asphalt=0, Concrete=1, Brick=2, Rust=3, Plain=4, Wood=5, Fabric=6, Glass=7 };
 struct Box { float x,y,z,w,h,d,r,g,b; int material=Concrete; };
-struct Object { int type,rotation; float x,z; float y=0; float vx=0,vy=0,vz=0,tiltX=0,tiltZ=0;bool awake=true,anchored=false;int surface=-1; };
+struct Object { int type,rotation; float x,z; float y=0; float vx=0,vy=0,vz=0,tiltX=0,tiltZ=0;bool awake=true,anchored=false;int surface=-1;float doorAngle=0,doorTarget=0; };
 struct WallSegment {float ax,az,bx,bz;};
 inline bool intersectsWall(const Box &box,const WallSegment &wall){
     // Slab test against a narrow 5 cm wall; respects diagonal walls and door gaps.
@@ -43,7 +43,7 @@ public:
         }
     }
     static Box bounds(const Object &o) {
-        static const float dims[12][3]={{3,2.8f,.25f},{3,.18f,3},{2,2.4f,.22f},{1.1f,2.3f,.14f},{1.8f,.9f,1},{.6f,1.05f,.65f},{1.4f,2.1f,.84f},{2.3f,1,.95f},{4.025f,1.92485f,1.89738f},{3,2.8f,.25f},{3,2.8f,.25f},{3,2.8f,.25f}};
+        static const float dims[13][3]={{3,2.8f,.25f},{3,.18f,3},{2,2.4f,.22f},{1.1f,2.3f,.14f},{1.8f,.9f,1},{.6f,1.05f,.65f},{1.4f,2.1f,.84f},{2.3f,1,.95f},{4.025f,1.92485f,1.89738f},{3,2.8f,.25f},{3,2.8f,.25f},{3,2.8f,.25f},{1,1,1}};
         auto p=dims[o.type];
         return {o.x,o.y+p[1]/2,o.z,o.rotation%2?p[2]:p[0],p[1],o.rotation%2?p[0]:p[2],.5f,.43f,.32f,o.type==9?Wood:o.type==10?Brick:o.type<=1?Concrete:Plain};
     }
@@ -66,7 +66,7 @@ public:
     }
     Object preview() const { return {selected,rotation,std::round((x-std::sin(yaw)*4)*2)/2,std::round((z-std::cos(yaw)*4)*2)/2}; }
     bool canPlace(const Object &o) const {
-        if(o.type<0||o.type>=12||o.rotation<0||o.rotation>=4||!std::isfinite(o.x)||!std::isfinite(o.z)||!std::isfinite(o.y)||std::abs(o.y)>200||std::abs(o.x)>62||std::abs(o.z)>62) return false;
+        if(o.type<0||o.type>=13||o.rotation<0||o.rotation>=4||!std::isfinite(o.x)||!std::isfinite(o.z)||!std::isfinite(o.y)||std::abs(o.y)>200||std::abs(o.x)>62||std::abs(o.z)>62) return false;
         auto b=bounds(o);
         return !blocked(b)&&!overlap(b,{x,0,z,.7f,2,.7f,0,0,0});
     }
@@ -97,7 +97,7 @@ public:
         std::ifstream f(path);std::string magic;int count;
         if(!(f>>magic>>count)||(magic!="EKRON_SANDBOX_1"&&magic!="EKRON_SANDBOX_2"&&magic!="EKRON_SANDBOX_3"&&magic!="EKRON_SANDBOX_4")||count<0||count>limit)return false;
         std::vector<Object> incoming;
-        for(int i=0;i<count;i++){Object o{};if(!(f>>o.type>>o.rotation>>o.x>>o.z)||(magic!="EKRON_SANDBOX_1"&&!(f>>o.y))||((magic=="EKRON_SANDBOX_3"||magic=="EKRON_SANDBOX_4")&&!(f>>o.anchored))||(magic=="EKRON_SANDBOX_4"&&!(f>>o.surface))||o.surface < -1||o.surface>6||o.type<0||o.type>=12||o.rotation<0||o.rotation>=4||!std::isfinite(o.x)||!std::isfinite(o.z)||!std::isfinite(o.y)||std::abs(o.y)>200||std::abs(o.x)>62||std::abs(o.z)>62)return false;incoming.push_back(o);}
+        for(int i=0;i<count;i++){Object o{};if(!(f>>o.type>>o.rotation>>o.x>>o.z)||(magic!="EKRON_SANDBOX_1"&&!(f>>o.y))||((magic=="EKRON_SANDBOX_3"||magic=="EKRON_SANDBOX_4")&&!(f>>o.anchored))||(magic=="EKRON_SANDBOX_4"&&!(f>>o.surface))||o.surface < -1||o.surface>6||o.type<0||o.type>=13||o.rotation<0||o.rotation>=4||!std::isfinite(o.x)||!std::isfinite(o.z)||!std::isfinite(o.y)||std::abs(o.y)>200||std::abs(o.x)>62||std::abs(o.z)>62)return false;incoming.push_back(o);}
         objects=std::move(incoming);return true;
     }
 private:

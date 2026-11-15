@@ -46,6 +46,8 @@ class MainActivity : GameActivity() {
     private val toolsState = ToolState()
     private var requestedTool: HandTool? = null
     private lateinit var toolActions: LinearLayout
+    private var interactionCode=0
+    private lateinit var interactionControl: HudButton
     private lateinit var catalogControl: HudButton
     private lateinit var spawnActions: LinearLayout
     private lateinit var gravityActions: LinearLayout
@@ -97,6 +99,10 @@ class MainActivity : GameActivity() {
                         if(pendingSelection==null && nativeIndex in items.indices){selected=nativeIndex;selectedSurface=BuildCatalog.entries[selected].defaultSurface}
                         if(pendingSurface==null && nativeSurface in listOf(1,2,3,5,6))selectedSurface=nativeSurface
                     }
+                    if(state.size>=12){interactionCode=state[11].toInt();interactionControl.visibility=if(interactionCode>0)View.VISIBLE else View.GONE
+                        interactionControl.caption=when(interactionCode){1->"Открыть";2->"Закрыть";3->"Сесть";4->"Выйти";else->""}
+                        interactionControl.contentDescription=interactionControl.caption;interactionControl.invalidate()
+                    }
                     renderTools()
                 }
                 latest = state.copyOfRange(0, 3)
@@ -128,6 +134,7 @@ class MainActivity : GameActivity() {
                     1 -> "Точка из конфига небезопасна — спавн перенесён на открытое место."
                     2 -> "Безопасная точка пока недоступна — освободите спавн."
                     3 -> "Нет свободного места для УАЗа. Освободите парковку."
+                    5 -> "Нет безопасного места для выхода из УАЗа."
                     4 -> "Игрок возвращён на безопасный спавн."
                     else -> if (flying) "Сквозь стены · ↑ / ↓ — высота" else when(toolsState.tool) {
                         HandTool.HAND_EMPTY -> "Пустые руки"
@@ -233,7 +240,7 @@ class MainActivity : GameActivity() {
         selectedSwatch=MaterialBlockView(this,selectedSurface)
         selectedSlot.addView(selectedSwatch,FrameLayout.LayoutParams(dp(25),dp(25),Gravity.BOTTOM or Gravity.END))
         // Selection art remains available inside the catalogue, not as a duplicate HUD opener.
-        addControl(spawnActions,"","cube") { nativeCommand(3) }.apply { contentDescription="Поставить блок" }
+        addControl(spawnActions,"","cube") { nativeCommand(200+BuildCatalog.entries[selected].nativeType) }.apply { contentDescription="Поставить блок" }
         val turns=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
         addControl(turns,"","left") { nativeCommand(31) }.apply { contentDescription="Повернуть влево" }
         addControl(turns,"","right") { nativeCommand(2) }.apply { contentDescription="Повернуть вправо" }
@@ -243,6 +250,8 @@ class MainActivity : GameActivity() {
         toolActions.addView(spawnActions)
         toolActions.addView(gravityActions)
         overlay.addView(toolActions,FrameLayout.LayoutParams(-2,-2,Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin=dp(8) })
+        interactionControl=action("Открыть","grab") { nativeCommand(36) }.apply { visibility=View.GONE }
+        overlay.addView(interactionControl,FrameLayout.LayoutParams(dp(88),dp(64),Gravity.CENTER_VERTICAL or Gravity.END).apply { rightMargin=dp(8) })
         renderTools()
         // Flight is now in the pause menu; its altitude controls do not cover the action column.
         flight = Button(this)
@@ -342,13 +351,13 @@ class MainActivity : GameActivity() {
     }
     private fun renderTools() {
         weapon.tool=toolsState.tool
-        weapon.visibility=if(toolsState.viewmodelVisible)View.VISIBLE else View.GONE
+        weapon.visibility=if(toolsState.viewmodelVisible&&interactionCode!=4)View.VISIBLE else View.GONE
         if(!toolsState.spawnVisible && catalogAdapter!=null)closePopup()
         updateSelectedIcon()
-        catalogControl.visibility=if(toolsState.spawnVisible)View.VISIBLE else View.GONE
-        spawnActions.visibility=if(toolsState.spawnVisible)View.VISIBLE else View.GONE
-        gravityActions.visibility=if(toolsState.gravityVisible)View.VISIBLE else View.GONE
-        removeControl.visibility=if(toolsState.deleteVisible)View.VISIBLE else View.GONE
+        catalogControl.visibility=if(toolsState.spawnVisible&&interactionCode!=4)View.VISIBLE else View.GONE
+        spawnActions.visibility=if(toolsState.spawnVisible&&interactionCode!=4)View.VISIBLE else View.GONE
+        gravityActions.visibility=if(toolsState.gravityVisible&&interactionCode!=4)View.VISIBLE else View.GONE
+        removeControl.visibility=if(toolsState.deleteVisible&&interactionCode!=4)View.VISIBLE else View.GONE
         rotateHeldControl.visibility=View.GONE
         if(grabControl.contentDescription!=toolsState.grabCaption) {
             grabControl.symbol=if(toolsState.holding) "release" else "grab"
@@ -371,7 +380,7 @@ class MainActivity : GameActivity() {
                 layoutParams=AbsListView.LayoutParams(-1,dp(84))
                 background=GradientDrawable().apply {setColor(if(position==selected)0xaa477264.toInt() else 0x443b4652);cornerRadius=dp(6).toFloat();if(position==selected)setStroke(dp(1),0xff92d9ac.toInt())}
                 val item=BuildCatalog.entries[position]
-                val illustration: View=if(item.nativeType==0||item.nativeType==9||item.nativeType==10||item.nativeType==11)MaterialBlockView(this@MainActivity,item.defaultSurface).apply { texture=materialImages[item.defaultSurface] }
+                val illustration: View=if(item.nativeType==0||item.nativeType==9||item.nativeType==10||item.nativeType==11||item.nativeType==12)MaterialBlockView(this@MainActivity,item.defaultSurface).apply { texture=materialImages[item.defaultSurface] }
                 else ImageView(this@MainActivity).apply {
                     scaleType=ImageView.ScaleType.FIT_CENTER
                     val image=catalogImages[position]

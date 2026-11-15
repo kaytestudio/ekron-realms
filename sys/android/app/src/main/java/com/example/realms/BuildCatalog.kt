@@ -16,6 +16,7 @@ object BuildCatalog {
         CatalogItem(9, "Деревянный блок", "textures/wood.png",5),
         CatalogItem(10, "Кирпичный блок", "textures/brick.png",2),
         CatalogItem(11, "Металлический блок", "textures/rust.png",3),
-        CatalogItem(8, "УАЗ-469", "catalog/rendered/uaz.webp",-1)
+        CatalogItem(8, "УАЗ-469", "catalog/rendered/uaz.webp",-1),
+        CatalogItem(12, "Куб 1×1×1", "textures/concrete.png",1)
     )
 }

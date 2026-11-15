@@ -27,7 +27,7 @@ std::atomic<int> loadStage{0},debugNotice{0},loadPercent{0};
 std::atomic<float> verticalInput{0};
 std::atomic<float> stickRight{0},stickForward{0};
 std::atomic<bool> gameplayReady{false};
-std::atomic<int> currentTool{0},currentSelection{0},currentSurface{-1};
+std::atomic<int> currentTool{0},currentSelection{0},currentSurface{-1},interactionAction{0};
 std::atomic<bool> holdingObject{false};
 std::mutex snapshotMutex;
 std::array<float,4> snapshot{0,1.7f,0,0};
@@ -164,7 +164,8 @@ extern "C" JNIEXPORT void JNICALL Java_com_example_realms_MainActivity_nativeCom
 }
 
 extern "C" JNIEXPORT jfloatArray JNICALL Java_com_example_realms_MainActivity_nativeStatus(JNIEnv *env,jobject){
- std::array<float,11> values{};{std::lock_guard<std::mutex> lock(snapshotMutex);std::copy(snapshot.begin(),snapshot.end(),values.begin());}
+ std::array<float,12> values{};{std::lock_guard<std::mutex> lock(snapshotMutex);std::copy(snapshot.begin(),snapshot.end(),values.begin());}
+ values[11]=float(interactionAction.load());
  values[9]=float(currentSelection.load());values[10]=float(currentSurface.load());
  values[8]=float(loadPercent.load());
  values[6]=holdingObject?1.f:0.f;values[7]=float(currentTool.load());
@@ -254,6 +255,7 @@ void Renderer::advanceLoading(){
  }
 }
 Renderer::~Renderer(){
+ if(seatedCar_>=0){world_.objects[seatedCar_].anchored=carWasAnchored_;world_.x=seatFrom_.x;world_.y=seatFrom_.y;world_.z=seatFrom_.z;seatedCar_=-1;}
  if(assetsJob_.valid())assetsJob_.wait();
  tools_.cancel(world_);
  if(saveJob_.valid())saveJob_.get();
@@ -271,6 +273,19 @@ void Renderer::handleInput(){
    world_.y=std::isfinite(ground)?ground+1.7f:1.7f;world_.yaw=world_.pitch=0;flying_=false;player_.reset(world_.x,world_.y,world_.z);resetInput();}
  }
  for(int command:pending){bool changed=false;
+  if(command==36&&city_.ready()){
+   if(seatedCar_>=0){
+    auto exit=sandbox::carExit(world_,seatedCar_,*city_.scene().collision,builtCollision_,city_.scene().minimum,city_.scene().maximum);
+    if(exit){auto&o=world_.objects[seatedCar_];o.anchored=carWasAnchored_;world_.x=exit->x;world_.y=exit->y;world_.z=exit->z;seatedCar_=-1;player_.reset(world_.x,world_.y,world_.z);resetInput();}else debugNotice=5;
+   }else if(!tools_.holding()){
+    int target=sandbox::interactionTarget(world_,*city_.scene().collision);
+    if(target>=0){auto&o=world_.objects[target];if(o.type==3)o.doorTarget=o.doorTarget>.5f?0:1.57079633f;
+     else{tools_.cancel(world_);seatedCar_=target;seatFrom_={world_.x,world_.y,world_.z};seatTime_=0;carWasAnchored_=o.anchored;o.anchored=true;o.vx=o.vy=o.vz=0;flying_=false;world_.yaw=o.rotation*1.57079633f+1.57079633f;world_.pitch=0;resetInput();}}
+   }
+   continue;
+  }
+  if(seatedCar_>=0)continue;
+
   if(command>=20&&command<=23){tools_.select(world_,static_cast<sandbox::HandTool>(command-20));building_=tools_.tool==sandbox::HandTool::SPAWN_GUN;rebuildBuiltCollision();}
   else if(command==34&&carParkingValid_){
    tools_.cancel(world_);
@@ -284,7 +299,7 @@ void Renderer::handleInput(){
    rebuildBuiltCollision();
   }
   else if(command==35)respawnPlayer();
-  else if(command>=100&&command<=111&&building_){world_.selected=command-100;world_.surface=sandbox::World::fixedSurface(world_.selected);}
+  else if(command>=100&&command<=112&&building_){world_.selected=command-100;world_.surface=sandbox::World::fixedSurface(world_.selected);}
   else if(command==31&&tools_.tool==sandbox::HandTool::SPAWN_GUN)world_.rotation=(world_.rotation+3)%4;
   else if(command==32&&tools_.tool==sandbox::HandTool::GRAVITY_GUN){
    if(tools_.holding())changed=tools_.release(world_);
@@ -294,7 +309,8 @@ void Renderer::handleInput(){
   else if(command==33&&tools_.tool==sandbox::HandTool::GRAVITY_GUN)tools_.rotate(world_);
   else if(command==1&&building_)world_.selected=(world_.selected+1)%8;
   else if(command==2&&building_)world_.rotation=(world_.rotation+1)%4;
-  else if(command==3&&building_&&city_.ready()){
+  else if((command==3||(command>=200&&command<=212))&&building_&&city_.ready()){
+   if(command>=200){world_.selected=command-200;world_.surface=sandbox::World::fixedSurface(world_.selected);}
    auto point=sandbox::RaycastPlacement::preview(world_,*city_.scene().collision,builtCollision_,city_.scene().minimum,city_.scene().maximum);
    if(point&&(point->type!=8||car_.ready())){world_.objects.push_back(*point);changed=true;}
   }
@@ -314,7 +330,7 @@ void Renderer::handleInput(){
  currentTool=int(tools_.tool);holdingObject=tools_.holding();currentSelection=world_.selected;currentSurface=world_.surface;
  if(saveJob_.valid()&&saveJob_.wait_for(std::chrono::seconds(0))==std::future_status::ready){if(!saveJob_.get())__android_log_print(ANDROID_LOG_ERROR,"Ekron","Save failed");}
  if(saveDirty_&&!saveJob_.valid()){
-  sandbox::World saved;saved.objects=world_.objects;if(tools_.holding())saved.objects[tools_.held]=tools_.original;auto path=savePath_;
+  sandbox::World saved;saved.objects=world_.objects;if(seatedCar_>=0)saved.objects[seatedCar_].anchored=carWasAnchored_;if(tools_.holding())saved.objects[tools_.held]=tools_.original;auto path=savePath_;
   saveJob_=std::async(std::launch::async,[saved=std::move(saved),path](){return saved.save(path);});saveDirty_=false;
  }
  auto *buffer=android_app_swap_input_buffers(app_);if(!buffer)return;
@@ -332,14 +348,27 @@ void Renderer::render(){
   if(moving){rebuildBuiltCollision();motionSaveTime_+=dt;if(motionSaveTime_>.75f){saveDirty_=true;motionSaveTime_=0;}}
   else if(motionSaveTime_>0){saveDirty_=true;motionSaveTime_=0;}
  }
- if(gameplayReady){if(flying_)city::fly(world_,stickRight.load(),stickForward.load(),verticalInput.load(),dt);
+ if(gameplayReady){
+  bool doorsMoved=false;
+  for(auto&o:world_.objects)if(o.type==3&&std::abs(o.doorAngle-o.doorTarget)>.0001f){
+   float old=o.doorAngle;o.doorAngle+=std::clamp(o.doorTarget-o.doorAngle,-dt*2.2f,dt*2.2f);
+   physics::CollisionMesh sweep;sandbox::addObjectCollision(sweep,o);sweep.build();
+   if(player_.overlaps(sweep,world_.x,world_.y,world_.z)){o.doorAngle=old;o.doorTarget=old;}else doorsMoved=true;
+  }
+  if(doorsMoved)rebuildBuiltCollision();
+  if(seatedCar_>=0){auto seat=sandbox::driverSeat(world_.objects[seatedCar_]);seatTime_=std::min(1.f,seatTime_+dt/.65f);float t=seatTime_*seatTime_*(3-2*seatTime_);auto p=seatFrom_+(seat-seatFrom_)*t;world_.x=p.x;world_.y=p.y;world_.z=p.z;}
+ }
+ if(gameplayReady&&seatedCar_<0){if(flying_)city::fly(world_,stickRight.load(),stickForward.load(),verticalInput.load(),dt);
  else if(city_.ready())player_.update(*city_.scene().collision,stickRight.load(),stickForward.load(),world_.yaw,dt,crouched_,world_.x,world_.y,world_.z,&builtCollision_,prone_,city_.scene().fenceBarriers.get());
  else world_.move(stickRight.load(),stickForward.load(),dt);}
  if(city_.ready()){
-  if(!flying_&&sandbox::needsPlayerRecovery(world_,city_.scene().minimum,city_.scene().maximum))respawnPlayer();
+  if(seatedCar_<0&&!flying_&&sandbox::needsPlayerRecovery(world_,city_.scene().minimum,city_.scene().maximum))respawnPlayer();
   const auto &lo=city_.scene().minimum,&hi=city_.scene().maximum;
   world_.x=std::clamp(world_.x,lo[0]+.25f,hi[0]-.25f);world_.z=std::clamp(world_.z,lo[2]+.25f,hi[2]-.25f);
  }
+ interactionAction=0;
+ if(seatedCar_>=0)interactionAction=4;
+ else if(city_.ready()&&!tools_.holding()){int target=sandbox::interactionTarget(world_,*city_.scene().collision);if(target>=0){const auto&o=world_.objects[target];interactionAction=o.type==8?3:o.doorTarget>.5f?2:1;}}
  if(gameplayReady)tools_.pull(world_,dt,city_.scene().collision.get());
  std::vector<Vertex> vertices;vertices.reserve((world_.scenery.size()+world_.objects.size()*10+1)*36);
  for(const auto &b:world_.scenery)cube(vertices,b);for(size_t i=0;i<world_.objects.size();i++){
@@ -347,6 +376,7 @@ void Renderer::render(){
   size_t objectBegin=vertices.size();
   if(int(i)==tools_.held){auto visual=world_.objects[i];visual.x=tools_.display.x;visual.z=tools_.display.z;size_t begin=vertices.size();sandbox::appendObject(vertices,visual);float dy=tools_.display.y-sandbox::World::bounds(visual).y;for(size_t j=begin;j<vertices.size();j++)vertices[j].y+=dy;}
   else sandbox::appendObject(vertices,world_.objects[i]);
+  sandbox::animateDoorMesh(world_.objects[i],vertices,objectBegin);
   if(int(i)!=tools_.held){const auto&o=world_.objects[i];auto b=sandbox::World::bounds(o);
    float tiltX=o.type==1?0:o.tiltX,tiltZ=o.type==1?0:o.tiltZ;
    float cx=std::cos(tiltX),sx=std::sin(tiltX),cz=std::cos(tiltZ),sz=std::sin(tiltZ);
@@ -404,7 +434,7 @@ void Renderer::render(){
 
 void Renderer::rebuildBuiltCollision(){
  builtCollision_=physics::CollisionMesh{};
- for(size_t i=0;i<world_.objects.size();i++){if(int(i)==tools_.held)continue;const auto&o=world_.objects[i];auto b=sandbox::World::bounds(o);builtCollision_.addBox({b.x-b.w/2,b.y-b.h/2,b.z-b.d/2},{b.x+b.w/2,b.y+b.h/2,b.z+b.d/2});}
+ for(size_t i=0;i<world_.objects.size();i++){if(int(i)==tools_.held)continue;const auto&o=world_.objects[i];sandbox::addObjectCollision(builtCollision_,o);}
  builtCollision_.build();
 }
 
