@@ -1,6 +1,9 @@
 package com.example.realms
 
 import android.app.AlertDialog
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import java.util.concurrent.Executors
 import android.graphics.drawable.GradientDrawable
 import android.media.MediaPlayer
 import android.view.Surface
@@ -50,7 +53,10 @@ class MainActivity : GameActivity() {
     private lateinit var rotateHeldControl: HudButton
     private lateinit var crouchControl: HudButton
     private lateinit var proneControl: HudButton
-    private val items = arrayOf("Стена", "Пол", "Окно", "Дверь", "Стол", "Стул", "Шкаф", "Диван")
+    private val items = BuildCatalog.entries.map { it.label }.toTypedArray()
+    private val catalogImages=arrayOfNulls<Bitmap>(BuildCatalog.entries.size)
+    private val catalogExecutor=Executors.newSingleThreadExecutor()
+    private var catalogAdapter: BaseAdapter? = null
     private var selected = 0
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var coordinates: TextView
@@ -259,6 +265,12 @@ class MainActivity : GameActivity() {
         }
         addContentView(overlay, ViewGroup.LayoutParams(-1, -1))
         hideSystemUi()
+        catalogExecutor.execute {
+            for(index in BuildCatalog.entries.indices) {
+                val bitmap=try { assets.open(BuildCatalog.entries[index].asset).use { BitmapFactory.decodeStream(it) } } catch (_: Exception) { null }
+                handler.post { if(!isDestroyed){catalogImages[index]=bitmap;catalogAdapter?.notifyDataSetChanged()} }
+            }
+        }
     }
     private fun renderTools() {
         spawnActions.visibility=if(toolsState.spawnVisible)View.VISIBLE else View.GONE
@@ -282,12 +294,46 @@ class MainActivity : GameActivity() {
             .setNegativeButton("Отмена",null).show()
     }
     private fun showBuildCatalog() {
-        joystick.reset()
-        AlertDialog.Builder(this).setTitle("Выберите блок для установки")
-            .setItems(items) { _, index ->
-                repeat((index-selected+items.size)%items.size) { nativeCommand(1) }
-                selected=index
-            }.setNegativeButton("Отмена",null).show()
+        joystick.reset();lookArea.reset()
+        val grid=GridView(this).apply {
+            numColumns=if(resources.configuration.screenWidthDp>=600)4 else 2
+            horizontalSpacing=dp(8);verticalSpacing=dp(8)
+            setPadding(dp(12),dp(8),dp(12),dp(8));clipToPadding=false
+        }
+        val adapter=object : BaseAdapter() {
+            override fun getCount()=items.size
+            override fun getItem(position: Int)=items[position]
+            override fun getItemId(position: Int)=position.toLong()
+            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+                val card=LinearLayout(this@MainActivity).apply {
+                    orientation=LinearLayout.VERTICAL;gravity=Gravity.CENTER
+                    setPadding(dp(4),dp(4),dp(4),dp(4));minimumHeight=dp(124)
+                    contentDescription=items[position]
+                    background=GradientDrawable().apply {
+                        cornerRadius=dp(8).toFloat();setColor(if(position==selected)0xff405d50.toInt() else 0xff29343b.toInt())
+                        if(position==selected)setStroke(dp(2),0xff92d9ac.toInt())
+                    }
+                }
+                card.addView(ImageView(this@MainActivity).apply {
+                    scaleType=ImageView.ScaleType.FIT_CENTER
+                    val image=catalogImages[position]
+                    if(image!=null)setImageBitmap(image) else setImageResource(android.R.drawable.ic_menu_gallery)
+                    importantForAccessibility=View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                },LinearLayout.LayoutParams(-1,dp(96)))
+                card.addView(label(items[position],12f).apply { gravity=Gravity.CENTER },LinearLayout.LayoutParams(-1,dp(24)))
+                return card
+            }
+        }
+        catalogAdapter=adapter;grid.adapter=adapter
+        val dialog=AlertDialog.Builder(this).setTitle("Выберите блок для установки")
+            .setView(grid).setNegativeButton("Отмена",null).create()
+        grid.setOnItemClickListener { _,_,index,_ ->
+            repeat((index-selected+items.size)%items.size) { nativeCommand(1) }
+            selected=index;dialog.dismiss()
+        }
+        dialog.setOnDismissListener { catalogAdapter=null;hideSystemUi() }
+        dialog.show()
+        dialog.window?.setLayout(dp(resources.configuration.screenWidthDp.coerceAtMost(720)-32),dp((resources.configuration.screenHeightDp-24).coerceAtMost(480)))
     }
     private fun setPaused(value: Boolean) {
         paused=value;joystick.reset();lookArea.reset();nativeVertical(0f)
@@ -322,7 +368,7 @@ class MainActivity : GameActivity() {
         videoEndedAt = SystemClock.elapsedRealtime()
         player?.release(); player = null; video?.visibility = View.GONE
     }
-    override fun onDestroy() { nativeReady(false); player?.release(); player = null; handler.removeCallbacks(poll); super.onDestroy() }
+    override fun onDestroy() { catalogExecutor.shutdownNow();nativeReady(false); player?.release(); player = null; handler.removeCallbacks(poll); super.onDestroy() }
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) hideSystemUi() else { nativeVertical(0f); if (::joystick.isInitialized) joystick.reset();if (::lookArea.isInitialized)lookArea.reset() }

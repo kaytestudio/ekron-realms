@@ -13,9 +13,10 @@ int main(){
  assert(!city.intersectsBox({box.x,box.y,box.z},{box.w/2-.003f,box.h/2-.003f,box.d/2-.003f}));
  w.objects.push_back(*place);assert(!sandbox::RaycastPlacement::preview(w,city,built,lo,hi));w.objects.clear();
  w.pitch=1.2f;assert(!sandbox::RaycastPlacement::preview(w,city,built,lo,hi)); // Sky is not a target.
- w.pitch=-.4f;place=sandbox::RaycastPlacement::preview(w,city,built,lo,hi);assert(place&&std::abs(place->y-.012f)<.003f);
- w.pitch=-1.2f;assert(!sandbox::RaycastPlacement::preview(w,city,built,lo,hi)); // Too close to player's whole volume.
- w.pitch=0;w.z=-3.6f;assert(!sandbox::RaycastPlacement::preview(w,city,built,lo,hi));
+ w.pitch=-.4f;place=sandbox::RaycastPlacement::preview(w,city,built,lo,hi);assert(place&&std::abs(place->y-.0005f)<.001f);
+ w.pitch=-1.2f;assert(sandbox::RaycastPlacement::preview(w,city,built,lo,hi)); // Indoor reach is allowed if the actual player capsule stays clear.
+ w.pitch=0;w.z=-3.6f;assert(sandbox::RaycastPlacement::preview(w,city,built,lo,hi));
+ w.z=-4.7f;assert(!sandbox::RaycastPlacement::preview(w,city,built,lo,hi));
  // v1 migration and persistent wall-mounted height.
  const char*path="/tmp/ekron-placement-save.txt";
  {std::ofstream f(path);f<<"EKRON_SANDBOX_1\n1\n5 0 0 -4\n";}
