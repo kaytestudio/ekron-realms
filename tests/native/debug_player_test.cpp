@@ -6,7 +6,7 @@ int main(){
  assert(city::parseSpawnConfig(R"({"enabled":true,"position":{"x":1.25,"y":1.7,"z":8.5},"yawDegrees":90})",config,error));
  assert(config.enabled&&!config.startFlying&&config.x==1.25f&&config.z==8.5f);
  assert(city::parseSpawnConfig(R"({"enabled":true,"position":{"x":2,"y":15,"z":3}})",config,error));
- assert(config.startFlying&&config.y==15);
+ assert(!config.startFlying&&config.y==15);
  assert(!city::parseSpawnConfig("{bad",config,error));
  assert(!city::parseSpawnConfig(R"({"position":{"x":99999,"y":1.7,"z":0}})",config,error));
  assert(!city::parseSpawnConfig(R"({"position":{"x":"invalid","y":1.7,"z":0}})",config,error));

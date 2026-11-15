@@ -74,6 +74,14 @@ bool imageLoader(tinygltf::Image *image,int,std::string*,std::string *warn,int,i
  for(int y=0;y<rh;y++)for(int x=0;x<rw;x++)std::copy_n(p+(size_t(y*h/rh)*w+x*w/rw)*4,4,image->image.data()+(size_t(y)*rw+x)*4);
  stbi_image_free(p);return true;
 }
+void buildCollision(Scene &s){
+ auto mesh=std::make_shared<physics::CollisionMesh>();
+ for(const auto &batch:s.batches){
+  if(batch.material>=0&&size_t(batch.material)<s.materials.size()&&s.materials[batch.material].alphaMode!=0)continue;
+  for(size_t i=0;i<batch.vertices.size();i+=3){auto a=batch.vertices[i],b=batch.vertices[i+1],c=batch.vertices[i+2];mesh->add({{a.x,a.y,a.z},{b.x,b.y,b.z},{c.x,c.y,c.z}});}
+ }
+ mesh->build();s.collision=mesh;
+}
 void prepare(Scene &s,const LoadOptions &options){
  Vec lo{1e20f,1e20f,1e20f},hi{-1e20f,-1e20f,-1e20f};size_t count=0;
  for(auto &b:s.batches)for(auto &v:b.vertices){Vec p{v.x,v.y,v.z};for(int i=0;i<3;i++){lo[i]=std::min(lo[i],p[i]);hi[i]=std::max(hi[i],p[i]);}count++;}
@@ -85,14 +93,14 @@ void prepare(Scene &s,const LoadOptions &options){
   Vec minimum{1e20f,1e20f,1e20f},maximum{-1e20f,-1e20f,-1e20f};
   for(auto &batch:s.batches)for(auto &v:batch.vertices){
    float x=(v.x-cx)*scale,z=(v.z-cz)*scale;
-   v.x=options.x+cosine*x+sine*z;v.z=options.z-sine*x+cosine*z;v.y=(v.y-lo[1])*scale;
+   v.x=options.x+cosine*x+sine*z;v.z=options.z-sine*x+cosine*z;v.y=options.y+(v.y-lo[1])*scale;
    float nx=v.nx,nz=v.nz;v.nx=cosine*nx+sine*nz;v.nz=-sine*nx+cosine*nz;
    Vec p{v.x,v.y,v.z};for(int i=0;i<3;i++){minimum[i]=std::min(minimum[i],p[i]);maximum[i]=std::max(maximum[i],p[i]);}
   }
   s.minimum=minimum;s.maximum=maximum;
-  float height=std::min(1.2f,maximum[1]);
-  s.colliders.push_back({(minimum[0]+maximum[0])/2,height/2,(minimum[2]+maximum[2])/2,maximum[0]-minimum[0],height,maximum[2]-minimum[2],0,0,0});
-  return;
+  float height=std::min(1.2f,maximum[1]-minimum[1]);
+  s.colliders.push_back({(minimum[0]+maximum[0])/2,minimum[1]+height/2,(minimum[2]+maximum[2])/2,maximum[0]-minimum[0],height,maximum[2]-minimum[2],0,0,0});
+  buildCollision(s);return;
  }
  // Estimate ground from area-weighted horizontal triangles, rather than lowest rubble vertex.
  std::map<int,double> ground;
@@ -119,6 +127,7 @@ void prepare(Scene &s,const LoadOptions &options){
  SpawnPoint spawn;
  if(!findRoadSpawn(collisionWorld,s.minimum,s.maximum,-3.4f,32.7f,spawn))throw std::runtime_error("No connected, supported free spawn in the collision grid");
  s.spawnX=spawn.x;s.spawnZ=spawn.z;
+ buildCollision(s);
 }
 }
 
@@ -169,7 +178,7 @@ bool Scene::load(const std::string &path,const ReadFile &read,std::string &diagn
   };
   if(model.scenes.empty())throw std::runtime_error("No glTF scene");
   int scene=model.defaultScene>=0?model.defaultScene:0;for(int node:model.scenes.at(scene).nodes)visit(node,identity());
-  if(!std::isfinite(options.targetExtent)||options.targetExtent<=0||!std::isfinite(options.x)||!std::isfinite(options.z)||!std::isfinite(options.yaw))throw std::runtime_error("Invalid scene placement options");
+  if(!std::isfinite(options.targetExtent)||options.targetExtent<=0||!std::isfinite(options.x)||!std::isfinite(options.z)||!std::isfinite(options.y)||!std::isfinite(options.yaw))throw std::runtime_error("Invalid scene placement options");
   prepare(result,options);*this=std::move(result);diagnostics+="Loaded "+std::to_string(vertexCount/3)+" triangles, "+std::to_string(materials.size())+" materials, "+std::to_string(colliders.size())+" boxes, "+std::to_string(wallSegments.size())+" thin wall segments.\n";return true;
  }catch(const std::exception&e){diagnostics+="glTF load failed: "+std::string(e.what());return false;}
 }

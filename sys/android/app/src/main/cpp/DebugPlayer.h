@@ -14,8 +14,7 @@ inline bool parseSpawnConfig(const std::string &text,SpawnConfig &config,std::st
         auto p=j.at("position");parsed.x=p.at("x").get<float>();parsed.y=p.at("y").get<float>();parsed.z=p.at("z").get<float>();
         parsed.yawDegrees=j.value("yawDegrees",0.f);
         if(!std::isfinite(parsed.x)||!std::isfinite(parsed.y)||!std::isfinite(parsed.z)||!std::isfinite(parsed.yawDegrees)||std::abs(parsed.x)>512||std::abs(parsed.z)>512||parsed.y < -100||parsed.y>200)throw std::runtime_error("spawn outside debug limits");
-        // Until there is a terrain-height controller, elevated exact spawns are debug flight.
-        if(std::abs(parsed.y-1.7f)>.01f)parsed.startFlying=true;
+        // Height no longer forces noclip: gravity handles elevated exact spawns.
         config=parsed;return true;
     }catch(const std::exception&e){error=e.what();return false;}
 }

@@ -22,6 +22,7 @@ std::optional<sandbox::World> retainedWorld;
 bool retainedBuilding = false,retainedFlying=false;
 std::atomic<int> loadStage{0},debugNotice{0};
 std::atomic<float> verticalInput{0};
+std::atomic<bool> gameplayReady{false};
 std::mutex snapshotMutex;
 std::array<float,4> snapshot{0,1.7f,0,0};
 struct LoadGuard {bool complete=false;~LoadGuard(){if(!complete)loadStage=-1;}};
@@ -144,6 +145,7 @@ void object(std::vector<Vertex>&v,const sandbox::Object&o,bool preview=false,boo
 }
 }
 
+extern "C" JNIEXPORT void JNICALL Java_com_example_realms_MainActivity_nativeReady(JNIEnv*,jobject,jboolean ready){gameplayReady=ready;}
 extern "C" JNIEXPORT void JNICALL Java_com_example_realms_MainActivity_nativeCommand(JNIEnv*,jobject,jint command){
  std::lock_guard<std::mutex> lock(commandMutex);if(commands.size()<64)commands.push_back(command);
 }
@@ -191,6 +193,16 @@ Renderer::Renderer(android_app *app):app_(app),last_(std::chrono::steady_clock::
    world_.x=oldX;world_.z=oldZ;
    if(parking){
     std::string carLog;city::LoadOptions carOptions;carOptions.level=false;carOptions.targetExtent=4.3f;
+    float ground=city_.scene().collision->groundHeight(parkingX,parkingZ,2,-10);
+    if(std::isfinite(ground)){
+     // Sample the upright car footprint, excluding overhead roofs.
+     float support=ground;
+     for(float dx:{-1.8f,1.8f})for(float dz:{-.7f,.7f}){
+      float h=city_.scene().collision->groundHeight(parkingX+dx,parkingZ+dz,ground+.7f,ground-2);
+      if(std::isfinite(h))support=std::max(support,h);
+     }
+     carOptions.y=support;
+    }
     carOptions.x=parkingX;carOptions.z=parkingZ;carOptions.yaw=1.57079632679f;
     if(car_.load(app_->activity->assetManager,"models/crushed_sports_car.glb",carLog,carOptions)){
      // Decoration-only collision policy: the car remains visible but does not block walking.
@@ -203,16 +215,10 @@ Renderer::Renderer(android_app *app):app_(app),last_(std::chrono::steady_clock::
   const auto config=readSpawnConfig(app_);
   if(!retainedWorld&&config.enabled){
    world_.x=config.x;world_.z=config.z;world_.yaw=config.yawDegrees*.01745329252f;world_.pitch=0;
-   if(config.startFlying){world_.y=config.y;flying_=true;}
-   else{
-    bool corrected=city::recoverToRoad(world_,city_.scene().minimum,city_.scene().maximum,config.x,config.z,true);
-    if(corrected){if(std::hypot(world_.x-config.x,world_.z-config.z)>.05f)debugNotice=1;}
-    else{flying_=true;debugNotice=2;}
-   }
-  }else if(!flying_){
-   if(!city::recoverToRoad(world_,city_.scene().minimum,city_.scene().maximum,
-       retainedWorld?world_.x:-3.4f,retainedWorld?world_.z:32.7f,bool(retainedWorld))){flying_=true;debugNotice=2;}
+   world_.y=config.y;flying_=config.startFlying;
   }
+  player_.reset(world_.x,world_.y,world_.z);
+  rebuildBuiltCollision();
   __android_log_print(ANDROID_LOG_INFO,"Ekron","Spawn XYZ %.3f %.3f %.3f flight=%d",world_.x,world_.y,world_.z,flying_);
  }
  __android_log_print(city_.ready()?ANDROID_LOG_INFO:ANDROID_LOG_ERROR,"Ekron","%s",cityLog.c_str());
@@ -226,29 +232,44 @@ Renderer::Renderer(android_app *app):app_(app),last_(std::chrono::steady_clock::
  loadStage=5;loadGuard.complete=true;
 }
 Renderer::~Renderer(){
+ if(saveJob_.valid())saveJob_.get();
+ if(saveDirty_)world_.save(savePath_);
  retainedWorld=world_;retainedBuilding=building_;retainedFlying=flying_;
  if(display_!=EGL_NO_DISPLAY){if(context_!=EGL_NO_CONTEXT&&surface_!=EGL_NO_SURFACE&&eglMakeCurrent(display_,surface_,surface_,context_)){car_.release();city_.release();textures_.release();if(skyProgram_)glDeleteProgram(skyProgram_);if(buffer_)glDeleteBuffers(1,&buffer_);if(vao_)glDeleteVertexArrays(1,&vao_);if(program_)glDeleteProgram(program_);}eglMakeCurrent(display_,EGL_NO_SURFACE,EGL_NO_SURFACE,EGL_NO_CONTEXT);if(context_!=EGL_NO_CONTEXT)eglDestroyContext(display_,context_);if(surface_!=EGL_NO_SURFACE)eglDestroySurface(display_,surface_);eglTerminate(display_);}
 }
 void Renderer::resetInput(){verticalInput=0;leftId_=rightId_=-1;moveX_=moveY_=0;last_=std::chrono::steady_clock::now();}
 void Renderer::handleInput(){
  std::vector<int> pending;{std::lock_guard<std::mutex> lock(commandMutex);pending.swap(commands);}
- for(int command:pending){bool changed=false;if(command==0)building_=!building_;else if(command==1)world_.selected=(world_.selected+1)%8;else if(command==2)world_.rotation=(world_.rotation+1)%4;else if(command==3&&building_)changed=world_.place();else if(command==4)changed=world_.remove();else if(command==6){
-  verticalInput=0;
-  if(!flying_)flying_=true;
-  else{
-   auto lo=city_.ready()?city_.scene().minimum:std::array<float,3>{-60,0,-60};
-   auto hi=city_.ready()?city_.scene().maximum:std::array<float,3>{60,10,60};
-   if(city::recoverToRoad(world_,lo,hi,world_.x,world_.z,true)){flying_=false;debugNotice=0;}else debugNotice=2;
+ if(!gameplayReady){pending.clear();resetInput();}
+ if(roadJob_.valid()&&roadJob_.wait_for(std::chrono::seconds(0))==std::future_status::ready){
+  auto point=roadJob_.get();if(point){world_.x=(*point)[0];world_.z=(*point)[1];
+   float ground=city_.scene().collision->groundHeight(world_.x,world_.z,2,-10);
+   world_.y=std::isfinite(ground)?ground+1.7f:1.7f;world_.yaw=world_.pitch=0;flying_=false;player_.reset(world_.x,world_.y,world_.z);resetInput();}
+ }
+ for(int command:pending){bool changed=false;
+  if(command==0)building_=!building_;
+  else if(command==1)world_.selected=(world_.selected+1)%8;
+  else if(command==2)world_.rotation=(world_.rotation+1)%4;
+  else if(command==3&&building_)changed=world_.place();
+  else if(command==4)changed=world_.remove();
+  else if(command==6){flying_=!flying_;verticalInput=0;player_.reset(world_.x,world_.y,world_.z);}
+  else if(command==8)player_.jump();
+  else if(command==9)crouched_=!crouched_;
+  else if(command==7&&!roadJob_.valid()&&city_.ready()){
+   // Copy immutable navigation data once. BFS and allocations run only on the worker.
+   auto navigation=std::make_shared<sandbox::World>();navigation->walls=world_.walls;navigation->wallSegments=world_.wallSegments;navigation->objects=world_.objects;
+   auto lo=city_.scene().minimum,hi=city_.scene().maximum;
+   roadJob_=std::async(std::launch::async,[navigation,lo,hi]()->std::optional<std::array<float,2>>{city::SpawnPoint p;if(city::findRoadSpawn(*navigation,lo,hi,-3.4f,32.7f,p))return std::array<float,2>{p.x,p.z};return {};});
   }
- }else if(command==7){
-  auto lo=city_.ready()?city_.scene().minimum:std::array<float,3>{-60,0,-60};
-  auto hi=city_.ready()?city_.scene().maximum:std::array<float,3>{60,10,60};
-  if(city::recoverToRoad(world_,lo,hi,-3.4f,32.7f,false)){flying_=false;world_.yaw=world_.pitch=0;debugNotice=0;}
-  else{flying_=true;debugNotice=2;}
-  resetInput();
- }if(changed&&!world_.save(savePath_))__android_log_print(ANDROID_LOG_ERROR,"Ekron","Failed to save sandbox");}
+  if(changed){saveDirty_=true;rebuildBuiltCollision();}
+ }
+ if(saveJob_.valid()&&saveJob_.wait_for(std::chrono::seconds(0))==std::future_status::ready){if(!saveJob_.get())__android_log_print(ANDROID_LOG_ERROR,"Ekron","Save failed");}
+ if(saveDirty_&&!saveJob_.valid()){
+  sandbox::World saved;saved.objects=world_.objects;auto path=savePath_;
+  saveJob_=std::async(std::launch::async,[saved=std::move(saved),path](){return saved.save(path);});saveDirty_=false;
+ }
  auto *buffer=android_app_swap_input_buffers(app_);if(!buffer)return;
- for(uint64_t i=0;i<buffer->motionEventsCount;i++){
+ for(uint64_t i=0;gameplayReady&&i<buffer->motionEventsCount;i++){
   const auto &event=buffer->motionEvents[i];const int action=event.action&AMOTION_EVENT_ACTION_MASK;
   const int selected=(event.action&AMOTION_EVENT_ACTION_POINTER_INDEX_MASK)>>AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT;
   if(action==AMOTION_EVENT_ACTION_CANCEL){resetInput();continue;}
@@ -268,7 +289,9 @@ void Renderer::handleInput(){
 void Renderer::render(){
  if(!program_||surface_==EGL_NO_SURFACE)return;
  eglQuerySurface(display_,surface_,EGL_WIDTH,&width_);eglQuerySurface(display_,surface_,EGL_HEIGHT,&height_);if(width_<1||height_<1)return;
- const auto now=std::chrono::steady_clock::now();float dt=std::clamp(std::chrono::duration<float>(now-last_).count(),0.f,.05f);last_=now;if(flying_)city::fly(world_,moveX_,moveY_,verticalInput.load(),dt);else world_.move(moveX_,moveY_,dt);
+ const auto now=std::chrono::steady_clock::now();float dt=std::clamp(std::chrono::duration<float>(now-last_).count(),0.f,.05f);last_=now;if(gameplayReady){if(flying_)city::fly(world_,moveX_,moveY_,verticalInput.load(),dt);
+ else if(city_.ready())player_.update(*city_.scene().collision,moveX_,moveY_,world_.yaw,dt,crouched_,world_.x,world_.y,world_.z,&builtCollision_);
+ else world_.move(moveX_,moveY_,dt);}
  std::vector<Vertex> vertices;vertices.reserve((world_.scenery.size()+world_.objects.size()*10+1)*36);
  for(const auto &b:world_.scenery)cube(vertices,b);for(const auto&o:world_.objects)object(vertices,o);
  if(building_){const auto p=world_.preview();object(vertices,p,true,world_.objects.size()<sandbox::World::limit&&world_.canPlace(p));}
@@ -294,4 +317,10 @@ void Renderer::render(){
   {std::lock_guard<std::mutex> lock(snapshotMutex);snapshot={world_.x,world_.y,world_.z,flying_?1.f:0.f};}
   loadStage=6;
  }else loadStage=-1;
+}
+
+void Renderer::rebuildBuiltCollision(){
+ builtCollision_=physics::CollisionMesh{};
+ for(const auto&o:world_.objects){auto b=sandbox::World::bounds(o);builtCollision_.addBox({b.x-b.w/2,b.y-b.h/2,b.z-b.d/2},{b.x+b.w/2,b.y+b.h/2,b.z+b.d/2});}
+ builtCollision_.build();
 }

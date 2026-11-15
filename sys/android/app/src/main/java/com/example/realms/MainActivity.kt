@@ -1,5 +1,10 @@
 package com.example.realms
 
+import android.media.MediaPlayer
+import android.view.Surface
+import android.view.TextureView
+import android.graphics.SurfaceTexture
+import android.os.SystemClock
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -17,6 +22,12 @@ import com.google.androidgamesdk.GameActivity
 /** Android HUD over the native GLES scene; loading remains visible until its first frame. */
 class MainActivity : GameActivity() {
     companion object { init { System.loadLibrary("realms") } }
+    private external fun nativeReady(ready: Boolean)
+    private var player: MediaPlayer? = null
+    private var video: TextureView? = null
+    private var videoEndedAt = Long.MAX_VALUE
+    private var active = false
+    private var introFinished = false
     private external fun nativeCommand(command: Int)
     private external fun nativeStatus(): FloatArray
     private external fun nativeVertical(value: Float)
@@ -42,7 +53,9 @@ class MainActivity : GameActivity() {
                 flight.text = if (flying) "✈ Полёт: ВКЛ" else "✈ Полёт: ВЫКЛ"
                 altitude.visibility = if (flying) View.VISIBLE else View.GONE
                 val stage = state[4].toInt()
-                loading.visibility = if (stage == 6) View.GONE else View.VISIBLE
+                val unlocked = stage == 6 && introFinished && active
+                nativeReady(unlocked)
+                loading.visibility = if (unlocked) View.GONE else View.VISIBLE
                 spinner.visibility = if (stage < 0) View.GONE else View.VISIBLE
                 loadingText.text = when (stage) {
                     0 -> "Подготовка графики…"
@@ -60,6 +73,7 @@ class MainActivity : GameActivity() {
                     else -> if (flying) "Сквозь стены · ↑ / ↓ — высота" else "Слева — ходьба · справа — обзор"
                 }
             }
+            if (!introFinished && videoEndedAt != Long.MAX_VALUE && SystemClock.elapsedRealtime() - videoEndedAt >= 3000) introFinished = true
             handler.postDelayed(this, 100)
         }
     }
@@ -147,6 +161,8 @@ class MainActivity : GameActivity() {
             catalog.visibility = visible; rotate.visibility = visible; place.visibility = visible
             nativeCommand(0)
         }
+        button("Прыжок") { nativeCommand(8) }
+        button("Присесть") { b -> b.isSelected = !b.isSelected; b.text = if (b.isSelected) "Встать" else "Присесть"; nativeCommand(9) }
         button("Убрать своё") { nativeCommand(4) }
         val scroll = HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; addView(bar) }
         overlay.addView(scroll, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL))
@@ -157,24 +173,61 @@ class MainActivity : GameActivity() {
             setBackgroundColor(Color.rgb(24, 35, 42)); isClickable = true; isFocusable = true
         }
         loading.addView(label("ЭКРОН", 32f))
-        loading.addView(label("ЗАГРУЗКА МИРА", 14f).apply { setPadding(0, dp(12), 0, dp(20)) })
+        loading.addView(label("Пока ждёте загрузку мира, вам будет показан короткий видео ролик", 14f).apply { setPadding(0, dp(12), 0, dp(20)) })
         spinner = ProgressBar(this)
         loading.addView(spinner, LinearLayout.LayoutParams(dp(48), dp(48)))
         loadingText = label("Подготовка мира…", 14f).apply { gravity = Gravity.CENTER; setPadding(dp(20), dp(18), dp(20), 0) }
         loading.addView(loadingText)
         overlay.addView(loading, FrameLayout.LayoutParams(-1, -1))
+        nativeReady(false)
+        video = TextureView(this).also { texture ->
+            texture.isOpaque = true; texture.isClickable = true
+            overlay.addView(texture, FrameLayout.LayoutParams(-1, -1))
+            texture.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+                override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) {
+                    if (videoEndedAt != Long.MAX_VALUE) return
+                    val surface = Surface(st)
+                    try {
+                        player = MediaPlayer().apply {
+                            assets.openFd("intro.mp4").use { setDataSource(it.fileDescriptor, it.startOffset, it.length) }
+                            setSurface(surface)
+                            setOnPreparedListener { if (active) it.start() }
+                            setOnCompletionListener { finishVideo() }
+                            setOnErrorListener { _, _, _ -> finishVideo(); true }
+                            prepareAsync()
+                        }
+                    } catch (_: Exception) { finishVideo() }
+                    finally { surface.release() }
+                }
+                override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) {}
+                override fun onSurfaceTextureUpdated(st: SurfaceTexture) {}
+                override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
+                    if (videoEndedAt == Long.MAX_VALUE) finishVideo()
+                    return true
+                }
+            }
+        }
         addContentView(overlay, ViewGroup.LayoutParams(-1, -1))
         hideSystemUi()
     }
     override fun onResume() {
         super.onResume()
+        active = true
+        try { player?.start() } catch (_: IllegalStateException) {}
         if (::coordinates.isInitialized) { handler.removeCallbacks(poll); handler.post(poll) }
     }
     override fun onPause() {
+        active = false; nativeReady(false)
+        try { player?.pause() } catch (_: IllegalStateException) {}
         handler.removeCallbacks(poll); nativeVertical(0f)
         super.onPause()
     }
-    override fun onDestroy() { handler.removeCallbacks(poll); super.onDestroy() }
+    private fun finishVideo() {
+        if (videoEndedAt != Long.MAX_VALUE) return
+        videoEndedAt = SystemClock.elapsedRealtime()
+        player?.release(); player = null; video?.visibility = View.GONE
+    }
+    override fun onDestroy() { nativeReady(false); player?.release(); player = null; handler.removeCallbacks(poll); super.onDestroy() }
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) hideSystemUi() else nativeVertical(0f)
