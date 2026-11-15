@@ -233,10 +233,11 @@ void Renderer::advanceLoading(){
   if(data.carValid)car_.beginUpload(std::move(data.car));
   world_.scenery.clear();world_.walls=city_.scene().colliders;world_.wallSegments=city_.scene().wallSegments;
   savePath_=std::string(app_->activity->internalDataPath)+"/city-glb-v1.txt";
-  if(!retainedWorld){world_.objects.clear();world_.load(savePath_);}
+  bool restoredWorld=retainedWorld.has_value();
+  if(!retainedWorld){world_.objects.clear();restoredWorld=world_.load(savePath_);}
   carParking_={8,0,data.parkingX,data.parkingZ};carParking_.y=data.parkingY;carParkingValid_=data.carValid;
   bool exists=std::any_of(world_.objects.begin(),world_.objects.end(),[](const sandbox::Object&o){return o.type==8;});
-  if(data.carValid&&!exists&&world_.objects.size()<sandbox::World::limit){sandbox::Object car{8,0,data.parkingX,data.parkingZ};car.y=data.parkingY;world_.objects.push_back(car);}
+  if(data.carValid&&!restoredWorld&&!exists&&world_.objects.size()<sandbox::World::limit){sandbox::Object car{8,0,data.parkingX,data.parkingZ};car.y=data.parkingY;world_.objects.push_back(car);}
   const auto config=readSpawnConfig(app_);
   if(!retainedWorld&&config.enabled){world_.x=config.x;world_.y=config.y;world_.z=config.z;world_.yaw=config.yawDegrees*.01745329252f;world_.pitch=0;flying_=config.startFlying;}
   player_.setBoundary(city_.scene().minimum[0],city_.scene().maximum[0],city_.scene().minimum[2],city_.scene().maximum[2]);
@@ -347,7 +348,9 @@ void Renderer::render(){
  eglQuerySurface(display_,surface_,EGL_WIDTH,&width_);eglQuerySurface(display_,surface_,EGL_HEIGHT,&height_);if(width_<1||height_<1)return;
  const auto now=std::chrono::steady_clock::now();float dt=std::clamp(std::chrono::duration<float>(now-last_).count(),0.f,.05f);last_=now;
  if(gameplayReady&&city_.ready()){
-  bool moving=dynamics_.update(world_,*city_.scene().collision,dt,tools_.held,city_.scene().minimum,city_.scene().maximum);
+  size_t objectCountBefore=world_.objects.size();
+  bool moving=dynamics_.update(world_,*city_.scene().collision,dt,tools_.held,city_.scene().minimum,city_.scene().maximum,&tools_.held,&seatedCar_);
+  if(world_.objects.size()!=objectCountBefore)saveDirty_=true;
   if(moving){rebuildBuiltCollision();motionSaveTime_+=dt;if(motionSaveTime_>.75f){saveDirty_=true;motionSaveTime_=0;}}
   else if(motionSaveTime_>0){saveDirty_=true;motionSaveTime_=0;}
  }
@@ -382,7 +385,7 @@ void Renderer::render(){
   else sandbox::appendObject(vertices,world_.objects[i]);
   sandbox::animateDoorMesh(world_.objects[i],vertices,objectBegin);
   if(int(i)!=tools_.held){const auto&o=world_.objects[i];auto b=sandbox::World::bounds(o);
-   float tiltX=o.type==1?0:o.tiltX,tiltZ=o.type==1?0:o.tiltZ;
+   float tiltX=o.tiltX,tiltZ=o.tiltZ;
    float cx=std::cos(tiltX),sx=std::sin(tiltX),cz=std::cos(tiltZ),sz=std::sin(tiltZ);
    for(size_t j=objectBegin;j<vertices.size();j++){auto &v=vertices[j];float x=v.x-b.x,y=v.y-b.y,z=v.z-b.z;float py=cx*y-sx*z,pz=sx*y+cx*z;v.x=b.x+cz*x-sz*py;v.y=b.y+sz*x+cz*py;v.z=b.z+pz;
     float ny=cx*v.ny-sx*v.nz,nz=sx*v.ny+cx*v.nz;float nx=cz*v.nx-sz*ny;v.ny=sz*v.nx+cz*ny;v.nx=nx;v.nz=nz;}
@@ -424,7 +427,7 @@ void Renderer::render(){
  for(size_t i=0;i<world_.objects.size();i++)if(world_.objects[i].type==8){
   const auto&o=world_.objects[i];auto b=sandbox::World::bounds(o);physics::Vec3 target{b.x,b.y,b.z};if(int(i)==tools_.held)target=tools_.display;
   const auto &lo=car_.scene().minimum,&hi=car_.scene().maximum;physics::Vec3 source{(lo[0]+hi[0])/2,(lo[1]+hi[1])/2,(lo[2]+hi[2])/2};
-  float ax=int(i)==tools_.held?0:o.tiltX,az=int(i)==tools_.held?0:o.tiltZ,ay=o.rotation*1.57079632679f;
+  float ax=o.tiltX,az=o.tiltZ,ay=o.rotation*1.57079632679f;
   auto rotate=[&](physics::Vec3 p){float x=std::cos(ay)*p.x+std::sin(ay)*p.z,z=-std::sin(ay)*p.x+std::cos(ay)*p.z;float y=std::cos(ax)*p.y-std::sin(ax)*z;z=std::sin(ax)*p.y+std::cos(ax)*z;return physics::Vec3{std::cos(az)*x-std::sin(az)*y,std::sin(az)*x+std::cos(az)*y,z};};
   auto x=rotate({1,0,0}),y=rotate({0,1,0}),z=rotate({0,0,1}),t=target-rotate(source);
   float matrix[16]={x.x,x.y,x.z,0,y.x,y.y,y.z,0,z.x,z.y,z.z,0,t.x,t.y,t.z,1};

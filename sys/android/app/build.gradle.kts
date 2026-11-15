@@ -12,8 +12,8 @@ android {
         applicationId = "com.example.realms"
         minSdk = 30
         targetSdk = 34
-        versionCode = 26
-        versionName = "0.26-freeze-edge-physics"
+        versionCode = 27
+        versionName = "0.27-no-respawn-free-rotation"
         externalNativeBuild {
             cmake { cppFlags += "-std=c++17" }
         }

@@ -16,6 +16,6 @@ int main(){
  w.objects={{8,0,0,-4}};w.objects[0].y=0;w.y=1;assert(tool.grab(w,nullptr));assert(tool.release(w));assert(w.objects[0].vz<0);
  CollisionMesh slope;slope.add({{-10,-1,-10},{10,1,10},{10,1,-10}});slope.add({{-10,-1,-10},{-10,-1,10},{10,1,10}});slope.build();w.objects={{8,0,0,0}};w.objects[0].y=2;
  for(int i=0;i<600;i++)sim.update(w,slope,1.f/120,-1,lo,hi);
- assert(w.objects[0].y<.2f&&std::abs(w.objects[0].tiltZ)>.05f);
+ assert(w.objects.size()==1&&w.objects[0].y<1.f&&std::abs(w.objects[0].tiltZ)>.05f);
  std::cout<<"Pit gravity, ballistic block/car impulse, wall bounce and terrain tilt OK\n";
 }

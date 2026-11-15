@@ -9,7 +9,7 @@
 namespace sandbox {
 enum Material { Asphalt=0, Concrete=1, Brick=2, Rust=3, Plain=4, Wood=5, Fabric=6, Glass=7 };
 struct Box { float x,y,z,w,h,d,r,g,b; int material=Concrete; };
-struct Object { int type,rotation; float x,z; float y=0; float vx=0,vy=0,vz=0,tiltX=0,tiltZ=0;bool awake=true,anchored=false;int surface=-1;float doorAngle=0,doorTarget=0;bool frozen=false;float spinX=0,spinZ=0; };
+struct Object { int type,rotation; float x,z; float y=0; float vx=0,vy=0,vz=0,tiltX=0,tiltZ=0;bool awake=true,anchored=false;int surface=-1;float doorAngle=0,doorTarget=0;bool frozen=false;float spinX=0,spinZ=0;float embeddedTime=0;bool destroyed=false; };
 struct WallSegment {float ax,az,bx,bz;};
 inline bool intersectsWall(const Box &box,const WallSegment &wall){
     // Slab test against a narrow 5 cm wall; respects diagonal walls and door gaps.
@@ -47,6 +47,7 @@ public:
         auto p=dims[o.type];
         return {o.x,o.y+p[1]/2,o.z,o.rotation%2?p[2]:p[0],p[1],o.rotation%2?p[0]:p[2],.5f,.43f,.32f,o.type==9?Wood:o.type==10?Brick:o.type<=1?Concrete:Plain};
     }
+    static float mass(const Object&o) { return o.type==8?1500.f:o.type==5?8.f:o.type==4?35.f:o.type==6?65.f:o.type==7?75.f:90.f; }
     static int fixedSurface(int type) { return type==11?Rust:type==8||type==2?-1:type==9||type==3||type==4||type==5||type==6?Wood:type==10?Brick:type==7?Fabric:type==2?-1:Concrete; }
     static bool overlap(const Box&a,const Box&b) {
         return std::abs(a.x-b.x)<(a.w+b.w)/2 && std::abs(a.z-b.z)<(a.d+b.d)/2;
@@ -90,14 +91,14 @@ public:
     }
     bool save(const std::string &path) const {
         const std::string temporary=path+".tmp";
-        {std::ofstream f(temporary);if(!f)return false;f<<"EKRON_SANDBOX_5\n"<<objects.size()<<'\n';for(auto o:objects)f<<o.type<<' '<<o.rotation<<' '<<o.x<<' '<<o.z<<' '<<o.y<<' '<<o.anchored<<' '<<o.surface<<' '<<o.frozen<<'\n';f.flush();if(!f)return false;}
+        {std::ofstream f(temporary);if(!f)return false;f<<"EKRON_SANDBOX_6\n"<<objects.size()<<'\n';for(auto o:objects)f<<o.type<<' '<<o.rotation<<' '<<o.x<<' '<<o.z<<' '<<o.y<<' '<<o.anchored<<' '<<o.surface<<' '<<o.frozen<<' '<<o.tiltX<<' '<<o.tiltZ<<'\n';f.flush();if(!f)return false;}
         return std::rename(temporary.c_str(),path.c_str())==0;
     }
     bool load(const std::string &path) {
         std::ifstream f(path);std::string magic;int count;
-        if(!(f>>magic>>count)||(magic!="EKRON_SANDBOX_1"&&magic!="EKRON_SANDBOX_2"&&magic!="EKRON_SANDBOX_3"&&magic!="EKRON_SANDBOX_4"&&magic!="EKRON_SANDBOX_5")||count<0||count>limit)return false;
+        if(!(f>>magic>>count)||(magic!="EKRON_SANDBOX_1"&&magic!="EKRON_SANDBOX_2"&&magic!="EKRON_SANDBOX_3"&&magic!="EKRON_SANDBOX_4"&&magic!="EKRON_SANDBOX_5"&&magic!="EKRON_SANDBOX_6")||count<0||count>limit)return false;
         std::vector<Object> incoming;
-        for(int i=0;i<count;i++){Object o{};if(!(f>>o.type>>o.rotation>>o.x>>o.z)||(magic!="EKRON_SANDBOX_1"&&!(f>>o.y))||((magic=="EKRON_SANDBOX_3"||magic=="EKRON_SANDBOX_4"||magic=="EKRON_SANDBOX_5")&&!(f>>o.anchored))||((magic=="EKRON_SANDBOX_4"||magic=="EKRON_SANDBOX_5")&&!(f>>o.surface))||(magic=="EKRON_SANDBOX_5"&&!(f>>o.frozen))||o.surface < -1||o.surface>6||o.type<0||o.type>=13||o.rotation<0||o.rotation>=4||!std::isfinite(o.x)||!std::isfinite(o.z)||!std::isfinite(o.y)||std::abs(o.y)>200||std::abs(o.x)>62||std::abs(o.z)>62)return false;incoming.push_back(o);}
+        for(int i=0;i<count;i++){Object o{};if(!(f>>o.type>>o.rotation>>o.x>>o.z)||(magic!="EKRON_SANDBOX_1"&&!(f>>o.y))||((magic=="EKRON_SANDBOX_3"||magic=="EKRON_SANDBOX_4"||magic=="EKRON_SANDBOX_5"||magic=="EKRON_SANDBOX_6")&&!(f>>o.anchored))||((magic=="EKRON_SANDBOX_4"||magic=="EKRON_SANDBOX_5"||magic=="EKRON_SANDBOX_6")&&!(f>>o.surface))||((magic=="EKRON_SANDBOX_5"||magic=="EKRON_SANDBOX_6")&&!(f>>o.frozen))||(magic=="EKRON_SANDBOX_6"&&(!(f>>o.tiltX>>o.tiltZ)||!std::isfinite(o.tiltX)||!std::isfinite(o.tiltZ)))||o.surface < -1||o.surface>6||o.type<0||o.type>=13||o.rotation<0||o.rotation>=4||!std::isfinite(o.x)||!std::isfinite(o.z)||!std::isfinite(o.y)||std::abs(o.y)>200||std::abs(o.x)>62||std::abs(o.z)>62)return false;incoming.push_back(o);}
         objects=std::move(incoming);return true;
     }
 private:

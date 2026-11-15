@@ -38,8 +38,14 @@ public:
  bool release(World&w){
   if(!holding())return false;
   auto &o=w.objects[held];auto b=World::bounds(o);o.x=display.x;o.z=display.z;o.y=display.y-b.h/2;
-  float impulse=o.type==8?10.f:16.f;
+  float mass=World::mass(o);
+  float impulse=std::min(16.f,std::sqrt(150000.f/mass));
   o.vx=-std::sin(w.yaw)*std::cos(w.pitch)*impulse;o.vz=-std::cos(w.yaw)*std::cos(w.pitch)*impulse;o.vy=std::sin(w.pitch)*impulse+2;
+  // Off-centre throw supplies angular impulse; no X/Z rotation locks.
+  float inertiaX=mass*(b.h*b.h+b.d*b.d)/12,inertiaZ=mass*(b.w*b.w+b.h*b.h)/12;
+  o.spinX+=std::clamp(-o.vz*mass*.12f/inertiaX,-4.f,4.f);
+  o.spinZ+=std::clamp(impulse*mass*.08f/inertiaZ,-4.f,4.f);
+  o.embeddedTime=0;
   o.frozen=false;o.awake=true;o.anchored=false;held=-1;return true;
  }
  bool freeze(World&w,const physics::CollisionMesh*city){
