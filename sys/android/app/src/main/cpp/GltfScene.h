@@ -17,6 +17,11 @@ struct Material {
     float cutoff=.5f;
 };
 struct Batch { std::vector<Vertex> vertices;int material=-1; };
+struct LoadOptions {
+    bool level=true;
+    float targetExtent=80.f;
+    float x=0,z=0,yaw=0;
+};
 struct Scene {
     std::vector<Image> images;
     std::vector<Material> materials;
@@ -25,6 +30,6 @@ struct Scene {
     float spawnX=0,spawnZ=0;
     std::array<float,3> minimum{},maximum{};
     // Reads both GLB and JSON glTF from assets; external paths resolve relative to the scene.
-    bool load(const std::string &path,const ReadFile &read,std::string &diagnostics);
+    bool load(const std::string &path,const ReadFile &read,std::string &diagnostics,const LoadOptions &options={});
 };
 }

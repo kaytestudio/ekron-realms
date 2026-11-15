@@ -5,7 +5,7 @@ struct AAssetManager;
 namespace city {
 class GltfRenderer {
 public:
-    bool load(AAssetManager *assets,const std::string &path,std::string &log);
+    bool load(AAssetManager *assets,const std::string &path,std::string &log,const LoadOptions &options={});
     void draw(GLuint program,float eyeX,float eyeZ);
     void release(); // Call while owning context is current.
     bool ready()const{return !meshes_.empty();}

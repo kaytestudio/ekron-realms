@@ -16,9 +16,9 @@ bool readAsset(AAssetManager *manager,const std::string &path,std::vector<unsign
 }
 GLint wrap(int mode){return mode==GL_CLAMP_TO_EDGE||mode==GL_MIRRORED_REPEAT?mode:GL_REPEAT;}
 }
-bool GltfRenderer::load(AAssetManager *assets,const std::string&path,std::string &log){
+bool GltfRenderer::load(AAssetManager *assets,const std::string&path,std::string &log,const LoadOptions &options){
     release();
-    if(!scene_.load(path,[&](const std::string&p,std::vector<unsigned char>&b){return readAsset(assets,p,b);},log))return false;
+    if(!scene_.load(path,[&](const std::string&p,std::vector<unsigned char>&b){return readAsset(assets,p,b);},log,options))return false;
     glActiveTexture(GL_TEXTURE1);glPixelStorei(GL_UNPACK_ALIGNMENT,1);
     // One per material preserves distinct glTF sampler wrapping modes.
     for(const auto&material:scene_.materials){

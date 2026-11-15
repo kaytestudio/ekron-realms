@@ -7,6 +7,7 @@
 #include <optional>
 #include <cstddef>
 #include "MeshGeometry.h"
+#include "LevelPlacement.h"
 
 namespace {
 std::mutex commandMutex;
@@ -148,9 +149,31 @@ Renderer::Renderer(android_app *app):app_(app),last_(std::chrono::steady_clock::
   // Keep prototype saves separate: their coordinates refer to a different level.
   savePath_=std::string(app->activity->internalDataPath)+"/city-glb-v1.txt";
   if(!retainedWorld){world_.objects.clear();world_.load(savePath_);}
-  if(!retainedWorld||world_.blocked({world_.x,0,world_.z,.6f,2,.6f,0,0,0})){
-   world_.x=city_.scene().spawnX;world_.z=city_.scene().spawnZ;
+  // Select an open main-road anchor before parking the vehicle.
+  city::SpawnPoint anchor;
+  if(city::findRoadSpawn(world_,city_.scene().minimum,city_.scene().maximum,0,28,anchor)){
+   float parkingX=0,parkingZ=0;
+   // Keep the car six metres away from the new spawn, even on a cold start.
+   float oldX=world_.x,oldZ=world_.z;world_.x=anchor.x;world_.z=anchor.z;
+   bool parking=city::findCarParking(world_,city_.scene().minimum,city_.scene().maximum,anchor.x+3,anchor.z-9,parkingX,parkingZ);
+   world_.x=oldX;world_.z=oldZ;
+   if(parking){
+    std::string carLog;city::LoadOptions carOptions;carOptions.level=false;carOptions.targetExtent=4.3f;
+    carOptions.x=parkingX;carOptions.z=parkingZ;carOptions.yaw=1.57079632679f;
+    if(car_.load(app_->activity->assetManager,"models/crushed_sports_car.glb",carLog,carOptions)){
+     const auto &colliders=car_.scene().colliders;world_.walls.insert(world_.walls.end(),colliders.begin(),colliders.end());
+    }
+    __android_log_print(car_.ready()?ANDROID_LOG_INFO:ANDROID_LOG_ERROR,"Ekron","Car at %.2f %.2f: %s",parkingX,parkingZ,carLog.c_str());
+   }
   }
+  // Final startup validation includes the city, car AND saved player-built objects.
+  city::SpawnPoint safe;
+  if(city::findRoadSpawn(world_,city_.scene().minimum,city_.scene().maximum,0,28,safe)){
+   if(!retainedWorld||!safe.playerInRegion||world_.blocked({world_.x,0,world_.z,1.6f,2,1.6f,0,0,0})){
+    world_.x=safe.x;world_.z=safe.z;world_.yaw=0;world_.pitch=0;
+   }
+   __android_log_print(ANDROID_LOG_INFO,"Ekron","Safe spawn %.2f %.2f; connected cells %zu",world_.x,world_.z,safe.reachableCells);
+  }else __android_log_print(ANDROID_LOG_ERROR,"Ekron","No safe main-road spawn after applying saved constructions");
  }
  __android_log_print(city_.ready()?ANDROID_LOG_INFO:ANDROID_LOG_ERROR,"Ekron","%s",cityLog.c_str());
  glGenVertexArrays(1,&vao_);glGenBuffers(1,&buffer_);glBindVertexArray(vao_);glBindBuffer(GL_ARRAY_BUFFER,buffer_);
@@ -163,7 +186,7 @@ Renderer::Renderer(android_app *app):app_(app),last_(std::chrono::steady_clock::
 }
 Renderer::~Renderer(){
  retainedWorld=world_;retainedBuilding=building_;
- if(display_!=EGL_NO_DISPLAY){if(context_!=EGL_NO_CONTEXT&&surface_!=EGL_NO_SURFACE&&eglMakeCurrent(display_,surface_,surface_,context_)){city_.release();textures_.release();if(skyProgram_)glDeleteProgram(skyProgram_);if(buffer_)glDeleteBuffers(1,&buffer_);if(vao_)glDeleteVertexArrays(1,&vao_);if(program_)glDeleteProgram(program_);}eglMakeCurrent(display_,EGL_NO_SURFACE,EGL_NO_SURFACE,EGL_NO_CONTEXT);if(context_!=EGL_NO_CONTEXT)eglDestroyContext(display_,context_);if(surface_!=EGL_NO_SURFACE)eglDestroySurface(display_,surface_);eglTerminate(display_);}
+ if(display_!=EGL_NO_DISPLAY){if(context_!=EGL_NO_CONTEXT&&surface_!=EGL_NO_SURFACE&&eglMakeCurrent(display_,surface_,surface_,context_)){car_.release();city_.release();textures_.release();if(skyProgram_)glDeleteProgram(skyProgram_);if(buffer_)glDeleteBuffers(1,&buffer_);if(vao_)glDeleteVertexArrays(1,&vao_);if(program_)glDeleteProgram(program_);}eglMakeCurrent(display_,EGL_NO_SURFACE,EGL_NO_SURFACE,EGL_NO_CONTEXT);if(context_!=EGL_NO_CONTEXT)eglDestroyContext(display_,context_);if(surface_!=EGL_NO_SURFACE)eglDestroySurface(display_,surface_);eglTerminate(display_);}
 }
 void Renderer::resetInput(){leftId_=rightId_=-1;moveX_=moveY_=0;last_=std::chrono::steady_clock::now();}
 void Renderer::handleInput(){
@@ -211,5 +234,6 @@ void Renderer::render(){
  glUniform3f(glGetUniformLocation(program_,"eye"),world_.x,1.7f,world_.z);glUniform2f(glGetUniformLocation(program_,"angles"),world_.yaw,world_.pitch);glUniform1f(glGetUniformLocation(program_,"aspect"),float(width_)/height_);
  glBindVertexArray(vao_);glBindBuffer(GL_ARRAY_BUFFER,buffer_);glBufferData(GL_ARRAY_BUFFER,vertices.size()*sizeof(Vertex),vertices.data(),GL_STREAM_DRAW);glDrawArrays(GL_TRIANGLES,0,static_cast<GLsizei>(vertices.size()));
  city_.draw(program_,world_.x,world_.z);
+ car_.draw(program_,world_.x,world_.z);
  eglSwapBuffers(display_,surface_);
 }

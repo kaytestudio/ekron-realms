@@ -11,8 +11,8 @@ android {
         applicationId = "com.example.realms"
         minSdk = 30
         targetSdk = 34
-        versionCode = 4
-        versionName = "0.4-gltf-city"
+        versionCode = 5
+        versionName = "0.5-safe-spawn-car"
         externalNativeBuild {
             cmake { cppFlags += "-std=c++17" }
         }

@@ -1,4 +1,5 @@
 #include "GltfScene.h"
+#include "LevelPlacement.h"
 #define TINYGLTF_IMPLEMENTATION
 #define TINYGLTF_NO_STB_IMAGE_WRITE
 #define TINYGLTF_NO_FS
@@ -80,12 +81,26 @@ bool cellHit(Vec a,Vec b,Vec c,float x,float z,float half){
   if(std::min({pa,pb,pc})>center+r||std::max({pa,pb,pc})<center-r)return false;
  }return true;
 }
-void prepare(Scene &s){
+void prepare(Scene &s,const LoadOptions &options){
  Vec lo{1e20f,1e20f,1e20f},hi{-1e20f,-1e20f,-1e20f};size_t count=0;
  for(auto &b:s.batches)for(auto &v:b.vertices){Vec p{v.x,v.y,v.z};for(int i=0;i<3;i++){lo[i]=std::min(lo[i],p[i]);hi[i]=std::max(hi[i],p[i]);}count++;}
  if(!count)throw std::runtime_error("No triangle geometry");
  const float extent=std::max(hi[0]-lo[0],hi[2]-lo[2]);if(extent<.01f)throw std::runtime_error("Degenerate scene bounds");
- const float scale=80.f/extent,cx=(lo[0]+hi[0])/2,cz=(lo[2]+hi[2])/2;
+ const float scale=options.targetExtent/extent,cx=(lo[0]+hi[0])/2,cz=(lo[2]+hi[2])/2;
+ if(!options.level){
+  float cosine=std::cos(options.yaw),sine=std::sin(options.yaw);
+  Vec minimum{1e20f,1e20f,1e20f},maximum{-1e20f,-1e20f,-1e20f};
+  for(auto &batch:s.batches)for(auto &v:batch.vertices){
+   float x=(v.x-cx)*scale,z=(v.z-cz)*scale;
+   v.x=options.x+cosine*x+sine*z;v.z=options.z-sine*x+cosine*z;v.y=(v.y-lo[1])*scale;
+   float nx=v.nx,nz=v.nz;v.nx=cosine*nx+sine*nz;v.nz=-sine*nx+cosine*nz;
+   Vec p{v.x,v.y,v.z};for(int i=0;i<3;i++){minimum[i]=std::min(minimum[i],p[i]);maximum[i]=std::max(maximum[i],p[i]);}
+  }
+  s.minimum=minimum;s.maximum=maximum;
+  float height=std::min(1.2f,maximum[1]);
+  s.colliders.push_back({(minimum[0]+maximum[0])/2,height/2,(minimum[2]+maximum[2])/2,maximum[0]-minimum[0],height,maximum[2]-minimum[2],0,0,0});
+  return;
+ }
  // Estimate ground from area-weighted horizontal triangles, rather than lowest rubble vertex.
  std::map<int,double> ground;
  for(auto &b:s.batches)for(size_t i=0;i<b.vertices.size();i+=3){const auto&a=b.vertices[i],&v=b.vertices[i+1],&c=b.vertices[i+2];auto n=cross({v.x-a.x,v.y-a.y,v.z-a.z},{c.x-a.x,c.y-a.y,c.z-a.z});if(std::abs(normal(n)[1])>.9f)ground[int(std::round((a.y+v.y+c.y)/3*scale*10))]+=std::abs(n[1]);}
@@ -106,17 +121,14 @@ void prepare(Scene &s){
  }
  // Block unmodeled ground so the player does not walk off the street into the void.
  for(int z=0;z<side;z++)for(int x=0;x<side;){if(!blocked[z*side+x]&&supported[z*side+x]){x++;continue;}int start=x;while(x<side&&(blocked[z*side+x]||!supported[z*side+x]))x++;s.colliders.push_back({origin+(start+x)*cell/2,1,origin+(z+.5f)*cell,(x-start)*cell,2,cell,0,0,0});}
- float nearest=1e20f;bool found=false;
- for(int z=1;z<side-1;z++)for(int x=1;x<side-1;x++){
-  bool free=true;for(int dz=-1;dz<=1;dz++)for(int dx=-1;dx<=1;dx++)if(blocked[(z+dz)*side+x+dx]||!supported[(z+dz)*side+x+dx])free=false;
-  float px=origin+(x+.5f)*cell,pz=origin+(z+.5f)*cell,d=px*px+(pz-12)*(pz-12);
-  if(free&&d<nearest){nearest=d;s.spawnX=px;s.spawnZ=pz;found=true;}
- }
- if(!found)throw std::runtime_error("No supported free spawn in the collision grid");
+ sandbox::World collisionWorld;collisionWorld.walls=s.colliders;
+ SpawnPoint spawn;
+ if(!findRoadSpawn(collisionWorld,s.minimum,s.maximum,0,28,spawn))throw std::runtime_error("No connected, supported free spawn in the collision grid");
+ s.spawnX=spawn.x;s.spawnZ=spawn.z;
 }
 }
 
-bool Scene::load(const std::string &path,const ReadFile &read,std::string &diagnostics){
+bool Scene::load(const std::string &path,const ReadFile &read,std::string &diagnostics,const LoadOptions &options){
  try{
   Scene result;std::vector<unsigned char> bytes;if(!read(path,bytes)||bytes.empty()||bytes.size()>128*1024*1024)throw std::runtime_error("Model missing or exceeds 128 MiB");
   tinygltf::TinyGLTF parser;parser.SetImageLoader(imageLoader,nullptr);
@@ -163,7 +175,8 @@ bool Scene::load(const std::string &path,const ReadFile &read,std::string &diagn
   };
   if(model.scenes.empty())throw std::runtime_error("No glTF scene");
   int scene=model.defaultScene>=0?model.defaultScene:0;for(int node:model.scenes.at(scene).nodes)visit(node,identity());
-  prepare(result);*this=std::move(result);diagnostics+="Loaded "+std::to_string(vertexCount/3)+" triangles, "+std::to_string(materials.size())+" materials, "+std::to_string(colliders.size())+" collision rows.\n";return true;
+  if(!std::isfinite(options.targetExtent)||options.targetExtent<=0||!std::isfinite(options.x)||!std::isfinite(options.z)||!std::isfinite(options.yaw))throw std::runtime_error("Invalid scene placement options");
+  prepare(result,options);*this=std::move(result);diagnostics+="Loaded "+std::to_string(vertexCount/3)+" triangles, "+std::to_string(materials.size())+" materials, "+std::to_string(colliders.size())+" collision rows.\n";return true;
  }catch(const std::exception&e){diagnostics+="glTF load failed: "+std::string(e.what());return false;}
 }
 }
