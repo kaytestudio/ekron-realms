@@ -134,7 +134,7 @@ class MainActivity : GameActivity() {
                     1 -> "Точка из конфига небезопасна — спавн перенесён на открытое место."
                     2 -> "Безопасная точка пока недоступна — освободите спавн."
                     3 -> "Нет свободного места для УАЗа. Освободите парковку."
-                    5 -> "Нет безопасного места для выхода из УАЗа."
+                    5 -> "Нет безопасного места рядом для выхода."
                     4 -> "Игрок возвращён на безопасный спавн."
                     else -> if (flying) "Сквозь стены · ↑ / ↓ — высота" else when(toolsState.tool) {
                         HandTool.HAND_EMPTY -> "Пустые руки"
@@ -183,7 +183,7 @@ class MainActivity : GameActivity() {
         overlay.addView(label("+", 26f), FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
         // The reference HUD scales by available landscape height, not by a fixed phone resolution.
         val screenHeight = resources.configuration.screenHeightDp
-        val actionSize = (screenHeight * .145f).toInt().coerceIn(60, 88)
+        val actionSize = (screenHeight * .145f).toInt().coerceIn(60, 64)
         val stickSize = (screenHeight * .32f).toInt().coerceIn(120, 184)
         joystick = StickView(this) { right, forward -> weapon.moving=kotlin.math.hypot(right,forward)>.1f;nativeMove(right, forward) }
         overlay.addView(joystick, FrameLayout.LayoutParams(dp(stickSize), dp(stickSize), Gravity.BOTTOM or Gravity.START).apply {
@@ -192,7 +192,7 @@ class MainActivity : GameActivity() {
         fun action(caption: String, icon: String, click: () -> Unit): HudButton = HudButton(this, caption, icon).apply {
             setOnClickListener { click() }
         }
-        val pause = action("", "pause") { showPauseMenu() }
+        val pause = action("", "pause") { showPauseMenu() }.apply { visualScale=.73f }
         pause.contentDescription = "Пауза"
         overlay.addView(pause, FrameLayout.LayoutParams(dp(60), dp(60), Gravity.TOP or Gravity.END).apply { topMargin=dp(6); rightMargin=dp(8) })
         val movement = LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; gravity=Gravity.CENTER; isMotionEventSplittingEnabled=true }
@@ -214,15 +214,15 @@ class MainActivity : GameActivity() {
             nativeCommand(10)
         }
         for (control in listOf(jump,crouchControl)) movement.addView(control, LinearLayout.LayoutParams(dp(actionSize),dp(actionSize)))
-        overlay.addView(movement, FrameLayout.LayoutParams(-2,-2,Gravity.BOTTOM or Gravity.END).apply { bottomMargin=dp(6);rightMargin=dp(82) })
+        overlay.addView(movement, FrameLayout.LayoutParams(-2,-2,Gravity.BOTTOM or Gravity.END).apply { bottomMargin=dp(8);rightMargin=dp(8) })
         // Immediate three-tool cycle. Never opens a menu or catalogue.
-        val switchWeapon=action("", "switch") { selectTool(toolsState.nextTool()) }
+        val switchWeapon=action("", "switch") { selectTool(toolsState.nextTool()) }.apply { visualScale=.73f }
         switchWeapon.contentDescription="Смена оружия"
-        overlay.addView(switchWeapon,FrameLayout.LayoutParams(dp(64),dp(64),Gravity.TOP or Gravity.END).apply { topMargin=dp(72);rightMargin=dp(8) })
-        catalogControl=action("", "cube") { showBuildCatalog() }.apply { contentDescription="Открыть предметы" }
-        overlay.addView(catalogControl,FrameLayout.LayoutParams(dp(64),dp(64),Gravity.TOP or Gravity.END).apply { topMargin=dp(72);rightMargin=dp(80) })
-        removeControl=action("", "remove") { nativeCommand(4) }.apply { danger=true;contentDescription="Удалить" }
-        overlay.addView(removeControl,FrameLayout.LayoutParams(dp(64),dp(64),Gravity.TOP or Gravity.END).apply { topMargin=dp(140);rightMargin=dp(80) })
+        overlay.addView(switchWeapon,FrameLayout.LayoutParams(dp(60),dp(60),Gravity.TOP or Gravity.END).apply { topMargin=dp(66);rightMargin=dp(8) })
+        catalogControl=action("", "cube") { showBuildCatalog() }.apply { contentDescription="Открыть предметы";visualScale=.73f }
+        overlay.addView(catalogControl,FrameLayout.LayoutParams(dp(60),dp(60),Gravity.TOP or Gravity.END).apply { topMargin=dp(66);rightMargin=dp(72) })
+        removeControl=action("", "remove") { nativeCommand(4) }.apply { danger=true;visualScale=.73f;contentDescription="Удалить" }
+        overlay.addView(removeControl,FrameLayout.LayoutParams(dp(60),dp(60),Gravity.TOP or Gravity.END).apply { topMargin=dp(126);rightMargin=dp(72) })
         toolActions=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;gravity=Gravity.END;isMotionEventSplittingEnabled=true }
         spawnActions=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER }
         gravityActions=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER }
@@ -251,7 +251,7 @@ class MainActivity : GameActivity() {
         toolActions.addView(gravityActions)
         overlay.addView(toolActions,FrameLayout.LayoutParams(-2,-2,Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin=dp(8) })
         interactionControl=action("Открыть","grab") { nativeCommand(36) }.apply { visibility=View.GONE }
-        overlay.addView(interactionControl,FrameLayout.LayoutParams(dp(88),dp(64),Gravity.CENTER_VERTICAL or Gravity.END).apply { rightMargin=dp(8) })
+        overlay.addView(interactionControl,FrameLayout.LayoutParams(dp(80),dp(60),Gravity.BOTTOM or Gravity.END).apply { bottomMargin=dp(8);rightMargin=dp(76) })
         renderTools()
         // Flight is now in the pause menu; its altitude controls do not cover the action column.
         flight = Button(this)

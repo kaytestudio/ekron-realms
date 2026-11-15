@@ -12,6 +12,10 @@ int main(){
  w.objects.clear();w.objects.push_back({8,0,0,0});w.y=1.7f;assert(sandbox::interactionTarget(w,city)==0);
  physics::CollisionMesh built;sandbox::addObjectCollision(built,w.objects[0]);built.build();auto exit=sandbox::carExit(w,0,city,built,{-20,-1,-20},{20,10,20});assert(exit);
  auto seat=sandbox::driverSeat(w.objects[0]);assert(seat.y>1&&seat.y<1.9f);
+ w.objects[0]={7,0,0,0};w.x=0;w.y=.8f;w.z=2;w.pitch=0;
+ assert(sandbox::interactionTarget(w,city)==0);
+ auto sofaSeat=sandbox::driverSeat(w.objects[0]);assert(sofaSeat.y==1.48f&&std::abs(sofaSeat.z-.08f)<.0001f);
+ physics::CollisionMesh sofa;sandbox::addObjectCollision(sofa,w.objects[0]);sofa.build();assert(sandbox::carExit(w,0,city,sofa,{-20,-1,-20},{20,10,20}));
  auto cube=sandbox::World::bounds({12,0,0,0});assert(cube.w==1&&cube.h==1&&cube.d==1);
  std::cout<<"Interaction range, hinge, open-door passage, seat, safe exit and cube dimensions OK\n";
 }

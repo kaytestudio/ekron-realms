@@ -20,10 +20,10 @@ inline void addObjectCollision(physics::CollisionMesh&mesh,const Object&o){
 inline int interactionTarget(const World&w,const physics::CollisionMesh&city){
  physics::Vec3 origin{w.x,w.y,w.z},dir{-std::sin(w.yaw)*std::cos(w.pitch),std::sin(w.pitch),-std::cos(w.yaw)*std::cos(w.pitch)};
  physics::CollisionMesh::RayHit hit;float distance=3;int target=-1;if(city.raycast(origin,dir,distance,hit))distance=hit.distance;
- for(size_t i=0;i<w.objects.size();i++){physics::CollisionMesh mesh;addObjectCollision(mesh,w.objects[i]);mesh.build();if(mesh.raycast(origin,dir,distance,hit)){distance=hit.distance;target=(w.objects[i].type==3||w.objects[i].type==8)?int(i):-1;}}
+ for(size_t i=0;i<w.objects.size();i++){physics::CollisionMesh mesh;addObjectCollision(mesh,w.objects[i]);mesh.build();if(mesh.raycast(origin,dir,distance,hit)){distance=hit.distance;target=(w.objects[i].type==3||w.objects[i].type==8||w.objects[i].type==7)?int(i):-1;}}
  return target;
 }
-inline physics::Vec3 driverSeat(const Object&o){float x=-.45f,z=-.45f;for(int i=0;i<o.rotation;i++){float old=x;x=z;z=-old;}return {o.x+x,o.y+1.35f,o.z+z};}
+inline physics::Vec3 driverSeat(const Object&o){float x=o.type==7?0:-.45f,z=o.type==7?.08f:-.45f;for(int i=0;i<o.rotation;i++){float old=x;x=z;z=-old;}return {o.x+x,o.y+(o.type==7?1.48f:1.35f),o.z+z};}
 inline std::optional<physics::Vec3> carExit(const World&w,int index,const physics::CollisionMesh&city,const physics::CollisionMesh&built,const std::array<float,3>&lo,const std::array<float,3>&hi){
  auto b=World::bounds(w.objects[index]);physics::PlayerController player;
  for(float extra:{.65f,1.2f})for(auto offset:{physics::Vec3{b.w/2+extra,0,0},physics::Vec3{-b.w/2-extra,0,0},physics::Vec3{0,0,b.d/2+extra},physics::Vec3{0,0,-b.d/2-extra}}){

@@ -58,15 +58,16 @@ class StickView(context: Context, private val move: (Float, Float) -> Unit) : Vi
 }
 
 class HudButton(context: Context, var caption: String, var symbol: String) : View(context) {
+    var visualScale = 1f
     var danger = false
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     init { isClickable = true; isFocusable = true; contentDescription = caption }
     override fun setSelected(selected: Boolean) { super.setSelected(selected); invalidate() }
     override fun setPressed(pressed: Boolean) { super.setPressed(pressed); invalidate() }
     override fun onDraw(canvas: Canvas) {
-        val size = min(width, height).toFloat(); val cx = width / 2f; val cy = height / 2f
+        val size = min(width, height).toFloat()*visualScale; val cx = width / 2f; val cy = height / 2f
         paint.style = Paint.Style.FILL
-        paint.color = if (isSelected || isPressed) 0xcc526758.toInt() else if(danger) 0xdd9f2929.toInt() else 0xaa30332f.toInt()
+        paint.color = if (isSelected || isPressed) 0x99526758.toInt() else if(danger) 0x999f2929.toInt() else 0x6630332f.toInt()
         val bounds = RectF(cx-size*.48f, cy-size*.48f, cx+size*.48f, cy+size*.48f)
         if (symbol == "pause") canvas.drawRoundRect(bounds, size*.1f, size*.1f, paint) else canvas.drawOval(bounds, paint)
         paint.style = Paint.Style.STROKE; paint.strokeWidth = size*.015f; paint.color = 0xbbffffff.toInt()
