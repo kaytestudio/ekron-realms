@@ -161,7 +161,7 @@ bool Scene::load(const std::string &path,const ReadFile &read,std::string &diagn
   diagnostics=warn;if(!ok)throw std::runtime_error(error);
   if(!model.extensionsRequired.empty())throw std::runtime_error("Required glTF extensions are not supported by this static renderer");
   for(auto &image:model.images)result.images.push_back({image.width,image.height,std::move(image.image)});
-  for(const auto&m:model.materials){Material out;auto&p=m.pbrMetallicRoughness;for(int i=0;i<4;i++)out.color[i]=float(p.baseColorFactor.at(i));out.doubleSided=m.doubleSided;out.alphaMode=m.alphaMode=="BLEND"?2:m.alphaMode=="MASK"?1:0;out.cutoff=float(m.alphaCutoff);
+  for(const auto&m:model.materials){Material out;out.playerFence=options.level&&m.name=="Material.006";auto&p=m.pbrMetallicRoughness;for(int i=0;i<4;i++)out.color[i]=float(p.baseColorFactor.at(i));out.doubleSided=m.doubleSided;out.alphaMode=m.alphaMode=="BLEND"?2:m.alphaMode=="MASK"?1:0;out.cutoff=float(m.alphaCutoff);
    if(p.baseColorTexture.index>=0){if(p.baseColorTexture.texCoord!=0)throw std::runtime_error("Only TEXCOORD_0 base color is supported");const auto&tex=model.textures.at(p.baseColorTexture.index);out.image=tex.source;if(tex.sampler>=0){auto &sampler=model.samplers.at(tex.sampler);out.wrapS=sampler.wrapS;out.wrapT=sampler.wrapT;}}
    std::vector<unsigned char> overrideBytes;
    if(read(base+"overrides/material_"+std::to_string(result.materials.size())+".png",overrideBytes)&&!overrideBytes.empty()&&overrideBytes.size()<=32*1024*1024){

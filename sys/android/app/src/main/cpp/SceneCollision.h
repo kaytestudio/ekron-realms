@@ -36,13 +36,32 @@ inline void addAlphaCollision(physics::CollisionMesh &mesh,const Scene&s,const M
 }
 inline void buildSceneCollision(Scene &s){
  auto mesh=std::make_shared<physics::CollisionMesh>();
+ auto barriers=std::make_shared<physics::CollisionMesh>();
  for(const auto &batch:s.batches){
   const Material *m=batch.material>=0&&size_t(batch.material)<s.materials.size()?&s.materials[batch.material]:nullptr;
   for(size_t i=0;i+2<batch.vertices.size();i+=3){auto a=batch.vertices[i],b=batch.vertices[i+1],c=batch.vertices[i+2];
+   if(m&&m->playerFence){
+    physics::Vec3 points[3]={{a.x,a.y,a.z},{b.x,b.y,b.z},{c.x,c.y,c.z}};
+    auto normal=physics::normalized(physics::cross(points[1]-points[0],points[2]-points[0]));
+    // Extrude only the fence's XZ segment, not its AABB: diagonal panels remain narrow.
+    if(std::abs(normal.y)<.15f){
+     int first=0,last=1;float longest=0;
+     for(int p=0;p<3;p++)for(int q=p+1;q<3;q++){
+      float length=std::hypot(points[p].x-points[q].x,points[p].z-points[q].z);
+      if(length>longest){longest=length;first=p;last=q;}
+     }
+     if(longest>.01f){
+      auto p=points[first],q=points[last];float bottom=s.minimum[1]-256,top=s.maximum[1]+256;
+      barriers->add({{p.x,bottom,p.z},{q.x,bottom,q.z},{q.x,top,q.z}});
+      barriers->add({{p.x,bottom,p.z},{q.x,top,q.z},{p.x,top,p.z}});
+     }
+    }
+   }
    if(m&&m->alphaMode!=0)addAlphaCollision(*mesh,s,*m,a,b,c);
    else mesh->add({{a.x,a.y,a.z},{b.x,b.y,b.z},{c.x,c.y,c.z}});
   }
  }
  mesh->build();s.collision=mesh;
+ barriers->build();s.fenceBarriers=barriers;
 }
 }

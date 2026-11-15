@@ -15,6 +15,7 @@ struct Material {
     std::array<float,4> color{1,1,1,1};
     int image=-1,wrapS=10497,wrapT=10497;
     bool doubleSided=false;
+    bool playerFence=false; // Explicit city-asset fence material, never inferred from transparency alone.
     int alphaMode=0; // 0 opaque, 1 mask, 2 blend
     float cutoff=.5f;
 };
@@ -32,6 +33,7 @@ struct Scene {
     std::vector<sandbox::Box> colliders;
     std::vector<sandbox::WallSegment> wallSegments;
     std::shared_ptr<const physics::CollisionMesh> collision;
+    std::shared_ptr<const physics::CollisionMesh> fenceBarriers;
     float spawnX=0,spawnZ=0;
     std::array<float,3> minimum{},maximum{};
     // Reads both GLB and JSON glTF from assets; external paths resolve relative to the scene.

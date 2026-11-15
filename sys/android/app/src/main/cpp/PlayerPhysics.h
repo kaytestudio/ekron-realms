@@ -64,7 +64,7 @@ public:
     Vec3 feet()const{return feet_;}
     float eyeHeight()const{return eye_;}
     bool overlaps(const CollisionMesh&mesh,float x,float eyeY,float z)const{return contacts(mesh,{x,eyeY-1.7f,z},1.8f);}
-    void update(const CollisionMesh&mesh,float right,float forward,float yaw,float dt,bool crouched,float &x,float &y,float &z,const CollisionMesh *extra=nullptr,bool prone=false){
+    void update(const CollisionMesh&mesh,float right,float forward,float yaw,float dt,bool crouched,float &x,float &y,float &z,const CollisionMesh *extra=nullptr,bool prone=false,const CollisionMesh *fenceBarriers=nullptr){
         if(!initialized_)reset(x,y,z);
         // Crouch keeps the feet still; standing up is refused under a concrete frame/ceiling.
         float desired=prone?.55f:crouched?1.f:1.8f;
@@ -82,7 +82,7 @@ public:
             feet_.z+=(-std::sin(yaw)*right-std::cos(yaw)*forward)/lengthInput*speed*step;
             bool stepped=wasGrounded&&velocity_<=0&&height_>.6f&&tryStep(mesh,extra,before,feet_);
             if(!stepped){velocity_=std::max(-30.f,velocity_-18.f*step);feet_.y+=velocity_*step;grounded_=false;}
-            confine();solve(mesh);if(extra)solve(*extra);confine();
+            confine();solve(mesh);if(extra)solve(*extra);if(fenceBarriers)solve(*fenceBarriers);confine();
             // Follow small downhill changes, but NEVER snap over an actual pit or from mid-air.
             if(wasGrounded&&!grounded_&&velocity_<=0){
                 float floor=mesh.groundHeight(feet_.x,feet_.z,feet_.y+.08f,feet_.y-.18f);

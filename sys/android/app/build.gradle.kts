@@ -12,8 +12,8 @@ android {
         applicationId = "com.example.realms"
         minSdk = 30
         targetSdk = 34
-        versionCode = 16
-        versionName = "0.16-tool-viewmodels"
+        versionCode = 17
+        versionName = "0.17-fence-boundaries"
         externalNativeBuild {
             cmake { cppFlags += "-std=c++17" }
         }
