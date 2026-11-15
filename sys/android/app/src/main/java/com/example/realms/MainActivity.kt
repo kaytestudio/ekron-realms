@@ -46,6 +46,7 @@ class MainActivity : GameActivity() {
     private val toolsState = ToolState()
     private var requestedTool: HandTool? = null
     private lateinit var toolActions: LinearLayout
+    private lateinit var catalogControl: HudButton
     private lateinit var spawnActions: LinearLayout
     private lateinit var gravityActions: LinearLayout
     private lateinit var removeControl: HudButton
@@ -175,7 +176,7 @@ class MainActivity : GameActivity() {
         overlay.addView(label("+", 26f), FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
         // The reference HUD scales by available landscape height, not by a fixed phone resolution.
         val screenHeight = resources.configuration.screenHeightDp
-        val actionSize = (screenHeight * .145f).toInt().coerceIn(44, 88)
+        val actionSize = (screenHeight * .145f).toInt().coerceIn(60, 88)
         val stickSize = (screenHeight * .32f).toInt().coerceIn(120, 184)
         joystick = StickView(this) { right, forward -> weapon.moving=kotlin.math.hypot(right,forward)>.1f;nativeMove(right, forward) }
         overlay.addView(joystick, FrameLayout.LayoutParams(dp(stickSize), dp(stickSize), Gravity.BOTTOM or Gravity.START).apply {
@@ -186,7 +187,7 @@ class MainActivity : GameActivity() {
         }
         val pause = action("", "pause") { showPauseMenu() }
         pause.contentDescription = "Пауза"
-        overlay.addView(pause, FrameLayout.LayoutParams(dp(48), dp(48), Gravity.TOP or Gravity.END).apply { topMargin=dp(6); rightMargin=dp(8) })
+        overlay.addView(pause, FrameLayout.LayoutParams(dp(60), dp(60), Gravity.TOP or Gravity.END).apply { topMargin=dp(6); rightMargin=dp(8) })
         val movement = LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; gravity=Gravity.CENTER; isMotionEventSplittingEnabled=true }
         val jump = action("Прыжок", "jump") { nativeCommand(8) }
         // Fire on press, not release. The joystick keeps its own pointer and axes untouched.
@@ -205,11 +206,16 @@ class MainActivity : GameActivity() {
             proneControl.isSelected = !proneControl.isSelected; crouchControl.isSelected=false
             nativeCommand(10)
         }
-        for (control in listOf(jump,crouchControl,proneControl)) movement.addView(control, LinearLayout.LayoutParams(dp(actionSize),dp(actionSize)))
+        for (control in listOf(jump,crouchControl)) movement.addView(control, LinearLayout.LayoutParams(dp(actionSize),dp(actionSize)))
         overlay.addView(movement, FrameLayout.LayoutParams(-2,-2,Gravity.BOTTOM or Gravity.END).apply { bottomMargin=dp(6);rightMargin=dp(82) })
-        // Only the backpack occupies the bottom-right corner with empty hands.
-        val backpack = action("Рюкзак", "backpack") { showToolsMenu() }
-        overlay.addView(backpack,FrameLayout.LayoutParams(dp(64),dp(64),Gravity.BOTTOM or Gravity.END).apply { bottomMargin=dp(8);rightMargin=dp(8) })
+        // Immediate three-tool cycle. Never opens a menu or catalogue.
+        val switchWeapon=action("", "switch") { selectTool(toolsState.nextTool()) }
+        switchWeapon.contentDescription="Смена оружия"
+        overlay.addView(switchWeapon,FrameLayout.LayoutParams(dp(64),dp(64),Gravity.TOP or Gravity.END).apply { topMargin=dp(72);rightMargin=dp(8) })
+        catalogControl=action("", "cube") { showBuildCatalog() }.apply { contentDescription="Открыть предметы" }
+        overlay.addView(catalogControl,FrameLayout.LayoutParams(dp(64),dp(64),Gravity.TOP or Gravity.END).apply { topMargin=dp(72);rightMargin=dp(80) })
+        removeControl=action("", "remove") { nativeCommand(4) }.apply { danger=true;contentDescription="Удалить" }
+        overlay.addView(removeControl,FrameLayout.LayoutParams(dp(64),dp(64),Gravity.TOP or Gravity.END).apply { topMargin=dp(140);rightMargin=dp(80) })
         toolActions=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;gravity=Gravity.END;isMotionEventSplittingEnabled=true }
         spawnActions=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER }
         gravityActions=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER }
@@ -226,18 +232,16 @@ class MainActivity : GameActivity() {
         selectedSlot.addView(selectedImage,FrameLayout.LayoutParams(-1,-1))
         selectedSwatch=MaterialBlockView(this,selectedSurface)
         selectedSlot.addView(selectedSwatch,FrameLayout.LayoutParams(dp(25),dp(25),Gravity.BOTTOM or Gravity.END))
-        spawnActions.addView(selectedSlot,LinearLayout.LayoutParams(dp(72),dp(64)).apply { bottomMargin=dp(4) })
-        addControl(spawnActions,"Поставить блок","cube") { nativeCommand(3) }
+        // Selection art remains available inside the catalogue, not as a duplicate HUD opener.
+        addControl(spawnActions,"","cube") { nativeCommand(3) }.apply { contentDescription="Поставить блок" }
         val turns=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
-        addControl(turns,"Влево","left") { nativeCommand(31) }
-        addControl(turns,"Вправо","right") { nativeCommand(2) }
+        addControl(turns,"","left") { nativeCommand(31) }.apply { contentDescription="Повернуть влево" }
+        addControl(turns,"","right") { nativeCommand(2) }.apply { contentDescription="Повернуть вправо" }
         spawnActions.addView(turns)
-        grabControl=addControl(gravityActions,"Захват","grab") { nativeCommand(32) }
+        grabControl=addControl(gravityActions,"","grab") { nativeCommand(32) }.apply { contentDescription="Захват" }
         rotateHeldControl=addControl(gravityActions,"Вращать","rotate") { nativeCommand(33) }
-        removeControl=action("Удалить","remove") { nativeCommand(4) }.apply { danger=true }
         toolActions.addView(spawnActions)
         toolActions.addView(gravityActions)
-        toolActions.addView(removeControl,LinearLayout.LayoutParams(dp(72),dp(72)))
         overlay.addView(toolActions,FrameLayout.LayoutParams(-2,-2,Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin=dp(8) })
         renderTools()
         // Flight is now in the pause menu; its altitude controls do not cover the action column.
@@ -341,32 +345,18 @@ class MainActivity : GameActivity() {
         weapon.visibility=if(toolsState.viewmodelVisible)View.VISIBLE else View.GONE
         if(!toolsState.spawnVisible && catalogAdapter!=null)closePopup()
         updateSelectedIcon()
+        catalogControl.visibility=if(toolsState.spawnVisible)View.VISIBLE else View.GONE
         spawnActions.visibility=if(toolsState.spawnVisible)View.VISIBLE else View.GONE
         gravityActions.visibility=if(toolsState.gravityVisible)View.VISIBLE else View.GONE
         removeControl.visibility=if(toolsState.deleteVisible)View.VISIBLE else View.GONE
-        rotateHeldControl.visibility=if(toolsState.rotateHeldVisible)View.VISIBLE else View.GONE
-        if(grabControl.caption!=toolsState.grabCaption) {
-            grabControl.caption=toolsState.grabCaption
+        rotateHeldControl.visibility=View.GONE
+        if(grabControl.contentDescription!=toolsState.grabCaption) {
             grabControl.symbol=if(toolsState.holding) "release" else "grab"
             grabControl.contentDescription=toolsState.grabCaption;grabControl.invalidate()
         }
     }
     private fun selectTool(tool: HandTool) {
         closePopup();requestedTool=tool;toolsState.select(tool);nativeCommand(20+tool.ordinal);if(tool==HandTool.SPAWN_GUN){pendingSurface=selectedSurface;nativeCommand(40+selectedSurface)};renderTools()
-        if(tool==HandTool.SPAWN_GUN)showBuildCatalog()
-    }
-    private fun showToolsMenu() {
-        val menu=panel("Инструменты")
-        val row=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER }
-        val descriptions=arrayOf("Пустые руки","Спавн-пушка","Грави-пушка","Удалить")
-        for((index,tool) in HandTool.values().withIndex()){
-            row.addView(ToolArtView(this).apply {
-                this.tool=tool;contentDescription=descriptions[index]
-                background=GradientDrawable().apply { setColor(if(tool==toolsState.tool)0xaa477264.toInt() else 0x663b4652);cornerRadius=dp(6).toFloat() }
-                setOnClickListener { selectTool(tool) }
-            },LinearLayout.LayoutParams(0,dp(84),1f).apply { setMargins(dp(2),dp(8),dp(2),dp(8)) })
-        }
-        menu.addView(row)
     }
     private fun showBuildCatalog() {
         val container=panel("Строительство")

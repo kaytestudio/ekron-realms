@@ -12,8 +12,8 @@ android {
         applicationId = "com.example.realms"
         minSdk = 30
         targetSdk = 34
-        versionCode = 18
-        versionName = "0.18-recovery-materials"
+        versionCode = 19
+        versionName = "0.19-instant-tools"
         externalNativeBuild {
             cmake { cppFlags += "-std=c++17" }
         }

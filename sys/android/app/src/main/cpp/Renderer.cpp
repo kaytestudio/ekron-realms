@@ -309,7 +309,7 @@ void Renderer::handleInput(){
    auto point=sandbox::RaycastPlacement::preview(world_,*city_.scene().collision,builtCollision_,city_.scene().minimum,city_.scene().maximum);
    if(point){world_.objects.push_back(*point);changed=true;}
   }
-  else if(command==4&&tools_.tool==sandbox::HandTool::DELETE_TOOL)changed=world_.remove();
+  else if(command==4&&tools_.tool==sandbox::HandTool::SPAWN_GUN)changed=world_.remove();
   else if(command==6){flying_=!flying_;verticalInput=0;player_.reset(world_.x,world_.y,world_.z);}
   else if(command==8)player_.jump();
   else if(command==9){crouched_=!crouched_;prone_=false;}
