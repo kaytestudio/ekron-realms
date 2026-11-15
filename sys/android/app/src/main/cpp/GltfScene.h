@@ -21,7 +21,7 @@ struct Material {
     float roughness=.9f;
     bool worldSpaceUV=false;
 };
-struct Batch { std::vector<Vertex> vertices;int material=-1; };
+struct Batch { std::vector<Vertex> vertices;int material=-1;bool decorativeWire=false; };
 struct LoadOptions {
     bool level=true;
     bool buildPhysics=true;

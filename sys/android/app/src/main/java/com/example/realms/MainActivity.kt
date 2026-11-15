@@ -361,7 +361,7 @@ class MainActivity : GameActivity() {
         spawnActions.visibility=if(toolsState.spawnVisible&&interactionCode!=4)View.VISIBLE else View.GONE
         gravityActions.visibility=if(toolsState.gravityVisible&&interactionCode!=4)View.VISIBLE else View.GONE
         removeControl.visibility=if(toolsState.deleteVisible&&interactionCode!=4)View.VISIBLE else View.GONE
-        rotateHeldControl.visibility=View.GONE
+        rotateHeldControl.visibility=if(toolsState.rotateHeldVisible&&interactionCode!=4)View.VISIBLE else View.GONE
         if(grabControl.contentDescription!=toolsState.grabCaption) {
             grabControl.symbol=if(toolsState.holding) "release" else "grab"
             grabControl.contentDescription=toolsState.grabCaption;grabControl.invalidate()

@@ -86,7 +86,7 @@ public:
      }else o.restTime=0;
     }else if(o.vy>0&&collides(o.x,nextY,o.z))o.vy*=-.35f;
     else o.y=nextY;
-    sweepObjectFloor(beforeStep,o,mesh);
+    sweepObjectFloor(beforeStep,o,mesh,true);
     for(size_t j=0;j<w.objects.size();j++)if(j!=index&&int(j)!=held&&!w.objects[j].frozen){
      auto other=World::bounds(w.objects[j]);
      if(std::abs(o.x-other.x)>half.x+other.w/2+.5f||std::abs(o.z-other.z)>half.z+other.d/2+.5f)continue;

@@ -38,11 +38,20 @@ inline void buildSceneCollision(Scene &s){
  auto mesh=std::make_shared<physics::CollisionMesh>();
  auto barriers=std::make_shared<physics::CollisionMesh>();
  for(const auto &batch:s.batches){
+  if(batch.decorativeWire)continue;
   const Material *m=batch.material>=0&&size_t(batch.material)<s.materials.size()?&s.materials[batch.material]:nullptr;
   for(size_t i=0;i+2<batch.vertices.size();i+=3){auto a=batch.vertices[i],b=batch.vertices[i+1],c=batch.vertices[i+2];
    if(m&&m->playerFence){
     physics::Vec3 points[3]={{a.x,a.y,a.z},{b.x,b.y,b.z},{c.x,c.y,c.z}};
     auto normal=physics::normalized(physics::cross(points[1]-points[0],points[2]-points[0]));
+    // Finite, 24 cm thick triangular prism over the actual fence panel.
+    // Unlike a batch AABB, this preserves diagonal panels and real gaps.
+    if(std::abs(normal.y)<.15f){
+     auto offset=normal*.12f;
+     physics::Vec3 front[3],back[3];for(int k=0;k<3;k++){front[k]=points[k]+offset;back[k]=points[k]-offset;}
+     mesh->add({front[0],front[1],front[2]});mesh->add({back[2],back[1],back[0]});
+     for(int k=0;k<3;k++){int next=(k+1)%3;mesh->add({front[k],back[k],back[next]});mesh->add({front[k],back[next],front[next]});}
+    }
     // Extrude only the fence's XZ segment, not its AABB: diagonal panels remain narrow.
     if(std::abs(normal.y)<.15f){
      int first=0,last=1;float longest=0;
@@ -57,6 +66,7 @@ inline void buildSceneCollision(Scene &s){
      }
     }
    }
+   if(m&&m->playerFence)continue;
    if(m&&m->alphaMode!=0)addAlphaCollision(*mesh,s,*m,a,b,c);
    else mesh->add({{a.x,a.y,a.z},{b.x,b.y,b.z},{c.x,c.y,c.z}});
   }

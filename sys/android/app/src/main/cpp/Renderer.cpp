@@ -1,6 +1,7 @@
 #include "Renderer.h"
 #include "ObjectMesh.h"
 #include "CityGraffiti.h"
+#include "GravityBeam.h"
 #include <game-activity/native_app_glue/android_native_app_glue.h>
 #include <jni.h>
 #include <android/log.h>
@@ -395,12 +396,10 @@ void Renderer::render(){
  }
  int highlight=tools_.holding()?tools_.held:tools_.target(world_,city_.scene().collision.get());
  freezeState=highlight>=0&&world_.objects[highlight].frozen?1:0;
- if(highlight>=0){auto box=sandbox::World::bounds(world_.objects[highlight]);if(highlight==tools_.held){box.x=tools_.display.x;box.y=tools_.display.y;box.z=tools_.display.z;}
-  for(int a:{-1,1})for(int b:{-1,1}){
-   cube(vertices,{box.x,box.y+a*box.h/2,box.z+b*box.d/2,box.w+.04f,.025f,.025f,.15f,1,.3f,sandbox::Plain});
-   cube(vertices,{box.x+a*box.w/2,box.y,box.z+b*box.d/2,.025f,box.h+.04f,.025f,.15f,1,.3f,sandbox::Plain});
-   cube(vertices,{box.x+a*box.w/2,box.y+b*box.h/2,box.z,.025f,.025f,box.d+.04f,.15f,1,.3f,sandbox::Plain});
-  }
+ if(highlight>=0&&tools_.tool==sandbox::HandTool::GRAVITY_GUN){
+  auto bounds=sandbox::World::bounds(world_.objects[highlight]);physics::Vec3 target{bounds.x,bounds.y,bounds.z};
+  if(tools_.holding())target=tools_.display;
+  sandbox::appendGravityBeam(vertices,world_,target);
  }
  placementPreview_.reset();
  if(building_&&seatedCar_<0&&city_.ready()){

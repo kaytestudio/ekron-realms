@@ -18,9 +18,12 @@ public:
   physics::Vec3 origin{w.x,w.y,w.z},dir{-std::sin(w.yaw)*std::cos(w.pitch),std::sin(w.pitch),-std::cos(w.yaw)*std::cos(w.pitch)};
   float nearest=8;int found=-1;
   for(size_t i=0;i<w.objects.size();i++){
-   auto b=World::bounds(w.objects[i]);float lo=0,hi=nearest;
+   const auto&o=w.objects[i];auto b=World::bounds(o);float lo=0,hi=nearest;
+   // Inverse X/Z tilt: ray-test the local box, including a door lying flat.
+   auto local=[&](physics::Vec3 p){float x=std::cos(o.tiltZ)*p.x+std::sin(o.tiltZ)*p.y,y=-std::sin(o.tiltZ)*p.x+std::cos(o.tiltZ)*p.y;return physics::Vec3{x,std::cos(o.tiltX)*y+std::sin(o.tiltX)*p.z,-std::sin(o.tiltX)*y+std::cos(o.tiltX)*p.z};};
+   auto start=local(origin-physics::Vec3{b.x,b.y,b.z}),ray=local(dir);
    auto slab=[&](float o,float d,float center,float half){if(std::abs(d)<1e-6f)return std::abs(o-center)<=half;float a=(center-half-o)/d,c=(center+half-o)/d;if(a>c)std::swap(a,c);lo=std::max(lo,a);hi=std::min(hi,c);return lo<=hi;};
-   if(slab(origin.x,dir.x,b.x,b.w/2)&&slab(origin.y,dir.y,b.y,b.h/2)&&slab(origin.z,dir.z,b.z,b.d/2)&&lo<nearest){nearest=lo;found=int(i);}
+   if(slab(start.x,ray.x,0,b.w/2)&&slab(start.y,ray.y,0,b.h/2)&&slab(start.z,ray.z,0,b.d/2)&&lo<nearest){nearest=lo;found=int(i);}
   }
   if(found<0)return false;
   // Reject a sight ray hidden by solid city geometry (including the alpha fence BVH).
@@ -31,7 +34,10 @@ public:
   if(!holding())return;
   physics::Vec3 target{w.x-std::sin(w.yaw)*3.5f,w.y+std::sin(w.pitch)*2,w.z-std::cos(w.yaw)*3.5f};
   auto next=display+(target-display)*(1-std::exp(-8*dt));
-  if(mesh){auto b=World::bounds(w.objects[held]);physics::Vec3 half{b.w/2-.01f,b.h/2-.01f,b.d/2-.01f};if(mesh->intersectsBox(next,half))return;}
+  if(mesh){auto b=World::bounds(w.objects[held]);const auto&o=w.objects[held];float cx=std::abs(std::cos(o.tiltX)),sx=std::abs(std::sin(o.tiltX)),cz=std::abs(std::cos(o.tiltZ)),sz=std::abs(std::sin(o.tiltZ));
+   physics::Vec3 half{cz*b.w/2+sz*(cx*b.h+sx*b.d)/2,sz*b.w/2+cz*(cx*b.h+sx*b.d)/2,(sx*b.h+cx*b.d)/2};half=half*.98f;
+   float distance=physics::length(next-display);int steps=std::max(1,int(std::ceil(distance/.04f)));
+   for(int i=1;i<=steps;i++){auto p=display+(next-display)*(float(i)/steps);if(mesh->intersectsBox(p,half))return;}}
   display=next;
  }
  void rotate(World&w){if(holding())w.objects[held].rotation=(w.objects[held].rotation+1)%4;}

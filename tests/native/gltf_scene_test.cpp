@@ -27,9 +27,9 @@ city::Scene scene;std::string log;assert(!scene.load("/missing.glb",read,log));l
  assert(scene.fenceBarriers&&scene.fenceBarriers->size()>0);
  std::cout<<"City player-only fence barrier triangles: "<<scene.fenceBarriers->size()<<"\n";
  size_t opaqueTriangles=0;
- for(const auto &batch:scene.batches)if(batch.material<0||scene.materials[batch.material].alphaMode==0)opaqueTriangles+=batch.vertices.size()/3;
- assert(scene.collision&&scene.collision->size()>opaqueTriangles);
- std::cout<<"City alpha fence collision cells: "<<scene.collision->size()-opaqueTriangles<<"\n";
+ for(const auto &batch:scene.batches)if(!batch.decorativeWire&&(batch.material<0||scene.materials[batch.material].alphaMode==0))opaqueTriangles+=batch.vertices.size()/3;
+ assert(scene.collision&&scene.collision->size()>opaqueTriangles);int wires=0;for(const auto&batch:scene.batches)if(batch.decorativeWire)wires++;assert(wires==7);
+ std::cout<<"City additional solid fence triangles: "<<scene.collision->size()-opaqueTriangles<<"\n";
  world.x=-3.4f;world.z=32.7f;
  assert(!world.blocked({world.x,0,world.z,.85f,2,.85f,0,0,0}));
  city::SpawnPoint screenshot;assert(city::findRoadSpawn(world,scene.minimum,scene.maximum,-3.4f,32.7f,screenshot));
