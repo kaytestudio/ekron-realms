@@ -7,7 +7,7 @@
 #include <vector>
 
 namespace sandbox {
-enum Material { Asphalt=0, Concrete=1, Brick=2, Rust=3, Plain=4, Wood=5 };
+enum Material { Asphalt=0, Concrete=1, Brick=2, Rust=3, Plain=4, Wood=5, Fabric=6 };
 struct Box { float x,y,z,w,h,d,r,g,b; int material=Concrete; };
 struct Object { int type,rotation; float x,z; float y=0; float vx=0,vy=0,vz=0,tiltX=0,tiltZ=0;bool awake=true,anchored=false;int surface=-1; };
 struct WallSegment {float ax,az,bx,bz;};
@@ -96,7 +96,7 @@ public:
         std::ifstream f(path);std::string magic;int count;
         if(!(f>>magic>>count)||(magic!="EKRON_SANDBOX_1"&&magic!="EKRON_SANDBOX_2"&&magic!="EKRON_SANDBOX_3"&&magic!="EKRON_SANDBOX_4")||count<0||count>limit)return false;
         std::vector<Object> incoming;
-        for(int i=0;i<count;i++){Object o{};if(!(f>>o.type>>o.rotation>>o.x>>o.z)||(magic!="EKRON_SANDBOX_1"&&!(f>>o.y))||((magic=="EKRON_SANDBOX_3"||magic=="EKRON_SANDBOX_4")&&!(f>>o.anchored))||(magic=="EKRON_SANDBOX_4"&&!(f>>o.surface))||o.surface < -1||o.surface>5||o.type<0||o.type>=9||o.rotation<0||o.rotation>=4||!std::isfinite(o.x)||!std::isfinite(o.z)||!std::isfinite(o.y)||std::abs(o.y)>200||std::abs(o.x)>62||std::abs(o.z)>62)return false;incoming.push_back(o);}
+        for(int i=0;i<count;i++){Object o{};if(!(f>>o.type>>o.rotation>>o.x>>o.z)||(magic!="EKRON_SANDBOX_1"&&!(f>>o.y))||((magic=="EKRON_SANDBOX_3"||magic=="EKRON_SANDBOX_4")&&!(f>>o.anchored))||(magic=="EKRON_SANDBOX_4"&&!(f>>o.surface))||o.surface < -1||o.surface>6||o.type<0||o.type>=9||o.rotation<0||o.rotation>=4||!std::isfinite(o.x)||!std::isfinite(o.z)||!std::isfinite(o.y)||std::abs(o.y)>200||std::abs(o.x)>62||std::abs(o.z)>62)return false;incoming.push_back(o);}
         objects=std::move(incoming);return true;
     }
 private:

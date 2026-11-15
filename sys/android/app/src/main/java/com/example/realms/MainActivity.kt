@@ -63,8 +63,11 @@ class MainActivity : GameActivity() {
     private lateinit var selectedSlot: FrameLayout
     private lateinit var selectedSwatch: MaterialBlockView
     private var popup: View? = null
+    private var pendingSelection: Int? = null
+    private var pendingSurface: Int? = null
+    private var explicitMaterial=false
     private var selectedSurface=1
-    private val materialImages=arrayOfNulls<Bitmap>(6)
+    private val materialImages=arrayOfNulls<Bitmap>(7)
     private val materialIds=intArrayOf(5,1,2,3)
     private val materialNames=arrayOf("Дерево","Бетон","Кирпич","Металл")
     private var selected = 0
@@ -86,6 +89,13 @@ class MainActivity : GameActivity() {
                     if(requestedTool==confirmed)requestedTool=null
                     if(requestedTool==null&&confirmed!=toolsState.tool)toolsState.select(confirmed)
                     if(confirmed==toolsState.tool)toolsState.confirmHolding(state[6]>.5f)
+                    if(state.size>=11 && state[4].toInt()==6){
+                        val nativeType=state[9].toInt();val nativeSurface=state[10].toInt()
+                        if(pendingSelection==nativeType)pendingSelection=null
+                        if(pendingSurface==nativeSurface)pendingSurface=null
+                        if(pendingSelection==null && nativeType in items.indices)selected=nativeType
+                        if(pendingSurface==null && nativeSurface in listOf(1,2,3,5,6))selectedSurface=nativeSurface
+                    }
                     renderTools()
                 }
                 latest = state.copyOfRange(0, 3)
@@ -115,7 +125,9 @@ class MainActivity : GameActivity() {
                 if(stage in 0..5 && state.size>=9)loadingText.append(" ${state[8].toInt()}%")
                 notice.text = when (state[5].toInt()) {
                     1 -> "Точка из конфига небезопасна — спавн перенесён на открытое место."
-                    2 -> "Нет безопасной точки ходьбы — оставлен полёт."
+                    2 -> "Безопасная точка пока недоступна — освободите спавн."
+                    3 -> "Нет свободного места для УАЗа. Освободите парковку."
+                    4 -> "Игрок возвращён на безопасный спавн."
                     else -> if (flying) "Сквозь стены · ↑ / ↓ — высота" else when(toolsState.tool) {
                         HandTool.HAND_EMPTY -> "Пустые руки"
                         HandTool.SPAWN_GUN -> "Спавн-пушка: ${items[selected]}"
@@ -292,7 +304,7 @@ class MainActivity : GameActivity() {
                 val bitmap=try { assets.open(BuildCatalog.entries[index].asset).use { BitmapFactory.decodeStream(it) } } catch (_: Exception) { null }
                 handler.post { if(!isDestroyed){catalogImages[index]=bitmap;catalogAdapter?.notifyDataSetChanged();updateSelectedIcon()} }
             }
-            val paths=mapOf(5 to "wood",1 to "concrete",2 to "brick",3 to "rust")
+            val paths=mapOf(5 to "wood",1 to "concrete",2 to "brick",3 to "rust",6 to "fabric")
             for((id,name) in paths){
                 val bitmap=try{assets.open("textures/$name.png").use { BitmapFactory.decodeStream(it) }}catch(_:Exception){null}
                 handler.post { if(!isDestroyed){materialImages[id]=bitmap;updateSelectedIcon()} }
@@ -304,7 +316,7 @@ class MainActivity : GameActivity() {
         val image=catalogImages[selected]
         if(image!=null)selectedImage.setImageBitmap(image) else selectedImage.setImageResource(android.R.drawable.ic_menu_gallery)
         selectedSwatch.materialId=selectedSurface;selectedSwatch.texture=materialImages[selectedSurface];selectedSwatch.invalidate()
-        val material=materialNames[materialIds.indexOf(selectedSurface).coerceAtLeast(0)]
+        val material=if(selectedSurface==6) "Ткань" else materialNames[materialIds.indexOf(selectedSurface).coerceAtLeast(0)]
         selectedSlot.contentDescription="${items[selected]} · $material · открыть каталог"
     }
     private fun closePopup(){popup?.let { hud.removeView(it) };popup=null;catalogAdapter=null}
@@ -340,7 +352,7 @@ class MainActivity : GameActivity() {
         }
     }
     private fun selectTool(tool: HandTool) {
-        closePopup();requestedTool=tool;toolsState.select(tool);nativeCommand(20+tool.ordinal);if(tool==HandTool.SPAWN_GUN)nativeCommand(40+selectedSurface);renderTools()
+        closePopup();requestedTool=tool;toolsState.select(tool);nativeCommand(20+tool.ordinal);if(tool==HandTool.SPAWN_GUN){pendingSurface=selectedSurface;nativeCommand(40+selectedSurface)};renderTools()
         if(tool==HandTool.SPAWN_GUN)showBuildCatalog()
     }
     private fun showToolsMenu() {
@@ -363,7 +375,7 @@ class MainActivity : GameActivity() {
             materials.addView(MaterialBlockView(this,id).apply {
                 texture=materialImages[id];contentDescription=materialNames[index]
                 background=GradientDrawable().apply { setColor(if(selectedSurface==id)0xaa477264.toInt() else 0x223b4652);cornerRadius=dp(5).toFloat() }
-                setOnClickListener { selectedSurface=id;nativeCommand(40+id);showBuildCatalog();updateSelectedIcon() }
+                setOnClickListener { explicitMaterial=true;pendingSurface=id;selectedSurface=id;nativeCommand(40+id);showBuildCatalog();updateSelectedIcon() }
             },LinearLayout.LayoutParams(0,dp(52),1f))
         }
         container.addView(materials)
@@ -383,7 +395,7 @@ class MainActivity : GameActivity() {
         catalogAdapter=adapter;grid.adapter=adapter;container.addView(grid,LinearLayout.LayoutParams(-1,0,1f))
         grid.setOnItemClickListener { _,_,index,_ ->
             repeat((index-selected+items.size)%items.size) { nativeCommand(1) }
-            selected=index;updateSelectedIcon();closePopup()
+            pendingSelection=index;selected=index;if(!explicitMaterial){selectedSurface=BuildCatalog.entries[index].defaultSurface;pendingSurface=selectedSurface;nativeCommand(40+selectedSurface)};updateSelectedIcon();closePopup()
         }
     }
     private fun setPaused(value: Boolean) {
@@ -393,10 +405,12 @@ class MainActivity : GameActivity() {
     private fun showPauseMenu() {
         setPaused(true)
         val dialog=AlertDialog.Builder(this).setTitle("Пауза")
-            .setItems(arrayOf("Продолжить",if(flyingNow) "Выключить полёт" else "Включить полёт","На дорогу")) { _, which ->
+            .setItems(arrayOf("Продолжить",if(flyingNow) "Выключить полёт" else "Включить полёт","На дорогу","Восстановить УАЗ","На спавн")) { _, which ->
                 setPaused(false)
                 if(which==1)nativeCommand(6)
                 if(which==2)nativeCommand(7)
+                if(which==3)nativeCommand(34)
+                if(which==4)nativeCommand(35)
             }.create()
         dialog.setOnDismissListener { setPaused(false);hideSystemUi() }
         dialog.show()

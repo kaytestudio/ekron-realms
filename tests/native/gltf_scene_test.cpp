@@ -12,6 +12,16 @@ int main(){
  float points[]={-2,0,-2,2,0,2,2,0,-2,-2,0,-2,-2,0,2,2,0,2};
  city::ReadFile fixture=[&](const std::string&p,std::vector<unsigned char>&out){if(p=="fixture/scene.gltf"){out.assign(json.begin(),json.end());return true;}if(p=="fixture/floor.bin"){out.resize(sizeof(points));std::memcpy(out.data(),points,sizeof(points));return true;}return false;};
  city::Scene external;std::string details;assert(external.load("fixture/scene.gltf",fixture,details));assert(external.batches.size()==1&&external.batches[0].vertices.size()==6);assert(external.materials.empty());assert(std::abs(external.maximum[2]-external.minimum[2]-80)<.001f);
+ // Named untextured furniture receives a procedural material, roughness and world-scale UVs.
+ std::string cabinetJson=json;auto marker=cabinetJson.find("\"mesh\":0");cabinetJson.insert(marker,"\"name\":\"Old_Cabinet\",");
+ city::ReadFile cabinetRead=[&](const std::string&p,std::vector<unsigned char>&out){
+  if(p=="fixture/scene.gltf"){out.assign(cabinetJson.begin(),cabinetJson.end());return true;}
+  if(p=="textures/wood.png")return read("sys/android/app/src/main/assets/textures/wood.png",out);
+  return fixture(p,out);
+ };
+ city::Scene cabinet;assert(cabinet.load("fixture/scene.gltf",cabinetRead,details));
+ assert(cabinet.materials.size()==1&&cabinet.materials[0].roughness>.9f&&cabinet.materials[0].image==0&&cabinet.materials[0].worldSpaceUV);
+ assert(cabinet.images[0].width==512&&cabinet.batches[0].vertices[0].u!=cabinet.batches[0].vertices[1].u);
 city::Scene scene;std::string log;assert(!scene.load("/missing.glb",read,log));log.clear();bool ok=scene.load("sys/android/app/src/main/assets/models/abandoned_city_street_for_games.glb",read,log);std::cout<<log<<std::endl;assert(ok);assert(scene.batches.size()==92);assert(scene.images.size()==8);assert(scene.materials.size()==6);assert(!scene.colliders.empty());sandbox::World world;world.walls=scene.colliders;world.wallSegments=scene.wallSegments;world.x=scene.spawnX;world.z=scene.spawnZ;assert(!world.blocked({world.x,0,world.z,.6f,2,.6f,0,0,0}));for(auto&i:scene.images){std::cout<<i.width<<'x'<<i.height<<'\n';assert(i.width>0&&i.height>0&&i.rgba.size()==size_t(i.width)*i.height*4);}std::cout<<"spawn "<<scene.spawnX<<' '<<scene.spawnZ<<" bounds "<<scene.minimum[0]<<' '<<scene.minimum[1]<<' '<<scene.minimum[2]<<" -> "<<scene.maximum[0]<<' '<<scene.maximum[1]<<' '<<scene.maximum[2]<<std::endl;
  assert(scene.fenceBarriers&&scene.fenceBarriers->size()>0);
  std::cout<<"City player-only fence barrier triangles: "<<scene.fenceBarriers->size()<<"\n";

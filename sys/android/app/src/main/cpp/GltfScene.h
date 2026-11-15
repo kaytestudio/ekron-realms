@@ -18,6 +18,8 @@ struct Material {
     bool playerFence=false; // Explicit city-asset fence material, never inferred from transparency alone.
     int alphaMode=0; // 0 opaque, 1 mask, 2 blend
     float cutoff=.5f;
+    float roughness=.9f;
+    bool worldSpaceUV=false;
 };
 struct Batch { std::vector<Vertex> vertices;int material=-1; };
 struct LoadOptions {

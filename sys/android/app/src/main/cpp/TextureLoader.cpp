@@ -13,7 +13,7 @@
 namespace {
 // Fallback exists even if assets is null or a PNG is missing/truncated/too large.
 std::vector<unsigned char> fallback(int layer) {
-    constexpr unsigned char colors[6][3]={{48,50,53},{137,135,129},{136,72,47},{124,68,35},{255,255,255},{135,91,49}};
+    constexpr unsigned char colors[7][3]={{48,50,53},{137,135,129},{136,72,47},{124,68,35},{255,255,255},{135,91,49},{43,56,48}};
     std::vector<unsigned char> out(TextureLoader::Size * TextureLoader::Size * 4);
     for(int y=0;y<TextureLoader::Size;y++)for(int x=0;x<TextureLoader::Size;x++) {
         const int shade=layer==4?0:((x/32+y/32)%2)*7;
@@ -65,7 +65,7 @@ void TextureLoader::release(){
 void TextureLoader::bind(GLuint unit)const{glActiveTexture(GL_TEXTURE0+unit);glBindTexture(GL_TEXTURE_2D_ARRAY,texture_);}
 TextureLoader::Prepared TextureLoader::prepare(AAssetManager *assets){
  Prepared images;const std::array<const char*,4> names={"textures/asphalt.png","textures/concrete.png","textures/brick.png","textures/rust.png"};
- for(int layer=0;layer<Layers;layer++)images[layer]=layer<4?decode(assets,names[layer],layer):layer==5?decode(assets,"textures/wood.png",layer):fallback(layer);
+ for(int layer=0;layer<Layers;layer++)images[layer]=layer<4?decode(assets,names[layer],layer):layer==5?decode(assets,"textures/wood.png",layer):layer==6?decode(assets,"textures/fabric.png",layer):fallback(layer);
  return images;
 }
 bool TextureLoader::load(AAssetManager *assets){return upload(prepare(assets));}

@@ -5,6 +5,7 @@
 #include "SandboxWorld.h"
 #include "ToolInteraction.h"
 #include "ObjectDynamics.h"
+#include "WorldRecovery.h"
 #include "RaycastPlacement.h"
 #include "PlayerPhysics.h"
 #include <future>
@@ -37,6 +38,9 @@ private:
     sandbox::ToolInteraction tools_;
     sandbox::ObjectDynamics dynamics_;
     float motionSaveTime_=0;
+    sandbox::Object carParking_{8,0,0,0};
+    bool carParkingValid_=false;
+    void respawnPlayer();
     physics::PlayerController player_;
     bool crouched_=false,prone_=false;
     std::future<bool> saveJob_;

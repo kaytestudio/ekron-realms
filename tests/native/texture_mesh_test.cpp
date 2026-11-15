@@ -7,7 +7,7 @@
 #include <string>
 
 int main() {
-    for(const char *name:{"asphalt","concrete","brick","rust"}) {
+    for(const char *name:{"asphalt","concrete","brick","rust","wood","fabric"}) {
         std::string path="sys/android/app/src/main/assets/textures/"+std::string(name)+".png";
         int w=0,h=0,n=0;
         auto *p=stbi_load(path.c_str(),&w,&h,&n,4);
@@ -33,5 +33,14 @@ int main() {
     for(int i=0;i<6;i++){uMin=std::min(uMin,vertices[i].u);uMax=std::max(uMax,vertices[i].u);}
     assert(std::abs(uMax-uMin-6)<.00001f);
     assert(vertices[0].nz==1 && vertices[24].ny==1);
+    const float expectedU[6]={6,6,.2f,.2f,6,6},expectedV[6]={3,3,3,3,.2f,.2f};
+    for(int face=0;face<6;face++){
+        float minU=1e6f,maxU=-1e6f,minV=1e6f,maxV=-1e6f;
+        for(int i=face*6;i<face*6+6;i++){minU=std::min(minU,vertices[i].u);maxU=std::max(maxU,vertices[i].u);minV=std::min(minV,vertices[i].v);maxV=std::max(maxV,vertices[i].v);}
+        assert(std::abs(maxU-minU-expectedU[face])<.00001f);assert(std::abs(maxV-minV-expectedV[face])<.00001f);
+    }
+    std::vector<sandbox::MeshVertex> adjacent;sandbox::appendCube(adjacent,{12,3,0,12,6,.4f,1,1,1,sandbox::Concrete});
+    for(int i=0;i<6;i++)for(int j=0;j<6;j++)if(std::abs(vertices[i].x-adjacent[j].x)<.00001f&&std::abs(vertices[i].y-adjacent[j].y)<.00001f){assert(vertices[i].u==adjacent[j].u&&vertices[i].v==adjacent[j].v);}
+
     std::cout<<"Mesh normals, material IDs and metre-based UV tiling OK\n";
 }

@@ -65,6 +65,7 @@ void GltfRenderer::draw(GLuint program,float eyeX,float eyeZ){
     auto blended=[&](const Mesh&m){return m.material>=0&&size_t(m.material)<scene_.materials.size()&&scene_.materials[m.material].alphaMode==2;};
     std::stable_sort(order.begin(),order.end(),[&](size_t a,size_t b){const auto&ma=meshes_[a],&mb=meshes_[b];if(blended(ma)!=blended(mb))return !blended(ma);return blended(ma)&&std::hypot(ma.x-eyeX,ma.z-eyeZ)>std::hypot(mb.x-eyeX,mb.z-eyeZ);});
     for(size_t i:order){const auto&mesh=meshes_[i];Material fallback;const auto &material=mesh.material>=0&&size_t(mesh.material)<scene_.materials.size()?scene_.materials[mesh.material]:fallback;
+        glUniform1f(glGetUniformLocation(program,"modelRoughness"),material.roughness);
         glUniform4fv(glGetUniformLocation(program,"baseColorFactor"),1,material.color.data());glUniform1i(glGetUniformLocation(program,"modelTextured"),material.image>=0&&mesh.material>=0&&size_t(mesh.material)<textures_.size());
         glUniform1i(glGetUniformLocation(program,"alphaMode"),material.alphaMode);glUniform1f(glGetUniformLocation(program,"alphaCutoff"),material.cutoff);
         if(mesh.material>=0&&size_t(mesh.material)<textures_.size())glBindTexture(GL_TEXTURE_2D,textures_[mesh.material]);

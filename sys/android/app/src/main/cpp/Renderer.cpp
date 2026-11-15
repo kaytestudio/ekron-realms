@@ -26,7 +26,7 @@ std::atomic<int> loadStage{0},debugNotice{0},loadPercent{0};
 std::atomic<float> verticalInput{0};
 std::atomic<float> stickRight{0},stickForward{0};
 std::atomic<bool> gameplayReady{false};
-std::atomic<int> currentTool{0};
+std::atomic<int> currentTool{0},currentSelection{0},currentSurface{-1};
 std::atomic<bool> holdingObject{false};
 std::mutex snapshotMutex;
 std::array<float,4> snapshot{0,1.7f,0,0};
@@ -83,6 +83,8 @@ uniform sampler2D modelAlbedo;
 uniform vec4 baseColorFactor;
 uniform int alphaMode;
 uniform float alphaCutoff;
+uniform vec3 eye;
+uniform float modelRoughness;
 uniform vec3 lightDirection;
 uniform vec3 lightColor;
 uniform vec3 ambientColor;
@@ -90,6 +92,10 @@ out vec4 outColor;
 void main(){
  vec3 base=pow(tint,vec3(2.2));
  if(texturesReady)base*=texture(albedo,vec3(texUV,float(layer))).rgb;
+ if(!modelPass && layer!=4){
+  vec3 world=toEye+eye;
+  base*=.94+.035*sin(world.x*.21+world.z*.17)+.025*sin(world.y*.33-world.x*.13);
+ }
  float alpha=1.0;
  if(modelPass){
   vec4 sampleColor=modelTextured?texture(modelAlbedo,texUV):vec4(1.0);
@@ -103,6 +109,11 @@ void main(){
  // Broad, cool ambient light keeps overcast facades readable without hard shadows.
  float sky=.78+.22*max(n.y,0.0);
  vec3 lit=base*(ambientColor*sky+lightColor*diffuse);
+ float roughness=modelPass?modelRoughness:(layer==3?.48:.94);
+ float strength=modelPass?.035:(layer==3?.12:.006);
+ vec3 halfVector=normalize(normalize(-lightDirection)-normalize(toEye));
+ float shine=pow(max(dot(n,halfVector),0.0),mix(90.0,8.0,roughness));
+ lit+=lightColor*shine*strength*diffuse;
  float d=max(length(toEye)-22.0,0.0);
  float fog=1.0-exp(-d*d*.00022);
  vec3 fogColor=pow(vec3(.56,.61,.63),vec3(2.2));
@@ -134,11 +145,12 @@ using Vertex=sandbox::MeshVertex;
 void cube(std::vector<Vertex>&v,const sandbox::Box&b){sandbox::appendCube(v,b);}
 void object(std::vector<Vertex>&v,const sandbox::Object&o,bool preview=false,bool valid=false){
  auto body=sandbox::World::bounds(o);
+ body.material=o.type==3||o.type==4||o.type==5||o.type==6?sandbox::Wood:o.type==7?sandbox::Fabric:body.material;
  if(preview){body.r=valid?.25f:.9f;body.g=valid?.8f:.25f;body.b=.4f;body.material=sandbox::Plain;cube(v,body);return;}
  // Local-space furniture parts rotated by 90 degree increments.
  auto part=[&](float x,float y,float z,float w,float h,float d,float r,float g,float b){
   for(int i=0;i<o.rotation;i++){float old=x;x=z;z=-old;std::swap(w,d);}
-  cube(v,{o.x+x,y+o.y,o.z+z,w,h,d,r,g,b,sandbox::Plain});
+  cube(v,{o.x+x,y+o.y,o.z+z,w,h,d,r,g,b,o.type==4||o.type==5?sandbox::Wood:o.type==7?sandbox::Fabric:sandbox::Plain});
  };
  if(o.type==4||o.type==5){bool table=o.type==4;float w=table?1.8f:.6f,d=table?1.f:.65f,top=table?.82f:.46f;
   part(0,top,0,w,.15f,d,.54f,.4f,.27f);
@@ -165,7 +177,8 @@ extern "C" JNIEXPORT void JNICALL Java_com_example_realms_MainActivity_nativeCom
 }
 
 extern "C" JNIEXPORT jfloatArray JNICALL Java_com_example_realms_MainActivity_nativeStatus(JNIEnv *env,jobject){
- std::array<float,9> values{};{std::lock_guard<std::mutex> lock(snapshotMutex);std::copy(snapshot.begin(),snapshot.end(),values.begin());}
+ std::array<float,11> values{};{std::lock_guard<std::mutex> lock(snapshotMutex);std::copy(snapshot.begin(),snapshot.end(),values.begin());}
+ values[9]=float(currentSelection.load());values[10]=float(currentSurface.load());
  values[8]=float(loadPercent.load());
  values[6]=holdingObject?1.f:0.f;values[7]=float(currentTool.load());
  values[4]=float(loadStage.load());values[5]=float(debugNotice.load());
@@ -179,6 +192,7 @@ Renderer::Renderer(android_app *app):app_(app),last_(std::chrono::steady_clock::
  loadStage=0;debugNotice=0;currentTool=0;holdingObject=false;LoadGuard loadGuard;flying_=retainedWorld?retainedFlying:false;
  savePath_=std::string(app->activity->internalDataPath)+"/sandbox-v1.txt";
  if(retainedWorld)world_=*retainedWorld;else world_.load(savePath_);
+ currentSelection=world_.selected;currentSurface=world_.surface;
  tools_.tool=retainedWorld?retainedTool:sandbox::HandTool::HAND_EMPTY;
  building_=tools_.tool==sandbox::HandTool::SPAWN_GUN;currentTool=int(tools_.tool);
  display_=eglGetDisplay(EGL_DEFAULT_DISPLAY);
@@ -230,6 +244,7 @@ void Renderer::advanceLoading(){
   world_.scenery.clear();world_.walls=city_.scene().colliders;world_.wallSegments=city_.scene().wallSegments;
   savePath_=std::string(app_->activity->internalDataPath)+"/city-glb-v1.txt";
   if(!retainedWorld){world_.objects.clear();world_.load(savePath_);}
+  carParking_={8,0,data.parkingX,data.parkingZ};carParking_.y=data.parkingY;carParkingValid_=data.carValid;
   bool exists=std::any_of(world_.objects.begin(),world_.objects.end(),[](const sandbox::Object&o){return o.type==8;});
   if(data.carValid&&!exists&&world_.objects.size()<sandbox::World::limit){sandbox::Object car{8,0,data.parkingX,data.parkingZ};car.y=data.parkingY;world_.objects.push_back(car);}
   const auto config=readSpawnConfig(app_);
@@ -270,7 +285,17 @@ void Renderer::handleInput(){
  }
  for(int command:pending){bool changed=false;
   if(command>=20&&command<=23){tools_.select(world_,static_cast<sandbox::HandTool>(command-20));building_=tools_.tool==sandbox::HandTool::SPAWN_GUN;rebuildBuiltCollision();}
-  else if(command>=40&&command<=45&&building_)world_.surface=command-40;
+  else if(command==34&&carParkingValid_){
+   tools_.cancel(world_);
+   auto restored=sandbox::carRespawn(world_,carParking_,*city_.scene().collision,city_.scene().minimum,city_.scene().maximum);
+   if(restored){
+    bool exists=std::any_of(world_.objects.begin(),world_.objects.end(),[](const sandbox::Object&o){return o.type==8;});
+    if(exists||world_.objects.size()<sandbox::World::limit){world_.objects.erase(std::remove_if(world_.objects.begin(),world_.objects.end(),[](const sandbox::Object&o){return o.type==8;}),world_.objects.end());world_.objects.push_back(*restored);changed=true;debugNotice=0;}else debugNotice=3;
+   }else debugNotice=3;
+   rebuildBuiltCollision();
+  }
+  else if(command==35)respawnPlayer();
+  else if(command>=40&&command<=46&&building_)world_.surface=command-40;
   else if(command==31&&tools_.tool==sandbox::HandTool::SPAWN_GUN)world_.rotation=(world_.rotation+3)%4;
   else if(command==32&&tools_.tool==sandbox::HandTool::GRAVITY_GUN){
    if(tools_.holding())changed=tools_.release(world_);
@@ -297,7 +322,7 @@ void Renderer::handleInput(){
   }
   if(changed){for(auto&o:world_.objects)if(!o.anchored)o.awake=true;saveDirty_=true;rebuildBuiltCollision();}
  }
- currentTool=int(tools_.tool);holdingObject=tools_.holding();
+ currentTool=int(tools_.tool);holdingObject=tools_.holding();currentSelection=world_.selected;currentSurface=world_.surface;
  if(saveJob_.valid()&&saveJob_.wait_for(std::chrono::seconds(0))==std::future_status::ready){if(!saveJob_.get())__android_log_print(ANDROID_LOG_ERROR,"Ekron","Save failed");}
  if(saveDirty_&&!saveJob_.valid()){
   sandbox::World saved;saved.objects=world_.objects;if(tools_.holding())saved.objects[tools_.held]=tools_.original;auto path=savePath_;
@@ -316,11 +341,13 @@ void Renderer::render(){
  if(gameplayReady&&city_.ready()){
   bool moving=dynamics_.update(world_,*city_.scene().collision,dt,tools_.held,city_.scene().minimum,city_.scene().maximum);
   if(moving){rebuildBuiltCollision();motionSaveTime_+=dt;if(motionSaveTime_>.75f){saveDirty_=true;motionSaveTime_=0;}}
+  else if(motionSaveTime_>0){saveDirty_=true;motionSaveTime_=0;}
  }
  if(gameplayReady){if(flying_)city::fly(world_,stickRight.load(),stickForward.load(),verticalInput.load(),dt);
  else if(city_.ready())player_.update(*city_.scene().collision,stickRight.load(),stickForward.load(),world_.yaw,dt,crouched_,world_.x,world_.y,world_.z,&builtCollision_,prone_,city_.scene().fenceBarriers.get());
  else world_.move(stickRight.load(),stickForward.load(),dt);}
  if(city_.ready()){
+  if(!flying_&&sandbox::needsPlayerRecovery(world_,city_.scene().minimum,city_.scene().maximum))respawnPlayer();
   const auto &lo=city_.scene().minimum,&hi=city_.scene().maximum;
   world_.x=std::clamp(world_.x,lo[0]+.25f,hi[0]-.25f);world_.z=std::clamp(world_.z,lo[2]+.25f,hi[2]-.25f);
  }
@@ -390,4 +417,13 @@ void Renderer::rebuildBuiltCollision(){
  builtCollision_=physics::CollisionMesh{};
  for(size_t i=0;i<world_.objects.size();i++){if(int(i)==tools_.held)continue;const auto&o=world_.objects[i];auto b=sandbox::World::bounds(o);builtCollision_.addBox({b.x-b.w/2,b.y-b.h/2,b.z-b.d/2},{b.x+b.w/2,b.y+b.h/2,b.z+b.d/2});}
  builtCollision_.build();
+}
+
+void Renderer::respawnPlayer(){
+ if(!city_.scene().collision)return;
+ tools_.cancel(world_);rebuildBuiltCollision();
+ auto point=sandbox::recoveryPoint(world_,*city_.scene().collision,builtCollision_);
+ if(!point){debugNotice=2;return;}
+ world_.x=point->x;world_.y=point->y;world_.z=point->z;world_.yaw=world_.pitch=0;flying_=false;
+ player_.reset(world_.x,world_.y,world_.z);stickRight=stickForward=verticalInput=0;resetInput();debugNotice=4;
 }
