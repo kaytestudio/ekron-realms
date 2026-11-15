@@ -26,6 +26,7 @@ private:
     int width_=1,height_=1,leftId_=-1,rightId_=-1;
     float originX_=0,originY_=0,rightX_=0,rightY_=0,moveX_=0,moveY_=0;
     bool building_=false;
+    bool flying_=false;
     sandbox::World world_;
     std::string savePath_;
     std::chrono::steady_clock::time_point last_;

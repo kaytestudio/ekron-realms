@@ -14,7 +14,7 @@ class World {
 public:
     std::vector<Box> scenery, walls;
     std::vector<Object> objects;
-    float x=0,z=19,yaw=0,pitch=0;
+    float x=0,y=1.7f,z=19,yaw=0,pitch=0;
     int selected=0,rotation=0;
     static constexpr int limit=500;
     World() {

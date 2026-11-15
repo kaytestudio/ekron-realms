@@ -8,6 +8,10 @@
 #include <cstddef>
 #include "MeshGeometry.h"
 #include "LevelPlacement.h"
+#include "DebugPlayer.h"
+#include <atomic>
+#include <fstream>
+#include <android/asset_manager.h>
 
 namespace {
 std::mutex commandMutex;
@@ -15,7 +19,22 @@ std::vector<int> commands;
 // Retain transient controls and camera when Android recreates only the EGL surface.
 // Accessed exclusively by the native game thread, never the Java UI thread.
 std::optional<sandbox::World> retainedWorld;
-bool retainedBuilding = false;
+bool retainedBuilding = false,retainedFlying=false;
+std::atomic<int> loadStage{0},debugNotice{0};
+std::atomic<float> verticalInput{0};
+std::mutex snapshotMutex;
+std::array<float,4> snapshot{0,1.7f,0,0};
+struct LoadGuard {bool complete=false;~LoadGuard(){if(!complete)loadStage=-1;}};
+city::SpawnConfig readSpawnConfig(android_app *app){
+ city::SpawnConfig config;std::string text,error;
+ std::ifstream file(std::string(app->activity->internalDataPath)+"/spawn.json",std::ios::binary|std::ios::ate);
+ if(file&&file.tellg()>0&&file.tellg()<=65536){file.seekg(0);text.assign(std::istreambuf_iterator<char>(file),{});}
+ else if(auto *asset=AAssetManager_open(app->activity->assetManager,"config/spawn.json",AASSET_MODE_BUFFER)){
+  auto size=AAsset_getLength(asset);if(size>0&&size<=65536){text.resize(size);if(AAsset_read(asset,text.data(),size)!=size)text.clear();}AAsset_close(asset);
+ }
+ if(!text.empty()&&!city::parseSpawnConfig(text,config,error))__android_log_print(ANDROID_LOG_WARN,"Ekron","Invalid spawn config; automatic spawn: %s",error.c_str());
+ return config;
+}
 const char *vertex=R"(#version 300 es
 layout(location=0) in vec3 position;
 layout(location=1) in vec3 color;
@@ -129,7 +148,17 @@ extern "C" JNIEXPORT void JNICALL Java_com_example_realms_MainActivity_nativeCom
  std::lock_guard<std::mutex> lock(commandMutex);if(commands.size()<64)commands.push_back(command);
 }
 
+extern "C" JNIEXPORT jfloatArray JNICALL Java_com_example_realms_MainActivity_nativeStatus(JNIEnv *env,jobject){
+ std::array<float,6> values{};{std::lock_guard<std::mutex> lock(snapshotMutex);std::copy(snapshot.begin(),snapshot.end(),values.begin());}
+ values[4]=float(loadStage.load());values[5]=float(debugNotice.load());
+ auto result=env->NewFloatArray(values.size());if(result)env->SetFloatArrayRegion(result,0,values.size(),values.data());return result;
+}
+extern "C" JNIEXPORT void JNICALL Java_com_example_realms_MainActivity_nativeVertical(JNIEnv*,jobject,jfloat value){
+ verticalInput=std::isfinite(value)?std::clamp(value,-1.f,1.f):0.f;
+}
+
 Renderer::Renderer(android_app *app):app_(app),last_(std::chrono::steady_clock::now()){
+ loadStage=0;debugNotice=0;LoadGuard loadGuard;flying_=retainedWorld?retainedFlying:false;
  savePath_=std::string(app->activity->internalDataPath)+"/sandbox-v1.txt";
  if(retainedWorld)world_=*retainedWorld;else world_.load(savePath_);
  building_=retainedBuilding;
@@ -142,13 +171,16 @@ Renderer::Renderer(android_app *app):app_(app),last_(std::chrono::steady_clock::
  const EGLint contextAttributes[]={EGL_CONTEXT_CLIENT_VERSION,3,EGL_NONE};context_=eglCreateContext(display_,config,EGL_NO_CONTEXT,contextAttributes);
  if(surface_==EGL_NO_SURFACE||context_==EGL_NO_CONTEXT||!eglMakeCurrent(display_,surface_,surface_,context_))return;
  program_=link(vertex,fragment);skyProgram_=link(skyVertex,skyFragment);if(!program_)return;
+ loadStage=1;
  texturesReady_=textures_.load(app_->activity->assetManager);
+ loadStage=2;
  std::string cityLog;
  if(city_.load(app_->activity->assetManager,"models/abandoned_city_street_for_games.glb",cityLog)){
   world_.scenery.clear();world_.walls=city_.scene().colliders;
   // Keep prototype saves separate: their coordinates refer to a different level.
   savePath_=std::string(app->activity->internalDataPath)+"/city-glb-v1.txt";
   if(!retainedWorld){world_.objects.clear();world_.load(savePath_);}
+  loadStage=3;
   // Select an open main-road anchor before parking the vehicle.
   city::SpawnPoint anchor;
   if(city::findRoadSpawn(world_,city_.scene().minimum,city_.scene().maximum,0,28,anchor)){
@@ -166,14 +198,22 @@ Renderer::Renderer(android_app *app):app_(app),last_(std::chrono::steady_clock::
     __android_log_print(car_.ready()?ANDROID_LOG_INFO:ANDROID_LOG_ERROR,"Ekron","Car at %.2f %.2f: %s",parkingX,parkingZ,carLog.c_str());
    }
   }
+  loadStage=4;
   // Final startup validation includes the city, car AND saved player-built objects.
-  city::SpawnPoint safe;
-  if(city::findRoadSpawn(world_,city_.scene().minimum,city_.scene().maximum,0,28,safe)){
-   if(!retainedWorld||!safe.playerInRegion||world_.blocked({world_.x,0,world_.z,1.6f,2,1.6f,0,0,0})){
-    world_.x=safe.x;world_.z=safe.z;world_.yaw=0;world_.pitch=0;
+  const auto config=readSpawnConfig(app_);
+  if(!retainedWorld&&config.enabled){
+   world_.x=config.x;world_.z=config.z;world_.yaw=config.yawDegrees*.01745329252f;world_.pitch=0;
+   if(config.startFlying){world_.y=config.y;flying_=true;}
+   else{
+    bool corrected=city::recoverToRoad(world_,city_.scene().minimum,city_.scene().maximum,config.x,config.z,true);
+    if(corrected){if(std::hypot(world_.x-config.x,world_.z-config.z)>.05f)debugNotice=1;}
+    else{flying_=true;debugNotice=2;}
    }
-   __android_log_print(ANDROID_LOG_INFO,"Ekron","Safe spawn %.2f %.2f; connected cells %zu",world_.x,world_.z,safe.reachableCells);
-  }else __android_log_print(ANDROID_LOG_ERROR,"Ekron","No safe main-road spawn after applying saved constructions");
+  }else if(!flying_){
+   if(!city::recoverToRoad(world_,city_.scene().minimum,city_.scene().maximum,
+       retainedWorld?world_.x:0.f,retainedWorld?world_.z:28.f,bool(retainedWorld))){flying_=true;debugNotice=2;}
+  }
+  __android_log_print(ANDROID_LOG_INFO,"Ekron","Spawn XYZ %.3f %.3f %.3f flight=%d",world_.x,world_.y,world_.z,flying_);
  }
  __android_log_print(city_.ready()?ANDROID_LOG_INFO:ANDROID_LOG_ERROR,"Ekron","%s",cityLog.c_str());
  glGenVertexArrays(1,&vao_);glGenBuffers(1,&buffer_);glBindVertexArray(vao_);glBindBuffer(GL_ARRAY_BUFFER,buffer_);
@@ -183,15 +223,30 @@ Renderer::Renderer(android_app *app):app_(app),last_(std::chrono::steady_clock::
  glEnableVertexAttribArray(3);glVertexAttribPointer(3,2,GL_FLOAT,GL_FALSE,sizeof(Vertex),reinterpret_cast<void*>(offsetof(Vertex,u)));
  glEnableVertexAttribArray(4);glVertexAttribPointer(4,1,GL_FLOAT,GL_FALSE,sizeof(Vertex),reinterpret_cast<void*>(offsetof(Vertex,layer)));
  glEnable(GL_DEPTH_TEST);eglSwapInterval(display_,1);
+ loadStage=5;loadGuard.complete=true;
 }
 Renderer::~Renderer(){
- retainedWorld=world_;retainedBuilding=building_;
+ retainedWorld=world_;retainedBuilding=building_;retainedFlying=flying_;
  if(display_!=EGL_NO_DISPLAY){if(context_!=EGL_NO_CONTEXT&&surface_!=EGL_NO_SURFACE&&eglMakeCurrent(display_,surface_,surface_,context_)){car_.release();city_.release();textures_.release();if(skyProgram_)glDeleteProgram(skyProgram_);if(buffer_)glDeleteBuffers(1,&buffer_);if(vao_)glDeleteVertexArrays(1,&vao_);if(program_)glDeleteProgram(program_);}eglMakeCurrent(display_,EGL_NO_SURFACE,EGL_NO_SURFACE,EGL_NO_CONTEXT);if(context_!=EGL_NO_CONTEXT)eglDestroyContext(display_,context_);if(surface_!=EGL_NO_SURFACE)eglDestroySurface(display_,surface_);eglTerminate(display_);}
 }
-void Renderer::resetInput(){leftId_=rightId_=-1;moveX_=moveY_=0;last_=std::chrono::steady_clock::now();}
+void Renderer::resetInput(){verticalInput=0;leftId_=rightId_=-1;moveX_=moveY_=0;last_=std::chrono::steady_clock::now();}
 void Renderer::handleInput(){
  std::vector<int> pending;{std::lock_guard<std::mutex> lock(commandMutex);pending.swap(commands);}
- for(int command:pending){bool changed=false;if(command==0)building_=!building_;else if(command==1)world_.selected=(world_.selected+1)%8;else if(command==2)world_.rotation=(world_.rotation+1)%4;else if(command==3&&building_)changed=world_.place();else if(command==4)changed=world_.remove();if(changed&&!world_.save(savePath_))__android_log_print(ANDROID_LOG_ERROR,"Ekron","Failed to save sandbox");}
+ for(int command:pending){bool changed=false;if(command==0)building_=!building_;else if(command==1)world_.selected=(world_.selected+1)%8;else if(command==2)world_.rotation=(world_.rotation+1)%4;else if(command==3&&building_)changed=world_.place();else if(command==4)changed=world_.remove();else if(command==6){
+  verticalInput=0;
+  if(!flying_)flying_=true;
+  else{
+   auto lo=city_.ready()?city_.scene().minimum:std::array<float,3>{-60,0,-60};
+   auto hi=city_.ready()?city_.scene().maximum:std::array<float,3>{60,10,60};
+   if(city::recoverToRoad(world_,lo,hi,world_.x,world_.z,true)){flying_=false;debugNotice=0;}else debugNotice=2;
+  }
+ }else if(command==7){
+  auto lo=city_.ready()?city_.scene().minimum:std::array<float,3>{-60,0,-60};
+  auto hi=city_.ready()?city_.scene().maximum:std::array<float,3>{60,10,60};
+  if(city::recoverToRoad(world_,lo,hi,0,28,false)){flying_=false;world_.yaw=world_.pitch=0;debugNotice=0;}
+  else{flying_=true;debugNotice=2;}
+  resetInput();
+ }if(changed&&!world_.save(savePath_))__android_log_print(ANDROID_LOG_ERROR,"Ekron","Failed to save sandbox");}
  auto *buffer=android_app_swap_input_buffers(app_);if(!buffer)return;
  for(uint64_t i=0;i<buffer->motionEventsCount;i++){
   const auto &event=buffer->motionEvents[i];const int action=event.action&AMOTION_EVENT_ACTION_MASK;
@@ -213,7 +268,7 @@ void Renderer::handleInput(){
 void Renderer::render(){
  if(!program_||surface_==EGL_NO_SURFACE)return;
  eglQuerySurface(display_,surface_,EGL_WIDTH,&width_);eglQuerySurface(display_,surface_,EGL_HEIGHT,&height_);if(width_<1||height_<1)return;
- const auto now=std::chrono::steady_clock::now();float dt=std::clamp(std::chrono::duration<float>(now-last_).count(),0.f,.05f);last_=now;world_.move(moveX_,moveY_,dt);
+ const auto now=std::chrono::steady_clock::now();float dt=std::clamp(std::chrono::duration<float>(now-last_).count(),0.f,.05f);last_=now;if(flying_)city::fly(world_,moveX_,moveY_,verticalInput.load(),dt);else world_.move(moveX_,moveY_,dt);
  std::vector<Vertex> vertices;vertices.reserve((world_.scenery.size()+world_.objects.size()*10+1)*36);
  for(const auto &b:world_.scenery)cube(vertices,b);for(const auto&o:world_.objects)object(vertices,o);
  if(building_){const auto p=world_.preview();object(vertices,p,true,world_.objects.size()<sandbox::World::limit&&world_.canPlace(p));}
@@ -231,9 +286,12 @@ void Renderer::render(){
  glUniform3f(glGetUniformLocation(program_,"lightDirection"),-.45f,-1.f,-.25f);
  glUniform3f(glGetUniformLocation(program_,"lightColor"),.55f,.52f,.48f);
  glUniform3f(glGetUniformLocation(program_,"ambientColor"),.55f,.59f,.65f);
- glUniform3f(glGetUniformLocation(program_,"eye"),world_.x,1.7f,world_.z);glUniform2f(glGetUniformLocation(program_,"angles"),world_.yaw,world_.pitch);glUniform1f(glGetUniformLocation(program_,"aspect"),float(width_)/height_);
+ glUniform3f(glGetUniformLocation(program_,"eye"),world_.x,world_.y,world_.z);glUniform2f(glGetUniformLocation(program_,"angles"),world_.yaw,world_.pitch);glUniform1f(glGetUniformLocation(program_,"aspect"),float(width_)/height_);
  glBindVertexArray(vao_);glBindBuffer(GL_ARRAY_BUFFER,buffer_);glBufferData(GL_ARRAY_BUFFER,vertices.size()*sizeof(Vertex),vertices.data(),GL_STREAM_DRAW);glDrawArrays(GL_TRIANGLES,0,static_cast<GLsizei>(vertices.size()));
  city_.draw(program_,world_.x,world_.z);
  car_.draw(program_,world_.x,world_.z);
- eglSwapBuffers(display_,surface_);
+ if(eglSwapBuffers(display_,surface_)==EGL_TRUE){
+  {std::lock_guard<std::mutex> lock(snapshotMutex);snapshot={world_.x,world_.y,world_.z,flying_?1.f:0.f};}
+  loadStage=6;
+ }else loadStage=-1;
 }

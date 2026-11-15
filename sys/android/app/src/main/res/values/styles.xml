@@ -3,6 +3,7 @@
     <style name="SandboxTheme" parent="Theme.AppCompat.NoActionBar">
         <item name="android:windowActionModeOverlay">true</item>
         <item name="android:windowFullscreen">true</item>
+        <item name="android:windowBackground">#18232A</item>
         <item name="android:fontFamily">sans</item>
         <item name="android:colorAccent">#D7B66E</item>
     </style>
