@@ -5,11 +5,13 @@ on:
     paths:
       - 'sys/android/**'
       - 'tests/native/**'
+      - 'tools/*android*'
       - '.github/workflows/android-sandbox.yml'
   pull_request:
     paths:
       - 'sys/android/**'
       - 'tests/native/**'
+      - 'tools/*android*'
       - '.github/workflows/android-sandbox.yml'
 permissions:
   contents: read
@@ -23,6 +25,13 @@ jobs:
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/native/sandbox_world_test.cpp -o /tmp/ekron-world-test
           /tmp/ekron-world-test
+          g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/native/texture_mesh_test.cpp -o /tmp/ekron-texture-test
+          /tmp/ekron-texture-test
+      - name: Validate GLSL ES shaders
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y glslang-tools
+          python3 tools/validate_android_shaders.py
       - uses: actions/setup-java@v4
         with:
           distribution: temurin

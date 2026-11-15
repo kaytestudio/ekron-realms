@@ -5,6 +5,8 @@
 #include <mutex>
 #include <vector>
 #include <optional>
+#include <cstddef>
+#include "MeshGeometry.h"
 
 namespace {
 std::mutex commandMutex;
@@ -16,11 +18,17 @@ bool retainedBuilding = false;
 const char *vertex=R"(#version 300 es
 layout(location=0) in vec3 position;
 layout(location=1) in vec3 color;
+layout(location=2) in vec3 normal;
+layout(location=3) in vec2 uv;
+layout(location=4) in float material;
 uniform vec3 eye;
 uniform vec2 angles;
 uniform float aspect;
 out vec3 tint;
-out float distanceToEye;
+out vec3 worldNormal;
+out vec2 texUV;
+flat out int layer;
+out vec3 toEye;
 void main(){
  vec3 p=position-eye;
  float cy=cos(angles.x),sy=sin(angles.x),cp=cos(angles.y),sp=sin(angles.y);
@@ -28,29 +36,67 @@ void main(){
  q=vec3(q.x,cp*q.y+sp*q.z,-sp*q.y+cp*q.z);
  float f=1.37638;
  gl_Position=vec4(q.x*f/aspect,q.y*f,-1.001334*q.z-.200134,-q.z);
- tint=color;distanceToEye=length(p);
+ tint=color;worldNormal=normal;texUV=uv;layer=int(material+.5);toEye=p;
 })";
 const char *fragment=R"(#version 300 es
-precision mediump float;
+precision highp float;
+precision highp sampler2DArray;
+precision highp int;
 in vec3 tint;
-in float distanceToEye;
+in vec3 worldNormal;
+in vec2 texUV;
+flat in int layer;
+in vec3 toEye;
+uniform sampler2DArray albedo;
+uniform bool texturesReady;
+uniform vec3 lightDirection;
+uniform vec3 lightColor;
+uniform vec3 ambientColor;
 out vec4 outColor;
-void main(){float fog=clamp((distanceToEye-35.0)/100.0,0.0,1.0);outColor=vec4(mix(tint,vec3(.56,.61,.63),fog),1.0);})";
+void main(){
+ vec3 base=pow(tint,vec3(2.2));
+ if(texturesReady)base*=texture(albedo,vec3(texUV,float(layer))).rgb;
+ vec3 n=normalize(worldNormal);
+ float diffuse=max(dot(n,normalize(-lightDirection)),0.0);
+ // Broad, cool ambient light keeps overcast facades readable without hard shadows.
+ float sky=.78+.22*max(n.y,0.0);
+ vec3 lit=base*(ambientColor*sky+lightColor*diffuse);
+ float d=max(length(toEye)-22.0,0.0);
+ float fog=1.0-exp(-d*d*.00022);
+ vec3 fogColor=pow(vec3(.56,.61,.63),vec3(2.2));
+ outColor=vec4(pow(max(mix(lit,fogColor,fog),vec3(0.0)),vec3(1.0/2.2)),1.0);
+})";
+const char *skyVertex=R"(#version 300 es
+out vec2 screen;
+void main(){vec2 p=vec2(float((gl_VertexID<<1)&2),float(gl_VertexID&2));screen=p*2.0-1.0;gl_Position=vec4(screen,0.0,1.0);})";
+const char *skyFragment=R"(#version 300 es
+precision highp float;
+in vec2 screen;
+uniform float aspect;
+uniform vec2 angles;
+out vec4 outColor;
+void main(){
+ vec3 ray=normalize(vec3(screen.x*aspect/1.37638,screen.y/1.37638,-1.0));
+ float altitude=cos(angles.y)*ray.y-sin(angles.y)*ray.z;
+ float blend=smoothstep(0.0,.85,max(altitude,0.0));
+ outColor=vec4(mix(vec3(.56,.61,.63),vec3(.32,.41,.51),blend),1.0);
+})";
 GLuint compile(GLenum type,const char*text){GLuint s=glCreateShader(type);glShaderSource(s,1,&text,nullptr);glCompileShader(s);GLint ok=0;glGetShaderiv(s,GL_COMPILE_STATUS,&ok);if(!ok){char log[1024];glGetShaderInfoLog(s,sizeof(log),nullptr,log);__android_log_print(ANDROID_LOG_ERROR,"Ekron","Shader: %s",log);glDeleteShader(s);return 0;}return s;}
-struct Vertex{float x,y,z,r,g,b;};
-void cube(std::vector<Vertex>&v,const sandbox::Box&b){
- static const int faces[6][6]={{0,1,2,0,2,3},{5,4,7,5,7,6},{4,0,3,4,3,7},{1,5,6,1,6,2},{3,2,6,3,6,7},{4,5,1,4,1,0}};
- static const float corners[8][3]={{-1,-1,1},{1,-1,1},{1,1,1},{-1,1,1},{-1,-1,-1},{1,-1,-1},{1,1,-1},{-1,1,-1}};
- static const float light[6]={.84f,.65f,.72f,.92f,1.f,.55f};
- for(int face=0;face<6;face++)for(int index:faces[face]){auto c=corners[index];float k=light[face];v.push_back({b.x+c[0]*b.w/2,b.y+c[1]*b.h/2,b.z+c[2]*b.d/2,b.r*k,b.g*k,b.b*k});}
+GLuint link(const char *vsText,const char *fsText){
+ const auto vs=compile(GL_VERTEX_SHADER,vsText),fs=compile(GL_FRAGMENT_SHADER,fsText);
+ if(!vs||!fs){if(vs)glDeleteShader(vs);if(fs)glDeleteShader(fs);return 0;}
+ GLuint p=glCreateProgram();glAttachShader(p,vs);glAttachShader(p,fs);glLinkProgram(p);glDeleteShader(vs);glDeleteShader(fs);
+ GLint ok=0;glGetProgramiv(p,GL_LINK_STATUS,&ok);if(!ok){char log[1024];glGetProgramInfoLog(p,sizeof(log),nullptr,log);__android_log_print(ANDROID_LOG_ERROR,"Ekron","Program: %s",log);glDeleteProgram(p);return 0;}return p;
 }
+using Vertex=sandbox::MeshVertex;
+void cube(std::vector<Vertex>&v,const sandbox::Box&b){sandbox::appendCube(v,b);}
 void object(std::vector<Vertex>&v,const sandbox::Object&o,bool preview=false,bool valid=false){
  auto body=sandbox::World::bounds(o);
- if(preview){body.r=valid?.25f:.9f;body.g=valid?.8f:.25f;body.b=.4f;cube(v,body);return;}
+ if(preview){body.r=valid?.25f:.9f;body.g=valid?.8f:.25f;body.b=.4f;body.material=sandbox::Plain;cube(v,body);return;}
  // Local-space furniture parts rotated by 90 degree increments.
  auto part=[&](float x,float y,float z,float w,float h,float d,float r,float g,float b){
   for(int i=0;i<o.rotation;i++){float old=x;x=z;z=-old;std::swap(w,d);}
-  cube(v,{o.x+x,y,o.z+z,w,h,d,r,g,b});
+  cube(v,{o.x+x,y,o.z+z,w,h,d,r,g,b,sandbox::Plain});
  };
  if(o.type==4||o.type==5){bool table=o.type==4;float w=table?1.8f:.6f,d=table?1.f:.65f,top=table?.82f:.46f;
   part(0,top,0,w,.15f,d,.54f,.4f,.27f);
@@ -79,17 +125,19 @@ Renderer::Renderer(android_app *app):app_(app),last_(std::chrono::steady_clock::
  surface_=eglCreateWindowSurface(display_,config,app->window,nullptr);
  const EGLint contextAttributes[]={EGL_CONTEXT_CLIENT_VERSION,3,EGL_NONE};context_=eglCreateContext(display_,config,EGL_NO_CONTEXT,contextAttributes);
  if(surface_==EGL_NO_SURFACE||context_==EGL_NO_CONTEXT||!eglMakeCurrent(display_,surface_,surface_,context_))return;
- const auto vs=compile(GL_VERTEX_SHADER,vertex),fs=compile(GL_FRAGMENT_SHADER,fragment);if(!vs||!fs){if(vs)glDeleteShader(vs);if(fs)glDeleteShader(fs);return;}
- program_=glCreateProgram();glAttachShader(program_,vs);glAttachShader(program_,fs);glLinkProgram(program_);glDeleteShader(vs);glDeleteShader(fs);
- GLint linked=0;glGetProgramiv(program_,GL_LINK_STATUS,&linked);if(!linked){glDeleteProgram(program_);program_=0;return;}
+ program_=link(vertex,fragment);skyProgram_=link(skyVertex,skyFragment);if(!program_)return;
+ texturesReady_=textures_.load(app_->activity->assetManager);
  glGenVertexArrays(1,&vao_);glGenBuffers(1,&buffer_);glBindVertexArray(vao_);glBindBuffer(GL_ARRAY_BUFFER,buffer_);
- glEnableVertexAttribArray(0);glVertexAttribPointer(0,3,GL_FLOAT,GL_FALSE,sizeof(Vertex),nullptr);
- glEnableVertexAttribArray(1);glVertexAttribPointer(1,3,GL_FLOAT,GL_FALSE,sizeof(Vertex),reinterpret_cast<void*>(3*sizeof(float)));
+ glEnableVertexAttribArray(0);glVertexAttribPointer(0,3,GL_FLOAT,GL_FALSE,sizeof(Vertex),reinterpret_cast<void*>(offsetof(Vertex,x)));
+ glEnableVertexAttribArray(1);glVertexAttribPointer(1,3,GL_FLOAT,GL_FALSE,sizeof(Vertex),reinterpret_cast<void*>(offsetof(Vertex,r)));
+ glEnableVertexAttribArray(2);glVertexAttribPointer(2,3,GL_FLOAT,GL_FALSE,sizeof(Vertex),reinterpret_cast<void*>(offsetof(Vertex,nx)));
+ glEnableVertexAttribArray(3);glVertexAttribPointer(3,2,GL_FLOAT,GL_FALSE,sizeof(Vertex),reinterpret_cast<void*>(offsetof(Vertex,u)));
+ glEnableVertexAttribArray(4);glVertexAttribPointer(4,1,GL_FLOAT,GL_FALSE,sizeof(Vertex),reinterpret_cast<void*>(offsetof(Vertex,layer)));
  glEnable(GL_DEPTH_TEST);eglSwapInterval(display_,1);
 }
 Renderer::~Renderer(){
  retainedWorld=world_;retainedBuilding=building_;
- if(display_!=EGL_NO_DISPLAY){if(context_!=EGL_NO_CONTEXT&&surface_!=EGL_NO_SURFACE&&eglMakeCurrent(display_,surface_,surface_,context_)){if(buffer_)glDeleteBuffers(1,&buffer_);if(vao_)glDeleteVertexArrays(1,&vao_);if(program_)glDeleteProgram(program_);}eglMakeCurrent(display_,EGL_NO_SURFACE,EGL_NO_SURFACE,EGL_NO_CONTEXT);if(context_!=EGL_NO_CONTEXT)eglDestroyContext(display_,context_);if(surface_!=EGL_NO_SURFACE)eglDestroySurface(display_,surface_);eglTerminate(display_);}
+ if(display_!=EGL_NO_DISPLAY){if(context_!=EGL_NO_CONTEXT&&surface_!=EGL_NO_SURFACE&&eglMakeCurrent(display_,surface_,surface_,context_)){textures_.release();if(skyProgram_)glDeleteProgram(skyProgram_);if(buffer_)glDeleteBuffers(1,&buffer_);if(vao_)glDeleteVertexArrays(1,&vao_);if(program_)glDeleteProgram(program_);}eglMakeCurrent(display_,EGL_NO_SURFACE,EGL_NO_SURFACE,EGL_NO_CONTEXT);if(context_!=EGL_NO_CONTEXT)eglDestroyContext(display_,context_);if(surface_!=EGL_NO_SURFACE)eglDestroySurface(display_,surface_);eglTerminate(display_);}
 }
 void Renderer::resetInput(){leftId_=rightId_=-1;moveX_=moveY_=0;last_=std::chrono::steady_clock::now();}
 void Renderer::handleInput(){
@@ -120,7 +168,18 @@ void Renderer::render(){
  std::vector<Vertex> vertices;vertices.reserve((world_.scenery.size()+world_.objects.size()*10+1)*36);
  for(const auto &b:world_.scenery)cube(vertices,b);for(const auto&o:world_.objects)object(vertices,o);
  if(building_){const auto p=world_.preview();object(vertices,p,true,world_.objects.size()<sandbox::World::limit&&world_.canPlace(p));}
- glViewport(0,0,width_,height_);glClearColor(.56f,.61f,.63f,1);glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);glUseProgram(program_);
+ glViewport(0,0,width_,height_);glClearColor(.56f,.61f,.63f,1);glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
+ glBindVertexArray(vao_);
+ if(skyProgram_){glDisable(GL_DEPTH_TEST);glDepthMask(GL_FALSE);glUseProgram(skyProgram_);
+  glUniform1f(glGetUniformLocation(skyProgram_,"aspect"),float(width_)/height_);
+  glUniform2f(glGetUniformLocation(skyProgram_,"angles"),world_.yaw,world_.pitch);
+  glDrawArrays(GL_TRIANGLES,0,3);glDepthMask(GL_TRUE);glEnable(GL_DEPTH_TEST);
+ }
+ glUseProgram(program_);textures_.bind();glUniform1i(glGetUniformLocation(program_,"albedo"),0);
+ glUniform1i(glGetUniformLocation(program_,"texturesReady"),texturesReady_?1:0);
+ glUniform3f(glGetUniformLocation(program_,"lightDirection"),-.45f,-1.f,-.25f);
+ glUniform3f(glGetUniformLocation(program_,"lightColor"),.55f,.52f,.48f);
+ glUniform3f(glGetUniformLocation(program_,"ambientColor"),.55f,.59f,.65f);
  glUniform3f(glGetUniformLocation(program_,"eye"),world_.x,1.7f,world_.z);glUniform2f(glGetUniformLocation(program_,"angles"),world_.yaw,world_.pitch);glUniform1f(glGetUniformLocation(program_,"aspect"),float(width_)/height_);
  glBindVertexArray(vao_);glBindBuffer(GL_ARRAY_BUFFER,buffer_);glBufferData(GL_ARRAY_BUFFER,vertices.size()*sizeof(Vertex),vertices.data(),GL_STREAM_DRAW);glDrawArrays(GL_TRIANGLES,0,static_cast<GLsizei>(vertices.size()));
  eglSwapBuffers(display_,surface_);

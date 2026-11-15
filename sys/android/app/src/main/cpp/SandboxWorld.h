@@ -7,7 +7,8 @@
 #include <vector>
 
 namespace sandbox {
-struct Box { float x,y,z,w,h,d,r,g,b; };
+enum Material { Asphalt=0, Concrete=1, Brick=2, Rust=3, Plain=4 };
+struct Box { float x,y,z,w,h,d,r,g,b; int material=Concrete; };
 struct Object { int type,rotation; float x,z; };
 class World {
 public:
@@ -18,20 +19,20 @@ public:
     static constexpr int limit=500;
     World() {
         scenery.push_back({0,-.2f,0,140,.4f,140,.32f,.37f,.31f});
-        scenery.push_back({0,.01f,0,13,.04f,135,.24f,.28f,.29f});
+        scenery.push_back({0,.01f,0,13,.04f,135,1.f,1.f,1.f,Asphalt});
         for(int side:{-1,1}) scenery.push_back({side*8.f,.08f,0,2.5f,.16f,130,.48f,.49f,.46f});
         int n=0;
         for(float bz:{-43.f,-23.f,17.f,39.f}) for(float bx:{-20.f,20.f}) building(bx,bz,n++%3!=0);
         for(int i=0;i<8;i++) {
             float cx=i%2?5.f:-5.f,cz=-49+i*13.f;
-            solid({cx,.55f,cz,1.9f,1.1f,3.8f,.28f,.32f,.3f});
-            scenery.push_back({cx,1.3f,cz,1.6f,.6f,1.7f,.18f,.24f,.25f});
+            solid({cx,.55f,cz,1.9f,1.1f,3.8f,.9f,.9f,.9f,Rust});
+            scenery.push_back({cx,1.3f,cz,1.6f,.6f,1.7f,.18f,.24f,.25f,Plain});
         }
     }
     static Box bounds(const Object &o) {
         static const float dims[8][3]={{3,2.8f,.25f},{3,.18f,3},{2,2.4f,.22f},{1.1f,2.3f,.18f},{1.8f,.9f,1},{.6f,1.05f,.65f},{1.4f,2.1f,.65f},{2.3f,1,.95f}};
         auto p=dims[o.type];
-        return {o.x,p[1]/2,o.z,o.rotation%2?p[2]:p[0],p[1],o.rotation%2?p[0]:p[2],.5f,.43f,.32f};
+        return {o.x,p[1]/2,o.z,o.rotation%2?p[2]:p[0],p[1],o.rotation%2?p[0]:p[2],.5f,.43f,.32f,o.type<=1?Concrete:Plain};
     }
     static bool overlap(const Box&a,const Box&b) {
         return std::abs(a.x-b.x)<(a.w+b.w)/2 && std::abs(a.z-b.z)<(a.d+b.d)/2;
@@ -103,11 +104,11 @@ private:
         }
         for(int floor=0;floor<3;floor++)for(float offset:{-4.f,0.f,4.f}) {
             if((floor==0&&offset==0)||(damaged&&floor>0&&offset>=0))continue;
-            scenery.push_back({bx+offset,1.8f+floor*2.9f,bz+6.2f,1.7f,1.6f,.07f,.19f,.29f,.33f});
+            scenery.push_back({bx+offset,1.8f+floor*2.9f,bz+6.2f,1.7f,1.6f,.07f,.08f,.1f,.11f,Plain});
         }
         solid({bx-2,.45f,bz-1,1.8f,.9f,1,.5f,.37f,.26f});
         solid({bx+4,1.05f,bz-4,1.4f,2.1f,.65f,.4f,.3f,.22f});
-        if(damaged)for(int i=0;i<8;i++)solid({bx+(i%2?1.f:-1.f)*(3.f+i%3),.2f,bz+7+(i*3%4),.8f,.4f,.6f,.47f,.45f,.4f});
+        if(damaged)for(int i=0;i<8;i++)solid({bx+(i%2?1.f:-1.f)*(3.f+i%3),.2f,bz+7+(i*3%4),.8f,.4f,.6f,1.f,1.f,1.f,Brick});
     }
 };
 }
