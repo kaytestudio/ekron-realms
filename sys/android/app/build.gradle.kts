@@ -12,8 +12,8 @@ android {
         applicationId = "com.example.realms"
         minSdk = 30
         targetSdk = 34
-        versionCode = 24
-        versionName = "0.24-compact-hud-sofa"
+        versionCode = 25
+        versionName = "0.25-place-hammer-icon"
         externalNativeBuild {
             cmake { cppFlags += "-std=c++17" }
         }

@@ -240,7 +240,7 @@ class MainActivity : GameActivity() {
         selectedSwatch=MaterialBlockView(this,selectedSurface)
         selectedSlot.addView(selectedSwatch,FrameLayout.LayoutParams(dp(25),dp(25),Gravity.BOTTOM or Gravity.END))
         // Selection art remains available inside the catalogue, not as a duplicate HUD opener.
-        addControl(spawnActions,"","cube") { nativeCommand(200+BuildCatalog.entries[selected].nativeType) }.apply { contentDescription="Поставить блок" }
+        addControl(spawnActions,"","build") { nativeCommand(200+BuildCatalog.entries[selected].nativeType) }.apply { contentDescription="Установить выбранный предмет" }
         val turns=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
         addControl(turns,"","left") { nativeCommand(31) }.apply { contentDescription="Повернуть влево" }
         addControl(turns,"","right") { nativeCommand(2) }.apply { contentDescription="Повернуть вправо" }
