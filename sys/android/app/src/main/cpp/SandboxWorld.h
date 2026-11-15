@@ -10,9 +10,22 @@ namespace sandbox {
 enum Material { Asphalt=0, Concrete=1, Brick=2, Rust=3, Plain=4 };
 struct Box { float x,y,z,w,h,d,r,g,b; int material=Concrete; };
 struct Object { int type,rotation; float x,z; };
+struct WallSegment {float ax,az,bx,bz;};
+inline bool intersectsWall(const Box &box,const WallSegment &wall){
+    // Slab test against a narrow 5 cm wall; respects diagonal walls and door gaps.
+    float enter=0,exit=1;
+    auto slab=[&](float origin,float delta,float center,float half){
+        if(std::abs(delta)<.000001f)return std::abs(origin-center)<=half;
+        float a=(center-half-origin)/delta,b=(center+half-origin)/delta;
+        if(a>b)std::swap(a,b);
+        enter=std::max(enter,a);exit=std::min(exit,b);return enter<=exit;
+    };
+    return slab(wall.ax,wall.bx-wall.ax,box.x,box.w/2+.025f)&&slab(wall.az,wall.bz-wall.az,box.z,box.d/2+.025f);
+}
 class World {
 public:
     std::vector<Box> scenery, walls;
+    std::vector<WallSegment> wallSegments;
     std::vector<Object> objects;
     float x=0,y=1.7f,z=19,yaw=0,pitch=0;
     int selected=0,rotation=0;
@@ -39,6 +52,7 @@ public:
     }
     bool blocked(const Box &b) const {
         for(const auto &w:walls) if(overlap(b,w)) return true;
+        for(const auto &w:wallSegments) if(intersectsWall(b,w)) return true;
         for(const auto &o:objects) if(overlap(b,bounds(o))) return true;
         return false;
     }

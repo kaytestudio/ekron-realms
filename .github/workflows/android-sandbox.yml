@@ -25,6 +25,8 @@ jobs:
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/native/sandbox_world_test.cpp -o /tmp/ekron-world-test
           /tmp/ekron-world-test
+          g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/native/building_collision_test.cpp -o /tmp/ekron-building-test
+          /tmp/ekron-building-test
           g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/native/level_placement_test.cpp -o /tmp/ekron-placement-test
           /tmp/ekron-placement-test
           g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/native/debug_player_test.cpp -o /tmp/ekron-debug-test

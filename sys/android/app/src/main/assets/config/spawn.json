@@ -1,6 +1,6 @@
 {
-  "enabled": false,
-  "position": { "x": 0.614487, "y": 1.7, "z": 31.625 },
+  "enabled": true,
+  "position": { "x": -3.4, "y": 1.7, "z": 32.7 },
   "yawDegrees": 0,
   "startFlying": false
 }

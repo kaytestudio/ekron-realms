@@ -6,7 +6,7 @@
 
 namespace city {
 struct SpawnPoint {float x=0,z=0;size_t reachableCells=0;bool playerInRegion=false;};
-// Find the largest footprint-walkable connected region, not an isolated free pocket.
+// Prefer the requested sizeable street component; fall back to the largest region.
 inline bool findRoadSpawn(const sandbox::World &world,const std::array<float,3>&lo,
                           const std::array<float,3>&hi,float preferredX,float preferredZ,SpawnPoint &out,std::vector<std::array<float,2>> *reachable=nullptr){
     constexpr float step=.25f;
@@ -16,7 +16,9 @@ inline bool findRoadSpawn(const sandbox::World &world,const std::array<float,3>&
     auto px=[&](int i){return lo[0]+(i%width+.5f)*step;};
     auto pz=[&](int i){return lo[2]+(i/width+.5f)*step;};
     for(int i=0;i<width*depth;i++)free[i]=!world.blocked({px(i),0,pz(i),.62f,2,.62f,0,0,0});
-    std::vector<int> largest;
+    std::vector<int> largest,preferredRegion;
+    int preferredCellX=int(std::floor((preferredX-lo[0])/step)),preferredCellZ=int(std::floor((preferredZ-lo[2])/step));
+    int preferredCell=preferredCellX>=0&&preferredCellX<width&&preferredCellZ>=0&&preferredCellZ<depth?preferredCellZ*width+preferredCellX:-1;
     for(int start=0;start<width*depth;start++){
         if(!free[start]||seen[start])continue;
         std::vector<int> component{start};seen[start]=1;
@@ -27,8 +29,12 @@ inline bool findRoadSpawn(const sandbox::World &world,const std::array<float,3>&
                 int next=nz*width+nx;if(free[next]&&!seen[next]){seen[next]=1;component.push_back(next);}
             }
         }
+        // An outside-of-buildings area can be larger than the actual street.
+        // Prefer the requested street component, but reject small fenced pockets (<16 m²).
+        if(component.size()>=256&&std::find(component.begin(),component.end(),preferredCell)!=component.end())preferredRegion=component;
         if(component.size()>largest.size())largest=std::move(component);
     }
+    if(!preferredRegion.empty())largest=std::move(preferredRegion);
     if(largest.size()<64)return false;
     if(reachable){reachable->clear();for(int i:largest)reachable->push_back({px(i),pz(i)});}
     int currentX=int(std::floor((world.x-lo[0])/step)),currentZ=int(std::floor((world.z-lo[2])/step));

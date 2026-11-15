@@ -27,6 +27,7 @@ struct Scene {
     std::vector<Material> materials;
     std::vector<Batch> batches;
     std::vector<sandbox::Box> colliders;
+    std::vector<sandbox::WallSegment> wallSegments;
     float spawnX=0,spawnZ=0;
     std::array<float,3> minimum{},maximum{};
     // Reads both GLB and JSON glTF from assets; external paths resolve relative to the scene.
