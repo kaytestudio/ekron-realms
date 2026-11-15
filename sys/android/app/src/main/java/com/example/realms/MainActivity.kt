@@ -99,7 +99,7 @@ class MainActivity : GameActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        val overlay = FrameLayout(this)
+        val overlay = FrameLayout(this).apply { isMotionEventSplittingEnabled = true }
         val heading = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(12), dp(8), dp(12), dp(8))
@@ -139,8 +139,16 @@ class MainActivity : GameActivity() {
         tools.addView(buildControl, LinearLayout.LayoutParams(dp(actionSize), dp(actionSize)))
         tools.addView(removeControl, LinearLayout.LayoutParams(dp(actionSize), dp(actionSize)).apply { topMargin=dp(8) })
         overlay.addView(tools, FrameLayout.LayoutParams(-2,-2,Gravity.TOP or Gravity.END).apply { topMargin=dp(64); rightMargin=dp(10) })
-        val movement = LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; gravity=Gravity.CENTER }
+        val movement = LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; gravity=Gravity.CENTER; isMotionEventSplittingEnabled=true }
         val jump = action("Прыжок", "jump") { nativeCommand(8) }
+        // Fire on press, not release. The joystick keeps its own pointer and axes untouched.
+        jump.setOnTouchListener { v, event ->
+            when(event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> { v.isPressed=true;v.performClick() }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> v.isPressed=false
+            }
+            true
+        }
         crouchControl = action("Присесть", "crouch") {
             crouchControl.isSelected = !crouchControl.isSelected; proneControl.isSelected=false
             nativeCommand(9)

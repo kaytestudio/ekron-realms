@@ -35,5 +35,30 @@ int main(){
  assert(before-z>.45f&&before-z<.55f);
  for(int i=0;i<30;i++)crawling.update(tunnel,0,0,0,1.f/120,false,x,y,z);
  assert(crawling.eyeHeight()<.5f); // Refuse standing up through the ceiling.
+ // Keep walking input while a second finger requests jump: horizontal travel must continue.
+ PlayerController running;x=5;y=1.7f;z=5;running.reset(x,y,z);
+ for(int i=0;i<60;i++)running.update(scene,0,0,0,1.f/120,false,x,y,z);
+ running.jump();float startZ=z;float peak=y;
+ for(int i=0;i<50;i++){running.update(scene,0,1,0,1.f/120,false,x,y,z);peak=std::max(peak,y);}
+ assert(startZ-z>1.8f&&peak>2.3f);
+ // A 65 cm windowsill is crossed without any jump command; the camera rises smoothly.
+ CollisionMesh sill;floorQuad(sill,0);sill.addBox({-2,0,-.2f},{2,.65f,.2f});sill.build();
+ PlayerController walking;x=0;y=1.7f;z=1;walking.reset(x,y,z);
+ for(int i=0;i<60;i++)walking.update(sill,0,0,0,1.f/120,false,x,y,z);
+ float maxFeet=0,previousY=y,maxCameraDelta=0;
+ for(int i=0;i<80;i++){
+  walking.update(sill,0,1,0,1.f/120,false,x,y,z);maxFeet=std::max(maxFeet,walking.feet().y);
+  maxCameraDelta=std::max(maxCameraDelta,std::abs(y-previousY));previousY=y;
+ }
+ assert(z<-1&&maxFeet>.64f&&maxFeet<.8f&&maxCameraDelta<.15f);
+ // Taller obstacles and a low concrete lintel must NOT be bypassed by step-up.
+ for(bool lintel:{false,true}){
+  CollisionMesh obstacle;floorQuad(obstacle,0);
+  obstacle.addBox({-2,0,-.2f},{2,lintel?.65f:1.1f,.2f});
+  if(lintel)obstacle.addBox({-2,2,-.2f},{2,3,.2f});
+  obstacle.build();PlayerController blocked;x=0;y=1.7f;z=1;blocked.reset(x,y,z);
+  for(int i=0;i<100;i++)blocked.update(obstacle,0,1,0,1.f/120,false,x,y,z);
+  assert(z>.4f&&blocked.feet().y<.1f);
+ }
  std::cout<<"Gravity, roof landing, pits, stable slopes, jump/crouch window and concrete frame OK\n";
 }

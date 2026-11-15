@@ -12,8 +12,8 @@ android {
         applicationId = "com.example.realms"
         minSdk = 30
         targetSdk = 34
-        versionCode = 10
-        versionName = "0.10-touch-controls"
+        versionCode = 11
+        versionName = "0.11-window-step"
         externalNativeBuild {
             cmake { cppFlags += "-std=c++17" }
         }

@@ -12,6 +12,32 @@ class PlayerController {
     bool contacts(const CollisionMesh&mesh,Vec3 feet,float height)const{
         bool hit=false;mesh.query(bodyBounds(feet,height),[&](const Triangle&t){Vec3 n;float d=capsuleTriangle(feet+Vec3{0,radius,0},feet+Vec3{0,height-radius,0},t,n);if(d<radius-.002f)hit=true;});return hit;
     }
+    bool tryStep(const CollisionMesh&mesh,const CollisionMesh*extra,Vec3 from,Vec3 target){
+        constexpr float maxStep=.75f;
+        auto blocked=[&](Vec3 p){return contacts(mesh,p,height_)||(extra&&contacts(*extra,p,height_));};
+        if(!blocked(target))return false;
+        Vec3 direction=target-from;direction.y=0;float distance=length(direction);
+        if(distance<1e-6f)return false;
+        direction=direction*(1/distance);
+        float support=-std::numeric_limits<float>::infinity();
+        // Look under the leading edge of the capsule, not across a large gap or through a wall.
+        for(float reach:{0.f,radius+.035f}){
+            Vec3 probe=target+direction*reach;
+            float h=mesh.groundHeight(probe.x,probe.z,from.y+maxStep,from.y+.025f);
+            if(extra)h=std::max(h,extra->groundHeight(probe.x,probe.z,from.y+maxStep,from.y+.025f));
+            support=std::max(support,h);
+        }
+        if(!std::isfinite(support))return false;
+        float rise=support-from.y+.002f;
+        if(rise<=.025f||rise>maxStep+.003f)return false;
+        // Sweep upward first, then horizontally. A low lintel rejects the whole step.
+        int slices=int(std::ceil(rise/.035f));
+        for(int i=1;i<=slices;i++)if(blocked(from+Vec3{0,rise*i/slices,0}))return false;
+        target.y=from.y+rise;
+        if(blocked(target))return false;
+        feet_=target;velocity_=0;grounded_=true;
+        return true;
+    }
     void solve(const CollisionMesh&mesh){
         for(int iteration=0;iteration<6;iteration++){
             bool hit=false;auto bounds=bodyBounds(feet_,height_);
@@ -47,9 +73,11 @@ public:
             accumulator_-=step;bool wasGrounded=grounded_;
             if(jump_&&grounded_&&!prone){velocity_=6.5f;grounded_=false;wasGrounded=false;}jump_=false;
             float lengthInput=std::max(1.f,std::hypot(right,forward)),speed=height_<.6f?1.f:height_<1.5f?2.2f:4.5f;
+            Vec3 before=feet_;
             feet_.x+=(std::cos(yaw)*right-std::sin(yaw)*forward)/lengthInput*speed*step;
             feet_.z+=(-std::sin(yaw)*right-std::cos(yaw)*forward)/lengthInput*speed*step;
-            velocity_=std::max(-30.f,velocity_-18.f*step);feet_.y+=velocity_*step;grounded_=false;
+            bool stepped=wasGrounded&&velocity_<=0&&height_>.6f&&tryStep(mesh,extra,before,feet_);
+            if(!stepped){velocity_=std::max(-30.f,velocity_-18.f*step);feet_.y+=velocity_*step;grounded_=false;}
             solve(mesh);if(extra)solve(*extra);
             // Follow small downhill changes, but NEVER snap over an actual pit or from mid-air.
             if(wasGrounded&&!grounded_&&velocity_<=0){
