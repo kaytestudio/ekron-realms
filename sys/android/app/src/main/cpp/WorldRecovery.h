@@ -27,7 +27,7 @@ inline std::optional<Object> carRespawn(const World&w,Object parking,const physi
    float h=city.groundHeight(car.x+sx*b.w*.45f,car.z+sz*b.d*.45f,3,lo[1]-3);if(std::isfinite(h))support=std::max(support,h);
   }
   if(support<-1e5f)continue;
-  car.y=support+.04f;b=World::bounds(car);
+  car.y=support+.5f;b=World::bounds(car);
   if(b.x-b.w/2<lo[0]||b.x+b.w/2>hi[0]||b.z-b.d/2<lo[2]||b.z+b.d/2>hi[2])continue;
   if(std::abs(w.x-b.x)<b.w/2+.6f&&std::abs(w.z-b.z)<b.d/2+.6f)continue;
   if(city.intersectsBox({b.x,b.y,b.z},{b.w/2-.01f,b.h/2-.02f,b.d/2-.01f}))continue;

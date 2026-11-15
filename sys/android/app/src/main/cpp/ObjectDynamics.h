@@ -1,6 +1,7 @@
 #pragma once
 #include "SandboxWorld.h"
 #include "CollisionMesh.h"
+#include "ObjectCcd.h"
 namespace sandbox {
 // Lightweight box dynamics, deliberately separate from the immutable city triangle BVH.
 class ObjectDynamics {
@@ -16,6 +17,7 @@ public:
     }
     if(o.destroyed)continue;
     if(int(index)==held||o.anchored||o.frozen)continue;
+    Object beforeStep=o;
     auto b=World::bounds(o);physics::Vec3 half{b.w/2,b.h/2,b.d/2};float oldY=o.y,oldX=o.x,oldZ=o.z;
     auto radius=[&](){return std::abs(std::sin(o.tiltZ))*half.x+std::abs(std::cos(o.tiltZ)*std::cos(o.tiltX))*half.y+std::abs(std::cos(o.tiltZ)*std::sin(o.tiltX))*half.z;};
     float oldRadius=radius(),oldBottom=oldY+half.y-oldRadius;
@@ -84,6 +86,31 @@ public:
      }else o.restTime=0;
     }else if(o.vy>0&&collides(o.x,nextY,o.z))o.vy*=-.35f;
     else o.y=nextY;
+    sweepObjectFloor(beforeStep,o,mesh);
+    for(size_t j=0;j<w.objects.size();j++)if(j!=index&&int(j)!=held&&!w.objects[j].frozen){
+     auto other=World::bounds(w.objects[j]);
+     if(std::abs(o.x-other.x)>half.x+other.w/2+.5f||std::abs(o.z-other.z)>half.z+other.d/2+.5f)continue;
+     physics::CollisionMesh supportMesh;supportMesh.addBox({other.x-other.w/2,other.y-other.h/2,other.z-other.d/2},{other.x+other.w/2,other.y+other.h/2,other.z+other.d/2});supportMesh.build();sweepObjectFloor(beforeStep,o,supportMesh);
+    }
+    if(!o.floorRecoveryUsed){
+     float lift=0;auto current=World::bounds(o);
+     for(float x:{-1.f,1.f})for(float y:{-1.f,1.f})for(float z:{-1.f,1.f}){
+      auto corner=objectCorner(o,x,y,z);if(corner.y>current.y)continue;
+      float surface=mesh.groundHeight(corner.x,corner.z,corner.y+.18f,corner.y+.003f);
+      if(std::isfinite(surface))lift=std::max(lift,surface-corner.y+.005f);
+     }
+     if(lift>0){o.y+=lift;o.vy=o.spinX=o.spinZ=0;o.floorRecoveryUsed=true;}
+    }
+    // One bounded rescue only, onto a real nearby surface. Do not turn genuine
+    // pits into a global invisible floor or reintroduce an endless respawn loop.
+    if(o.y< -5&&!o.floorRecoveryUsed){
+     float bottom=o.y+half.y-radius();
+     float below=mesh.groundHeight(o.x,o.z,bottom+.08f,lo[1]-20);
+     float surface=mesh.groundHeight(o.x,o.z,std::min(3.f,bottom+12),bottom+.1f);
+     if(!std::isfinite(below)&&std::isfinite(surface)){
+      o.y=surface+radius()-half.y+.02f;o.vx=o.vy=o.vz=o.spinX=o.spinZ=0;o.floorRecoveryUsed=true;o.restTime=0;
+     }
+    }
     // Deep persistent embedding is not a respawn trigger. Try a small upward
     // depenetration; delete after five seconds if the solid still traps the body.
     physics::Vec3 deepHalf=half*.6f;
