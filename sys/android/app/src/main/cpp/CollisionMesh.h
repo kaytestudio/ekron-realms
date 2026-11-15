@@ -94,9 +94,39 @@ public:
     void build(){order_.resize(triangles_.size());std::iota(order_.begin(),order_.end(),0);nodes_.clear();if(!order_.empty())buildNode(0,int(order_.size()));}
     size_t size()const{return triangles_.size();}
     template<class F> void query(const Bounds&b,F f)const{if(!nodes_.empty())visit(0,b,f);}
+    struct RayHit { Vec3 position,normal;float distance; };
+    bool raycast(Vec3 origin,Vec3 direction,float maxDistance,RayHit &hit)const{
+        direction=normalized(direction);float nearest=maxDistance;bool found=false;
+        Bounds bounds;bounds.add(origin);bounds.add(origin+direction*maxDistance);
+        query(bounds,[&](const Triangle&t){
+            Vec3 e1=t.b-t.a,e2=t.c-t.a,h=cross(direction,e2);float det=dot(e1,h);
+            if(std::abs(det)<1e-7f)return;
+            float inv=1/det;Vec3 s=origin-t.a;float u=dot(s,h)*inv;if(u<0||u>1)return;
+            Vec3 q=cross(s,e1);float v=dot(direction,q)*inv;if(v<0||u+v>1)return;
+            float distance=dot(e2,q)*inv;if(distance<.001f||distance>nearest)return;
+            Vec3 n=normalized(cross(e1,e2));if(dot(n,direction)>0)n=n*-1;
+            nearest=distance;hit={origin+direction*distance,n,distance};found=true;
+        });return found;
+    }
+    bool intersectsBox(Vec3 center,Vec3 half)const{
+        Bounds b;b.add(center-half);b.add(center+half);bool hit=false;
+        query(b,[&](const Triangle&t){
+            if(hit)return;
+            Vec3 a=t.a-center,c=t.b-center,d=t.c-center;
+            auto separates=[&](Vec3 axis){float p=dot(a,axis),q=dot(c,axis),r=dot(d,axis);
+                float radius=std::abs(axis.x)*half.x+std::abs(axis.y)*half.y+std::abs(axis.z)*half.z;
+                return std::min({p,q,r})>radius||std::max({p,q,r})<-radius;};
+            const Vec3 axes[3]={{1,0,0},{0,1,0},{0,0,1}};
+            for(auto axis:axes)if(separates(axis))return;
+            Vec3 edges[3]={c-a,d-c,a-d};
+            if(separates(cross(edges[0],edges[1])))return;
+            for(auto edge:edges)for(auto axis:axes)if(separates(cross(edge,axis)))return;
+            hit=true;
+        });return hit;
+    }
     float groundHeight(float x,float z,float below=1000,float above=-1000)const{
         float best=-std::numeric_limits<float>::infinity();Bounds b;b.add({x-.001f,above,z-.001f});b.add({x+.001f,below,z+.001f});
-        query(b,[&](const Triangle&t){Vec3 n=cross(t.b-t.a,t.c-t.a);float l=length(n);if(l<1e-8f||std::abs(n.y)/l<.45f)return;
+        query(b,[&](const Triangle&t){Vec3 n=cross(t.b-t.a,t.c-t.a);float l=length(n);if(l<1e-8f||std::abs(n.y)/l<.64f)return;
             float y=t.a.y-(n.x*(x-t.a.x)+n.z*(z-t.a.z))/n.y;
             if(y>below+.001f||y<above||y<=best)return;
             Vec3 p{x,y,z};if(length(p-closestTriangle(p,t))<.005f)best=y;

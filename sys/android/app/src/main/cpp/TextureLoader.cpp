@@ -13,7 +13,7 @@
 namespace {
 // Fallback exists even if assets is null or a PNG is missing/truncated/too large.
 std::vector<unsigned char> fallback(int layer) {
-    constexpr unsigned char colors[5][3]={{48,50,53},{137,135,129},{136,72,47},{124,68,35},{255,255,255}};
+    constexpr unsigned char colors[8][3]={{48,50,53},{137,135,129},{136,72,47},{124,68,35},{255,255,255},{135,91,49},{43,56,48},{142,177,182}};
     std::vector<unsigned char> out(TextureLoader::Size * TextureLoader::Size * 4);
     for(int y=0;y<TextureLoader::Size;y++)for(int x=0;x<TextureLoader::Size;x++) {
         const int shade=layer==4?0:((x/32+y/32)%2)*7;
@@ -63,15 +63,21 @@ void TextureLoader::release(){
     texture_=0;
 }
 void TextureLoader::bind(GLuint unit)const{glActiveTexture(GL_TEXTURE0+unit);glBindTexture(GL_TEXTURE_2D_ARRAY,texture_);}
-bool TextureLoader::load(AAssetManager *assets){
+TextureLoader::Prepared TextureLoader::prepare(AAssetManager *assets){
+ Prepared images;const std::array<const char*,4> names={"textures/asphalt.png","textures/concrete.png","textures/brick.png","textures/rust.png"};
+ for(int layer=0;layer<Layers;layer++)images[layer]=layer<4?decode(assets,names[layer],layer):layer==5?decode(assets,"textures/wood.png",layer):layer==6?decode(assets,"textures/fabric.png",layer):layer==7?decode(assets,"textures/glass.png",layer):fallback(layer);
+ return images;
+}
+bool TextureLoader::load(AAssetManager *assets){return upload(prepare(assets));}
+bool TextureLoader::upload(const Prepared &images){
+
     release();
     glGenTextures(1,&texture_);if(!texture_)return false;
     bind();
     // sRGB albedo is automatically decoded to linear RGB before lighting.
     glTexStorage3D(GL_TEXTURE_2D_ARRAY,10,GL_SRGB8_ALPHA8,Size,Size,Layers);
-    const std::array<const char*,4> names={"textures/asphalt.png","textures/concrete.png","textures/brick.png","textures/rust.png"};
     for(int layer=0;layer<Layers;layer++) {
-        auto rgba=layer<4?decode(assets,names[layer],layer):fallback(layer);
+        const auto &rgba=images[layer];
         glTexSubImage3D(GL_TEXTURE_2D_ARRAY,0,0,0,layer,Size,Size,1,GL_RGBA,GL_UNSIGNED_BYTE,rgba.data());
     }
     glTexParameteri(GL_TEXTURE_2D_ARRAY,GL_TEXTURE_WRAP_S,GL_REPEAT);

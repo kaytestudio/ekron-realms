@@ -1,4 +1,6 @@
 #include "GltfScene.h"
+#include "SceneCollision.h"
+#include "MaterialRules.h"
 #include "LevelPlacement.h"
 #include "BuildingCollision.h"
 #define TINYGLTF_IMPLEMENTATION
@@ -66,21 +68,25 @@ struct Access {
   if(a.componentType==5125){uint32_t v;std::memcpy(&v,p,4);return v;}throw std::runtime_error("Invalid index type");
  }
 };
-bool imageLoader(tinygltf::Image *image,int,std::string*,std::string *warn,int,int,const unsigned char *bytes,int size,void*){
+struct DecodePolicy {bool selective=false;std::set<int> required;};
+bool imageLoader(tinygltf::Image *image,int index,std::string*,std::string *warn,int,int,const unsigned char *bytes,int size,void*user){
+ auto *policy=static_cast<DecodePolicy*>(user);
+ if(policy&&policy->selective&&index>=0&&!policy->required.count(index)){
+  image->width=image->height=1;image->component=4;image->bits=8;image->pixel_type=5121;image->image={255,255,255,255};return true;
+ }
  int w=0,h=0,c=0;unsigned char*p=nullptr;
  if(size>0&&stbi_info_from_memory(bytes,size,&w,&h,&c)&&w>0&&h>0&&w<=8192&&h<=8192)p=stbi_load_from_memory(bytes,size,&w,&h,&c,4);
  if(!p){image->width=image->height=1;image->component=4;image->bits=8;image->pixel_type=5121;image->image={255,255,255,255};if(warn)*warn+="Image decode failed; white fallback used.\n";return true;}
- int rw=std::min(w,2048),rh=std::min(h,2048);image->width=rw;image->height=rh;image->component=4;image->bits=8;image->pixel_type=5121;image->image.resize(size_t(rw)*rh*4);
+ int rw=std::min(w,1024),rh=std::min(h,1024);image->width=rw;image->height=rh;image->component=4;image->bits=8;image->pixel_type=5121;image->image.resize(size_t(rw)*rh*4);
  for(int y=0;y<rh;y++)for(int x=0;x<rw;x++)std::copy_n(p+(size_t(y*h/rh)*w+x*w/rw)*4,4,image->image.data()+(size_t(y)*rw+x)*4);
  stbi_image_free(p);return true;
 }
-void buildCollision(Scene &s){
- auto mesh=std::make_shared<physics::CollisionMesh>();
- for(const auto &batch:s.batches){
-  if(batch.material>=0&&size_t(batch.material)<s.materials.size()&&s.materials[batch.material].alphaMode!=0)continue;
-  for(size_t i=0;i<batch.vertices.size();i+=3){auto a=batch.vertices[i],b=batch.vertices[i+1],c=batch.vertices[i+2];mesh->add({{a.x,a.y,a.z},{b.x,b.y,b.z},{c.x,c.y,c.z}});}
+void applyFallbackUV(Scene&s){
+ for(auto &batch:s.batches)if(batch.material>=0&&s.materials[batch.material].worldSpaceUV)for(auto &v:batch.vertices){
+  if(std::abs(v.ny)>=std::max(std::abs(v.nx),std::abs(v.nz))){v.u=v.x*.5f;v.v=v.z*.5f;}
+  else if(std::abs(v.nx)>std::abs(v.nz)){v.u=v.z*.5f;v.v=v.y*.5f;}
+  else{v.u=v.x*.5f;v.v=v.y*.5f;}
  }
- mesh->build();s.collision=mesh;
 }
 void prepare(Scene &s,const LoadOptions &options){
  Vec lo{1e20f,1e20f,1e20f},hi{-1e20f,-1e20f,-1e20f};size_t count=0;
@@ -100,7 +106,9 @@ void prepare(Scene &s,const LoadOptions &options){
   s.minimum=minimum;s.maximum=maximum;
   float height=std::min(1.2f,maximum[1]-minimum[1]);
   s.colliders.push_back({(minimum[0]+maximum[0])/2,minimum[1]+height/2,(minimum[2]+maximum[2])/2,maximum[0]-minimum[0],height,maximum[2]-minimum[2],0,0,0});
-  buildCollision(s);return;
+  applyFallbackUV(s);
+  if(options.buildPhysics){buildSceneCollision(s);}
+  return;
  }
  // Estimate ground from area-weighted horizontal triangles, rather than lowest rubble vertex.
  std::map<int,double> ground;
@@ -127,14 +135,30 @@ void prepare(Scene &s,const LoadOptions &options){
  SpawnPoint spawn;
  if(!findRoadSpawn(collisionWorld,s.minimum,s.maximum,-3.4f,32.7f,spawn))throw std::runtime_error("No connected, supported free spawn in the collision grid");
  s.spawnX=spawn.x;s.spawnZ=spawn.z;
- buildCollision(s);
+ applyFallbackUV(s);
+ buildSceneCollision(s);
 }
 }
 
 bool Scene::load(const std::string &path,const ReadFile &read,std::string &diagnostics,const LoadOptions &options){
  try{
   Scene result;std::vector<unsigned char> bytes;if(!read(path,bytes)||bytes.empty()||bytes.size()>128*1024*1024)throw std::runtime_error("Model missing or exceeds 128 MiB");
-  tinygltf::TinyGLTF parser;parser.SetImageLoader(imageLoader,nullptr);
+  DecodePolicy policy;
+  try{
+   size_t offset=0,length=bytes.size();
+   if(bytes.size()>20&&std::memcmp(bytes.data(),"glTF",4)==0){uint32_t n=0;std::memcpy(&n,bytes.data()+12,4);offset=20;length=n;}
+   if(offset+length<=bytes.size()){
+    auto j=nlohmann::json::parse(bytes.begin()+offset,bytes.begin()+offset+length);
+    if(j.contains("materials")&&j.contains("textures")){
+     for(const auto&m:j["materials"])if(m.contains("pbrMetallicRoughness")&&m["pbrMetallicRoughness"].contains("baseColorTexture")){
+      int texture=m["pbrMetallicRoughness"]["baseColorTexture"]["index"].get<int>();
+      const auto&t=j["textures"].at(texture);if(t.contains("source"))policy.required.insert(t["source"].get<int>());
+     }
+     policy.selective=true;
+    }
+   }
+  }catch(const std::exception&){policy.selective=false;}
+  tinygltf::TinyGLTF parser;parser.SetImageLoader(imageLoader,&policy);
   tinygltf::FsCallbacks fs;
   fs.FileExists=[&](const std::string&p,void*){std::vector<unsigned char>b;return read(p,b);};
   fs.ExpandFilePath=[](const std::string&p,void*){return p;};
@@ -147,7 +171,7 @@ bool Scene::load(const std::string &path,const ReadFile &read,std::string &diagn
   diagnostics=warn;if(!ok)throw std::runtime_error(error);
   if(!model.extensionsRequired.empty())throw std::runtime_error("Required glTF extensions are not supported by this static renderer");
   for(auto &image:model.images)result.images.push_back({image.width,image.height,std::move(image.image)});
-  for(const auto&m:model.materials){Material out;auto&p=m.pbrMetallicRoughness;for(int i=0;i<4;i++)out.color[i]=float(p.baseColorFactor.at(i));out.doubleSided=m.doubleSided;out.alphaMode=m.alphaMode=="BLEND"?2:m.alphaMode=="MASK"?1:0;out.cutoff=float(m.alphaCutoff);
+  for(const auto&m:model.materials){Material out;out.playerFence=options.level&&m.name=="Material.006";auto&p=m.pbrMetallicRoughness;out.roughness=float(p.roughnessFactor);for(int i=0;i<4;i++)out.color[i]=float(p.baseColorFactor.at(i));out.doubleSided=m.doubleSided;out.alphaMode=m.alphaMode=="BLEND"?2:m.alphaMode=="MASK"?1:0;out.cutoff=float(m.alphaCutoff);
    if(p.baseColorTexture.index>=0){if(p.baseColorTexture.texCoord!=0)throw std::runtime_error("Only TEXCOORD_0 base color is supported");const auto&tex=model.textures.at(p.baseColorTexture.index);out.image=tex.source;if(tex.sampler>=0){auto &sampler=model.samplers.at(tex.sampler);out.wrapS=sampler.wrapS;out.wrapT=sampler.wrapT;}}
    std::vector<unsigned char> overrideBytes;
    if(read(base+"overrides/material_"+std::to_string(result.materials.size())+".png",overrideBytes)&&!overrideBytes.empty()&&overrideBytes.size()<=32*1024*1024){
@@ -156,6 +180,7 @@ bool Scene::load(const std::string &path,const ReadFile &read,std::string &diagn
    }
    result.materials.push_back(out);
   }
+  std::map<std::string,int> fallbackImages;
   std::set<int> stack;size_t vertexCount=0;
   std::function<void(int,const Matrix&)> visit=[&](int index,const Matrix &parent){
    if(stack.size()>128||!stack.insert(index).second)throw std::runtime_error("Cyclic or excessively deep nodes");
@@ -167,6 +192,22 @@ bool Scene::load(const std::string &path,const ReadFile &read,std::string &diagn
     std::optional<Access> normals,uv,indices;if(p.attributes.count("NORMAL"))normals.emplace(model,p.attributes.at("NORMAL"));if(p.attributes.count("TEXCOORD_0"))uv.emplace(model,p.attributes.at("TEXCOORD_0"));if(p.indices>=0)indices.emplace(model,p.indices);
     size_t count=indices?indices->a.count:positions.a.count;if(count%3||vertexCount+count>6000000)throw std::runtime_error("Invalid or excessive triangle count");vertexCount+=count;
     Batch batch;batch.material=p.material;batch.vertices.reserve(count);
+    Material original=batch.material>=0?result.materials.at(batch.material):Material{};
+    auto style=sandbox::materialForName(node.name+" "+model.meshes.at(node.mesh).name);
+    if(original.image<0&&style.layer!=sandbox::Plain){
+     original.roughness=style.roughness;original.worldSpaceUV=true;original.wrapS=original.wrapT=10497;std::string key=style.texture;
+     if(!fallbackImages.count(key)){
+      int imageIndex=-1;std::vector<unsigned char> texture;
+      if(read("textures/"+key+".png",texture)&&!texture.empty()&&texture.size()<=32*1024*1024){
+       tinygltf::Image image;imageLoader(&image,-1,nullptr,&diagnostics,0,0,texture.data(),int(texture.size()),nullptr);
+       imageIndex=int(result.images.size());result.images.push_back({image.width,image.height,std::move(image.image)});
+      }fallbackImages[key]=imageIndex;
+     }
+     original.image=fallbackImages[key];
+     for(int component=0;component<3;component++)original.color[component]=original.image>=0?1:style.color[component];
+     batch.material=int(result.materials.size());result.materials.push_back(original);
+    }
+
     for(size_t i=0;i<count;i++){size_t idx=indices?indices->index(i):i;Vec v=point(matrix,{positions.get(idx,0),positions.get(idx,1),positions.get(idx,2)}),n=normals?transformedNormal(matrix,{normals->get(idx,0),normals->get(idx,1),normals->get(idx,2)}):Vec{0,1,0};batch.vertices.push_back({v[0],v[1],v[2],n[0],n[1],n[2],uv?uv->get(idx,0):0,uv?uv->get(idx,1):0});}
     if(!normals)for(size_t i=0;i<count;i+=3){auto &a=batch.vertices[i],&b=batch.vertices[i+1],&c=batch.vertices[i+2];auto n=normal(cross({b.x-a.x,b.y-a.y,b.z-a.z},{c.x-a.x,c.y-a.y,c.z-a.z}));for(size_t k=i;k<i+3;k++){batch.vertices[k].nx=n[0];batch.vertices[k].ny=n[1];batch.vertices[k].nz=n[2];}}
     const double det=matrix[0]*(matrix[5]*matrix[10]-matrix[9]*matrix[6])-matrix[4]*(matrix[1]*matrix[10]-matrix[9]*matrix[2])+matrix[8]*(matrix[1]*matrix[6]-matrix[5]*matrix[2]);

@@ -1,4 +1,6 @@
 #include "Renderer.h"
+#include "ObjectMesh.h"
+#include "CityGraffiti.h"
 #include <game-activity/native_app_glue/android_native_app_glue.h>
 #include <jni.h>
 #include <android/log.h>
@@ -16,13 +18,18 @@
 namespace {
 std::mutex commandMutex;
 std::vector<int> commands;
+float lookDx=0,lookDy=0;
 // Retain transient controls and camera when Android recreates only the EGL surface.
 // Accessed exclusively by the native game thread, never the Java UI thread.
 std::optional<sandbox::World> retainedWorld;
-bool retainedBuilding = false,retainedFlying=false;
-std::atomic<int> loadStage{0},debugNotice{0};
+sandbox::HandTool retainedTool=sandbox::HandTool::HAND_EMPTY;
+bool retainedFlying=false;
+std::atomic<int> loadStage{0},debugNotice{0},loadPercent{0};
 std::atomic<float> verticalInput{0};
+std::atomic<float> stickRight{0},stickForward{0};
 std::atomic<bool> gameplayReady{false};
+std::atomic<int> currentTool{0},currentSelection{0},currentSurface{-1},interactionAction{0},freezeState{0};
+std::atomic<bool> holdingObject{false};
 std::mutex snapshotMutex;
 std::array<float,4> snapshot{0,1.7f,0,0};
 struct LoadGuard {bool complete=false;~LoadGuard(){if(!complete)loadStage=-1;}};
@@ -42,6 +49,7 @@ layout(location=1) in vec3 color;
 layout(location=2) in vec3 normal;
 layout(location=3) in vec2 uv;
 layout(location=4) in float material;
+uniform mat4 objectTransform;
 uniform vec3 eye;
 uniform vec2 angles;
 uniform float aspect;
@@ -51,13 +59,13 @@ out vec2 texUV;
 flat out int layer;
 out vec3 toEye;
 void main(){
- vec3 p=position-eye;
+ vec3 p=(objectTransform*vec4(position,1.0)).xyz-eye;
  float cy=cos(angles.x),sy=sin(angles.x),cp=cos(angles.y),sp=sin(angles.y);
  vec3 q=vec3(cy*p.x-sy*p.z,p.y,sy*p.x+cy*p.z);
  q=vec3(q.x,cp*q.y+sp*q.z,-sp*q.y+cp*q.z);
  float f=1.37638;
  gl_Position=vec4(q.x*f/aspect,q.y*f,-1.001334*q.z-.200134,-q.z);
- tint=color;worldNormal=normal;texUV=uv;layer=int(material+.5);toEye=p;
+ tint=color;worldNormal=mat3(objectTransform)*normal;texUV=uv;layer=int(material+.5);toEye=p;
 })";
 const char *fragment=R"(#version 300 es
 precision highp float;
@@ -72,11 +80,14 @@ in vec3 toEye;
 uniform sampler2DArray albedo;
 uniform bool texturesReady;
 uniform bool modelPass;
+uniform bool previewPass;
 uniform bool modelTextured;
 uniform sampler2D modelAlbedo;
 uniform vec4 baseColorFactor;
 uniform int alphaMode;
 uniform float alphaCutoff;
+uniform vec3 eye;
+uniform float modelRoughness;
 uniform vec3 lightDirection;
 uniform vec3 lightColor;
 uniform vec3 ambientColor;
@@ -84,6 +95,13 @@ out vec4 outColor;
 void main(){
  vec3 base=pow(tint,vec3(2.2));
  if(texturesReady)base*=texture(albedo,vec3(texUV,float(layer))).rgb;
+ if(!modelPass && layer!=4){
+  vec3 world=toEye+eye;
+  base*=.94+.035*sin(world.x*.21+world.z*.17)+.025*sin(world.y*.33-world.x*.13);
+ }
+ // Screen-door transparency writes depth only for the retained glass samples;
+ // no object-order-dependent blending or opaque blue pane.
+ if(!modelPass && layer==7 && mod(floor(gl_FragCoord.x)+floor(gl_FragCoord.y)*2.0,4.0)>0.0)discard;
  float alpha=1.0;
  if(modelPass){
   vec4 sampleColor=modelTextured?texture(modelAlbedo,texUV):vec4(1.0);
@@ -91,12 +109,18 @@ void main(){
   if(alphaMode==1&&alpha<alphaCutoff)discard;
   if(alphaMode!=2)alpha=1.0;
  }
+ if(previewPass){base=mix(base,base*vec3(.35,1.25,.55)+vec3(.01,.035,.015),.32);alpha*=.62;}
  vec3 n=normalize(worldNormal);
  if(modelPass&&!gl_FrontFacing)n=-n;
  float diffuse=max(dot(n,normalize(-lightDirection)),0.0);
  // Broad, cool ambient light keeps overcast facades readable without hard shadows.
  float sky=.78+.22*max(n.y,0.0);
  vec3 lit=base*(ambientColor*sky+lightColor*diffuse);
+ float roughness=modelPass?modelRoughness:(layer==7?.18:layer==3?.48:.94);
+ float strength=modelPass?.035:(layer==7?.28:layer==3?.12:.006);
+ vec3 halfVector=normalize(normalize(-lightDirection)-normalize(toEye));
+ float shine=pow(max(dot(n,halfVector),0.0),mix(90.0,8.0,roughness));
+ lit+=lightColor*shine*strength*diffuse;
  float d=max(length(toEye)-22.0,0.0);
  float fog=1.0-exp(-d*d*.00022);
  vec3 fogColor=pow(vec3(.56,.61,.63),vec3(2.2));
@@ -126,32 +150,29 @@ GLuint link(const char *vsText,const char *fsText){
 }
 using Vertex=sandbox::MeshVertex;
 void cube(std::vector<Vertex>&v,const sandbox::Box&b){sandbox::appendCube(v,b);}
-void object(std::vector<Vertex>&v,const sandbox::Object&o,bool preview=false,bool valid=false){
- auto body=sandbox::World::bounds(o);
- if(preview){body.r=valid?.25f:.9f;body.g=valid?.8f:.25f;body.b=.4f;body.material=sandbox::Plain;cube(v,body);return;}
- // Local-space furniture parts rotated by 90 degree increments.
- auto part=[&](float x,float y,float z,float w,float h,float d,float r,float g,float b){
-  for(int i=0;i<o.rotation;i++){float old=x;x=z;z=-old;std::swap(w,d);}
-  cube(v,{o.x+x,y,o.z+z,w,h,d,r,g,b,sandbox::Plain});
- };
- if(o.type==4||o.type==5){bool table=o.type==4;float w=table?1.8f:.6f,d=table?1.f:.65f,top=table?.82f:.46f;
-  part(0,top,0,w,.15f,d,.54f,.4f,.27f);
-  for(int a:{-1,1})for(int b:{-1,1})part(a*(w/2-.07f),top/2,b*(d/2-.07f),.1f,top,.1f,.43f,.31f,.2f);
-  if(!table)part(0,.79f,-.27f,w,.6f,.12f,.54f,.4f,.27f);
- }else if(o.type==2){
-  for(int side:{-1,1}){part(side*.96f,1.2f,0,.08f,2.4f,.22f,.68f,.69f,.63f);part(0,1.2f+side*1.16f,0,2,.08f,.22f,.68f,.69f,.63f);}part(0,1.2f,0,.06f,2.4f,.2f,.68f,.69f,.63f);part(0,1.2f,0,1.84f,2.24f,.05f,.29f,.44f,.5f);
- }else if(o.type==7){part(0,.32f,0,2.3f,.6f,.95f,.33f,.4f,.36f);part(0,.78f,-.38f,2.3f,.44f,.2f,.33f,.4f,.36f);for(int a:{-1,1})part(a*1.04f,.65f,0,.22f,.4f,.95f,.33f,.4f,.36f);
- }else cube(v,body);
-}
+
 }
 
-extern "C" JNIEXPORT void JNICALL Java_com_example_realms_MainActivity_nativeReady(JNIEnv*,jobject,jboolean ready){gameplayReady=ready;}
+extern "C" JNIEXPORT void JNICALL Java_com_example_realms_MainActivity_nativeReady(JNIEnv*,jobject,jboolean ready){gameplayReady=ready;if(!ready){stickRight=0;stickForward=0;verticalInput=0;}}
+extern "C" JNIEXPORT void JNICALL Java_com_example_realms_MainActivity_nativeLook(JNIEnv*,jobject,jfloat dx,jfloat dy){
+ if(!gameplayReady||!std::isfinite(dx)||!std::isfinite(dy))return;
+ std::lock_guard<std::mutex> lock(commandMutex);lookDx=std::clamp(lookDx+dx,-400.f,400.f);lookDy=std::clamp(lookDy+dy,-400.f,400.f);
+}
+extern "C" JNIEXPORT void JNICALL Java_com_example_realms_MainActivity_nativeMove(JNIEnv*,jobject,jfloat right,jfloat forward){
+ stickRight=gameplayReady&&std::isfinite(right)?std::clamp(right,-1.f,1.f):0;
+ stickForward=gameplayReady&&std::isfinite(forward)?std::clamp(forward,-1.f,1.f):0;
+}
 extern "C" JNIEXPORT void JNICALL Java_com_example_realms_MainActivity_nativeCommand(JNIEnv*,jobject,jint command){
  std::lock_guard<std::mutex> lock(commandMutex);if(commands.size()<64)commands.push_back(command);
 }
 
 extern "C" JNIEXPORT jfloatArray JNICALL Java_com_example_realms_MainActivity_nativeStatus(JNIEnv *env,jobject){
- std::array<float,6> values{};{std::lock_guard<std::mutex> lock(snapshotMutex);std::copy(snapshot.begin(),snapshot.end(),values.begin());}
+ std::array<float,13> values{};{std::lock_guard<std::mutex> lock(snapshotMutex);std::copy(snapshot.begin(),snapshot.end(),values.begin());}
+ values[12]=float(freezeState.load());
+ values[11]=float(interactionAction.load());
+ values[9]=float(currentSelection.load());values[10]=float(currentSurface.load());
+ values[8]=float(loadPercent.load());
+ values[6]=holdingObject?1.f:0.f;values[7]=float(currentTool.load());
  values[4]=float(loadStage.load());values[5]=float(debugNotice.load());
  auto result=env->NewFloatArray(values.size());if(result)env->SetFloatArrayRegion(result,0,values.size(),values.data());return result;
 }
@@ -160,10 +181,12 @@ extern "C" JNIEXPORT void JNICALL Java_com_example_realms_MainActivity_nativeVer
 }
 
 Renderer::Renderer(android_app *app):app_(app),last_(std::chrono::steady_clock::now()){
- loadStage=0;debugNotice=0;LoadGuard loadGuard;flying_=retainedWorld?retainedFlying:false;
+ loadStage=0;debugNotice=0;currentTool=0;holdingObject=false;LoadGuard loadGuard;flying_=retainedWorld?retainedFlying:false;
  savePath_=std::string(app->activity->internalDataPath)+"/sandbox-v1.txt";
  if(retainedWorld)world_=*retainedWorld;else world_.load(savePath_);
- building_=retainedBuilding;
+ currentSelection=world_.selected;currentSurface=world_.surface;
+ tools_.tool=retainedWorld?retainedTool:sandbox::HandTool::HAND_EMPTY;
+ building_=tools_.tool==sandbox::HandTool::SPAWN_GUN;currentTool=int(tools_.tool);
  display_=eglGetDisplay(EGL_DEFAULT_DISPLAY);
  if(display_==EGL_NO_DISPLAY||!eglInitialize(display_,nullptr,nullptr))return;
  const EGLint attributes[]={EGL_RENDERABLE_TYPE,EGL_OPENGL_ES3_BIT,EGL_SURFACE_TYPE,EGL_WINDOW_BIT,EGL_RED_SIZE,8,EGL_GREEN_SIZE,8,EGL_BLUE_SIZE,8,EGL_DEPTH_SIZE,24,EGL_NONE};
@@ -173,55 +196,25 @@ Renderer::Renderer(android_app *app):app_(app),last_(std::chrono::steady_clock::
  const EGLint contextAttributes[]={EGL_CONTEXT_CLIENT_VERSION,3,EGL_NONE};context_=eglCreateContext(display_,config,EGL_NO_CONTEXT,contextAttributes);
  if(surface_==EGL_NO_SURFACE||context_==EGL_NO_CONTEXT||!eglMakeCurrent(display_,surface_,surface_,context_))return;
  program_=link(vertex,fragment);skyProgram_=link(skyVertex,skyFragment);if(!program_)return;
- loadStage=1;
- texturesReady_=textures_.load(app_->activity->assetManager);
- loadStage=2;
- std::string cityLog;
- if(city_.load(app_->activity->assetManager,"models/abandoned_city_street_for_games.glb",cityLog)){
-  world_.scenery.clear();world_.walls=city_.scene().colliders;world_.wallSegments=city_.scene().wallSegments;
-  // Keep prototype saves separate: their coordinates refer to a different level.
-  savePath_=std::string(app->activity->internalDataPath)+"/city-glb-v1.txt";
-  if(!retainedWorld){world_.objects.clear();world_.load(savePath_);}
+ loadStage=1;loadPercent=2;
+ auto manager=app_->activity->assetManager;auto navigation=std::make_shared<sandbox::World>(world_);
+ assetsJob_=std::async(std::launch::async,[manager,navigation](){
+  PreparedAssets result;result.textures=TextureLoader::prepare(manager);loadPercent=12;loadStage=2;
+  result.valid=city::GltfRenderer::prepare(manager,"models/abandoned_city_street_for_games.glb",result.city,result.log);loadPercent=58;
+  if(!result.valid)return result;
   loadStage=3;
-  // Select an open main-road anchor before parking the vehicle.
+  navigation->walls=result.city.colliders;navigation->wallSegments=result.city.wallSegments;
   city::SpawnPoint anchor;
-  if(city::findRoadSpawn(world_,city_.scene().minimum,city_.scene().maximum,-3.4f,32.7f,anchor)){
-   float parkingX=0,parkingZ=0;
-   // Keep the car six metres away from the new spawn, even on a cold start.
-   float oldX=world_.x,oldZ=world_.z;world_.x=anchor.x;world_.z=anchor.z;
-   bool parking=city::findCarParking(world_,city_.scene().minimum,city_.scene().maximum,anchor.x+3,anchor.z-9,parkingX,parkingZ);
-   world_.x=oldX;world_.z=oldZ;
-   if(parking){
-    std::string carLog;city::LoadOptions carOptions;carOptions.level=false;carOptions.targetExtent=4.3f;
-    float ground=city_.scene().collision->groundHeight(parkingX,parkingZ,2,-10);
-    if(std::isfinite(ground)){
-     // Sample the upright car footprint, excluding overhead roofs.
-     float support=ground;
-     for(float dx:{-1.8f,1.8f})for(float dz:{-.7f,.7f}){
-      float h=city_.scene().collision->groundHeight(parkingX+dx,parkingZ+dz,ground+.7f,ground-2);
-      if(std::isfinite(h))support=std::max(support,h);
-     }
-     carOptions.y=support;
-    }
-    carOptions.x=parkingX;carOptions.z=parkingZ;carOptions.yaw=1.57079632679f;
-    if(car_.load(app_->activity->assetManager,"models/crushed_sports_car.glb",carLog,carOptions)){
-     // Decoration-only collision policy: the car remains visible but does not block walking.
-    }
-    __android_log_print(car_.ready()?ANDROID_LOG_INFO:ANDROID_LOG_ERROR,"Ekron","Car at %.2f %.2f: %s",parkingX,parkingZ,carLog.c_str());
+  if(city::findRoadSpawn(*navigation,result.city.minimum,result.city.maximum,-3.4f,32.7f,anchor)){
+   navigation->x=anchor.x;navigation->z=anchor.z;
+   if(city::findCarParking(*navigation,result.city.minimum,result.city.maximum,anchor.x+3,anchor.z-9,result.parkingX,result.parkingZ)){
+    float ground=result.city.collision->groundHeight(result.parkingX,result.parkingZ,2,-10);result.parkingY=std::isfinite(ground)?ground:0;
+    city::LoadOptions options;options.level=false;options.buildPhysics=false;options.targetExtent=4.025f;options.yaw=1.57079632679f;
+    result.carValid=city::GltfRenderer::prepare(manager,"models/uaz_469_1973_classic.glb",result.car,result.log,options);
    }
   }
-  loadStage=4;
-  // Final startup validation includes the city, car AND saved player-built objects.
-  const auto config=readSpawnConfig(app_);
-  if(!retainedWorld&&config.enabled){
-   world_.x=config.x;world_.z=config.z;world_.yaw=config.yawDegrees*.01745329252f;world_.pitch=0;
-   world_.y=config.y;flying_=config.startFlying;
-  }
-  player_.reset(world_.x,world_.y,world_.z);
-  rebuildBuiltCollision();
-  __android_log_print(ANDROID_LOG_INFO,"Ekron","Spawn XYZ %.3f %.3f %.3f flight=%d",world_.x,world_.y,world_.z,flying_);
- }
- __android_log_print(city_.ready()?ANDROID_LOG_INFO:ANDROID_LOG_ERROR,"Ekron","%s",cityLog.c_str());
+  loadPercent=80;return result;
+ });
  glGenVertexArrays(1,&vao_);glGenBuffers(1,&buffer_);glBindVertexArray(vao_);glBindBuffer(GL_ARRAY_BUFFER,buffer_);
  glEnableVertexAttribArray(0);glVertexAttribPointer(0,3,GL_FLOAT,GL_FALSE,sizeof(Vertex),reinterpret_cast<void*>(offsetof(Vertex,x)));
  glEnableVertexAttribArray(1);glVertexAttribPointer(1,3,GL_FLOAT,GL_FALSE,sizeof(Vertex),reinterpret_cast<void*>(offsetof(Vertex,r)));
@@ -229,17 +222,55 @@ Renderer::Renderer(android_app *app):app_(app),last_(std::chrono::steady_clock::
  glEnableVertexAttribArray(3);glVertexAttribPointer(3,2,GL_FLOAT,GL_FALSE,sizeof(Vertex),reinterpret_cast<void*>(offsetof(Vertex,u)));
  glEnableVertexAttribArray(4);glVertexAttribPointer(4,1,GL_FLOAT,GL_FALSE,sizeof(Vertex),reinterpret_cast<void*>(offsetof(Vertex,layer)));
  glEnable(GL_DEPTH_TEST);eglSwapInterval(display_,1);
- loadStage=5;loadGuard.complete=true;
+ loadGuard.complete=true;
+}
+void Renderer::advanceLoading(){
+ if(!assetsInstalled_){
+  if(!assetsJob_.valid()||assetsJob_.wait_for(std::chrono::seconds(0))!=std::future_status::ready)return;
+  PreparedAssets data;
+  try{data=assetsJob_.get();}catch(const std::exception&e){__android_log_print(ANDROID_LOG_ERROR,"Ekron","Loading: %s",e.what());loadStage=-1;return;}
+  if(!data.valid){loadStage=-1;return;}
+  texturesReady_=textures_.upload(data.textures);
+  city_.beginUpload(std::move(data.city));
+  if(data.carValid)car_.beginUpload(std::move(data.car));
+  world_.scenery.clear();world_.walls=city_.scene().colliders;world_.wallSegments=city_.scene().wallSegments;
+  savePath_=std::string(app_->activity->internalDataPath)+"/city-glb-v1.txt";
+  bool restoredWorld=retainedWorld.has_value();
+  if(!retainedWorld){world_.objects.clear();restoredWorld=world_.load(savePath_);}
+  carParking_={8,0,data.parkingX,data.parkingZ};carParking_.y=data.parkingY;carParkingValid_=data.carValid;
+  bool exists=std::any_of(world_.objects.begin(),world_.objects.end(),[](const sandbox::Object&o){return o.type==8;});
+  if(data.carValid&&!restoredWorld&&!exists&&world_.objects.size()<sandbox::World::limit){sandbox::Object car{8,0,data.parkingX,data.parkingZ};car.y=data.parkingY;world_.objects.push_back(car);}
+  const auto config=readSpawnConfig(app_);
+  if(!retainedWorld&&config.enabled){world_.x=config.x;world_.y=config.y;world_.z=config.z;world_.yaw=config.yawDegrees*.01745329252f;world_.pitch=0;flying_=config.startFlying;}
+  player_.setBoundary(city_.scene().minimum[0],city_.scene().maximum[0],city_.scene().minimum[2],city_.scene().maximum[2]);
+  player_.reset(world_.x,world_.y,world_.z);rebuildBuiltCollision();assetsInstalled_=true;loadStage=4;
+ }
+ std::string log;
+ auto start=std::chrono::steady_clock::now();
+ for(int i=0;i<8;i++){
+  if(city_.uploading())city_.uploadStep(log);
+  if(car_.uploading())car_.uploadStep(log);
+  if(std::chrono::steady_clock::now()-start>std::chrono::milliseconds(4))break;
+ }
+ if(!log.empty())__android_log_print(ANDROID_LOG_WARN,"Ekron","%s",log.c_str());
+ loadPercent=80+int(19*(city_.uploadProgress()+car_.uploadProgress())*.5f);
+ if(!city_.uploading()&&!car_.uploading()){
+  if(!city_.ready()){loadStage=-1;return;}
+  loadPercent=99;loadStage=5;
+ }
 }
 Renderer::~Renderer(){
+ if(seatedCar_>=0){world_.objects[seatedCar_].anchored=carWasAnchored_;world_.x=seatFrom_.x;world_.y=seatFrom_.y;world_.z=seatFrom_.z;seatedCar_=-1;}
+ if(assetsJob_.valid())assetsJob_.wait();
+ tools_.cancel(world_);
  if(saveJob_.valid())saveJob_.get();
  if(saveDirty_)world_.save(savePath_);
- retainedWorld=world_;retainedBuilding=building_;retainedFlying=flying_;
+ if(assetsInstalled_){retainedWorld=world_;retainedTool=tools_.tool;retainedFlying=flying_;}
  if(display_!=EGL_NO_DISPLAY){if(context_!=EGL_NO_CONTEXT&&surface_!=EGL_NO_SURFACE&&eglMakeCurrent(display_,surface_,surface_,context_)){car_.release();city_.release();textures_.release();if(skyProgram_)glDeleteProgram(skyProgram_);if(buffer_)glDeleteBuffers(1,&buffer_);if(vao_)glDeleteVertexArrays(1,&vao_);if(program_)glDeleteProgram(program_);}eglMakeCurrent(display_,EGL_NO_SURFACE,EGL_NO_SURFACE,EGL_NO_CONTEXT);if(context_!=EGL_NO_CONTEXT)eglDestroyContext(display_,context_);if(surface_!=EGL_NO_SURFACE)eglDestroySurface(display_,surface_);eglTerminate(display_);}
 }
 void Renderer::resetInput(){verticalInput=0;leftId_=rightId_=-1;moveX_=moveY_=0;last_=std::chrono::steady_clock::now();}
 void Renderer::handleInput(){
- std::vector<int> pending;{std::lock_guard<std::mutex> lock(commandMutex);pending.swap(commands);}
+ std::vector<int> pending;{std::lock_guard<std::mutex> lock(commandMutex);pending.swap(commands);if(gameplayReady){world_.yaw-=lookDx*.004f;world_.pitch=std::clamp(world_.pitch-lookDy*.004f,-1.3f,1.3f);}lookDx=lookDy=0;}
  if(!gameplayReady){pending.clear();resetInput();}
  if(roadJob_.valid()&&roadJob_.wait_for(std::chrono::seconds(0))==std::future_status::ready){
   auto point=roadJob_.get();if(point){world_.x=(*point)[0];world_.z=(*point)[1];
@@ -247,54 +278,135 @@ void Renderer::handleInput(){
    world_.y=std::isfinite(ground)?ground+1.7f:1.7f;world_.yaw=world_.pitch=0;flying_=false;player_.reset(world_.x,world_.y,world_.z);resetInput();}
  }
  for(int command:pending){bool changed=false;
-  if(command==0)building_=!building_;
-  else if(command==1)world_.selected=(world_.selected+1)%8;
-  else if(command==2)world_.rotation=(world_.rotation+1)%4;
-  else if(command==3&&building_)changed=world_.place();
-  else if(command==4)changed=world_.remove();
+  if(command==36&&city_.ready()){
+   if(seatedCar_>=0){
+    auto exit=sandbox::carExit(world_,seatedCar_,*city_.scene().collision,builtCollision_,city_.scene().minimum,city_.scene().maximum);
+    if(exit){auto&o=world_.objects[seatedCar_];o.anchored=carWasAnchored_;world_.x=exit->x;world_.y=exit->y;world_.z=exit->z;seatedCar_=-1;player_.reset(world_.x,world_.y,world_.z);resetInput();}else debugNotice=5;
+   }else if(!tools_.holding()){
+    int target=sandbox::interactionTarget(world_,*city_.scene().collision);
+    if(target>=0){auto&o=world_.objects[target];if(o.type==3)o.doorTarget=o.doorTarget>.5f?0:1.57079633f;
+     else{tools_.cancel(world_);seatedCar_=target;seatFrom_={world_.x,world_.y,world_.z};seatTime_=0;carWasAnchored_=o.anchored;o.anchored=true;o.vx=o.vy=o.vz=0;flying_=false;world_.yaw=o.rotation*1.57079633f+(o.type==7?3.14159265f:-1.57079633f);world_.pitch=0;resetInput();}}
+   }
+   continue;
+  }
+  if(seatedCar_>=0)continue;
+
+  if(command>=20&&command<=23){tools_.select(world_,static_cast<sandbox::HandTool>(command-20));building_=tools_.tool==sandbox::HandTool::SPAWN_GUN;rebuildBuiltCollision();}
+  else if(command==34&&carParkingValid_){
+   tools_.cancel(world_);
+   auto parkingWorld=world_;auto previous=std::find_if(parkingWorld.objects.begin(),parkingWorld.objects.end(),[](const sandbox::Object&o){return o.type==8;});
+   if(previous!=parkingWorld.objects.end())parkingWorld.objects.erase(previous);
+   auto restored=sandbox::carRespawn(parkingWorld,carParking_,*city_.scene().collision,city_.scene().minimum,city_.scene().maximum);
+   if(restored){
+    bool exists=std::any_of(world_.objects.begin(),world_.objects.end(),[](const sandbox::Object&o){return o.type==8;});
+    if(exists||world_.objects.size()<sandbox::World::limit){auto first=std::find_if(world_.objects.begin(),world_.objects.end(),[](const sandbox::Object&o){return o.type==8;});if(first!=world_.objects.end())*first=*restored;else world_.objects.push_back(*restored);changed=true;debugNotice=0;}else debugNotice=3;
+   }else debugNotice=3;
+   rebuildBuiltCollision();
+  }
+  else if(command==35)respawnPlayer();
+  else if(command>=100&&command<=112&&building_){world_.selected=command-100;world_.surface=sandbox::World::fixedSurface(world_.selected);}
+  else if(command==31&&tools_.tool==sandbox::HandTool::SPAWN_GUN)world_.rotation=(world_.rotation+3)%4;
+  else if(command==32&&tools_.tool==sandbox::HandTool::GRAVITY_GUN){
+   if(tools_.holding())changed=tools_.release(world_);
+   else tools_.grab(world_,city_.scene().collision.get());
+   rebuildBuiltCollision();
+  }
+  else if(command==38&&tools_.tool==sandbox::HandTool::GRAVITY_GUN){changed=tools_.freeze(world_,city_.scene().collision.get());}
+  else if(command==33&&tools_.tool==sandbox::HandTool::GRAVITY_GUN)tools_.rotate(world_);
+  else if(command==1&&building_)world_.selected=(world_.selected+1)%8;
+  else if(command==2&&building_)world_.rotation=(world_.rotation+1)%4;
+  else if((command==3||(command>=200&&command<=212))&&building_&&city_.ready()){
+   if(command>=200){world_.selected=command-200;world_.surface=sandbox::World::fixedSurface(world_.selected);}
+   auto point=sandbox::RaycastPlacement::commitPreview(world_,placementPreview_,*city_.scene().collision,builtCollision_,city_.scene().minimum,city_.scene().maximum);
+   if(point&&(point->type!=8||car_.ready())){world_.objects.push_back(*point);placementPreview_.reset();changed=true;}
+  }
+  else if(command==4&&tools_.tool==sandbox::HandTool::SPAWN_GUN)changed=world_.remove();
   else if(command==6){flying_=!flying_;verticalInput=0;player_.reset(world_.x,world_.y,world_.z);}
   else if(command==8)player_.jump();
-  else if(command==9)crouched_=!crouched_;
+  else if(command==9){crouched_=!crouched_;prone_=false;}
+  else if(command==10){prone_=!prone_;crouched_=false;}
   else if(command==7&&!roadJob_.valid()&&city_.ready()){
    // Copy immutable navigation data once. BFS and allocations run only on the worker.
    auto navigation=std::make_shared<sandbox::World>();navigation->walls=world_.walls;navigation->wallSegments=world_.wallSegments;navigation->objects=world_.objects;
    auto lo=city_.scene().minimum,hi=city_.scene().maximum;
    roadJob_=std::async(std::launch::async,[navigation,lo,hi]()->std::optional<std::array<float,2>>{city::SpawnPoint p;if(city::findRoadSpawn(*navigation,lo,hi,-3.4f,32.7f,p))return std::array<float,2>{p.x,p.z};return {};});
   }
-  if(changed){saveDirty_=true;rebuildBuiltCollision();}
+  if(changed){for(auto&o:world_.objects)if(!o.anchored)o.awake=true;saveDirty_=true;rebuildBuiltCollision();}
  }
+ currentTool=int(tools_.tool);holdingObject=tools_.holding();currentSelection=world_.selected;currentSurface=world_.surface;
  if(saveJob_.valid()&&saveJob_.wait_for(std::chrono::seconds(0))==std::future_status::ready){if(!saveJob_.get())__android_log_print(ANDROID_LOG_ERROR,"Ekron","Save failed");}
  if(saveDirty_&&!saveJob_.valid()){
-  sandbox::World saved;saved.objects=world_.objects;auto path=savePath_;
+  sandbox::World saved;saved.objects=world_.objects;if(seatedCar_>=0)saved.objects[seatedCar_].anchored=carWasAnchored_;if(tools_.holding())saved.objects[tools_.held]=tools_.original;auto path=savePath_;
   saveJob_=std::async(std::launch::async,[saved=std::move(saved),path](){return saved.save(path);});saveDirty_=false;
  }
  auto *buffer=android_app_swap_input_buffers(app_);if(!buffer)return;
- for(uint64_t i=0;gameplayReady&&i<buffer->motionEventsCount;i++){
-  const auto &event=buffer->motionEvents[i];const int action=event.action&AMOTION_EVENT_ACTION_MASK;
-  const int selected=(event.action&AMOTION_EVENT_ACTION_POINTER_INDEX_MASK)>>AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT;
-  if(action==AMOTION_EVENT_ACTION_CANCEL){resetInput();continue;}
-  if(action==AMOTION_EVENT_ACTION_DOWN||action==AMOTION_EVENT_ACTION_POINTER_DOWN){
-   if(selected<0||selected>=event.pointerCount)continue;const auto &p=event.pointers[selected];float x=GameActivityPointerAxes_getX(&p),y=GameActivityPointerAxes_getY(&p);
-   if(x<width_*.42f&&leftId_<0){leftId_=p.id;originX_=x;originY_=y;}else if(rightId_<0){rightId_=p.id;rightX_=x;rightY_=y;}
-  }else if(action==AMOTION_EVENT_ACTION_UP||action==AMOTION_EVENT_ACTION_POINTER_UP){
-   if(selected<0||selected>=event.pointerCount)continue;int id=event.pointers[selected].id;if(id==leftId_){leftId_=-1;moveX_=moveY_=0;}if(id==rightId_)rightId_=-1;
-  }else if(action==AMOTION_EVENT_ACTION_MOVE){for(uint32_t p=0;p<event.pointerCount;p++){
-   const auto &pointer=event.pointers[p];float x=GameActivityPointerAxes_getX(&pointer),y=GameActivityPointerAxes_getY(&pointer);
-   if(pointer.id==leftId_){float radius=std::max(40.f,height_*.14f);moveX_=(x-originX_)/radius;moveY_=(originY_-y)/radius;const float length=std::max(1.f,std::hypot(moveX_,moveY_));moveX_/=length;moveY_/=length;}
-   if(pointer.id==rightId_){world_.yaw-=(x-rightX_)*.004f;world_.pitch=std::clamp(world_.pitch-(y-rightY_)*.004f,-1.3f,1.3f);rightX_=x;rightY_=y;}
-  }}
- }
+ // Both movement and look are handled by sibling Android views with split pointer IDs.
+ // Drain the old GameActivity motion stream: processing it too would rotate twice.
  android_app_clear_motion_events(buffer);android_app_clear_key_events(buffer);
 }
 void Renderer::render(){
  if(!program_||surface_==EGL_NO_SURFACE)return;
+ if(loadStage>=0&&loadStage<5)advanceLoading();
  eglQuerySurface(display_,surface_,EGL_WIDTH,&width_);eglQuerySurface(display_,surface_,EGL_HEIGHT,&height_);if(width_<1||height_<1)return;
- const auto now=std::chrono::steady_clock::now();float dt=std::clamp(std::chrono::duration<float>(now-last_).count(),0.f,.05f);last_=now;if(gameplayReady){if(flying_)city::fly(world_,moveX_,moveY_,verticalInput.load(),dt);
- else if(city_.ready())player_.update(*city_.scene().collision,moveX_,moveY_,world_.yaw,dt,crouched_,world_.x,world_.y,world_.z,&builtCollision_);
- else world_.move(moveX_,moveY_,dt);}
+ const auto now=std::chrono::steady_clock::now();float dt=std::clamp(std::chrono::duration<float>(now-last_).count(),0.f,.05f);last_=now;
+ if(gameplayReady&&city_.ready()){
+  size_t objectCountBefore=world_.objects.size();
+  bool moving=dynamics_.update(world_,*city_.scene().collision,dt,tools_.held,city_.scene().minimum,city_.scene().maximum,&tools_.held,&seatedCar_);
+  if(world_.objects.size()!=objectCountBefore)saveDirty_=true;
+  if(moving){rebuildBuiltCollision();motionSaveTime_+=dt;if(motionSaveTime_>.75f){saveDirty_=true;motionSaveTime_=0;}}
+  else if(motionSaveTime_>0){saveDirty_=true;motionSaveTime_=0;}
+ }
+ if(gameplayReady){
+  bool doorsMoved=false;
+  for(auto&o:world_.objects)if(o.type==3&&!o.frozen&&std::abs(o.doorAngle-o.doorTarget)>.0001f){
+   float old=o.doorAngle;o.doorAngle+=std::clamp(o.doorTarget-o.doorAngle,-dt*2.2f,dt*2.2f);
+   physics::CollisionMesh sweep;sandbox::addObjectCollision(sweep,o);sweep.build();
+   if(player_.overlaps(sweep,world_.x,world_.y,world_.z)){o.doorAngle=old;o.doorTarget=old;}else doorsMoved=true;
+  }
+  if(doorsMoved)rebuildBuiltCollision();
+  if(seatedCar_>=0){auto seat=sandbox::driverSeat(world_.objects[seatedCar_]);seatTime_=std::min(1.f,seatTime_+dt/.65f);float t=seatTime_*seatTime_*(3-2*seatTime_);auto p=seatFrom_+(seat-seatFrom_)*t;world_.x=p.x;world_.y=p.y;world_.z=p.z;}
+ }
+ if(gameplayReady&&seatedCar_<0){if(flying_)city::fly(world_,stickRight.load(),stickForward.load(),verticalInput.load(),dt);
+ else if(city_.ready())player_.update(*city_.scene().collision,stickRight.load(),stickForward.load(),world_.yaw,dt,crouched_,world_.x,world_.y,world_.z,&builtCollision_,prone_,city_.scene().fenceBarriers.get());
+ else world_.move(stickRight.load(),stickForward.load(),dt);}
+ if(city_.ready()){
+  if(seatedCar_<0&&!flying_&&sandbox::needsPlayerRecovery(world_,city_.scene().minimum,city_.scene().maximum))respawnPlayer();
+  const auto &lo=city_.scene().minimum,&hi=city_.scene().maximum;
+  world_.x=std::clamp(world_.x,lo[0]+.25f,hi[0]-.25f);world_.z=std::clamp(world_.z,lo[2]+.25f,hi[2]-.25f);
+ }
+ interactionAction=0;
+ if(seatedCar_>=0)interactionAction=4;
+ else if(city_.ready()&&!tools_.holding()){int target=sandbox::interactionTarget(world_,*city_.scene().collision);if(target>=0){const auto&o=world_.objects[target];interactionAction=(o.type==8||o.type==7)?3:o.doorTarget>.5f?2:1;}}
+ if(gameplayReady)tools_.pull(world_,dt,city_.scene().collision.get());
  std::vector<Vertex> vertices;vertices.reserve((world_.scenery.size()+world_.objects.size()*10+1)*36);
- for(const auto &b:world_.scenery)cube(vertices,b);for(const auto&o:world_.objects)object(vertices,o);
- if(building_){const auto p=world_.preview();object(vertices,p,true,world_.objects.size()<sandbox::World::limit&&world_.canPlace(p));}
+ if(city_.ready())sandbox::appendCityGraffiti(vertices,*city_.scene().collision);
+ for(const auto &b:world_.scenery)cube(vertices,b);for(size_t i=0;i<world_.objects.size();i++){
+  if(world_.objects[i].type==8)continue;
+  size_t objectBegin=vertices.size();
+  if(int(i)==tools_.held){auto visual=world_.objects[i];visual.x=tools_.display.x;visual.z=tools_.display.z;size_t begin=vertices.size();sandbox::appendObject(vertices,visual);float dy=tools_.display.y-sandbox::World::bounds(visual).y;for(size_t j=begin;j<vertices.size();j++)vertices[j].y+=dy;}
+  else sandbox::appendObject(vertices,world_.objects[i]);
+  sandbox::animateDoorMesh(world_.objects[i],vertices,objectBegin);
+  if(int(i)!=tools_.held){const auto&o=world_.objects[i];auto b=sandbox::World::bounds(o);
+   float tiltX=o.tiltX,tiltZ=o.tiltZ;
+   float cx=std::cos(tiltX),sx=std::sin(tiltX),cz=std::cos(tiltZ),sz=std::sin(tiltZ);
+   for(size_t j=objectBegin;j<vertices.size();j++){auto &v=vertices[j];float x=v.x-b.x,y=v.y-b.y,z=v.z-b.z;float py=cx*y-sx*z,pz=sx*y+cx*z;v.x=b.x+cz*x-sz*py;v.y=b.y+sz*x+cz*py;v.z=b.z+pz;
+    float ny=cx*v.ny-sx*v.nz,nz=sx*v.ny+cx*v.nz;float nx=cz*v.nx-sz*ny;v.ny=sz*v.nx+cz*ny;v.nx=nx;v.nz=nz;}
+  }
+ }
+ int highlight=tools_.holding()?tools_.held:tools_.target(world_,city_.scene().collision.get());
+ freezeState=highlight>=0&&world_.objects[highlight].frozen?1:0;
+ if(highlight>=0){auto box=sandbox::World::bounds(world_.objects[highlight]);if(highlight==tools_.held){box.x=tools_.display.x;box.y=tools_.display.y;box.z=tools_.display.z;}
+  for(int a:{-1,1})for(int b:{-1,1}){
+   cube(vertices,{box.x,box.y+a*box.h/2,box.z+b*box.d/2,box.w+.04f,.025f,.025f,.15f,1,.3f,sandbox::Plain});
+   cube(vertices,{box.x+a*box.w/2,box.y,box.z+b*box.d/2,.025f,box.h+.04f,.025f,.15f,1,.3f,sandbox::Plain});
+   cube(vertices,{box.x+a*box.w/2,box.y+b*box.h/2,box.z,.025f,.025f,box.d+.04f,.15f,1,.3f,sandbox::Plain});
+  }
+ }
+ placementPreview_.reset();
+ if(building_&&seatedCar_<0&&city_.ready()){
+  placementPreview_=sandbox::RaycastPlacement::preview(world_,*city_.scene().collision,builtCollision_,city_.scene().minimum,city_.scene().maximum);
+  if(placementPreview_&&placementPreview_->type==8&&!car_.ready())placementPreview_.reset();
+ }
  glViewport(0,0,width_,height_);glClearColor(.56f,.61f,.63f,1);glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
  glBindVertexArray(vao_);
  if(skyProgram_){glDisable(GL_DEPTH_TEST);glDepthMask(GL_FALSE);glUseProgram(skyProgram_);
@@ -302,7 +414,11 @@ void Renderer::render(){
   glUniform2f(glGetUniformLocation(skyProgram_,"angles"),world_.yaw,world_.pitch);
   glDrawArrays(GL_TRIANGLES,0,3);glDepthMask(GL_TRUE);glEnable(GL_DEPTH_TEST);
  }
- glUseProgram(program_);textures_.bind();glUniform1i(glGetUniformLocation(program_,"albedo"),0);
+ glUseProgram(program_);
+ glUniform1i(glGetUniformLocation(program_,"previewPass"),0);
+ const float identity[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
+ glUniformMatrix4fv(glGetUniformLocation(program_,"objectTransform"),1,GL_FALSE,identity);
+ textures_.bind();glUniform1i(glGetUniformLocation(program_,"albedo"),0);
  glUniform1i(glGetUniformLocation(program_,"texturesReady"),texturesReady_?1:0);
  glUniform1i(glGetUniformLocation(program_,"modelPass"),0);
  glUniform1i(glGetUniformLocation(program_,"modelAlbedo"),1);
@@ -312,15 +428,46 @@ void Renderer::render(){
  glUniform3f(glGetUniformLocation(program_,"eye"),world_.x,world_.y,world_.z);glUniform2f(glGetUniformLocation(program_,"angles"),world_.yaw,world_.pitch);glUniform1f(glGetUniformLocation(program_,"aspect"),float(width_)/height_);
  glBindVertexArray(vao_);glBindBuffer(GL_ARRAY_BUFFER,buffer_);glBufferData(GL_ARRAY_BUFFER,vertices.size()*sizeof(Vertex),vertices.data(),GL_STREAM_DRAW);glDrawArrays(GL_TRIANGLES,0,static_cast<GLsizei>(vertices.size()));
  city_.draw(program_,world_.x,world_.z);
- car_.draw(program_,world_.x,world_.z);
+ auto drawCar=[&](const sandbox::Object&o,bool held,bool hologram){auto b=sandbox::World::bounds(o);physics::Vec3 target{b.x,b.y,b.z};if(held)target=tools_.display;
+  const auto &lo=car_.scene().minimum,&hi=car_.scene().maximum;physics::Vec3 source{(lo[0]+hi[0])/2,(lo[1]+hi[1])/2,(lo[2]+hi[2])/2};
+  float ax=o.tiltX,az=o.tiltZ,ay=o.rotation*1.57079632679f;
+  auto rotate=[&](physics::Vec3 p){float x=std::cos(ay)*p.x+std::sin(ay)*p.z,z=-std::sin(ay)*p.x+std::cos(ay)*p.z;float y=std::cos(ax)*p.y-std::sin(ax)*z;z=std::sin(ax)*p.y+std::cos(ax)*z;return physics::Vec3{std::cos(az)*x-std::sin(az)*y,std::sin(az)*x+std::cos(az)*y,z};};
+  auto x=rotate({1,0,0}),y=rotate({0,1,0}),z=rotate({0,0,1}),t=target-rotate(source);
+  float matrix[16]={x.x,x.y,x.z,0,y.x,y.y,y.z,0,z.x,z.y,z.z,0,t.x,t.y,t.z,1};
+  glUniformMatrix4fv(glGetUniformLocation(program_,"objectTransform"),1,GL_FALSE,matrix);car_.draw(program_,world_.x,world_.z,hologram);
+ };
+ for(size_t i=0;i<world_.objects.size();i++)if(world_.objects[i].type==8)drawCar(world_.objects[i],int(i)==tools_.held,false);
+
+ glUniformMatrix4fv(glGetUniformLocation(program_,"objectTransform"),1,GL_FALSE,identity);
+ if(placementPreview_){
+  glUniform1i(glGetUniformLocation(program_,"previewPass"),1);
+  if(placementPreview_->type==8)drawCar(*placementPreview_,false,true);
+  else{
+   std::vector<Vertex> ghost;sandbox::appendObject(ghost,*placementPreview_,true,true);
+   glUniform1i(glGetUniformLocation(program_,"modelPass"),0);textures_.bind();
+   glEnable(GL_BLEND);glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);glDepthMask(GL_TRUE);
+   glBindVertexArray(vao_);glBindBuffer(GL_ARRAY_BUFFER,buffer_);glBufferData(GL_ARRAY_BUFFER,ghost.size()*sizeof(Vertex),ghost.data(),GL_STREAM_DRAW);glDrawArrays(GL_TRIANGLES,0,static_cast<GLsizei>(ghost.size()));
+  }
+  glDisable(GL_BLEND);glDepthMask(GL_TRUE);glUniform1i(glGetUniformLocation(program_,"previewPass"),0);
+  glUniformMatrix4fv(glGetUniformLocation(program_,"objectTransform"),1,GL_FALSE,identity);
+ }
  if(eglSwapBuffers(display_,surface_)==EGL_TRUE){
   {std::lock_guard<std::mutex> lock(snapshotMutex);snapshot={world_.x,world_.y,world_.z,flying_?1.f:0.f};}
-  loadStage=6;
+  if(loadStage==5){loadStage=6;loadPercent=100;}
  }else loadStage=-1;
 }
 
 void Renderer::rebuildBuiltCollision(){
  builtCollision_=physics::CollisionMesh{};
- for(const auto&o:world_.objects){auto b=sandbox::World::bounds(o);builtCollision_.addBox({b.x-b.w/2,b.y-b.h/2,b.z-b.d/2},{b.x+b.w/2,b.y+b.h/2,b.z+b.d/2});}
+ for(size_t i=0;i<world_.objects.size();i++){if(int(i)==tools_.held||world_.objects[i].frozen)continue;const auto&o=world_.objects[i];sandbox::addObjectCollision(builtCollision_,o);}
  builtCollision_.build();
+}
+
+void Renderer::respawnPlayer(){
+ if(!city_.scene().collision)return;
+ tools_.cancel(world_);rebuildBuiltCollision();
+ auto point=sandbox::recoveryPoint(world_,*city_.scene().collision,builtCollision_);
+ if(!point){debugNotice=2;return;}
+ world_.x=point->x;world_.y=point->y;world_.z=point->z;world_.yaw=world_.pitch=0;flying_=false;
+ player_.reset(world_.x,world_.y,world_.z);stickRight=stickForward=verticalInput=0;resetInput();debugNotice=4;
 }
