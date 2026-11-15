@@ -3,6 +3,9 @@
 #include <GLES3/gl3.h>
 #include <chrono>
 #include "SandboxWorld.h"
+#include "PlayerPhysics.h"
+#include <future>
+#include <optional>
 #include "TextureLoader.h"
 #include "GltfRenderer.h"
 struct android_app;
@@ -28,6 +31,13 @@ private:
     bool building_=false;
     bool flying_=false;
     sandbox::World world_;
+    physics::PlayerController player_;
+    bool crouched_=false;
+    std::future<bool> saveJob_;
+    bool saveDirty_=false;
+    std::future<std::optional<std::array<float,2>>> roadJob_;
+    physics::CollisionMesh builtCollision_;
+    void rebuildBuiltCollision();
     std::string savePath_;
     std::chrono::steady_clock::time_point last_;
 };

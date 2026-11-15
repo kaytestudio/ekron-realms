@@ -7,12 +7,13 @@ android {
     namespace = "com.example.realms"
     compileSdk = 34
 
+    androidResources { noCompress += "mp4" }
     defaultConfig {
         applicationId = "com.example.realms"
         minSdk = 30
         targetSdk = 34
-        versionCode = 7
-        versionName = "0.7-walkable-city"
+        versionCode = 8
+        versionName = "0.8-geometry-physics"
         externalNativeBuild {
             cmake { cppFlags += "-std=c++17" }
         }

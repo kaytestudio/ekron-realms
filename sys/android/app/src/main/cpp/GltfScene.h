@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 #include "SandboxWorld.h"
+#include "CollisionMesh.h"
+#include <memory>
 
 namespace city {
 using ReadFile=std::function<bool(const std::string&,std::vector<unsigned char>&)>;
@@ -20,7 +22,7 @@ struct Batch { std::vector<Vertex> vertices;int material=-1; };
 struct LoadOptions {
     bool level=true;
     float targetExtent=80.f;
-    float x=0,z=0,yaw=0;
+    float x=0,y=0,z=0,yaw=0;
 };
 struct Scene {
     std::vector<Image> images;
@@ -28,6 +30,7 @@ struct Scene {
     std::vector<Batch> batches;
     std::vector<sandbox::Box> colliders;
     std::vector<sandbox::WallSegment> wallSegments;
+    std::shared_ptr<const physics::CollisionMesh> collision;
     float spawnX=0,spawnZ=0;
     std::array<float,3> minimum{},maximum{};
     // Reads both GLB and JSON glTF from assets; external paths resolve relative to the scene.
