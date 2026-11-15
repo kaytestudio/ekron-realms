@@ -57,7 +57,8 @@ class StickView(context: Context, private val move: (Float, Float) -> Unit) : Vi
     }
 }
 
-class HudButton(context: Context, var caption: String, private val icon: String) : View(context) {
+class HudButton(context: Context, var caption: String, var symbol: String) : View(context) {
+    var danger = false
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     init { isClickable = true; isFocusable = true; contentDescription = caption }
     override fun setSelected(selected: Boolean) { super.setSelected(selected); invalidate() }
@@ -65,26 +66,32 @@ class HudButton(context: Context, var caption: String, private val icon: String)
     override fun onDraw(canvas: Canvas) {
         val size = min(width, height).toFloat(); val cx = width / 2f; val cy = height / 2f
         paint.style = Paint.Style.FILL
-        paint.color = if (isSelected || isPressed) 0xcc526758.toInt() else 0xaa30332f.toInt()
+        paint.color = if (isSelected || isPressed) 0xcc526758.toInt() else if(danger) 0xdd9f2929.toInt() else 0xaa30332f.toInt()
         val bounds = RectF(cx-size*.48f, cy-size*.48f, cx+size*.48f, cy+size*.48f)
-        if (icon == "pause") canvas.drawRoundRect(bounds, size*.1f, size*.1f, paint) else canvas.drawOval(bounds, paint)
+        if (symbol == "pause") canvas.drawRoundRect(bounds, size*.1f, size*.1f, paint) else canvas.drawOval(bounds, paint)
         paint.style = Paint.Style.STROKE; paint.strokeWidth = size*.015f; paint.color = 0xbbffffff.toInt()
-        if (icon != "pause") canvas.drawOval(bounds, paint)
+        if (symbol != "pause") canvas.drawOval(bounds, paint)
         canvas.save(); canvas.translate(cx-size*.5f, cy-size*.5f); canvas.scale(size/100, size/100)
         paint.color = Color.WHITE; paint.strokeWidth = 6f; paint.strokeCap = Paint.Cap.ROUND
         fun line(x: Float,y: Float,a: Float,b: Float) = canvas.drawLine(x,y,a,b,paint)
-        when (icon) {
+        when (symbol) {
+            "backpack" -> { canvas.drawRoundRect(RectF(30f,27f,70f,65f),6f,6f,paint);canvas.drawRoundRect(RectF(40f,40f,60f,57f),3f,3f,paint);line(41f,25f,41f,18f);line(41f,18f,59f,18f);line(59f,18f,59f,25f) }
+            "cube" -> { canvas.drawRect(RectF(31f,28f,62f,60f),paint);line(31f,28f,42f,18f);line(42f,18f,73f,18f);line(73f,18f,73f,50f);line(73f,50f,62f,60f);line(62f,28f,73f,18f) }
+            "left", "right", "release" -> { val start=if(symbol=="left")70f else 30f;val end=100-start;line(start,40f,end,40f);line(end,40f,50f,22f);line(end,40f,50f,58f) }
+            "rotate" -> { canvas.drawArc(RectF(28f,18f,72f,62f),40f,280f,false,paint);line(70f,24f,70f,40f);line(70f,40f,55f,35f) }
+            "grab" -> { canvas.drawArc(RectF(30f,18f,70f,62f),0f,180f,false,paint);line(30f,40f,30f,20f);line(70f,40f,70f,20f) }
+
             "pause" -> { paint.style=Paint.Style.FILL; canvas.drawRect(29f,25f,42f,75f,paint); canvas.drawRect(58f,25f,71f,75f,paint) }
             "build" -> { line(33f,57f,65f,25f); line(48f,23f,69f,44f); line(58f,17f,76f,35f) }
             "remove" -> { canvas.drawRoundRect(RectF(35f,30f,65f,65f),3f,3f,paint); line(30f,24f,70f,24f); line(43f,16f,57f,16f); line(45f,37f,45f,57f); line(55f,37f,55f,57f) }
             "jump" -> { paint.style=Paint.Style.FILL; val path=Path();path.moveTo(50f,16f);path.lineTo(28f,42f);path.lineTo(42f,42f);path.lineTo(42f,68f);path.lineTo(58f,68f);path.lineTo(58f,42f);path.lineTo(72f,42f);path.close();canvas.drawPath(path,paint) }
             "crouch", "prone" -> {
                 paint.style=Paint.Style.FILL
-                if(icon=="crouch") { canvas.drawCircle(55f,22f,7f,paint); paint.style=Paint.Style.STROKE; line(52f,34f,44f,48f);line(44f,48f,62f,52f);line(62f,52f,53f,65f);line(53f,65f,70f,65f);line(48f,37f,35f,52f);line(35f,52f,30f,64f) }
+                if(symbol=="crouch") { canvas.drawCircle(55f,22f,7f,paint); paint.style=Paint.Style.STROKE; line(52f,34f,44f,48f);line(44f,48f,62f,52f);line(62f,52f,53f,65f);line(53f,65f,70f,65f);line(48f,37f,35f,52f);line(35f,52f,30f,64f) }
                 else { canvas.drawCircle(25f,40f,7f,paint); paint.style=Paint.Style.STROKE;line(37f,48f,60f,53f);line(60f,53f,81f,53f);line(39f,48f,24f,57f);line(24f,57f,16f,53f);line(58f,53f,77f,62f) }
             }
         }
         canvas.restore()
-        if (caption.isNotEmpty()) { paint.style=Paint.Style.FILL; paint.textAlign=Paint.Align.CENTER;paint.textSize=size*.142f;paint.color=Color.WHITE;canvas.drawText(caption,cx,cy+size*.34f,paint) }
+        if (caption.isNotEmpty()) { paint.style=Paint.Style.FILL; paint.textAlign=Paint.Align.CENTER;paint.textSize=size*(if(caption.length>10).103f else .142f);paint.color=Color.WHITE;canvas.drawText(caption,cx,cy+size*.34f,paint) }
     }
 }

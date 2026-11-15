@@ -38,14 +38,18 @@ class MainActivity : GameActivity() {
     private var worldReady = false
     private var flyingNow = false
     private lateinit var joystick: StickView
+    private val toolsState = ToolState()
+    private var requestedTool: HandTool? = null
+    private lateinit var toolActions: LinearLayout
+    private lateinit var spawnActions: LinearLayout
+    private lateinit var gravityActions: LinearLayout
     private lateinit var removeControl: HudButton
-    private lateinit var placement: LinearLayout
-    private lateinit var buildControl: HudButton
+    private lateinit var grabControl: HudButton
+    private lateinit var rotateHeldControl: HudButton
     private lateinit var crouchControl: HudButton
     private lateinit var proneControl: HudButton
     private val items = arrayOf("Стена", "Пол", "Окно", "Дверь", "Стол", "Стул", "Шкаф", "Диван")
     private var selected = 0
-    private var building = false
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var coordinates: TextView
     private lateinit var flight: Button
@@ -59,6 +63,13 @@ class MainActivity : GameActivity() {
         override fun run() {
             val state = nativeStatus()
             if (state.size >= 6) {
+                if(state.size >= 8) {
+                    val confirmed=HandTool.values().getOrElse(state[7].toInt()) { HandTool.HAND_EMPTY }
+                    if(requestedTool==confirmed)requestedTool=null
+                    if(requestedTool==null&&confirmed!=toolsState.tool)toolsState.select(confirmed)
+                    if(confirmed==toolsState.tool)toolsState.confirmHolding(state[6]>.5f)
+                    renderTools()
+                }
                 latest = state.copyOfRange(0, 3)
                 coordinates.text = String.format(Locale.US, "X: %.1f   Y: %.1f   Z: %.1f", state[0], state[1], state[2])
                 val flying = state[3] > 0.5f
@@ -84,7 +95,12 @@ class MainActivity : GameActivity() {
                 notice.text = when (state[5].toInt()) {
                     1 -> "Точка из конфига небезопасна — спавн перенесён на открытое место."
                     2 -> "Нет безопасной точки ходьбы — оставлен полёт."
-                    else -> if (flying) "Сквозь стены · ↑ / ↓ — высота" else if (building) "Строительство: ${items[selected]}" else "Свободный режим"
+                    else -> if (flying) "Сквозь стены · ↑ / ↓ — высота" else when(toolsState.tool) {
+                        HandTool.HAND_EMPTY -> "Пустые руки"
+                        HandTool.SPAWN_GUN -> "Спавн-пушка: ${items[selected]}"
+                        HandTool.GRAVITY_GUN -> if(toolsState.holding) "Предмет захвачен" else "Грави-пушка: наведите на свою постройку"
+                        HandTool.DELETE_TOOL -> "Удаление своих построек"
+                    }
                 }
             }
             if (!introFinished && videoEndedAt != Long.MAX_VALUE && SystemClock.elapsedRealtime() - videoEndedAt >= 3000) introFinished = true
@@ -133,12 +149,6 @@ class MainActivity : GameActivity() {
         val pause = action("", "pause") { showPauseMenu() }
         pause.contentDescription = "Пауза"
         overlay.addView(pause, FrameLayout.LayoutParams(dp(48), dp(48), Gravity.TOP or Gravity.END).apply { topMargin=dp(6); rightMargin=dp(8) })
-        val tools = LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; gravity=Gravity.CENTER }
-        buildControl = action("Строить", "build") { showBuildCatalog() }
-        removeControl = action("Убрать", "remove") { if (building) nativeCommand(4) }.apply { visibility=View.GONE }
-        tools.addView(buildControl, LinearLayout.LayoutParams(dp(actionSize), dp(actionSize)))
-        tools.addView(removeControl, LinearLayout.LayoutParams(dp(actionSize), dp(actionSize)).apply { topMargin=dp(8) })
-        overlay.addView(tools, FrameLayout.LayoutParams(-2,-2,Gravity.TOP or Gravity.END).apply { topMargin=dp(64); rightMargin=dp(10) })
         val movement = LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; gravity=Gravity.CENTER; isMotionEventSplittingEnabled=true }
         val jump = action("Прыжок", "jump") { nativeCommand(8) }
         // Fire on press, not release. The joystick keeps its own pointer and axes untouched.
@@ -158,18 +168,32 @@ class MainActivity : GameActivity() {
             nativeCommand(10)
         }
         for (control in listOf(jump,crouchControl,proneControl)) movement.addView(control, LinearLayout.LayoutParams(dp(actionSize),dp(actionSize)))
-        overlay.addView(movement, FrameLayout.LayoutParams(-2,-2,Gravity.BOTTOM or Gravity.END).apply { bottomMargin=dp(6);rightMargin=dp(10) })
-        placement = LinearLayout(this).apply {
-            orientation=LinearLayout.HORIZONTAL; gravity=Gravity.CENTER; visibility=View.GONE
-            setBackgroundColor(0xaa263039.toInt())
+        overlay.addView(movement, FrameLayout.LayoutParams(-2,-2,Gravity.BOTTOM or Gravity.END).apply { bottomMargin=dp(6);rightMargin=dp(82) })
+        // Only the backpack occupies the bottom-right corner with empty hands.
+        val backpack = action("Рюкзак", "backpack") { showToolsMenu() }
+        overlay.addView(backpack,FrameLayout.LayoutParams(dp(64),dp(64),Gravity.BOTTOM or Gravity.END).apply { bottomMargin=dp(8);rightMargin=dp(8) })
+        toolActions=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;gravity=Gravity.END;isMotionEventSplittingEnabled=true }
+        spawnActions=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER }
+        gravityActions=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER }
+        fun addControl(parent: LinearLayout, caption: String, icon: String, click: () -> Unit): HudButton {
+            val control=action(caption,icon,click)
+            parent.addView(control,LinearLayout.LayoutParams(dp(72),dp(64)).apply { bottomMargin=dp(4) })
+            return control
         }
-        fun placementButton(text: String, click: () -> Unit) {
-            placement.addView(Button(this).apply { this.text=text;isAllCaps=false;textSize=11f;setOnClickListener { click() } }, LinearLayout.LayoutParams(-2,dp(48)))
-        }
-        placementButton("Повернуть") { nativeCommand(2) }
-        placementButton("Поставить") { nativeCommand(3) }
-        placementButton("Готово") { leaveBuilding() }
-        overlay.addView(placement,FrameLayout.LayoutParams(-2,-2,Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin=dp(8) })
+        addControl(spawnActions,"Блоки","cube") { showBuildCatalog() }
+        addControl(spawnActions,"Поставить блок","cube") { nativeCommand(3) }
+        val turns=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
+        addControl(turns,"Влево","left") { nativeCommand(31) }
+        addControl(turns,"Вправо","right") { nativeCommand(2) }
+        spawnActions.addView(turns)
+        grabControl=addControl(gravityActions,"Захват","grab") { nativeCommand(32) }
+        rotateHeldControl=addControl(gravityActions,"Вращать","rotate") { nativeCommand(33) }
+        removeControl=action("Удалить","remove") { nativeCommand(4) }.apply { danger=true }
+        toolActions.addView(spawnActions)
+        toolActions.addView(gravityActions)
+        toolActions.addView(removeControl,LinearLayout.LayoutParams(dp(72),dp(72)))
+        overlay.addView(toolActions,FrameLayout.LayoutParams(-2,-2,Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin=dp(8) })
+        renderTools()
         // Flight is now in the pause menu; its altitude controls do not cover the action column.
         flight = Button(this)
         altitude = LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;visibility=View.GONE }
@@ -230,14 +254,26 @@ class MainActivity : GameActivity() {
         addContentView(overlay, ViewGroup.LayoutParams(-1, -1))
         hideSystemUi()
     }
-    private fun refreshBuilding() {
-        removeControl.visibility = if (building) View.VISIBLE else View.GONE
-        placement.visibility = if (building) View.VISIBLE else View.GONE
-        buildControl.isSelected = building
+    private fun renderTools() {
+        spawnActions.visibility=if(toolsState.spawnVisible)View.VISIBLE else View.GONE
+        gravityActions.visibility=if(toolsState.gravityVisible)View.VISIBLE else View.GONE
+        removeControl.visibility=if(toolsState.deleteVisible)View.VISIBLE else View.GONE
+        rotateHeldControl.visibility=if(toolsState.rotateHeldVisible)View.VISIBLE else View.GONE
+        if(grabControl.caption!=toolsState.grabCaption) {
+            grabControl.caption=toolsState.grabCaption
+            grabControl.symbol=if(toolsState.holding) "release" else "grab"
+            grabControl.contentDescription=toolsState.grabCaption;grabControl.invalidate()
+        }
     }
-    private fun leaveBuilding() {
-        if (building) { building=false;nativeCommand(0) }
-        refreshBuilding()
+    private fun selectTool(tool: HandTool) {
+        requestedTool=tool;toolsState.select(tool);nativeCommand(20+tool.ordinal);renderTools()
+        if(tool==HandTool.SPAWN_GUN)showBuildCatalog()
+    }
+    private fun showToolsMenu() {
+        joystick.reset()
+        AlertDialog.Builder(this).setTitle("Инструмент в руках")
+            .setItems(arrayOf("Пустые руки","Спавн-пушка","Грави-пушка","Удалить")) { _,index -> selectTool(HandTool.values()[index]) }
+            .setNegativeButton("Отмена",null).show()
     }
     private fun showBuildCatalog() {
         joystick.reset()
@@ -245,10 +281,7 @@ class MainActivity : GameActivity() {
             .setItems(items) { _, index ->
                 repeat((index-selected+items.size)%items.size) { nativeCommand(1) }
                 selected=index
-                if (!building) { building=true;nativeCommand(0) }
-                refreshBuilding()
-            }.setNegativeButton(if (building) "Закончить строительство" else "Отмена") { _, _ -> if (building) leaveBuilding() }
-            .show()
+            }.setNegativeButton("Отмена",null).show()
     }
     private fun setPaused(value: Boolean) {
         paused=value;joystick.reset();nativeVertical(0f)

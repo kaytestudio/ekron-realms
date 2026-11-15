@@ -3,6 +3,7 @@
 #include <GLES3/gl3.h>
 #include <chrono>
 #include "SandboxWorld.h"
+#include "ToolInteraction.h"
 #include "PlayerPhysics.h"
 #include <future>
 #include <optional>
@@ -31,6 +32,7 @@ private:
     bool building_=false;
     bool flying_=false;
     sandbox::World world_;
+    sandbox::ToolInteraction tools_;
     physics::PlayerController player_;
     bool crouched_=false,prone_=false;
     std::future<bool> saveJob_;

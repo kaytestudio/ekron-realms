@@ -19,11 +19,14 @@ std::vector<int> commands;
 // Retain transient controls and camera when Android recreates only the EGL surface.
 // Accessed exclusively by the native game thread, never the Java UI thread.
 std::optional<sandbox::World> retainedWorld;
-bool retainedBuilding = false,retainedFlying=false;
+sandbox::HandTool retainedTool=sandbox::HandTool::HAND_EMPTY;
+bool retainedFlying=false;
 std::atomic<int> loadStage{0},debugNotice{0};
 std::atomic<float> verticalInput{0};
 std::atomic<float> stickRight{0},stickForward{0};
 std::atomic<bool> gameplayReady{false};
+std::atomic<int> currentTool{0};
+std::atomic<bool> holdingObject{false};
 std::mutex snapshotMutex;
 std::array<float,4> snapshot{0,1.7f,0,0};
 struct LoadGuard {bool complete=false;~LoadGuard(){if(!complete)loadStage=-1;}};
@@ -156,7 +159,8 @@ extern "C" JNIEXPORT void JNICALL Java_com_example_realms_MainActivity_nativeCom
 }
 
 extern "C" JNIEXPORT jfloatArray JNICALL Java_com_example_realms_MainActivity_nativeStatus(JNIEnv *env,jobject){
- std::array<float,6> values{};{std::lock_guard<std::mutex> lock(snapshotMutex);std::copy(snapshot.begin(),snapshot.end(),values.begin());}
+ std::array<float,8> values{};{std::lock_guard<std::mutex> lock(snapshotMutex);std::copy(snapshot.begin(),snapshot.end(),values.begin());}
+ values[6]=holdingObject?1.f:0.f;values[7]=float(currentTool.load());
  values[4]=float(loadStage.load());values[5]=float(debugNotice.load());
  auto result=env->NewFloatArray(values.size());if(result)env->SetFloatArrayRegion(result,0,values.size(),values.data());return result;
 }
@@ -165,10 +169,11 @@ extern "C" JNIEXPORT void JNICALL Java_com_example_realms_MainActivity_nativeVer
 }
 
 Renderer::Renderer(android_app *app):app_(app),last_(std::chrono::steady_clock::now()){
- loadStage=0;debugNotice=0;LoadGuard loadGuard;flying_=retainedWorld?retainedFlying:false;
+ loadStage=0;debugNotice=0;currentTool=0;holdingObject=false;LoadGuard loadGuard;flying_=retainedWorld?retainedFlying:false;
  savePath_=std::string(app->activity->internalDataPath)+"/sandbox-v1.txt";
  if(retainedWorld)world_=*retainedWorld;else world_.load(savePath_);
- building_=retainedBuilding;
+ tools_.tool=retainedWorld?retainedTool:sandbox::HandTool::HAND_EMPTY;
+ building_=tools_.tool==sandbox::HandTool::SPAWN_GUN;currentTool=int(tools_.tool);
  display_=eglGetDisplay(EGL_DEFAULT_DISPLAY);
  if(display_==EGL_NO_DISPLAY||!eglInitialize(display_,nullptr,nullptr))return;
  const EGLint attributes[]={EGL_RENDERABLE_TYPE,EGL_OPENGL_ES3_BIT,EGL_SURFACE_TYPE,EGL_WINDOW_BIT,EGL_RED_SIZE,8,EGL_GREEN_SIZE,8,EGL_BLUE_SIZE,8,EGL_DEPTH_SIZE,24,EGL_NONE};
@@ -237,9 +242,10 @@ Renderer::Renderer(android_app *app):app_(app),last_(std::chrono::steady_clock::
  loadStage=5;loadGuard.complete=true;
 }
 Renderer::~Renderer(){
+ tools_.cancel(world_);
  if(saveJob_.valid())saveJob_.get();
  if(saveDirty_)world_.save(savePath_);
- retainedWorld=world_;retainedBuilding=building_;retainedFlying=flying_;
+ retainedWorld=world_;retainedTool=tools_.tool;retainedFlying=flying_;
  if(display_!=EGL_NO_DISPLAY){if(context_!=EGL_NO_CONTEXT&&surface_!=EGL_NO_SURFACE&&eglMakeCurrent(display_,surface_,surface_,context_)){car_.release();city_.release();textures_.release();if(skyProgram_)glDeleteProgram(skyProgram_);if(buffer_)glDeleteBuffers(1,&buffer_);if(vao_)glDeleteVertexArrays(1,&vao_);if(program_)glDeleteProgram(program_);}eglMakeCurrent(display_,EGL_NO_SURFACE,EGL_NO_SURFACE,EGL_NO_CONTEXT);if(context_!=EGL_NO_CONTEXT)eglDestroyContext(display_,context_);if(surface_!=EGL_NO_SURFACE)eglDestroySurface(display_,surface_);eglTerminate(display_);}
 }
 void Renderer::resetInput(){verticalInput=0;leftId_=rightId_=-1;moveX_=moveY_=0;last_=std::chrono::steady_clock::now();}
@@ -252,11 +258,18 @@ void Renderer::handleInput(){
    world_.y=std::isfinite(ground)?ground+1.7f:1.7f;world_.yaw=world_.pitch=0;flying_=false;player_.reset(world_.x,world_.y,world_.z);resetInput();}
  }
  for(int command:pending){bool changed=false;
-  if(command==0)building_=!building_;
-  else if(command==1)world_.selected=(world_.selected+1)%8;
-  else if(command==2)world_.rotation=(world_.rotation+1)%4;
+  if(command>=20&&command<=23){tools_.select(world_,static_cast<sandbox::HandTool>(command-20));building_=tools_.tool==sandbox::HandTool::SPAWN_GUN;rebuildBuiltCollision();}
+  else if(command==31&&tools_.tool==sandbox::HandTool::SPAWN_GUN)world_.rotation=(world_.rotation+3)%4;
+  else if(command==32&&tools_.tool==sandbox::HandTool::GRAVITY_GUN){
+   if(tools_.holding())changed=tools_.release(world_);
+   else tools_.grab(world_,city_.scene().collision.get());
+   rebuildBuiltCollision();
+  }
+  else if(command==33&&tools_.tool==sandbox::HandTool::GRAVITY_GUN)tools_.rotate(world_);
+  else if(command==1&&building_)world_.selected=(world_.selected+1)%8;
+  else if(command==2&&building_)world_.rotation=(world_.rotation+1)%4;
   else if(command==3&&building_)changed=world_.place();
-  else if(command==4)changed=world_.remove();
+  else if(command==4&&tools_.tool==sandbox::HandTool::DELETE_TOOL)changed=world_.remove();
   else if(command==6){flying_=!flying_;verticalInput=0;player_.reset(world_.x,world_.y,world_.z);}
   else if(command==8)player_.jump();
   else if(command==9){crouched_=!crouched_;prone_=false;}
@@ -269,9 +282,10 @@ void Renderer::handleInput(){
   }
   if(changed){saveDirty_=true;rebuildBuiltCollision();}
  }
+ currentTool=int(tools_.tool);holdingObject=tools_.holding();
  if(saveJob_.valid()&&saveJob_.wait_for(std::chrono::seconds(0))==std::future_status::ready){if(!saveJob_.get())__android_log_print(ANDROID_LOG_ERROR,"Ekron","Save failed");}
  if(saveDirty_&&!saveJob_.valid()){
-  sandbox::World saved;saved.objects=world_.objects;auto path=savePath_;
+  sandbox::World saved;saved.objects=world_.objects;if(tools_.holding())saved.objects[tools_.held]=tools_.original;auto path=savePath_;
   saveJob_=std::async(std::launch::async,[saved=std::move(saved),path](){return saved.save(path);});saveDirty_=false;
  }
  auto *buffer=android_app_swap_input_buffers(app_);if(!buffer)return;
@@ -298,8 +312,12 @@ void Renderer::render(){
  const auto now=std::chrono::steady_clock::now();float dt=std::clamp(std::chrono::duration<float>(now-last_).count(),0.f,.05f);last_=now;if(gameplayReady){if(flying_)city::fly(world_,stickRight.load(),stickForward.load(),verticalInput.load(),dt);
  else if(city_.ready())player_.update(*city_.scene().collision,stickRight.load(),stickForward.load(),world_.yaw,dt,crouched_,world_.x,world_.y,world_.z,&builtCollision_,prone_);
  else world_.move(stickRight.load(),stickForward.load(),dt);}
+ if(gameplayReady)tools_.pull(world_,dt);
  std::vector<Vertex> vertices;vertices.reserve((world_.scenery.size()+world_.objects.size()*10+1)*36);
- for(const auto &b:world_.scenery)cube(vertices,b);for(const auto&o:world_.objects)object(vertices,o);
+ for(const auto &b:world_.scenery)cube(vertices,b);for(size_t i=0;i<world_.objects.size();i++){
+  if(int(i)==tools_.held){auto visual=world_.objects[i];visual.x=tools_.display.x;visual.z=tools_.display.z;size_t begin=vertices.size();object(vertices,visual);float dy=tools_.display.y-sandbox::World::bounds(visual).y;for(size_t j=begin;j<vertices.size();j++)vertices[j].y+=dy;}
+  else object(vertices,world_.objects[i]);
+ }
  if(building_){const auto p=world_.preview();object(vertices,p,true,world_.objects.size()<sandbox::World::limit&&world_.canPlace(p));}
  glViewport(0,0,width_,height_);glClearColor(.56f,.61f,.63f,1);glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
  glBindVertexArray(vao_);
@@ -327,6 +345,6 @@ void Renderer::render(){
 
 void Renderer::rebuildBuiltCollision(){
  builtCollision_=physics::CollisionMesh{};
- for(const auto&o:world_.objects){auto b=sandbox::World::bounds(o);builtCollision_.addBox({b.x-b.w/2,b.y-b.h/2,b.z-b.d/2},{b.x+b.w/2,b.y+b.h/2,b.z+b.d/2});}
+ for(size_t i=0;i<world_.objects.size();i++){if(int(i)==tools_.held)continue;const auto&o=world_.objects[i];auto b=sandbox::World::bounds(o);builtCollision_.addBox({b.x-b.w/2,b.y-b.h/2,b.z-b.d/2},{b.x+b.w/2,b.y+b.h/2,b.z+b.d/2});}
  builtCollision_.build();
 }
