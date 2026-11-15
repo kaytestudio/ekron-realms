@@ -1,4 +1,5 @@
 #include "GltfScene.h"
+#include "SceneCollision.h"
 #include "LevelPlacement.h"
 #include "BuildingCollision.h"
 #define TINYGLTF_IMPLEMENTATION
@@ -74,14 +75,6 @@ bool imageLoader(tinygltf::Image *image,int,std::string*,std::string *warn,int,i
  for(int y=0;y<rh;y++)for(int x=0;x<rw;x++)std::copy_n(p+(size_t(y*h/rh)*w+x*w/rw)*4,4,image->image.data()+(size_t(y)*rw+x)*4);
  stbi_image_free(p);return true;
 }
-void buildCollision(Scene &s){
- auto mesh=std::make_shared<physics::CollisionMesh>();
- for(const auto &batch:s.batches){
-  if(batch.material>=0&&size_t(batch.material)<s.materials.size()&&s.materials[batch.material].alphaMode!=0)continue;
-  for(size_t i=0;i<batch.vertices.size();i+=3){auto a=batch.vertices[i],b=batch.vertices[i+1],c=batch.vertices[i+2];mesh->add({{a.x,a.y,a.z},{b.x,b.y,b.z},{c.x,c.y,c.z}});}
- }
- mesh->build();s.collision=mesh;
-}
 void prepare(Scene &s,const LoadOptions &options){
  Vec lo{1e20f,1e20f,1e20f},hi{-1e20f,-1e20f,-1e20f};size_t count=0;
  for(auto &b:s.batches)for(auto &v:b.vertices){Vec p{v.x,v.y,v.z};for(int i=0;i<3;i++){lo[i]=std::min(lo[i],p[i]);hi[i]=std::max(hi[i],p[i]);}count++;}
@@ -100,7 +93,7 @@ void prepare(Scene &s,const LoadOptions &options){
   s.minimum=minimum;s.maximum=maximum;
   float height=std::min(1.2f,maximum[1]-minimum[1]);
   s.colliders.push_back({(minimum[0]+maximum[0])/2,minimum[1]+height/2,(minimum[2]+maximum[2])/2,maximum[0]-minimum[0],height,maximum[2]-minimum[2],0,0,0});
-  buildCollision(s);return;
+  buildSceneCollision(s);return;
  }
  // Estimate ground from area-weighted horizontal triangles, rather than lowest rubble vertex.
  std::map<int,double> ground;
@@ -127,7 +120,7 @@ void prepare(Scene &s,const LoadOptions &options){
  SpawnPoint spawn;
  if(!findRoadSpawn(collisionWorld,s.minimum,s.maximum,-3.4f,32.7f,spawn))throw std::runtime_error("No connected, supported free spawn in the collision grid");
  s.spawnX=spawn.x;s.spawnZ=spawn.z;
- buildCollision(s);
+ buildSceneCollision(s);
 }
 }
 

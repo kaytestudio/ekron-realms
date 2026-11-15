@@ -192,7 +192,7 @@ Renderer::Renderer(android_app *app):app_(app),last_(std::chrono::steady_clock::
    bool parking=city::findCarParking(world_,city_.scene().minimum,city_.scene().maximum,anchor.x+3,anchor.z-9,parkingX,parkingZ);
    world_.x=oldX;world_.z=oldZ;
    if(parking){
-    std::string carLog;city::LoadOptions carOptions;carOptions.level=false;carOptions.targetExtent=4.3f;
+    std::string carLog;city::LoadOptions carOptions;carOptions.level=false;carOptions.targetExtent=4.025f;
     float ground=city_.scene().collision->groundHeight(parkingX,parkingZ,2,-10);
     if(std::isfinite(ground)){
      // Sample the upright car footprint, excluding overhead roofs.
@@ -204,7 +204,7 @@ Renderer::Renderer(android_app *app):app_(app),last_(std::chrono::steady_clock::
      carOptions.y=support;
     }
     carOptions.x=parkingX;carOptions.z=parkingZ;carOptions.yaw=1.57079632679f;
-    if(car_.load(app_->activity->assetManager,"models/crushed_sports_car.glb",carLog,carOptions)){
+    if(car_.load(app_->activity->assetManager,"models/uaz_469_1973_classic.glb",carLog,carOptions)){
      // Decoration-only collision policy: the car remains visible but does not block walking.
     }
     __android_log_print(car_.ready()?ANDROID_LOG_INFO:ANDROID_LOG_ERROR,"Ekron","Car at %.2f %.2f: %s",parkingX,parkingZ,carLog.c_str());

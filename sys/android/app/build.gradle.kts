@@ -12,8 +12,8 @@ android {
         applicationId = "com.example.realms"
         minSdk = 30
         targetSdk = 34
-        versionCode = 8
-        versionName = "0.8-geometry-physics"
+        versionCode = 9
+        versionName = "0.9-fences-uaz"
         externalNativeBuild {
             cmake { cppFlags += "-std=c++17" }
         }
