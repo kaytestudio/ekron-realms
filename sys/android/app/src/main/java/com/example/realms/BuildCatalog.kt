@@ -6,7 +6,7 @@ object BuildCatalog {
     // IDs match World::bounds and the spawn-gun selection protocol.
     val entries = listOf(
         CatalogItem(0, "Бетонный блок", "catalog/rendered/wall.webp"),
-        CatalogItem(1, "Пол", "catalog/rendered/floor.webp"),
+        CatalogItem(1, "Плита (пол)", "catalog/rendered/floor.webp"),
         CatalogItem(2, "Окно", "catalog/rendered/window.webp"),
         CatalogItem(3, "Дверь", "catalog/rendered/door.webp",5),
         CatalogItem(4, "Стол", "catalog/rendered/table.webp",5),

@@ -43,7 +43,7 @@ public:
         }
     }
     static Box bounds(const Object &o) {
-        static const float dims[12][3]={{3,2.8f,.25f},{3,.18f,3},{2,2.4f,.22f},{1.1f,2.3f,.18f},{1.8f,.9f,1},{.6f,1.05f,.65f},{1.4f,2.1f,.65f},{2.3f,1,.95f},{4.025f,1.92485f,1.89738f},{3,2.8f,.25f},{3,2.8f,.25f},{3,2.8f,.25f}};
+        static const float dims[12][3]={{3,2.8f,.25f},{3,.18f,3},{2,2.4f,.22f},{1.1f,2.3f,.14f},{1.8f,.9f,1},{.6f,1.05f,.65f},{1.4f,2.1f,.84f},{2.3f,1,.95f},{4.025f,1.92485f,1.89738f},{3,2.8f,.25f},{3,2.8f,.25f},{3,2.8f,.25f}};
         auto p=dims[o.type];
         return {o.x,o.y+p[1]/2,o.z,o.rotation%2?p[2]:p[0],p[1],o.rotation%2?p[0]:p[2],.5f,.43f,.32f,o.type==9?Wood:o.type==10?Brick:o.type<=1?Concrete:Plain};
     }

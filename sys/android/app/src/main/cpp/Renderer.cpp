@@ -348,7 +348,8 @@ void Renderer::render(){
   if(int(i)==tools_.held){auto visual=world_.objects[i];visual.x=tools_.display.x;visual.z=tools_.display.z;size_t begin=vertices.size();sandbox::appendObject(vertices,visual);float dy=tools_.display.y-sandbox::World::bounds(visual).y;for(size_t j=begin;j<vertices.size();j++)vertices[j].y+=dy;}
   else sandbox::appendObject(vertices,world_.objects[i]);
   if(int(i)!=tools_.held){const auto&o=world_.objects[i];auto b=sandbox::World::bounds(o);
-   float cx=std::cos(o.tiltX),sx=std::sin(o.tiltX),cz=std::cos(o.tiltZ),sz=std::sin(o.tiltZ);
+   float tiltX=o.type==1?0:o.tiltX,tiltZ=o.type==1?0:o.tiltZ;
+   float cx=std::cos(tiltX),sx=std::sin(tiltX),cz=std::cos(tiltZ),sz=std::sin(tiltZ);
    for(size_t j=objectBegin;j<vertices.size();j++){auto &v=vertices[j];float x=v.x-b.x,y=v.y-b.y,z=v.z-b.z;float py=cx*y-sx*z,pz=sx*y+cx*z;v.x=b.x+cz*x-sz*py;v.y=b.y+sz*x+cz*py;v.z=b.z+pz;
     float ny=cx*v.ny-sx*v.nz,nz=sx*v.ny+cx*v.nz;float nx=cz*v.nx-sz*ny;v.ny=sz*v.nx+cz*ny;v.nx=nx;v.nz=nz;}
   }

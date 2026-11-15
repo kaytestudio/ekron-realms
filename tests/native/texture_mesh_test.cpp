@@ -11,9 +11,16 @@ int main() {
     for(int type:{0,9,10,11,3,4,5,6,7}){
         sandbox::Object item{type,0,0,0};item.surface=sandbox::Rust;
         std::vector<sandbox::MeshVertex> mesh;sandbox::appendObject(mesh,item);
-        assert(!mesh.empty());for(const auto&v:mesh){assert(v.layer==sandbox::World::fixedSurface(type));assert(v.r==1&&v.g==1&&v.b==1);}
+        assert(!mesh.empty());for(const auto&v:mesh){if((type==3||type==6)&&v.layer==sandbox::Plain)continue;assert(v.layer==sandbox::World::fixedSurface(type));assert(v.r==1&&v.g==1&&v.b==1);}
     }
     for(int rotation=0;rotation<4;rotation++){
+        for(int type:{3,6}){
+            sandbox::Object item{type,rotation,0,0};std::vector<sandbox::MeshVertex> mesh;sandbox::appendObject(mesh,item);
+            auto bounds=sandbox::World::bounds(item);int metal=0;
+            for(const auto&v:mesh){assert(std::abs(v.x)<=bounds.w/2+.0001f&&std::abs(v.z)<=bounds.d/2+.0001f);assert(v.y>=-.0001f&&v.y<=bounds.h+.0001f);if(v.layer==sandbox::Plain)metal++;}
+            assert(metal>400);if(type==6)assert(mesh.size()>9*36);
+        }
+
         sandbox::Object window{2,rotation,0,0};window.surface=sandbox::Brick;
         std::vector<sandbox::MeshVertex> mesh;sandbox::appendObject(mesh,window);
         int frame=0,glass=0;for(const auto&v:mesh){if(v.layer==sandbox::Wood)frame++;if(v.layer==sandbox::Glass)glass++;}

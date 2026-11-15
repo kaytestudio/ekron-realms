@@ -12,6 +12,14 @@ int main(){
  auto b=sandbox::World::bounds(*wall);assert(wall->y>=-.001f&&wall->y+b.h<=3.001f);
  assert(std::abs(b.z-b.d/2+4)<.001f);
  for(int type:{9,10}){w.selected=type;auto block=sandbox::RaycastPlacement::preview(w,room,built,lo,hi);assert(block&&block->surface==sandbox::World::fixedSurface(type));}
+ // A floor slab aimed at a vertical wall stays 3 x 3 x .18, in every yaw.
+ w.selected=1;
+ for(int rotation=0;rotation<4;rotation++){
+  w.rotation=rotation;auto slab=sandbox::RaycastPlacement::preview(w,room,built,lo,hi);assert(slab&&slab->anchored);
+  auto flat=sandbox::World::bounds(*slab);assert(flat.h==.18f&&flat.w==3&&flat.d==3);
+  assert(slab->tiltX==0&&slab->tiltZ==0&&std::abs(flat.z-flat.d/2+4)<.001f);
+ }
+ w.rotation=0;
  // Ceiling attachment at less than two metres works; it does not drop when dynamics run.
  w.selected=1;w.pitch=1.3f;auto ceiling=sandbox::RaycastPlacement::preview(w,room,built,lo,hi);assert(ceiling&&ceiling->anchored);
  assert(std::abs(ceiling->y+.18f-3)<.001f);w.objects.push_back(*ceiling);

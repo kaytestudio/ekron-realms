@@ -30,6 +30,8 @@ public:
   float extent=std::abs(hit.normal.x)*b.w/2+std::abs(hit.normal.y)*b.h/2+std::abs(hit.normal.z)*b.d/2;
   auto center=hit.position+hit.normal*(extent+.0005f);
   candidate.x=center.x;candidate.z=center.z;candidate.y=center.y-b.h/2;
+  // Floor orientation is world-horizontal, never aligned to a wall hit normal.
+  if(candidate.type==1){candidate.tiltX=0;candidate.tiltZ=0;}
   candidate.anchored=candidate.type!=8;candidate.surface=World::fixedSurface(candidate.type);
   if(!valid(w,candidate,city,built,lo,hi)){
    // Slide the box ALONG the hit plane to fit under ceilings/next to corners.
