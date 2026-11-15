@@ -15,7 +15,8 @@ permissions:
   contents: read
 jobs:
   apk:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Test native world logic
@@ -26,13 +27,27 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
-      - name: Install Android tools
-        run: sdkmanager 'platforms;android-34' 'build-tools;34.0.0' 'ndk;26.1.10909125' 'cmake;3.22.1'
+      - name: Install Android tools using runner SDK
+        run: |
+          set +e
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          "$SDKMANAGER" 'platforms;android-34' 'build-tools;34.0.0' 'ndk;26.1.10909125' 'cmake;3.22.1' 2>&1 | tee /tmp/android-tools.log
+          result=${PIPESTATUS[0]}
+          if [ "$result" -ne 0 ]; then
+            python3 -c 'import pathlib; s=pathlib.Path("/tmp/android-tools.log").read_text()[-10000:]; print("::error::"+s.replace("%","%25").replace("\r","%0D").replace("\n","%0A"))'
+          fi
+          exit "$result"
       - uses: gradle/actions/setup-gradle@v4
       - name: Build native debug APK
         working-directory: sys/android
-        run: ./gradlew :app:assembleDebug :app:testDebugUnitTest --stacktrace
+        run: |
+          set +e
+          ./gradlew :app:assembleDebug :app:testDebugUnitTest --stacktrace 2>&1 | tee /tmp/android-build.log
+          result=${PIPESTATUS[0]}
+          if [ "$result" -ne 0 ]; then
+            python3 -c 'import pathlib; s=pathlib.Path("/tmp/android-build.log").read_text(); lines=s.splitlines(); picks=[i for i,l in enumerate(lines) if any(k in l for k in ["FAILURE:","What went wrong:","error:","Could not", "Execution failed", "Caused by:"])]; text="\n".join("\n".join(lines[max(0,i-1):i+6]) for i in picks) or s[-10000:]; print("::error::"+text[-14000:].replace("%","%25").replace("\r","%0D").replace("\n","%0A"))'
+          fi
+          exit "$result"
       - uses: actions/upload-artifact@v4
         with:
           name: ekron-native-sandbox-debug
