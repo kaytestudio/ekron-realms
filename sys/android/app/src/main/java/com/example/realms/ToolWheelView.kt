@@ -13,7 +13,7 @@ class ToolWheelView(context: Context, private val choose: (HandTool) -> Unit) : 
     private val density = resources.displayMetrics.density
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val icons = ToolWheelSelection.tools.map { tool -> ToolArtView(context).apply { this.tool = tool } }
-    private val names = listOf("Грави-пушка", "Спавн-пушка", "Пустые руки")
+    private val names = listOf("Грави-пушка", "Пустые руки")
     private var progress = 0f
     private var animator: ValueAnimator? = null
     private var pointer = -1
@@ -74,13 +74,13 @@ class ToolWheelView(context: Context, private val choose: (HandTool) -> Unit) : 
         val outer = RectF(cx-radius, cy-radius, cx+radius, cy+radius)
         val innerRadius = radius * .36f
         val inner = RectF(cx-innerRadius, cy-innerRadius, cx+innerRadius, cy+innerRadius)
-        for (i in 0..2) {
-            val start = -150f + i * 120 + 2
+        for (i in ToolWheelSelection.tools.indices) {
+            val start = -180f + i * 180 + 2
             val path = Path().apply {
-                arcTo(outer, start, 116f)
+                arcTo(outer, start, 176f)
                 val end = Math.toRadians((start + 116).toDouble())
                 lineTo(cx + cos(end).toFloat()*innerRadius, cy + sin(end).toFloat()*innerRadius)
-                arcTo(inner, start + 116, -116f); close()
+                arcTo(inner, start + 116, -176f); close()
             }
             val active = selected == i
             paint.style = Paint.Style.FILL
@@ -89,7 +89,7 @@ class ToolWheelView(context: Context, private val choose: (HandTool) -> Unit) : 
             paint.style = Paint.Style.STROKE; paint.strokeWidth = (if (active) 2.5f else 1f)*density
             paint.color = if (active) 0xffffb652.toInt() else 0xaa9ddbe9.toInt()
             canvas.drawPath(path, paint)
-            val angle = Math.toRadians((-90 + i*120).toDouble())
+            val angle = Math.toRadians((-90 + i*180).toDouble())
             val x = cx + cos(angle).toFloat()*radius*.69f
             val y = cy + sin(angle).toFloat()*radius*.69f
             val iw = radius*.62f; val ih = iw*.625f

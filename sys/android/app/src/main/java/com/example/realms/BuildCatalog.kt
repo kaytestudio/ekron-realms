@@ -3,6 +3,14 @@ package com.example.realms
 data class CatalogItem(val nativeType: Int, val label: String, val asset: String, val defaultSurface: Int = 1)
 
 object BuildCatalog {
+    // Vehicle stays available under construction; no invented weapons/drones.
+    fun indicesForCategory(category: Int): List<Int> = entries.indices.filter {
+        when(category) {
+            0 -> entries[it].nativeType !in 4..7
+            1 -> entries[it].nativeType in 4..7
+            else -> false
+        }
+    }
     // IDs match World::bounds and the spawn-gun selection protocol.
     val entries = listOf(
         CatalogItem(0, "Бетонный блок", "catalog/rendered/wall.webp"),

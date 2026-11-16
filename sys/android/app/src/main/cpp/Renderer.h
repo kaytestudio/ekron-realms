@@ -39,6 +39,7 @@ private:
     bool carWasAnchored_=false;
     std::optional<sandbox::Object> placementPreview_;
     bool building_=false;
+    sandbox::HandTool spawnReturnTool_=sandbox::HandTool::HAND_EMPTY;
     bool flying_=false;
     sandbox::World world_;
     sandbox::ToolInteraction tools_;

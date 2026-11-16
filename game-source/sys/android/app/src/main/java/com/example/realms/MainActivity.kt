@@ -224,7 +224,7 @@ class MainActivity : GameActivity() {
         val switchWeapon=action("", "switch") {
             if(worldReady && active && !paused) AlertDialog.Builder(this)
                 .setTitle("Выбор инструмента")
-                .setItems(arrayOf("Грави-пушка", "Спавн-пушка", "Пустые руки")) { _, index ->
+                .setItems(arrayOf("Грави-пушка", "Пустые руки")) { _, index ->
                     selectTool(ToolWheelSelection.tools[index])
                 }.show()
         }.apply { visualScale=.73f }
@@ -239,7 +239,7 @@ class MainActivity : GameActivity() {
             }
         }
         overlay.addView(switchWeapon,FrameLayout.LayoutParams(dp(60),dp(60),Gravity.TOP or Gravity.END).apply { topMargin=dp(66);rightMargin=dp(8) })
-        catalogControl=action("", "cube") { showBuildCatalog() }.apply { contentDescription="Открыть предметы";visualScale=.73f }
+        catalogControl=action("", "cube") { showBuildCatalog() }.apply { contentDescription="Спавн: открыть каталог";visualScale=.73f }
         overlay.addView(catalogControl,FrameLayout.LayoutParams(dp(60),dp(60),Gravity.TOP or Gravity.END).apply { topMargin=dp(66);rightMargin=dp(72) })
         removeControl=action("", "remove") { nativeCommand(4) }.apply { danger=true;visualScale=.73f;contentDescription="Удалить" }
         overlay.addView(removeControl,FrameLayout.LayoutParams(dp(60),dp(60),Gravity.TOP or Gravity.END).apply { topMargin=dp(126);rightMargin=dp(72) })
@@ -260,7 +260,7 @@ class MainActivity : GameActivity() {
         selectedSwatch=MaterialBlockView(this,selectedSurface)
         selectedSlot.addView(selectedSwatch,FrameLayout.LayoutParams(dp(25),dp(25),Gravity.BOTTOM or Gravity.END))
         // Selection art remains available inside the catalogue, not as a duplicate HUD opener.
-        addControl(spawnActions,"","build") { nativeCommand(200+BuildCatalog.entries[selected].nativeType) }.apply { contentDescription="Установить выбранный предмет" }
+        addControl(spawnActions,"","build") { if(requestedTool==null)nativeCommand(200+BuildCatalog.entries[selected].nativeType) }.apply { contentDescription="Установить выбранный предмет" }
         val turns=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
         addControl(turns,"","left") { nativeCommand(31) }.apply { contentDescription="Повернуть влево" }
         addControl(turns,"","right") { nativeCommand(2) }.apply { contentDescription="Повернуть вправо" }
@@ -373,9 +373,8 @@ class MainActivity : GameActivity() {
     private fun renderTools() {
         weapon.tool=toolsState.tool
         weapon.visibility=if(toolsState.viewmodelVisible&&interactionCode!=4)View.VISIBLE else View.GONE
-        if(!toolsState.spawnVisible && catalogAdapter!=null)closePopup()
         updateSelectedIcon()
-        catalogControl.visibility=if(toolsState.spawnVisible&&interactionCode!=4)View.VISIBLE else View.GONE
+        catalogControl.visibility=if(interactionCode!=4)View.VISIBLE else View.GONE
         spawnActions.visibility=if(toolsState.spawnVisible&&interactionCode!=4)View.VISIBLE else View.GONE
         gravityActions.visibility=if(toolsState.gravityVisible&&interactionCode!=4)View.VISIBLE else View.GONE
         removeControl.visibility=if(toolsState.deleteVisible&&interactionCode!=4)View.VISIBLE else View.GONE
@@ -388,14 +387,29 @@ class MainActivity : GameActivity() {
     private fun selectTool(tool: HandTool) {
         closePopup();requestedTool=tool;toolsState.select(tool);nativeCommand(20+tool.ordinal);renderTools()
     }
-    private fun showBuildCatalog() {
-        val container=panel("Строительство")
+    private fun showBuildCatalog(category: Int = 0) {
+        if(!worldReady || !active || paused || interactionCode==4)return
+        val container=panel("Спавн")
+        val tabs=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
+        listOf("Строительство", "Мебель", "Оружие", "Дроны").forEachIndexed { index, title ->
+            tabs.addView(Button(this).apply { text=title;textSize=10f;isSelected=index==category
+                setTextColor(if(index==category)0xff7dffd2.toInt() else Color.WHITE)
+                setOnClickListener { showBuildCatalog(index) }
+            },LinearLayout.LayoutParams(0,dp(48),1f))
+        }
+        container.addView(tabs)
+        val visibleItems=BuildCatalog.indicesForCategory(category)
+        if(visibleItems.isEmpty()){
+            container.addView(label("В этом разделе пока нет предметов",14f).apply { gravity=Gravity.CENTER },LinearLayout.LayoutParams(-1,0,1f))
+            return
+        }
         val grid=GridView(this).apply { numColumns=4;horizontalSpacing=dp(4);verticalSpacing=dp(4);clipToPadding=false;isMotionEventSplittingEnabled=true }
         val adapter=object : BaseAdapter() {
-            override fun getCount()=items.size
-            override fun getItem(position: Int)=items[position]
-            override fun getItemId(position: Int)=position.toLong()
-            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View = LinearLayout(this@MainActivity).apply {
+            override fun getCount()=visibleItems.size
+            override fun getItem(position: Int)=items[visibleItems[position]]
+            override fun getItemId(position: Int)=visibleItems[position].toLong()
+            override fun getView(row: Int, convertView: View?, parent: ViewGroup): View = LinearLayout(this@MainActivity).apply {
+                val position=visibleItems[row]
                 orientation=LinearLayout.VERTICAL;gravity=Gravity.CENTER
                 contentDescription=items[position];minimumHeight=dp(84)
                 layoutParams=AbsListView.LayoutParams(-1,dp(84))
@@ -413,10 +427,12 @@ class MainActivity : GameActivity() {
             }
         }
         catalogAdapter=adapter;grid.adapter=adapter;container.addView(grid,LinearLayout.LayoutParams(-1,0,1f))
-        grid.setOnItemClickListener { _,_,index,_ ->
-            nativeCommand(100+BuildCatalog.entries[index].nativeType)
+        grid.setOnItemClickListener { _,_,row,_ ->
+            val index=visibleItems[row]
+            requestedTool=HandTool.SPAWN_GUN;toolsState.select(HandTool.SPAWN_GUN)
+            nativeCommand(300+BuildCatalog.entries[index].nativeType)
             pendingSelection=index;selected=index;selectedSurface=BuildCatalog.entries[index].defaultSurface
-            updateSelectedIcon();closePopup()
+            updateSelectedIcon();closePopup();renderTools()
         }
     }
     private fun setPaused(value: Boolean) {
