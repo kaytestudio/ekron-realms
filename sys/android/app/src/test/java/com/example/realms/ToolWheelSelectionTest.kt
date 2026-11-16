@@ -4,16 +4,15 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ToolWheelSelectionTest {
-    @Test fun onlyGravityAndHandsAreEquippable() {
-        assertEquals(listOf(HandTool.GRAVITY_GUN, HandTool.HAND_EMPTY), ToolWheelSelection.tools)
+    @Test fun gravityRemoteAndHandsAreEquippable() {
+        assertEquals(listOf(HandTool.GRAVITY_GUN, HandTool.DRONE_REMOTE, HandTool.HAND_EMPTY), ToolWheelSelection.tools)
         assertFalse(ToolWheelSelection.tools.contains(HandTool.SPAWN_GUN))
         assertFalse(ToolWheelSelection.tools.contains(HandTool.DELETE_TOOL))
     }
-    @Test fun swipeDirectionsMatchHalves() {
+    @Test fun swipeDirectionsMatchThirds() {
         assertEquals(0, ToolWheelSelection.sector(0f, -100f, 20f))
-        assertEquals(0, ToolWheelSelection.sector(87f, -50f, 20f))
-        assertEquals(1, ToolWheelSelection.sector(-87f, 50f, 20f))
-        assertEquals(1, ToolWheelSelection.sector(0f, 100f, 20f))
+        assertEquals(1, ToolWheelSelection.sector(87f, 50f, 20f))
+        assertEquals(2, ToolWheelSelection.sector(-87f, 50f, 20f))
     }
     @Test fun tapAndReturnToCenterCancelSelection() {
         assertNull(ToolWheelSelection.sector(0f, 0f, 20f))

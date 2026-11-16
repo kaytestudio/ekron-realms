@@ -1,6 +1,6 @@
 package com.example.realms
 
-enum class HandTool { HAND_EMPTY, SPAWN_GUN, GRAVITY_GUN, DELETE_TOOL }
+enum class HandTool { HAND_EMPTY, SPAWN_GUN, GRAVITY_GUN, DELETE_TOOL, DRONE_REMOTE }
 
 /** Pure state reducer; held state is confirmed by the native world, never guessed on tap. */
 class ToolState {

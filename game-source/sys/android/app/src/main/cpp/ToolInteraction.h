@@ -5,7 +5,7 @@
 #include "BodyContacts.h"
 #include <optional>
 namespace sandbox {
-enum class HandTool { HAND_EMPTY=0, SPAWN_GUN=1, GRAVITY_GUN=2, DELETE_TOOL=3 };
+enum class HandTool { HAND_EMPTY=0, SPAWN_GUN=1, GRAVITY_GUN=2, DELETE_TOOL=3, DRONE_REMOTE=4 };
 class ToolInteraction {
 public:
  HandTool tool=HandTool::HAND_EMPTY;

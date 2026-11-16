@@ -144,6 +144,7 @@ class MainActivity : GameActivity() {
                         HandTool.SPAWN_GUN -> "Спавн-пушка: ${items[selected]}"
                         HandTool.GRAVITY_GUN -> if(toolsState.holding) "Предмет захвачен" else "Грави-пушка: наведите на свою постройку"
                         HandTool.DELETE_TOOL -> "Удаление своих построек"
+                        HandTool.DRONE_REMOTE -> "Пульт FPV · подключение будет добавлено на следующем этапе"
                     }
                 }
             }
@@ -224,7 +225,7 @@ class MainActivity : GameActivity() {
         val switchWeapon=action("", "switch") {
             if(worldReady && active && !paused) AlertDialog.Builder(this)
                 .setTitle("Выбор инструмента")
-                .setItems(arrayOf("Грави-пушка", "Пустые руки")) { _, index ->
+                .setItems(arrayOf("Грави-пушка", "Пульт FPV", "Пустые руки")) { _, index ->
                     selectTool(ToolWheelSelection.tools[index])
                 }.show()
         }.apply { visualScale=.73f }
@@ -391,7 +392,7 @@ class MainActivity : GameActivity() {
         if(!worldReady || !active || paused || interactionCode==4)return
         val container=panel("Спавн")
         val tabs=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
-        listOf("Строительство", "Мебель", "Оружие", "Дроны").forEachIndexed { index, title ->
+        listOf("Строительство", "Мебель", "Оружие", "FPV Дроны").forEachIndexed { index, title ->
             tabs.addView(Button(this).apply { text=title;textSize=10f;isSelected=index==category
                 setTextColor(if(index==category)0xff7dffd2.toInt() else Color.WHITE)
                 setOnClickListener { showBuildCatalog(index) }
@@ -399,6 +400,11 @@ class MainActivity : GameActivity() {
         }
         container.addView(tabs)
         val visibleItems=BuildCatalog.indicesForCategory(category)
+        if(category==3){
+            container.addView(Button(this).apply { text="Пульт FPV · взять в руки";setOnClickListener { selectTool(HandTool.DRONE_REMOTE) } },LinearLayout.LayoutParams(-1,dp(60)))
+            container.addView(label("FPV-дрон: модель загружена. Установка — следующий этап.",12f))
+            return
+        }
         if(visibleItems.isEmpty()){
             container.addView(label("В этом разделе пока нет предметов",14f).apply { gravity=Gravity.CENTER },LinearLayout.LayoutParams(-1,0,1f))
             return

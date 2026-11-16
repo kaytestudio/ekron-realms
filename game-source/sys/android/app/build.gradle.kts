@@ -12,8 +12,8 @@ android {
         applicationId = "com.example.realms"
         minSdk = 30
         targetSdk = 34
-        versionCode = 40
-        versionName = "0.40-menu-spawn"
+        versionCode = 41
+        versionName = "0.41-fpv-remote"
         externalNativeBuild {
             cmake { cppFlags += "-std=c++17" }
         }

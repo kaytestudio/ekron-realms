@@ -214,6 +214,9 @@ Renderer::Renderer(android_app *app):app_(app),last_(std::chrono::steady_clock::
     result.carValid=city::GltfRenderer::prepare(manager,"models/uaz_469_1973_classic.glb",result.car,result.log,options);
    }
   }
+  city::LoadOptions remoteOptions;remoteOptions.level=false;remoteOptions.buildPhysics=false;remoteOptions.targetExtent=.38f;
+  result.remoteValid=city::GltfRenderer::prepare(manager,"models/chasing_m2_rc_underwater_drone_remote.glb",result.remote,result.log,remoteOptions);
+  if(!result.remoteValid)result.valid=false;
   loadPercent=80;return result;
  });
  glGenVertexArrays(1,&vao_);glGenBuffers(1,&buffer_);glBindVertexArray(vao_);glBindBuffer(GL_ARRAY_BUFFER,buffer_);
@@ -234,6 +237,7 @@ void Renderer::advanceLoading(){
   texturesReady_=textures_.upload(data.textures);
   city_.beginUpload(std::move(data.city));
   if(data.carValid)car_.beginUpload(std::move(data.car));
+  if(data.remoteValid)remote_.beginUpload(std::move(data.remote));
   world_.scenery.clear();world_.walls=city_.scene().colliders;world_.wallSegments=city_.scene().wallSegments;
   savePath_=std::string(app_->activity->internalDataPath)+"/city-glb-v1.txt";
   bool restoredWorld=retainedWorld.has_value();
@@ -251,11 +255,12 @@ void Renderer::advanceLoading(){
  for(int i=0;i<8;i++){
   if(city_.uploading())city_.uploadStep(log);
   if(car_.uploading())car_.uploadStep(log);
+  if(remote_.uploading())remote_.uploadStep(log);
   if(std::chrono::steady_clock::now()-start>std::chrono::milliseconds(4))break;
  }
  if(!log.empty())__android_log_print(ANDROID_LOG_WARN,"Ekron","%s",log.c_str());
  loadPercent=80+int(19*(city_.uploadProgress()+car_.uploadProgress())*.5f);
- if(!city_.uploading()&&!car_.uploading()){
+ if(!city_.uploading()&&!car_.uploading()&&!remote_.uploading()){
   if(!city_.ready()){loadStage=-1;return;}
   loadPercent=99;loadStage=5;
  }
@@ -267,7 +272,7 @@ Renderer::~Renderer(){
  if(saveJob_.valid())saveJob_.get();
  if(saveDirty_)world_.save(savePath_);
  if(assetsInstalled_){retainedWorld=world_;retainedTool=tools_.tool;retainedFlying=flying_;}
- if(display_!=EGL_NO_DISPLAY){if(context_!=EGL_NO_CONTEXT&&surface_!=EGL_NO_SURFACE&&eglMakeCurrent(display_,surface_,surface_,context_)){car_.release();city_.release();textures_.release();if(skyProgram_)glDeleteProgram(skyProgram_);if(buffer_)glDeleteBuffers(1,&buffer_);if(vao_)glDeleteVertexArrays(1,&vao_);if(program_)glDeleteProgram(program_);}eglMakeCurrent(display_,EGL_NO_SURFACE,EGL_NO_SURFACE,EGL_NO_CONTEXT);if(context_!=EGL_NO_CONTEXT)eglDestroyContext(display_,context_);if(surface_!=EGL_NO_SURFACE)eglDestroySurface(display_,surface_);eglTerminate(display_);}
+ if(display_!=EGL_NO_DISPLAY){if(context_!=EGL_NO_CONTEXT&&surface_!=EGL_NO_SURFACE&&eglMakeCurrent(display_,surface_,surface_,context_)){remote_.release();car_.release();city_.release();textures_.release();if(skyProgram_)glDeleteProgram(skyProgram_);if(buffer_)glDeleteBuffers(1,&buffer_);if(vao_)glDeleteVertexArrays(1,&vao_);if(program_)glDeleteProgram(program_);}eglMakeCurrent(display_,EGL_NO_SURFACE,EGL_NO_SURFACE,EGL_NO_CONTEXT);if(context_!=EGL_NO_CONTEXT)eglDestroyContext(display_,context_);if(surface_!=EGL_NO_SURFACE)eglDestroySurface(display_,surface_);eglTerminate(display_);}
 }
 void Renderer::resetInput(){verticalInput=0;leftId_=rightId_=-1;moveX_=moveY_=0;last_=std::chrono::steady_clock::now();}
 void Renderer::handleInput(){
@@ -292,7 +297,7 @@ void Renderer::handleInput(){
   }
   if(seatedCar_>=0)continue;
 
-  if(command>=20&&command<=23){tools_.select(world_,static_cast<sandbox::HandTool>(command-20));building_=tools_.tool==sandbox::HandTool::SPAWN_GUN;rebuildBuiltCollision();}
+  if(command>=20&&command<=24){tools_.select(world_,static_cast<sandbox::HandTool>(command-20));building_=tools_.tool==sandbox::HandTool::SPAWN_GUN;rebuildBuiltCollision();}
   else if(command==34&&carParkingValid_){
    tools_.cancel(world_);
    auto parkingWorld=world_;auto previous=std::find_if(parkingWorld.objects.begin(),parkingWorld.objects.end(),[](const sandbox::Object&o){return o.type==8;});
@@ -306,7 +311,7 @@ void Renderer::handleInput(){
   }
   else if(command==35)respawnPlayer();
   else if(command>=300&&command<=312){
-   if(!building_)spawnReturnTool_=tools_.tool==sandbox::HandTool::GRAVITY_GUN?sandbox::HandTool::GRAVITY_GUN:sandbox::HandTool::HAND_EMPTY;
+   if(!building_)spawnReturnTool_=(tools_.tool==sandbox::HandTool::GRAVITY_GUN||tools_.tool==sandbox::HandTool::DRONE_REMOTE)?tools_.tool:sandbox::HandTool::HAND_EMPTY;
    tools_.select(world_,sandbox::HandTool::SPAWN_GUN);building_=true;
    world_.selected=command-300;world_.surface=sandbox::World::fixedSurface(world_.selected);
    placementPreview_.reset();rebuildBuiltCollision();
@@ -457,6 +462,18 @@ void Renderer::render(){
   }
   glDisable(GL_BLEND);glDepthMask(GL_TRUE);glUniform1i(glGetUniformLocation(program_,"previewPass"),0);
   glUniformMatrix4fv(glGetUniformLocation(program_,"objectTransform"),1,GL_FALSE,identity);
+ }
+ // Viewmodel uses camera-local coordinates and its own depth range, not a
+ // world object: it cannot collide with a wall or drift when looking around.
+ if(gameplayReady&&tools_.tool==sandbox::HandTool::DRONE_REMOTE&&remote_.ready()&&seatedCar_<0){
+  glClear(GL_DEPTH_BUFFER_BIT);
+  glUniform3f(glGetUniformLocation(program_,"eye"),0,0,0);
+  glUniform2f(glGetUniformLocation(program_,"angles"),0,0);
+  const auto&lo=remote_.scene().minimum;const auto&hi=remote_.scene().maximum;
+  float x=-(lo[0]+hi[0])*.5f,y=-.18f-(lo[1]+hi[1])*.5f,z=-.55f-(lo[2]+hi[2])*.5f;
+  float transform[16]={1,0,0,0,0,1,0,0,0,0,1,0,x,y,z,1};
+  glUniformMatrix4fv(glGetUniformLocation(program_,"objectTransform"),1,GL_FALSE,transform);
+  remote_.draw(program_,0,0);
  }
  if(eglSwapBuffers(display_,surface_)==EGL_TRUE){
   {std::lock_guard<std::mutex> lock(snapshotMutex);snapshot={world_.x,world_.y,world_.z,flying_?1.f:0.f};}
