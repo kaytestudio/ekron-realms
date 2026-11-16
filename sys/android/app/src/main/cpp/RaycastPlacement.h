@@ -73,6 +73,10 @@ public:
    }
    if(!foundFit)return {};
   }
+  if(hit.normal.y>.64f){
+   candidate.y+=.5f;candidate.anchored=false;
+   if(!valid(w,candidate,city,built,lo,hi))return {};
+  }
   return candidate;
  }
 };

@@ -27,9 +27,9 @@ city::Scene scene;std::string log;assert(!scene.load("/missing.glb",read,log));l
  assert(scene.fenceBarriers&&scene.fenceBarriers->size()>0);
  std::cout<<"City player-only fence barrier triangles: "<<scene.fenceBarriers->size()<<"\n";
  size_t opaqueTriangles=0;
- for(const auto &batch:scene.batches)if(batch.material<0||scene.materials[batch.material].alphaMode==0)opaqueTriangles+=batch.vertices.size()/3;
- assert(scene.collision&&scene.collision->size()>opaqueTriangles);
- std::cout<<"City alpha fence collision cells: "<<scene.collision->size()-opaqueTriangles<<"\n";
+ for(const auto &batch:scene.batches)if(!batch.decorativeWire&&(batch.material<0||scene.materials[batch.material].alphaMode==0))opaqueTriangles+=batch.vertices.size()/3;
+ assert(scene.collision&&scene.collision->size()>opaqueTriangles);int wires=0;for(const auto&batch:scene.batches)if(batch.decorativeWire)wires++;assert(wires==7);
+ std::cout<<"City additional solid fence triangles: "<<scene.collision->size()-opaqueTriangles<<"\n";
  world.x=-3.4f;world.z=32.7f;
  assert(!world.blocked({world.x,0,world.z,.85f,2,.85f,0,0,0}));
  city::SpawnPoint screenshot;assert(city::findRoadSpawn(world,scene.minimum,scene.maximum,-3.4f,32.7f,screenshot));
@@ -42,11 +42,11 @@ city::Scene scene;std::string log;assert(!scene.load("/missing.glb",read,log));l
  city::SpawnPoint anchor;assert(city::findRoadSpawn(world,scene.minimum,scene.maximum,0,28,anchor));
  std::cout<<"reachable "<<anchor.reachableCells<<std::endl;assert(anchor.reachableCells>=64);world.x=anchor.x;world.z=anchor.z;
  float carX=0,carZ=0;assert(city::findCarParking(world,scene.minimum,scene.maximum,anchor.x+3,anchor.z-9,carX,carZ));
- city::LoadOptions options;options.level=false;options.targetExtent=4.3f;options.x=carX;options.z=carZ;options.yaw=1.57079632679f;
- city::Scene car;std::string carLog;assert(car.load("aiprintgen_Crushed Sports Car 3D Model-preview (1).glb",read,carLog,options));
- assert(car.batches.size()==1&&car.materials.size()==1&&car.images.size()==1);
- assert(std::abs(car.maximum[2]-car.minimum[2]-4.3f)<.001f);
- assert(car.maximum[0]-car.minimum[0]<2.f&&car.maximum[1]<1.5f&&car.minimum[1]==0);
+ city::LoadOptions options;options.level=false;options.targetExtent=4.025f;options.x=carX;options.z=carZ;options.yaw=1.57079632679f;
+ city::Scene car;std::string carLog;assert(car.load("sys/android/app/src/main/assets/models/uaz_469_1973_classic.glb",read,carLog,options));
+ assert(!car.batches.empty()&&!car.materials.empty()&&!car.images.empty());
+ assert(std::abs(car.maximum[0]-car.minimum[0]-4.025f)<.001f);
+ assert(car.maximum[2]-car.minimum[2]<2.f&&car.maximum[1]<2.1f&&car.minimum[1]==0);
  assert(car.colliders.size()==1&&car.colliders[0].h<=1.2f);
  // Replacement UAZ must decode with all embedded textures and retain upright ground placement.
  city::Scene uaz;std::string uazLog;options.targetExtent=4.025f;options.y=-1.25f;
@@ -63,9 +63,9 @@ city::Scene scene;std::string log;assert(!scene.load("/missing.glb",read,log));l
  city::SpawnPoint finalSpawn;assert(city::findRoadSpawn(world,scene.minimum,scene.maximum,0,28,finalSpawn));
  assert(!world.blocked({finalSpawn.x,0,finalSpawn.z,3,2,3,0,0,0}));
  assert(finalSpawn.reachableCells>anchor.reachableCells*.85f); // Car must not sever the street.
- world.x=carX-1.25f;world.z=carZ;world.yaw=0;
+ world.x=carX-2.8f;world.z=carZ;world.yaw=0;
  assert(!world.blocked({world.x,0,world.z,.6f,2,.6f,0,0,0}));
  for(int i=0;i<100;i++)world.move(1,0,.016f);
- assert(world.x<carX-1.15f); // Actual movement stops at the car, not just a box-query test.
+ assert(world.x<carX-2.2f); // Actual movement stops at the car, not just a box-query test.
  std::cout<<"New spawn "<<finalSpawn.x<<' '<<finalSpawn.z<<"; connected cells "<<finalSpawn.reachableCells<<"; car "<<carX<<' '<<carZ<<"; car height "<<car.maximum[1]<<std::endl;
 }

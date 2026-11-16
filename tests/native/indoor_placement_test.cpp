@@ -33,11 +33,11 @@ int main(){
  sandbox::Object base{1,0,0,-3};w.objects.push_back(base);auto bb=sandbox::World::bounds(base);
  built.addBox({bb.x-bb.w/2,bb.y-bb.h/2,bb.z-bb.d/2},{bb.x+bb.w/2,bb.y+bb.h/2,bb.z+bb.d/2});built.build();
  w.selected=5;w.pitch=-std::atan2(1.7f-.18f,3.f);auto stacked=sandbox::RaycastPlacement::preview(w,room,built,lo,hi);assert(stacked);
- assert(std::abs(stacked->y-.18f)<.001f);w.objects.clear();
+ assert(std::abs(stacked->y-.68f)<.001f);w.objects.clear();
  // Upper floor never snaps to the ground floor after placing a construction block.
  CollisionMesh floors,empty;floors.addBox({-8,-.2f,-8},{8,0,8});floors.addBox({-8,3.8f,-8},{8,4,8});floors.addBox({-8,7,-8},{8,7.2f,8});floors.build();empty.build();
  w.y=5.7f;w.selected=1;w.pitch=-.65f;auto upstairs=sandbox::RaycastPlacement::preview(w,floors,empty,lo,hi);assert(upstairs);
- assert(std::abs(upstairs->y-4)<.001f);w.objects.push_back(*upstairs);
+ assert(std::abs(upstairs->y-4.5f)<.001f);w.objects.push_back(*upstairs);
  for(int i=0;i<300;i++)physics.update(w,floors,1.f/120,-1,lo,hi);
  assert(w.objects[0].y>3.99f);
  const char*path="/tmp/ekron-material-save.txt";

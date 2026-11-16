@@ -191,7 +191,9 @@ bool Scene::load(const std::string &path,const ReadFile &read,std::string &diagn
     Access positions(model,p.attributes.at("POSITION"));if(positions.channels!=3)throw std::runtime_error("POSITION must be VEC3");
     std::optional<Access> normals,uv,indices;if(p.attributes.count("NORMAL"))normals.emplace(model,p.attributes.at("NORMAL"));if(p.attributes.count("TEXCOORD_0"))uv.emplace(model,p.attributes.at("TEXCOORD_0"));if(p.indices>=0)indices.emplace(model,p.indices);
     size_t count=indices?indices->a.count:positions.a.count;if(count%3||vertexCount+count>6000000)throw std::runtime_error("Invalid or excessive triangle count");vertexCount+=count;
-    Batch batch;batch.material=p.material;batch.vertices.reserve(count);
+    Batch batch;
+    if(options.level)for(const char*wire:{"Plane.009_","Plane.010_","Plane.011_","Plane.012_","Plane.013_","Plane.014_","Plane.015_"})if(node.name.rfind(wire,0)==0)batch.decorativeWire=true;
+    batch.material=p.material;batch.vertices.reserve(count);
     Material original=batch.material>=0?result.materials.at(batch.material):Material{};
     auto style=sandbox::materialForName(node.name+" "+model.meshes.at(node.mesh).name);
     if(original.image<0&&style.layer!=sandbox::Plain){
