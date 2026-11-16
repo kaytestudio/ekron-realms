@@ -39,9 +39,11 @@ public:
       if(broadphase_.solid(w,j).groundContact(x,z,top,bottom,hit,true))height=std::max(height,hit.position.y);}
      return height;
     };
-    recoverCityContact(o,mesh);
+    // Sleeping support validation is read-only. Previously every validation
+    // also ran depenetration/impulses, moving an otherwise resting body upward.
+    if(o.awake)recoverCityContact(o,mesh);
     std::vector<physics::Vec3>citySupport;
-    bool cityWall=solveCityContactVelocities(o,mesh,&citySupport);
+    bool cityWall=o.awake?solveCityContactVelocities(o,mesh,&citySupport):false;
     Object beforeStep=o;
     auto b=World::bounds(o);physics::Vec3 half{b.w/2,b.h/2,b.d/2};
     auto radius=[&](){return std::abs(std::sin(o.tiltZ))*half.x+std::abs(std::cos(o.tiltZ)*std::cos(o.tiltX))*half.y+std::abs(std::cos(o.tiltZ)*std::sin(o.tiltX))*half.z;};

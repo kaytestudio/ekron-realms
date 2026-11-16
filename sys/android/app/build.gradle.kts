@@ -12,8 +12,8 @@ android {
         applicationId = "com.example.realms"
         minSdk = 30
         targetSdk = 34
-        versionCode = 41
-        versionName = "0.41-fpv-remote"
+        versionCode = 42
+        versionName = "0.42-fpv-flight-contacts"
         externalNativeBuild {
             cmake { cppFlags += "-std=c++17" }
         }

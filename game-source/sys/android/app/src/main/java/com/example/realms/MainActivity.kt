@@ -39,6 +39,11 @@ class MainActivity : GameActivity() {
     private external fun nativeMove(right: Float, forward: Float)
     private external fun nativeLook(dx: Float, dy: Float)
     private lateinit var lookArea: LookView
+    private lateinit var fpvLayer: FrameLayout
+    private lateinit var fpvControls: FpvControlView
+    private lateinit var dronePlace: HudButton
+    private var droneState=0
+    private val normalHudVisibility=mutableMapOf<View,Int>()
     private var paused = false
     private var worldReady = false
     private var flyingNow = false
@@ -102,7 +107,7 @@ class MainActivity : GameActivity() {
                         if(pendingSurface==null && nativeSurface in listOf(1,2,3,5,6))selectedSurface=nativeSurface
                     }
                     if(state.size>=12){interactionCode=state[11].toInt();interactionControl.visibility=if(interactionCode>0)View.VISIBLE else View.GONE
-                        interactionControl.caption=when(interactionCode){1->"Открыть";2->"Закрыть";3->"Сесть";4->"Выйти";else->""}
+                        interactionControl.caption=when(interactionCode){6->"Подключиться";1->"Открыть";2->"Закрыть";3->"Сесть";4->"Выйти";else->""}
                         interactionControl.contentDescription=interactionControl.caption;interactionControl.invalidate()
                     }
                     if(state.size>=13){freezeControl.caption=if(state[12]>.5f) "Разморозить" else "Заморозить";freezeControl.contentDescription=freezeControl.caption;freezeControl.invalidate()}
@@ -145,6 +150,26 @@ class MainActivity : GameActivity() {
                         HandTool.GRAVITY_GUN -> if(toolsState.holding) "Предмет захвачен" else "Грави-пушка: наведите на свою постройку"
                         HandTool.DELETE_TOOL -> "Удаление своих построек"
                         HandTool.DRONE_REMOTE -> "Пульт FPV · подключение будет добавлено на следующем этапе"
+                    }
+                }
+            }
+            if(state.size>=14 && ::fpvLayer.isInitialized){
+                droneState=state[13].toInt()
+                dronePlace.visibility=if(droneState==1)View.VISIBLE else View.GONE
+                val fpv=droneState>=3
+                if(fpv){
+                    if(normalHudVisibility.isEmpty()){
+                        closePopup();toolWheel.cancel();joystick.reset();lookArea.reset()
+                        for(i in 0 until hud.childCount){val child=hud.getChildAt(i);if(child!==fpvLayer)normalHudVisibility[child]=child.visibility}
+                        Toast.makeText(this@MainActivity,"Слева — движение. Справа — высота и поворот. × — выход.",Toast.LENGTH_LONG).show()
+                    }
+                    for(i in 0 until hud.childCount){val child=hud.getChildAt(i);if(child!==fpvLayer)child.visibility=View.INVISIBLE}
+                    fpvLayer.visibility=View.VISIBLE;fpvLayer.bringToFront()
+                }else {
+                    fpvLayer.visibility=View.GONE
+                    if(normalHudVisibility.isNotEmpty()){
+                        fpvControls.reset();normalHudVisibility.forEach { (view,visibility)->view.visibility=visibility };normalHudVisibility.clear();renderTools()
+                        dronePlace.visibility=if(droneState==1)View.VISIBLE else View.GONE
                     }
                 }
             }
@@ -272,7 +297,7 @@ class MainActivity : GameActivity() {
         toolActions.addView(spawnActions)
         toolActions.addView(gravityActions)
         overlay.addView(toolActions,FrameLayout.LayoutParams(-2,-2,Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin=dp(8) })
-        interactionControl=action("Открыть","grab") { nativeCommand(36) }.apply { visibility=View.GONE }
+        interactionControl=action("Открыть","grab") { nativeCommand(if(interactionCode==6)43 else 36) }.apply { visibility=View.GONE }
         overlay.addView(interactionControl,FrameLayout.LayoutParams(dp(80),dp(60),Gravity.BOTTOM or Gravity.END).apply { bottomMargin=dp(8);rightMargin=dp(76) })
         renderTools()
         // Flight is now in the pause menu; its altitude controls do not cover the action column.
@@ -332,6 +357,13 @@ class MainActivity : GameActivity() {
                 }
             }
         }
+        dronePlace=action("Поставить дрон","build") { nativeCommand(41) }.apply { visibility=View.GONE }
+        overlay.addView(dronePlace,FrameLayout.LayoutParams(dp(90),dp(70),Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin=dp(10) })
+        fpvLayer=FrameLayout(this).apply { visibility=View.GONE;isMotionEventSplittingEnabled=true }
+        fpvControls=FpvControlView(this,{r,f->nativeMove(r,f)},{nativeVertical(it)},{x,y->nativeLook(x,y)})
+        fpvLayer.addView(fpvControls,FrameLayout.LayoutParams(-1,-1))
+        fpvLayer.addView(action("","remove") { fpvControls.reset();nativeCommand(42) }.apply { contentDescription="Выйти из FPV" },FrameLayout.LayoutParams(dp(60),dp(60),Gravity.TOP or Gravity.END).apply { topMargin=dp(8);rightMargin=dp(8) })
+        overlay.addView(fpvLayer,FrameLayout.LayoutParams(-1,-1))
         addContentView(overlay, ViewGroup.LayoutParams(-1, -1))
         hideSystemUi()
         catalogExecutor.execute {
@@ -402,7 +434,7 @@ class MainActivity : GameActivity() {
         val visibleItems=BuildCatalog.indicesForCategory(category)
         if(category==3){
             container.addView(Button(this).apply { text="Пульт FPV · взять в руки";setOnClickListener { selectTool(HandTool.DRONE_REMOTE) } },LinearLayout.LayoutParams(-1,dp(60)))
-            container.addView(label("FPV-дрон: модель загружена. Установка — следующий этап.",12f))
+            container.addView(Button(this).apply { text="FPV-дрон · достать и поставить";setOnClickListener { nativeCommand(40);closePopup() } },LinearLayout.LayoutParams(-1,dp(60)))
             return
         }
         if(visibleItems.isEmpty()){
@@ -467,6 +499,7 @@ class MainActivity : GameActivity() {
     }
     override fun onPause() {
         if(::toolWheel.isInitialized)toolWheel.cancel()
+        if(::fpvControls.isInitialized)fpvControls.reset()
         closePopup();weapon.running=false
         active = false; nativeReady(false)
         if (::joystick.isInitialized) joystick.reset();if (::lookArea.isInitialized)lookArea.reset()

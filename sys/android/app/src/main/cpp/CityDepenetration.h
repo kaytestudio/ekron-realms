@@ -3,10 +3,15 @@
 #include "RigidContactMath.h"
 namespace sandbox {
 struct TriangleContact {physics::Vec3 normal{},point{};float depth=0;};
-inline bool bodyTriangleContact(const Object&o,const physics::Triangle&t,TriangleContact&contact,float skin=0){
- physics::Vec3 p[8],centre{};int i=0;
- for(float x:{-1.f,1.f})for(float y:{-1.f,1.f})for(float z:{-1.f,1.f}){p[i]=bodyContactPoint(o,x,y,z);centre=centre+p[i++];}
- centre=centre*.125f;physics::Vec3 axes[3]={physics::normalized(p[4]-p[0]),physics::normalized(p[2]-p[0]),physics::normalized(p[1]-p[0])};
+struct CityBodyFrame {
+ physics::Vec3 p[8],centre{},axes[3];
+ explicit CityBodyFrame(const Object&o){int i=0;
+  for(float x:{-1.f,1.f})for(float y:{-1.f,1.f})for(float z:{-1.f,1.f}){p[i]=bodyContactPoint(o,x,y,z);centre=centre+p[i++];}
+  centre=centre*.125f;axes[0]=physics::normalized(p[4]-p[0]);axes[1]=physics::normalized(p[2]-p[0]);axes[2]=physics::normalized(p[1]-p[0]);
+ }
+};
+inline bool frameTriangleContact(const CityBodyFrame&frame,const physics::Triangle&t,TriangleContact&contact,float skin=0){
+ const auto&p=frame.p;const auto&axes=frame.axes;auto centre=frame.centre;
  physics::Vec3 edges[3]={t.b-t.a,t.c-t.b,t.a-t.c};auto n=physics::normalized(physics::cross(edges[0],edges[1]));
  auto overlaps=[&](physics::Vec3 axis){if(physics::length(axis)<1e-6f)return true;axis=physics::normalized(axis);float low=1e9f,high=-1e9f;
   for(auto point:p){float v=physics::dot(point,axis);low=std::min(low,v);high=std::max(high,v);}
@@ -21,12 +26,13 @@ inline bool bodyTriangleContact(const Object&o,const physics::Triangle&t,Triangl
  for(auto point:p)if(physics::dot(point-t.a,n)<bottom+.01f){support=support+point;count++;}
  contact={n,physics::closestTriangle(support*(1.f/count),t),-bottom};return skin>0?contact.depth>=-skin:contact.depth>.003f;
 }
+inline bool bodyTriangleContact(const Object&o,const physics::Triangle&t,TriangleContact&c,float skin=0){return frameTriangleContact(CityBodyFrame(o),t,c,skin);}
 inline float recoverCityContact(Object&o,const physics::CollisionMesh&mesh){
  float total=0;
  for(int iteration=0;iteration<8&&total<.24f;iteration++){
   physics::Bounds area;for(float x:{-1.f,1.f})for(float y:{-1.f,1.f})for(float z:{-1.f,1.f})area.add(bodyContactPoint(o,x,y,z));
-  TriangleContact deepest;
-  mesh.query(area,[&](const physics::Triangle&t){TriangleContact candidate;if(bodyTriangleContact(o,t,candidate)&&candidate.depth>deepest.depth)deepest=candidate;});
+  CityBodyFrame frame(o);TriangleContact deepest;
+  mesh.query(area,[&](const physics::Triangle&t){TriangleContact candidate;if(frameTriangleContact(frame,t,candidate)&&candidate.depth>deepest.depth)deepest=candidate;});
   if(deepest.depth<=.003f)break;
   float correction=std::min({deepest.depth+.001f,.08f,.24f-total});
   auto delta=deepest.normal*correction;
@@ -39,36 +45,48 @@ inline float recoverCityContact(Object&o,const physics::CollisionMesh&mesh){
 inline bool solveCityContactVelocities(Object&o,const physics::CollisionMesh&mesh,std::vector<physics::Vec3>*support=nullptr){
  physics::Bounds area;for(float x:{-1.f,1.f})for(float y:{-1.f,1.f})for(float z:{-1.f,1.f})area.add(bodyContactPoint(o,x,y,z));
  area.lo=area.lo-physics::Vec3{.008f,.008f,.008f};area.hi=area.hi+physics::Vec3{.008f,.008f,.008f};
- std::vector<TriangleContact>contacts;bool wall=false;
+ CityBodyFrame frame(o);std::vector<TriangleContact>contacts;contacts.reserve(32);bool wall=false;
  mesh.query(area,[&](const physics::Triangle&t){
-  TriangleContact contact;if(!bodyTriangleContact(o,t,contact,.008f))return;
+  TriangleContact contact;if(!frameTriangleContact(frame,t,contact,.008f))return;
   if(std::abs(contact.normal.y)<.64f)wall=true;
   // Clip the triangle against all six box planes. A single projected face
   // centre is not a contact manifold: near a pit seam it can lie outside the
   // actual overlap and inject a fresh rocking impulse every step.
-  auto origin=bodyContactPoint(o,-1,-1,-1);
-  physics::Vec3 edges[]={bodyContactPoint(o,1,-1,-1)-origin,bodyContactPoint(o,-1,1,-1)-origin,bodyContactPoint(o,-1,-1,1)-origin};
-  std::vector<physics::Vec3> polygon{t.a,t.b,t.c};
+  auto origin=frame.p[0];
+  physics::Vec3 edges[]={frame.p[4]-origin,frame.p[2]-origin,frame.p[1]-origin};
+  std::array<physics::Vec3,16> polygon{},next{};size_t count=3;polygon[0]=t.a;polygon[1]=t.b;polygon[2]=t.c;
   for(auto edge:edges){float extent=physics::length(edge);auto axis=edge*(1/extent);
-   for(int side:{-1,1}){std::vector<physics::Vec3> next;
+   for(int side:{-1,1}){size_t size=0;
     auto distance=[&](physics::Vec3 p){float value=physics::dot(p-origin,axis);return side<0?-value-.008f:value-extent-.008f;};
-    for(size_t i=0;i<polygon.size();i++){auto a=polygon[i],b=polygon[(i+1)%polygon.size()];float da=distance(a),db=distance(b);
-     if(da<=0)next.push_back(a);
-     if((da<0)!=(db<0))next.push_back(a+(b-a)*(da/(da-db)));
-    }polygon=std::move(next);
+    for(size_t i=0;i<count;i++){auto a=polygon[i],b=polygon[(i+1)%count];float da=distance(a),db=distance(b);
+     if(da<=0)next[size++]=a;
+     if((da<0)!=(db<0))next[size++]=a+(b-a)*(da/(da-db));
+    }polygon=next;count=size;
    }
   }
-  for(auto point:polygon){auto c=contact;c.point=point;contacts.push_back(c);}
+  for(size_t i=0;i<count;i++){auto point=polygon[i];bool duplicate=false;
+   for(const auto&c:contacts)if(physics::dot(c.normal,contact.normal)>.9999f&&physics::length(c.point-point)<.003f){duplicate=true;break;}
+   if(!duplicate){auto c=contact;c.point=point;contacts.push_back(c);}
+  }
  });
  if(support)for(const auto&c:contacts)if(c.normal.y>.64f)support->push_back(c.point);
  auto bounds=World::bounds(o);ContactInertia inertia(o);auto material=contactMaterial(o);
- for(int pass=0;pass<24;pass++)for(size_t k=0;k<contacts.size();k++){
-  auto&contact=contacts[pass%2?contacts.size()-1-k:k];float normal=resolveStaticImpact(o,contact.point,contact.normal,0);
-  if(normal<=0)continue;
-  auto r=contact.point-physics::Vec3{bounds.x,bounds.y,bounds.z};auto v=inertia.velocity(o,r);auto tangent=v-contact.normal*physics::dot(v,contact.normal);float speed=physics::length(tangent);
-  if(speed<1e-7f)continue;
-  auto direction=tangent*(1/speed);float impulse=std::min(speed/inertia.denominator(r,direction),material.staticFriction*normal);
-  inertia.apply(o,r,direction*(-impulse));
+ std::vector<float> normalImpulse(contacts.size(),0);std::vector<physics::Vec3>frictionImpulse(contacts.size());
+ for(int pass=0;pass<48;pass++){float largestChange=0;for(size_t k=0;k<contacts.size();k++){
+  size_t i=pass%2?contacts.size()-1-k:k;const auto&contact=contacts[i];
+  auto r=contact.point-physics::Vec3{bounds.x,bounds.y,bounds.z};
+  float incoming=physics::dot(inertia.velocity(o,r),contact.normal);
+  float nextNormal=std::max(0.f,normalImpulse[i]-incoming/inertia.denominator(r,contact.normal));
+  largestChange=std::max(largestChange,std::abs(nextNormal-normalImpulse[i]));
+  inertia.apply(o,r,contact.normal*(nextNormal-normalImpulse[i]));normalImpulse[i]=nextNormal;
+  auto v=inertia.velocity(o,r);auto tangent=v-contact.normal*physics::dot(v,contact.normal);float speed=physics::length(tangent);
+  auto candidate=frictionImpulse[i];if(speed>1e-7f){auto direction=tangent*(1/speed);candidate=candidate-direction*(speed/inertia.denominator(r,direction));}
+  float size=physics::length(candidate),limit=material.staticFriction*nextNormal;
+  if(size>limit&&size>1e-9f)candidate=candidate*(limit/size);
+  largestChange=std::max(largestChange,physics::length(candidate-frictionImpulse[i]));
+  inertia.apply(o,r,candidate-frictionImpulse[i]);frictionImpulse[i]=candidate;
+ }
+ if(largestChange<1e-5f)break;
  }
  return wall;
 }
