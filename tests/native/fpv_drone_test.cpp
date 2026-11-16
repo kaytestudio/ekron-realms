@@ -37,6 +37,12 @@ int main(){
  assert(d.mode==d.Hover&&physics::length(d.position-physics::Vec3{0,1.25f,-.9f})<.1f);
  assert(!d.take({1.05f,1.7f,0},0,city,built));
 
+ // Free camera look must not change flight attitude or position.
+ sandbox::FpvDrone viewer;viewer.mode=viewer.Flying;viewer.position={0,3,0};auto eyeBefore=viewer.feedEye();
+ viewer.look(100,-100);assert(viewer.feedPitch()>.3f&&viewer.feedYaw()<-.3f);
+ assert(viewer.pitch==0&&viewer.yaw==0&&physics::length(viewer.feedEye()-eyeBefore)<1e-6f);
+ viewer.look(0,10000);assert(viewer.feedPitch()>=-1.3f);
+ viewer.mode=viewer.Hover;float cameraPitch=viewer.feedPitch();viewer.look(0,100);assert(viewer.feedPitch()==cameraPitch);
  // The two sticks have independent axes: yaw/throttle never become strafe.
  sandbox::FpvDrone radio;radio.mode=radio.Flying;radio.position={-5,3,-5};
  for(int i=0;i<100;i++)radio.update(.01f,0,0,1,1,0,city,built);

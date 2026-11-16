@@ -229,7 +229,7 @@ Renderer::Renderer(android_app *app):app_(app),last_(std::chrono::steady_clock::
   }
   city::LoadOptions remoteOptions;remoteOptions.level=false;remoteOptions.buildPhysics=false;remoteOptions.targetExtent=.38f;
   result.remoteValid=city::GltfRenderer::prepare(manager,"models/chasing_m2_rc_underwater_drone_remote.glb",result.remote,result.log,remoteOptions);
-  remoteOptions.targetExtent=.38f;
+  remoteOptions.targetExtent=.50f;
   result.droneValid=city::GltfRenderer::prepare(manager,"models/fpv_drone.glb",result.drone,result.log,remoteOptions);
   if(!result.remoteValid||!result.droneValid)result.valid=false;
   loadPercent=80;return result;
@@ -293,7 +293,7 @@ Renderer::~Renderer(){
 }
 void Renderer::resetInput(){verticalInput=0;leftId_=rightId_=-1;moveX_=moveY_=0;last_=std::chrono::steady_clock::now();}
 void Renderer::handleInput(){
- std::vector<int> pending;{std::lock_guard<std::mutex> lock(commandMutex);pending.swap(commands);if(gameplayReady){if(!drone_.piloting()){world_.yaw-=lookDx*.004f;world_.pitch=std::clamp(world_.pitch-lookDy*.004f,-1.3f,1.3f);}}lookDx=lookDy=0;}
+ std::vector<int> pending;{std::lock_guard<std::mutex> lock(commandMutex);pending.swap(commands);if(gameplayReady){if(drone_.mode==sandbox::FpvDrone::Flying)drone_.look(lookDx,lookDy);else if(!drone_.piloting()){world_.yaw-=lookDx*.004f;world_.pitch=std::clamp(world_.pitch-lookDy*.004f,-1.3f,1.3f);}}lookDx=lookDy=0;}
  if(!gameplayReady){pending.clear();resetInput();drone_.leave();droneThrottle=droneYawInput=dronePitchInput=droneRollInput=0;}
  if(roadJob_.valid()&&roadJob_.wait_for(std::chrono::seconds(0))==std::future_status::ready){
   auto point=roadJob_.get();if(point){world_.x=(*point)[0];world_.z=(*point)[1];
@@ -557,7 +557,7 @@ void Renderer::render(){
   glEnable(GL_SCISSOR_TEST);glScissor(monitorX-3,monitorY-3,monitorWidth+6,monitorHeight+6);
   glClearColor(.12f,.65f,.58f,1);glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
   glScissor(monitorX,monitorY,monitorWidth,monitorHeight);
-  drawWorld(drone_.feedEye(),drone_.yaw,drone_.pitch,drone_.roll,monitorX,monitorY,monitorWidth,monitorHeight);
+  drawWorld(drone_.feedEye(),drone_.feedYaw(),drone_.feedPitch(),drone_.roll,monitorX,monitorY,monitorWidth,monitorHeight);
   glDisable(GL_SCISSOR_TEST);glViewport(0,0,width_,height_);
  }
  if(eglSwapBuffers(display_,surface_)==EGL_TRUE){

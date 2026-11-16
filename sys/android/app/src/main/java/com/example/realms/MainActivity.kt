@@ -151,7 +151,7 @@ class MainActivity : GameActivity() {
                         HandTool.SPAWN_GUN -> "Спавн-пушка: ${items[selected]}"
                         HandTool.GRAVITY_GUN -> if(toolsState.holding) "Предмет захвачен" else "Грави-пушка: наведите на свою постройку"
                         HandTool.DELETE_TOOL -> "Удаление своих построек"
-                        HandTool.DRONE_REMOTE -> "Пульт FPV · подключение будет добавлено на следующем этапе"
+                        HandTool.DRONE_REMOTE -> "Пульт FPV · подключение к дрону"
                     }
                 }
             }
@@ -366,7 +366,7 @@ class MainActivity : GameActivity() {
         dronePlace=action("Поставить дрон","build") { nativeCommand(41) }.apply { visibility=View.GONE }
         overlay.addView(dronePlace,FrameLayout.LayoutParams(dp(90),dp(70),Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin=dp(10) })
         fpvLayer=FrameLayout(this).apply { visibility=View.GONE;isMotionEventSplittingEnabled=true }
-        fpvControls=FpvControlView(this){throttle,yaw,pitch,roll->nativeDroneInput(throttle,yaw,pitch,roll)}
+        fpvControls=FpvControlView(this,{throttle,yaw,pitch,roll->nativeDroneInput(throttle,yaw,pitch,roll)},{x,y->nativeLook(x,y)})
         fpvLayer.addView(fpvControls,FrameLayout.LayoutParams(-1,-1))
         fpvLayer.addView(action("","remove") { fpvControls.reset();nativeCommand(42) }.apply { contentDescription="Выйти из FPV" },FrameLayout.LayoutParams(dp(60),dp(60),Gravity.TOP or Gravity.END).apply { topMargin=dp(8);rightMargin=dp(8) })
         overlay.addView(fpvLayer,FrameLayout.LayoutParams(-1,-1))
@@ -440,8 +440,20 @@ class MainActivity : GameActivity() {
         container.addView(tabs)
         val visibleItems=BuildCatalog.indicesForCategory(category)
         if(category==3){
-            container.addView(Button(this).apply { text="Пульт FPV · взять в руки";setOnClickListener { selectTool(HandTool.DRONE_REMOTE) } },LinearLayout.LayoutParams(-1,dp(60)))
-            container.addView(Button(this).apply { text="FPV-дрон · достать и поставить";setOnClickListener { nativeCommand(40);closePopup() } },LinearLayout.LayoutParams(-1,dp(60)))
+            val cards=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
+            fun card(title:String,asset:String,choose:()->Unit){
+                val image=ImageView(this).apply { scaleType=ImageView.ScaleType.FIT_CENTER;contentDescription=title }
+                val item=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;gravity=Gravity.CENTER;isClickable=true;contentDescription=title;setOnClickListener { choose() } }
+                item.addView(image,LinearLayout.LayoutParams(-1,0,1f));item.addView(label(title,12f).apply { gravity=Gravity.CENTER },LinearLayout.LayoutParams(-1,dp(36)))
+                cards.addView(item,LinearLayout.LayoutParams(0,-1,1f))
+                catalogExecutor.execute {
+                    val bitmap=try { assets.open(asset).use { BitmapFactory.decodeStream(it) } }catch(_:Exception){null}
+                    handler.post { if(!isDestroyed)image.setImageBitmap(bitmap) }
+                }
+            }
+            card("Пульт FPV · взять", "catalog/rendered/fpv_remote.webp"){selectTool(HandTool.DRONE_REMOTE)}
+            card("FPV-дрон · достать", "catalog/rendered/fpv_drone.webp"){nativeCommand(40);closePopup()}
+            container.addView(cards,LinearLayout.LayoutParams(-1,0,1f))
             return
         }
         if(visibleItems.isEmpty()){

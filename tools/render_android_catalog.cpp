@@ -16,13 +16,13 @@ int main(int argc,char**argv){
  const char*names[]={"asphalt","concrete","brick","rust","plain","wood","fabric","glass"};
  std::vector<Image> images(8);
  for(int i=0;i<8;i++)if(i!=4){int n;std::ifstream f(root+"textures/"+names[i]+".png",std::ios::binary);std::vector<unsigned char> bytes((std::istreambuf_iterator<char>(f)),{});auto*p=stbi_load_from_memory(bytes.data(),int(bytes.size()),&images[i].w,&images[i].h,&n,3);if(!p)return 2;images[i].rgb.assign(p,p+images[i].w*images[i].h*3);stbi_image_free(p);}
- const char*items[]={"wall","floor","window","door","table","chair","cabinet","sofa","uaz"};
- for(int type=0;type<9;type++){
+ const char*items[]={"wall","floor","window","door","table","chair","cabinet","sofa","uaz","fpv_remote","fpv_drone"};
+ for(int type=0;type<11;type++){
   std::vector<MeshVertex> mesh;auto textures=images;
-  if(type!=8)sandbox::appendObject(mesh,{type,0,0,0});
+  if(type<8)sandbox::appendObject(mesh,{type,0,0,0});
   else{
    city::Scene scene;city::LoadOptions options;options.level=false;options.buildPhysics=false;options.targetExtent=4.025f;options.yaw=1.57079632679f;std::string log;
-   if(!scene.load(root+"models/uaz_469_1973_classic.glb",[](const std::string&p,std::vector<unsigned char>&b){std::ifstream f(p,std::ios::binary);if(!f)return false;b.assign(std::istreambuf_iterator<char>(f),{});return true;},log,options))return 3;
+   if(!scene.load(root+std::string("models/")+(type==9?"chasing_m2_rc_underwater_drone_remote.glb":type==10?"fpv_drone.glb":"uaz_469_1973_classic.glb"),[](const std::string&p,std::vector<unsigned char>&b){std::ifstream f(p,std::ios::binary);if(!f)return false;b.assign(std::istreambuf_iterator<char>(f),{});return true;},log,options))return 3;
    for(const auto&im:scene.images){Image t;t.w=im.width;t.h=im.height;for(size_t j=0;j<im.rgba.size();j+=4)for(int c=0;c<3;c++)t.rgb.push_back(im.rgba[j+c]);textures.push_back(std::move(t));}
    for(const auto&batch:scene.batches){city::Material fallback;const auto&m=batch.material>=0?scene.materials[batch.material]:fallback;
     for(const auto&v:batch.vertices)mesh.push_back({v.x,v.y,v.z,m.color[0],m.color[1],m.color[2],v.nx,v.ny,v.nz,v.u,v.v,float(m.image>=0?8+m.image:4)});

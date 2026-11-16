@@ -6,13 +6,14 @@ struct FpvDrone {
  enum Mode {Absent=0,InHands=1,Ground=2,Entering=3,Flying=4,Leaving=5,Hover=6,Returning=7};
  Mode mode=Absent;physics::Vec3 position{},velocity{},bodyEye{},cameraStart{};
  bool linked=false;physics::Vec3 home{};int returnStage=0,returnClimbs=0;float returnBlocked=0,returnCruise=0;
+ float lookYaw=0,lookPitch=0;
  float roll=0,yaw=0,pitch=0,bodyYaw=0,bodyPitch=0,exitYaw=0,exitPitch=0,transition=0,fallSpeed=0;
- static constexpr float radius=.27f;
+ static constexpr float radius=.35f;
  static constexpr float transitionSeconds=1.6f;
  bool transitionPresented=false;
  bool piloting()const{return mode==Entering||mode==Flying||mode==Leaving;}
  bool blocked(physics::Vec3 p,const physics::CollisionMesh&city,const physics::CollisionMesh&built)const{
-  float height=.075f+radius*(std::abs(std::sin(pitch))+std::abs(std::sin(roll)));
+  float height=.10f+radius*(std::abs(std::sin(pitch))+std::abs(std::sin(roll)));
   return city.intersectsBox(p,{radius,height,radius})||built.intersectsBox(p,{radius,height,radius});
  }
  bool take(physics::Vec3 eye,float angle,const physics::CollisionMesh&city,const physics::CollisionMesh&built){
@@ -20,13 +21,13 @@ struct FpvDrone {
   auto p=eye+physics::Vec3{-std::sin(angle)*.75f,-.35f,-std::cos(angle)*.75f};
   physics::CollisionMesh::RayHit hit;auto d=p-eye;float distance=physics::length(d);
   if(blocked(p,city,built)||city.raycast(eye,d,distance,hit)||built.raycast(eye,d,distance,hit))return false;
-  position=p;yaw=angle;pitch=roll=0;linked=false;velocity={};mode=InHands;return true;
+  position=p;lookYaw=lookPitch=0;yaw=angle;pitch=roll=0;linked=false;velocity={};mode=InHands;return true;
  }
  bool place(const physics::CollisionMesh&city,const physics::CollisionMesh&built){
   if(mode!=InHands)return false;
   float floor=std::max(city.groundHeight(position.x,position.z,position.y+.1f,position.y-3),built.groundHeight(position.x,position.z,position.y+.1f,position.y-3));
   if(!std::isfinite(floor))return false;
-  auto target=position;target.y=floor+.08f;
+  auto target=position;target.y=floor+.105f;
   int steps=std::max(1,int(std::ceil(physics::length(target-position)/.03f)));
   for(int i=1;i<=steps;i++)if(blocked(position+(target-position)*(float(i)/steps),city,built))return false;
   position=target;mode=Ground;fallSpeed=0;return true;
@@ -44,10 +45,13 @@ struct FpvDrone {
   linked=true;
   bodyEye=eye;bodyYaw=angle;bodyPitch=tilt;transition=0;transitionPresented=false;mode=Entering;velocity={};return true;
  }
- float viewYaw()const {float t=blend();if(mode==Leaving)return bodyYaw+std::remainder(exitYaw-bodyYaw,6.28318530718f)*t;return bodyYaw+std::remainder(yaw-bodyYaw,6.28318530718f)*t;}
- float viewPitch()const {return bodyPitch+((mode==Leaving?exitPitch:pitch)-bodyPitch)*blend();}
+ float feedYaw()const{return yaw+lookYaw;}
+ float feedPitch()const{return std::clamp(pitch+lookPitch,-1.3f,1.3f);}
+ void look(float dx,float dy){if(mode==Flying&&std::isfinite(dx)&&std::isfinite(dy)){lookYaw=std::remainder(lookYaw-dx*.004f,6.28318530718f);lookPitch=std::clamp(lookPitch-dy*.004f,-1.2f,1.2f);}}
+ float viewYaw()const {float t=blend();if(mode==Leaving)return bodyYaw+std::remainder(exitYaw-bodyYaw,6.28318530718f)*t;return bodyYaw+std::remainder(feedYaw()-bodyYaw,6.28318530718f)*t;}
+ float viewPitch()const {return bodyPitch+((mode==Leaving?exitPitch:feedPitch())-bodyPitch)*blend();}
  void leave(){if(mode==Entering||mode==Flying){cameraStart=camera();exitYaw=viewYaw();exitPitch=viewPitch();transition=0;transitionPresented=false;mode=Leaving;velocity={};}}
- physics::Vec3 feedEye()const{return position+physics::Vec3{-std::sin(yaw)*.12f,.04f,-std::cos(yaw)*.12f};}
+ physics::Vec3 feedEye()const{return position+physics::Vec3{-std::sin(yaw)*.16f,.05f,-std::cos(yaw)*.16f};}
  physics::Vec3 camera()const{
   auto droneEye=feedEye();
   float t=std::clamp(transition/transitionSeconds,0.f,1.f);t=t*t*(3-2*t);
@@ -75,7 +79,7 @@ struct FpvDrone {
    roll+=(std::clamp(right,-1.f,1.f)*.42f-roll)*response;
    float floor=std::max(city.groundHeight(position.x,position.z,position.y,position.y-.5f),built.groundHeight(position.x,position.z,position.y,position.y-.5f));
    if(std::isfinite(floor)){
-    float available=std::max(0.f,position.y-floor-.076f),needed=radius*(std::abs(std::sin(pitch))+std::abs(std::sin(roll)));
+    float available=std::max(0.f,position.y-floor-.101f),needed=radius*(std::abs(std::sin(pitch))+std::abs(std::sin(roll)));
     if(needed>available&&needed>1e-6f){pitch*=available/needed;roll*=available/needed;}
    }
    float side=std::sin(roll)*10,front=-std::sin(pitch)*10;
