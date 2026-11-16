@@ -23,6 +23,14 @@ class ToolArtView(context: Context, private val firstPerson: Boolean = false) : 
         }
         val glow=when(tool){HandTool.SPAWN_GUN->Color.rgb(71,231,210);HandTool.GRAVITY_GUN->Color.rgb(255,173,54);else->Color.rgb(255,92,99)}
         fun polygon(vararg points: Float) {val path=Path();path.moveTo(points[0],points[1]);for(i in 2 until points.size step 2)path.lineTo(points[i],points[i+1]);path.close();c.drawPath(path,p)}
+        if(tool==HandTool.DRONE_REMOTE) {
+            p.color=0xff26363d.toInt();c.drawRoundRect(32f,40f,208f,130f,18f,18f,p)
+            p.color=0xff7399a5.toInt();c.drawRoundRect(91f,52f,149f,90f,4f,4f,p)
+            p.color=Color.LTGRAY;c.drawCircle(64f,92f,19f,p);c.drawCircle(176f,92f,19f,p)
+            p.color=Color.BLACK;c.drawCircle(64f,92f,8f,p);c.drawCircle(176f,92f,8f,p)
+            p.color=Color.LTGRAY;p.strokeWidth=7f;c.drawLine(48f,42f,38f,9f,p);c.drawLine(192f,42f,202f,9f,p)
+            c.restore();return
+        }
         if(tool==HandTool.HAND_EMPTY) {
             p.color=Color.LTGRAY;p.style=Paint.Style.STROKE;p.strokeWidth=8f;p.strokeCap=Paint.Cap.ROUND
             c.drawRoundRect(92f,50f,151f,127f,18f,18f,p)
