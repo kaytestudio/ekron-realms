@@ -62,6 +62,7 @@ class MainActivity : GameActivity() {
     private val catalogExecutor=Executors.newSingleThreadExecutor()
     private var catalogAdapter: BaseAdapter? = null
     private lateinit var hud: FrameLayout
+    private lateinit var toolWheel: ToolWheelView
     private lateinit var weapon: ToolArtView
     private lateinit var selectedImage: ImageView
     private lateinit var selectedSlot: FrameLayout
@@ -217,9 +218,26 @@ class MainActivity : GameActivity() {
         }
         for (control in listOf(jump,crouchControl)) movement.addView(control, LinearLayout.LayoutParams(dp(actionSize),dp(actionSize)))
         overlay.addView(movement, FrameLayout.LayoutParams(-2,-2,Gravity.BOTTOM or Gravity.END).apply { bottomMargin=dp(8);rightMargin=dp(8) })
-        // Immediate three-tool cycle. Never opens a menu or catalogue.
-        val switchWeapon=action("", "switch") { selectTool(toolsState.nextTool()) }.apply { visualScale=.73f }
-        switchWeapon.contentDescription="Смена оружия"
+        toolWheel=ToolWheelView(this) { selectTool(it) }
+        overlay.addView(toolWheel,FrameLayout.LayoutParams(-1,-1))
+        // Click action is retained for accessibility; touch uses hold/drag/release.
+        val switchWeapon=action("", "switch") {
+            if(worldReady && active && !paused) AlertDialog.Builder(this)
+                .setTitle("Выбор инструмента")
+                .setItems(arrayOf("Грави-пушка", "Спавн-пушка", "Пустые руки")) { _, index ->
+                    selectTool(ToolWheelSelection.tools[index])
+                }.show()
+        }.apply { visualScale=.73f }
+        switchWeapon.contentDescription="Выбор инструмента: удерживайте, проведите и отпустите"
+        switchWeapon.setOnTouchListener { view, event ->
+            if(!worldReady || !active || paused) { toolWheel.cancel(); true }
+            else {
+                if(event.actionMasked==MotionEvent.ACTION_DOWN) view.parent.requestDisallowInterceptTouchEvent(true)
+                toolWheel.gesture(event,toolsState.tool) {
+                    closePopup();lookArea.reset();toolWheel.bringToFront()
+                }
+            }
+        }
         overlay.addView(switchWeapon,FrameLayout.LayoutParams(dp(60),dp(60),Gravity.TOP or Gravity.END).apply { topMargin=dp(66);rightMargin=dp(8) })
         catalogControl=action("", "cube") { showBuildCatalog() }.apply { contentDescription="Открыть предметы";visualScale=.73f }
         overlay.addView(catalogControl,FrameLayout.LayoutParams(dp(60),dp(60),Gravity.TOP or Gravity.END).apply { topMargin=dp(66);rightMargin=dp(72) })
@@ -402,6 +420,7 @@ class MainActivity : GameActivity() {
         }
     }
     private fun setPaused(value: Boolean) {
+        if(::toolWheel.isInitialized)toolWheel.cancel()
         closePopup();paused=value;joystick.reset();lookArea.reset();weapon.running=!value && active;nativeVertical(0f)
         nativeReady(worldReady && active && !paused)
     }
@@ -425,6 +444,7 @@ class MainActivity : GameActivity() {
         if (::coordinates.isInitialized) { handler.removeCallbacks(poll); handler.post(poll) }
     }
     override fun onPause() {
+        if(::toolWheel.isInitialized)toolWheel.cancel()
         closePopup();weapon.running=false
         active = false; nativeReady(false)
         if (::joystick.isInitialized) joystick.reset();if (::lookArea.isInitialized)lookArea.reset()
