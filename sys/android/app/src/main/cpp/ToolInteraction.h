@@ -39,11 +39,10 @@ public:
    float ground=mesh->groundHeight(next.x,next.z,display.y+.3f,display.y-r-.8f);
    if(std::isfinite(ground))next.y=std::max(next.y,ground+r+.025f);
    int steps=std::max(1,int(std::ceil(physics::length(next-display)/.04f)));
-   physics::CollisionMesh others;for(size_t i=0;i<w.objects.size();i++)if(int(i)!=held&&!w.objects[i].destroyed)appendBodySolid(others,w.objects[i]);others.build();
    auto start=display;
    for(int i=1;i<=steps;i++){
     auto point=start+(next-start)*(float(i)/steps);
-    if(objectOverlap(*mesh,o,point)||objectOverlap(others,o,point))return;
+    if(objectOverlap(*mesh,o,point)||overlapsBodies(w,o,held,held,point))return;
     display=point; // keep the last clear substep instead of discarding all progress
    }
   }
@@ -67,7 +66,7 @@ public:
   int index=holding()?held:target(w,city);if(index<0)return false;
   auto&o=w.objects[index];
   if(holding()){auto b=World::bounds(o);o.x=display.x;o.z=display.z;o.y=display.y-b.h/2;held=-1;}
-  o.frozen=!o.frozen;o.vx=o.vy=o.vz=o.spinX=o.spinZ=0;o.awake=!o.frozen;o.restTime=0;
+  o.frozen=!o.frozen;o.vx=o.vy=o.vz=o.spinX=o.spinZ=0;o.awake=!o.frozen;o.restTime=0;o.supportCheckTime=0;o.embeddedTime=0;
   if(!o.frozen)o.anchored=false;
   return true;
  }

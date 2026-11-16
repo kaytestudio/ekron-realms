@@ -12,8 +12,8 @@ android {
         applicationId = "com.example.realms"
         minSdk = 30
         targetSdk = 34
-        versionCode = 35
-        versionName = "0.35-contact-system"
+        versionCode = 36
+        versionName = "0.36-multi-contact"
         externalNativeBuild {
             cmake { cppFlags += "-std=c++17" }
         }

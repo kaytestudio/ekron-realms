@@ -15,7 +15,7 @@ inline bool sweepObjectFloor(const Object&before,Object&after,const physics::Col
  float earliest=2;physics::Vec3 contactNormal{};
  for(int part=0;part<steps;part++){
   auto a=at(float(part)/steps),b=at(float(part+1)/steps);
-  for(float x:{-1.f,0.f,1.f})for(float y:{-1.f,1.f})for(float z:{-1.f,0.f,1.f}){
+  for(float x:{-1.f,0.f,1.f})for(float y:{-1.f,0.f,1.f})for(float z:{-1.f,0.f,1.f}){
    auto p=objectCorner(a,x,y,z),q=objectCorner(b,x,y,z),d=q-p;float length=physics::length(d);
    if(length<.00001f||(!includeWalls&&d.y>=0))continue;
    physics::CollisionMesh::RayHit hit;

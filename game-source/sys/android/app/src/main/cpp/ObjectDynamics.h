@@ -36,7 +36,7 @@ public:
     float oldBottom=oldY+half.y-radius();
     if(!o.awake){
      bool supported=false;
-     for(float cx:{-1.f,0.f,1.f})for(float cy:{-1.f,1.f})for(float cz:{-1.f,0.f,1.f}){
+     for(float cx:{-1.f,0.f,1.f})for(float cy:{-1.f,0.f,1.f})for(float cz:{-1.f,0.f,1.f}){
       auto p=objectCorner(o,cx,cy,cz);
       float h=ground(p.x,p.z,p.y+.025f,p.y-.035f);
       if(std::isfinite(h)&&std::abs(p.y-h)<.035f)supported=true;
@@ -48,14 +48,14 @@ public:
      physics::Vec3 center{x,y+half.y,z};
      Object candidate=o;candidate.x=x;candidate.y=y;candidate.z=z;
      if(objectOverlap(mesh,candidate,center))return true;
-     return objectOverlap(neighbours,candidate,center);
+     return overlapsBodies(w,candidate,int(index),held,center);
     };
     auto impact=[&](bool axisX,float x,float z){
      float &velocity=axisX?o.vx:o.vz;
-     Object candidate=o;candidate.x=x;candidate.z=z;auto cb=World::bounds(candidate);
+     Object candidate=o;candidate.x=x;candidate.z=z;
      for(size_t j=0;j<w.objects.size();j++)if(j!=index&&int(j)!=held&&!w.objects[j].destroyed){
-      auto &other=w.objects[j];physics::CollisionMesh body;appendBodySolid(body,other);body.build();
-      if(!objectOverlap(body,candidate,{cb.x,cb.y,cb.z}))continue;
+      auto &other=w.objects[j];
+      if(!bodiesOverlap(candidate,other))continue;
       float &otherVelocity=axisX?other.vx:other.vz;
       float direction=(axisX?other.x-o.x:other.z-o.z)>=0?1.f:-1.f;
       float closing=(velocity-otherVelocity)*direction;
@@ -95,7 +95,7 @@ public:
     // A surface below the upright footprint is NOT necessarily below the
     // tilted body. Compute the permitted centre height from actual corners.
     float actualSupport=-1e6f;physics::Vec3 contactPoint{};int contactCount=0;
-    for(float cx:{-1.f,0.f,1.f})for(float cy:{-1.f,1.f})for(float cz:{-1.f,0.f,1.f}){
+    for(float cx:{-1.f,0.f,1.f})for(float cy:{-1.f,0.f,1.f})for(float cz:{-1.f,0.f,1.f}){
      auto p=objectCorner(o,cx,cy,cz);
      float h=ground(p.x,p.z,p.y+.04f,lo[1]-20);
      if(std::isfinite(h)){float candidate=h-(p.y-(o.y+half.y-verticalRadius));if(candidate>actualSupport+.002f){actualSupport=candidate;contactPoint=p;contactCount=1;}
@@ -133,14 +133,14 @@ public:
       // Recompute support AFTER rotation; reusing the previous pose's support
       // height rejected every settling step on the actual uneven city ground.
       float correction=-1e6f;
-      for(float x:{-1.f,0.f,1.f})for(float y:{-1.f,1.f})for(float z:{-1.f,0.f,1.f}){
+      for(float x:{-1.f,0.f,1.f})for(float y:{-1.f,0.f,1.f})for(float z:{-1.f,0.f,1.f}){
        auto point=objectCorner(settled,x,y,z);
        float h=ground(point.x,point.z,point.y+.25f,point.y-2.f);
        if(std::isfinite(h))correction=std::max(correction,h-point.y+.005f);
       }
       if(correction>-1e5f)settled.y+=std::clamp(correction,-.2f,.2f);
       auto bounds=World::bounds(settled);
-      if(!objectOverlap(mesh,settled,{bounds.x,bounds.y,bounds.z})&&!objectOverlap(neighbours,settled,{bounds.x,bounds.y,bounds.z})){
+      if(!objectOverlap(mesh,settled,{bounds.x,bounds.y,bounds.z})&&!overlapsBodies(w,settled,int(index),held,{bounds.x,bounds.y,bounds.z})){
        o=settled;o.spinX=o.spinZ=0;
        settlingDoor=std::abs(targetX-o.tiltX)+std::abs(targetZ-o.tiltZ)>.01f;
       }
@@ -162,7 +162,7 @@ public:
        Object pose=o;pose.tiltX+=(targetX-o.tiltX)*(1-std::exp(-6.f*step));pose.tiltZ+=(targetZ-o.tiltZ)*(1-std::exp(-6.f*step));
        float r=std::abs(std::sin(pose.tiltZ))*half.x+std::abs(std::cos(pose.tiltZ)*std::cos(pose.tiltX))*half.y+std::abs(std::cos(pose.tiltZ)*std::sin(pose.tiltX))*half.z;
        pose.y=o.y+r-verticalRadius;auto pb=World::bounds(pose);
-       if(!objectOverlap(mesh,pose,{pb.x,pb.y,pb.z})&&!objectOverlap(neighbours,pose,{pb.x,pb.y,pb.z})){
+       if(!objectOverlap(mesh,pose,{pb.x,pb.y,pb.z})&&!overlapsBodies(w,pose,int(index),held,{pb.x,pb.y,pb.z})){
         o=pose;o.spinX=o.spinZ=0;
         settlingDoor=std::abs(targetX-o.tiltX)+std::abs(targetZ-o.tiltZ)>.005f;
        }
@@ -180,7 +180,7 @@ public:
     // A validated slow resting correction already resolves support. Sweeping
     // its angular chord again could rewind it to t=0 on the same floor forever.
     bool resolvedRest=restingContact&&std::abs(beforeStep.vy)<2&&std::hypot(o.vx,o.vz)<.5f
-      &&!objectOverlap(mesh,o,{o.x,o.y+half.y,o.z})&&!objectOverlap(neighbours,o,{o.x,o.y+half.y,o.z});
+      &&!objectOverlap(mesh,o,{o.x,o.y+half.y,o.z})&&!overlapsBodies(w,o,int(index),held,{o.x,o.y+half.y,o.z});
     if(!resolvedRest){sweepObjectFloor(beforeStep,o,mesh,true);sweepObjectFloor(beforeStep,o,neighbours,true);}
     if(!o.floorRecoveryUsed){
      float lift=0;auto current=World::bounds(o);

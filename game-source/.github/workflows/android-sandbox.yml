@@ -23,6 +23,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Test native world logic
         run: |
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic tests/native/multi_contact_test.cpp -o /tmp/ekron-multi-contact-test
+          /tmp/ekron-multi-contact-test
           g++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic tests/native/contact_system_test.cpp -o /tmp/ekron-contact-test
           /tmp/ekron-contact-test
           g++ -std=c++17 -O1 -Wall -Wextra -Werror -pedantic tests/native/city_contact_test.cpp sys/android/app/src/main/cpp/GltfScene.cpp sys/android/app/src/main/cpp/ImageDecode.cpp -o /tmp/ekron-city-contact-test
