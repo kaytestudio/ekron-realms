@@ -313,7 +313,7 @@ void Renderer::handleInput(){
    rebuildBuiltCollision();
   }
   else if(command==38&&tools_.tool==sandbox::HandTool::GRAVITY_GUN){changed=tools_.freeze(world_,city_.scene().collision.get());}
-  else if(command==33&&tools_.tool==sandbox::HandTool::GRAVITY_GUN)tools_.rotate(world_);
+  else if(command==33&&tools_.tool==sandbox::HandTool::GRAVITY_GUN)tools_.rotate(world_,city_.scene().collision.get());
   else if(command==1&&building_)world_.selected=(world_.selected+1)%8;
   else if(command==2&&building_)world_.rotation=(world_.rotation+1)%4;
   else if((command==3||(command>=200&&command<=212))&&building_&&city_.ready()){
@@ -387,7 +387,8 @@ void Renderer::render(){
   if(int(i)==tools_.held){auto visual=world_.objects[i];visual.x=tools_.display.x;visual.z=tools_.display.z;size_t begin=vertices.size();sandbox::appendObject(vertices,visual);float dy=tools_.display.y-sandbox::World::bounds(visual).y;for(size_t j=begin;j<vertices.size();j++)vertices[j].y+=dy;}
   else sandbox::appendObject(vertices,world_.objects[i]);
   sandbox::animateDoorMesh(world_.objects[i],vertices,objectBegin);
-  if(int(i)!=tools_.held){const auto&o=world_.objects[i];auto b=sandbox::World::bounds(o);
+  {const auto&o=world_.objects[i];auto b=sandbox::World::bounds(o);
+   if(int(i)==tools_.held){b.x=tools_.display.x;b.y=tools_.display.y;b.z=tools_.display.z;}
    float tiltX=o.tiltX,tiltZ=o.tiltZ;
    float cx=std::cos(tiltX),sx=std::sin(tiltX),cz=std::cos(tiltZ),sz=std::sin(tiltZ);
    for(size_t j=objectBegin;j<vertices.size();j++){auto &v=vertices[j];float x=v.x-b.x,y=v.y-b.y,z=v.z-b.z;float py=cx*y-sx*z,pz=sx*y+cx*z;v.x=b.x+cz*x-sz*py;v.y=b.y+sz*x+cz*py;v.z=b.z+pz;
@@ -458,7 +459,7 @@ void Renderer::render(){
 
 void Renderer::rebuildBuiltCollision(){
  builtCollision_=physics::CollisionMesh{};
- for(size_t i=0;i<world_.objects.size();i++){if(int(i)==tools_.held||world_.objects[i].frozen)continue;const auto&o=world_.objects[i];sandbox::addObjectCollision(builtCollision_,o);}
+ for(size_t i=0;i<world_.objects.size();i++){if(int(i)==tools_.held)continue;const auto&o=world_.objects[i];sandbox::addObjectCollision(builtCollision_,o);}
  builtCollision_.build();
 }
 

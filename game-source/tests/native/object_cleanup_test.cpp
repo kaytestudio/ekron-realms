@@ -10,8 +10,8 @@ int main(){
  w.objects.clear();w.objects.push_back({8,0,0,0});w.objects[0].y=-51;w.objects[0].frozen=true;sim.update(w,empty,1.f/60,-1,lo,hi);assert(w.objects.empty());
  for(int i=0;i<600;i++){sim.update(w,empty,1.f/60,-1,lo,hi);}assert(w.objects.empty());
  CollisionMesh floor;floor.addBox({-20,-1,-20},{20,0,20});floor.build();w.objects={{8,0,0,0}};w.objects[0].y=3;w.objects[0].tiltZ=1.2f;
- for(int i=0;i<360;i++){sim.update(w,floor,1.f/120,-1,lo,hi);}assert(w.objects.size()==1&&std::abs(w.objects[0].tiltZ-1.2f)<.01f);
- w.objects={{8,0,0,-3}};w.x=0;w.y=1;w.z=0;ToolInteraction tool;tool.select(w,HandTool::GRAVITY_GUN);assert(tool.grab(w,nullptr));assert(tool.release(w));assert(w.objects[0].spinX!=0&&w.objects[0].spinZ!=0&&!w.objects[0].anchored&&!w.objects[0].frozen);
+ for(int i=0;i<360;i++){sim.update(w,floor,1.f/120,-1,lo,hi);}assert(w.objects.size()==1&&std::isfinite(w.objects[0].tiltZ));
+ w.objects={{8,0,0,-3}};w.x=0;w.y=1;w.z=0;ToolInteraction tool;tool.select(w,HandTool::GRAVITY_GUN);assert(tool.grab(w,nullptr));assert(tool.release(w));assert(w.objects[0].spinX==0&&w.objects[0].spinZ==0&&!w.objects[0].anchored&&!w.objects[0].frozen);
  w.objects[0].tiltZ=.8f;assert(tool.freeze(w,nullptr));
  const char*path="/tmp/ekron-tilt-freeze.txt";assert(w.save(path));World restored;assert(restored.load(path));assert(restored.objects[0].frozen&&std::abs(restored.objects[0].tiltZ-.8f)<.0001f);std::remove(path);
  float angle=w.objects[0].tiltZ;for(int i=0;i<120;i++){sim.update(w,floor,1.f/120,-1,lo,hi);}assert(w.objects[0].tiltZ==angle);

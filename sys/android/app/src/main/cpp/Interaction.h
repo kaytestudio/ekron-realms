@@ -14,7 +14,10 @@ inline void animateDoorMesh(const Object&o,std::vector<MeshVertex>&v,size_t begi
  for(size_t i=begin;i<v.size();i++){auto&p=v[i];auto q=doorPoint(o,{p.x,p.y,p.z});p.x=q.x;p.z=q.z;float nx=p.nx;p.nx=c*nx+s*p.nz;p.nz=-s*nx+c*p.nz;}
 }
 inline void addObjectCollision(physics::CollisionMesh&mesh,const Object&o){
- if(o.type==3){std::vector<MeshVertex> v;appendObject(v,o);animateDoorMesh(o,v,0);for(size_t i=0;i<v.size();i+=3)mesh.add({{v[i].x,v[i].y,v[i].z},{v[i+1].x,v[i+1].y,v[i+1].z},{v[i+2].x,v[i+2].y,v[i+2].z}});}
+ if(o.type==3){std::vector<MeshVertex> v;appendObject(v,o);animateDoorMesh(o,v,0);
+  auto b=World::bounds(o);
+  for(auto&p:v){float x=p.x-b.x,y=p.y-b.y,z=p.z-b.z;float py=std::cos(o.tiltX)*y-std::sin(o.tiltX)*z,pz=std::sin(o.tiltX)*y+std::cos(o.tiltX)*z;p.x=b.x+std::cos(o.tiltZ)*x-std::sin(o.tiltZ)*py;p.y=b.y+std::sin(o.tiltZ)*x+std::cos(o.tiltZ)*py;p.z=b.z+pz;}
+  for(size_t i=0;i<v.size();i+=3)mesh.add({{v[i].x,v[i].y,v[i].z},{v[i+1].x,v[i+1].y,v[i+1].z},{v[i+2].x,v[i+2].y,v[i+2].z}});}
  else {auto b=World::bounds(o);
   if(std::abs(o.tiltX)+std::abs(o.tiltZ)<.001f){mesh.addBox({b.x-b.w/2,b.y-b.h/2,b.z-b.d/2},{b.x+b.w/2,b.y+b.h/2,b.z+b.d/2});return;}
   std::vector<MeshVertex> vertices;appendCube(vertices,b);
