@@ -68,7 +68,7 @@ void main(){
  float cy=cos(angles.x),sy=sin(angles.x),cp=cos(angles.y),sp=sin(angles.y);
  vec3 q=vec3(cy*p.x-sy*p.z,p.y,sy*p.x+cy*p.z);
  q=vec3(q.x,cp*q.y+sp*q.z,-sp*q.y+cp*q.z);
- q.xy=mat2(cos(cameraRoll),-sin(cameraRoll),sin(cameraRoll),cos(cameraRoll))*q.xy;
+ q.xy=mat2(cos(cameraRoll),sin(cameraRoll),-sin(cameraRoll),cos(cameraRoll))*q.xy;
  float f=1.37638;
  gl_Position=vec4(q.x*f/aspect,q.y*f,-1.001334*q.z-.200134,-q.z);
  tint=color;worldNormal=mat3(objectTransform)*normal;texUV=uv;layer=int(material+.5);toEye=p;
@@ -144,7 +144,7 @@ uniform float cameraRoll;
 out vec4 outColor;
 void main(){
  vec3 ray=normalize(vec3(screen.x*aspect/1.37638,screen.y/1.37638,-1.0));
- ray.xy=mat2(cos(cameraRoll),sin(cameraRoll),-sin(cameraRoll),cos(cameraRoll))*ray.xy;
+ ray.xy=mat2(cos(cameraRoll),-sin(cameraRoll),sin(cameraRoll),cos(cameraRoll))*ray.xy;
  float altitude=cos(angles.y)*ray.y-sin(angles.y)*ray.z;
  float blend=smoothstep(0.0,.85,max(altitude,0.0));
  outColor=vec4(mix(vec3(.56,.61,.63),vec3(.32,.41,.51),blend),1.0);
@@ -523,7 +523,7 @@ void Renderer::render(){
   const auto&lo=droneModel_.scene().minimum;const auto&hi=droneModel_.scene().maximum;
   physics::Vec3 center{(lo[0]+hi[0])*.5f,(lo[1]+hi[1])*.5f,(lo[2]+hi[2])*.5f};
   auto rotate=[&](physics::Vec3 p){float cr=std::cos(drone_.roll),sr=std::sin(drone_.roll),cp=std::cos(drone_.pitch),sp=std::sin(drone_.pitch),cy=std::cos(drone_.yaw),sy=std::sin(drone_.yaw);
-   float x=cr*p.x-sr*p.y,y=sr*p.x+cr*p.y,z=sp*y+cp*p.z;y=cp*y-sp*p.z;return physics::Vec3{cy*x+sy*z,y,-sy*x+cy*z};};
+   float x=cr*p.x+sr*p.y,y=-sr*p.x+cr*p.y,z=sp*y+cp*p.z;y=cp*y-sp*p.z;return physics::Vec3{cy*x+sy*z,y,-sy*x+cy*z};};
   auto x=rotate({1,0,0}),y=rotate({0,1,0}),z=rotate({0,0,1}),t=drone_.position-rotate(center);
   float matrix[16]={x.x,x.y,x.z,0,y.x,y.y,y.z,0,z.x,z.y,z.z,0,t.x,t.y,t.z,1};
   glUniformMatrix4fv(glGetUniformLocation(program_,"objectTransform"),1,GL_FALSE,matrix);droneModel_.draw(program_,cameraEye.x,cameraEye.z);
