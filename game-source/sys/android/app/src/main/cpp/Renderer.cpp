@@ -458,7 +458,7 @@ void Renderer::render(){
 
 void Renderer::rebuildBuiltCollision(){
  builtCollision_=physics::CollisionMesh{};
- for(size_t i=0;i<world_.objects.size();i++){if(int(i)==tools_.held||world_.objects[i].frozen)continue;const auto&o=world_.objects[i];sandbox::addObjectCollision(builtCollision_,o);}
+ for(size_t i=0;i<world_.objects.size();i++){if(int(i)==tools_.held)continue;const auto&o=world_.objects[i];sandbox::addObjectCollision(builtCollision_,o);}
  builtCollision_.build();
 }
 

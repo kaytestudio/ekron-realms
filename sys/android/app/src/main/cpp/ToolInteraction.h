@@ -2,6 +2,7 @@
 #include "SandboxWorld.h"
 #include "CollisionMesh.h"
 #include "ObjectOverlap.h"
+#include "BodyContacts.h"
 #include <optional>
 namespace sandbox {
 enum class HandTool { HAND_EMPTY=0, SPAWN_GUN=1, GRAVITY_GUN=2, DELETE_TOOL=3 };
@@ -25,7 +26,7 @@ public:
   if(found<0)return false;
   // Reject a sight ray hidden by solid city geometry (including the alpha fence BVH).
   if(city){physics::CollisionMesh::RayHit hit;if(city->raycast(origin,dir,std::max(0.f,nearest-.015f),hit))return false;}
-  held=found;original=w.objects[held];w.objects[held].awake=false;auto b=World::bounds(original);display={b.x,b.y,b.z};return true;
+  held=found;original=w.objects[held];w.objects[held].awake=false;w.objects[held].vx=w.objects[held].vy=w.objects[held].vz=w.objects[held].spinX=w.objects[held].spinZ=0;auto b=World::bounds(original);display={b.x,b.y,b.z};return true;
  }
  void pull(const World&w,float dt,const physics::CollisionMesh*mesh=nullptr){
   if(!holding())return;
@@ -38,7 +39,13 @@ public:
    float ground=mesh->groundHeight(next.x,next.z,display.y+.3f,display.y-r-.8f);
    if(std::isfinite(ground))next.y=std::max(next.y,ground+r+.025f);
    int steps=std::max(1,int(std::ceil(physics::length(next-display)/.04f)));
-   for(int i=1;i<=steps;i++)if(objectOverlap(*mesh,o,display+(next-display)*(float(i)/steps)))return;
+   physics::CollisionMesh others;for(size_t i=0;i<w.objects.size();i++)if(int(i)!=held&&!w.objects[i].destroyed)appendBodySolid(others,w.objects[i]);others.build();
+   auto start=display;
+   for(int i=1;i<=steps;i++){
+    auto point=start+(next-start)*(float(i)/steps);
+    if(objectOverlap(*mesh,o,point)||objectOverlap(others,o,point))return;
+    display=point; // keep the last clear substep instead of discarding all progress
+   }
   }
   display=next;
  }
@@ -51,8 +58,8 @@ public:
   o.vx=-std::sin(w.yaw)*std::cos(w.pitch)*impulse;o.vz=-std::cos(w.yaw)*std::cos(w.pitch)*impulse;o.vy=std::sin(w.pitch)*impulse+2;
   // Off-centre throw supplies angular impulse; no X/Z rotation locks.
   float inertiaX=mass*(b.h*b.h+b.d*b.d)/12,inertiaZ=mass*(b.w*b.w+b.h*b.h)/12;
-  o.spinX+=std::clamp(-o.vz*mass*.12f/inertiaX,-4.f,4.f);
-  o.spinZ+=std::clamp(impulse*mass*.08f/inertiaZ,-4.f,4.f);
+  o.spinX=o.type==8?0:std::clamp(-o.vz*mass*.12f/inertiaX,-4.f,4.f);
+  o.spinZ=o.type==8?0:std::clamp(impulse*mass*.08f/inertiaZ,-4.f,4.f);
   o.embeddedTime=0;o.restTime=0;
   o.frozen=false;o.awake=true;o.anchored=false;held=-1;return true;
  }

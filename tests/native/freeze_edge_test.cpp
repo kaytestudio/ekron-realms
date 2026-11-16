@@ -16,7 +16,8 @@ int main(){
  // One side over a high narrow cornice, lower floor on the other side.
  CollisionMesh ledge;ledge.addBox({-20,-2,-20},{20,-1,20});ledge.addBox({-3,-1,-5},{-.7f,5,5});ledge.build();
  w.objects={{8,0,.4f,0}};w.objects[0].y=5.02f;bool tilted=false,fell=false;
- for(int i=0;i<180;i++){sim.update(w,ledge,1.f/120,-1,lo,hi);if(std::abs(w.objects[0].tiltZ)>.05f)tilted=true;if(w.objects[0].y<3)fell=true;}
+ // No synthetic horizontal kick: allow gravity torque to tip the chassis.
+ for(int i=0;i<1200;i++){sim.update(w,ledge,1.f/120,-1,lo,hi);if(std::abs(w.objects[0].tiltZ)>.05f)tilted=true;if(w.objects[0].y<3)fell=true;}
  assert(tilted&&fell);
  Object car{8,0,0,0};auto seat=driverSeat(car);assert(seat.x>.3f&&seat.z<0); // Front left, not rear bench.
  std::vector<MeshVertex> graffiti;CollisionMesh facade;facade.addBox({-10,0,20},{-9,10,35});facade.build();appendCityGraffiti(graffiti,facade);assert(!graffiti.empty());
