@@ -13,8 +13,8 @@ class FpvControlView(context: Context, private val input: (Float,Float,Float,Flo
     private var yaw=0f
     private var pitch=0f
     private var roll=0f
-    private val left=StickView(context){x,y->yaw=x;throttle=y;send()}
-    private val right=StickView(context){x,y->roll=x;pitch=y;send()}
+    private val leftStick=StickView(context){x,y->yaw=x;throttle=y;send()}
+    private val rightStick=StickView(context){x,y->roll=x;pitch=y;send()}
     private fun send(){input(throttle,yaw,pitch,roll)}
     init {
         isMotionEventSplittingEnabled=true;isClickable=true
@@ -25,11 +25,11 @@ class FpvControlView(context: Context, private val input: (Float,Float,Float,Flo
             override fun onDraw(canvas:Canvas){canvas.drawRect(0f,0f,width.toFloat(),height.toFloat(),paint)}
         },LayoutParams(-1,-1))
         val size=(170*density).toInt()
-        left.contentDescription="FPV левый джойстик: вверх и вниз — высота, влево и вправо — рыскание"
-        right.contentDescription="FPV правый джойстик: вверх и вниз — продольный наклон, влево и вправо — боковой наклон"
-        addView(left,LayoutParams(size,size,Gravity.BOTTOM or Gravity.START).apply {leftMargin=(18*density).toInt();bottomMargin=(18*density).toInt()})
-        addView(right,LayoutParams(size,size,Gravity.BOTTOM or Gravity.END).apply {rightMargin=(18*density).toInt();bottomMargin=(18*density).toInt()})
+        leftStick.contentDescription="FPV левый джойстик: вверх и вниз — высота, влево и вправо — рыскание"
+        rightStick.contentDescription="FPV правый джойстик: вверх и вниз — продольный наклон, влево и вправо — боковой наклон"
+        addView(leftStick,LayoutParams(size,size,Gravity.BOTTOM or Gravity.START).apply {leftMargin=(18*density).toInt();bottomMargin=(18*density).toInt()})
+        addView(rightStick,LayoutParams(size,size,Gravity.BOTTOM or Gravity.END).apply {rightMargin=(18*density).toInt();bottomMargin=(18*density).toInt()})
     }
-    fun reset(){left.reset();right.reset();throttle=0f;yaw=0f;pitch=0f;roll=0f;send()}
+    fun reset(){leftStick.reset();rightStick.reset();throttle=0f;yaw=0f;pitch=0f;roll=0f;send()}
     override fun onDetachedFromWindow(){reset();super.onDetachedFromWindow()}
 }
