@@ -25,10 +25,14 @@ inline bool boxContact(const Object&a,const Object&b,PairContact&contact){
 // Continuous SAT for relative translation, with fixed orientations at start.
 // Angular motion still uses the existing subdivided city/body corner sweep.
 inline bool sweepPair(const Object&a,const Object&endA,const Object&b,const Object&endB,float&time,physics::Vec3&normal){
+ physics::Vec3 relativeTravel{endB.x-b.x-endA.x+a.x,endB.y-b.y-endA.y+a.y,endB.z-b.z-endA.z+a.z};
+ // Slow contacts are resolved by the discrete graph. Rewinding an already
+ // touching stack to t~0 discards gravity's shared motion and pins it in air.
+ if(physics::length(relativeTravel)<.02f)return false;
  PairContact initial;
  if(boxContact(a,b,initial)){
   physics::Vec3 travel{endB.x-b.x-endA.x+a.x,endB.y-b.y-endA.y+a.y,endB.z-b.z-endA.z+a.z};
-  if(initial.depth<=.0031f&&physics::dot(travel,initial.normal)<-1e-7f){time=0;normal=initial.normal;return true;}
+  if(initial.depth<=.0031f&&physics::dot(travel,initial.normal)<-.01f){time=0;normal=initial.normal;return true;}
   if(initial.depth>.001f)return false;
  }
  physics::Vec3 pa[8],pb[8];int n=0;

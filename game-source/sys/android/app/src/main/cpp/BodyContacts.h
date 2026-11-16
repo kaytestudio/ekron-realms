@@ -4,13 +4,16 @@ namespace sandbox {
 // The same oriented solid is used by overlap, support rays and swept contacts.
 // Frozen/anchored bodies remain solid; only their inverse mass is zero.
 inline physics::Vec3 bodyContactPoint(const Object&o,float x,float y,float z){
- auto p=objectCorner(o,x,y,z);
+ Object upright=o;upright.tiltX=upright.tiltZ=0;
+ auto p=objectCorner(upright,x,y,z);
  if(o.type==3&&std::abs(o.doorAngle)>.0001f){
   float hx=-.55f,hz=0;for(int i=0;i<o.rotation;i++){float old=hx;hx=hz;hz=-old;}
   float px=p.x-o.x-hx,pz=p.z-o.z-hz,c=std::cos(o.doorAngle),s=std::sin(o.doorAngle);
   p.x=o.x+hx+c*px+s*pz;p.z=o.z+hz-s*px+c*pz;
  }
- return p;
+ auto b=World::bounds(o);auto d=p-physics::Vec3{b.x,b.y,b.z};
+ float py=std::cos(o.tiltX)*d.y-std::sin(o.tiltX)*d.z,pz=std::sin(o.tiltX)*d.y+std::cos(o.tiltX)*d.z;
+ return {b.x+std::cos(o.tiltZ)*d.x-std::sin(o.tiltZ)*py,b.y+std::sin(o.tiltZ)*d.x+std::cos(o.tiltZ)*py,b.z+pz};
 }
 inline void appendBodySolid(physics::CollisionMesh&mesh,const Object&o){
  physics::Vec3 v[8];int n=0;

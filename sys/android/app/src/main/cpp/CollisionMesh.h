@@ -124,6 +124,14 @@ public:
             hit=true;
         });return hit;
     }
+    bool groundContact(float x,float z,float below,float above,RayHit &hit,bool upperOnly=false)const{
+        bool found=false;float best=-std::numeric_limits<float>::infinity();Bounds b;b.add({x-.001f,above,z-.001f});b.add({x+.001f,below,z+.001f});
+        query(b,[&](const Triangle&t){Vec3 n=cross(t.b-t.a,t.c-t.a);float l=length(n);if(l<1e-8f||std::abs(n.y)/l<.64f||(upperOnly&&n.y<0))return;
+            float y=t.a.y-(n.x*(x-t.a.x)+n.z*(z-t.a.z))/n.y;
+            if(y>below+.001f||y<above||y<=best)return;
+            Vec3 p{x,y,z};if(length(p-closestTriangle(p,t))<.005f){best=y;n=n*(1/l);if(n.y<0)n=n*-1;hit={p,n,below-y};found=true;}
+        });return found;
+    }
     float groundHeight(float x,float z,float below=1000,float above=-1000)const{
         float best=-std::numeric_limits<float>::infinity();Bounds b;b.add({x-.001f,above,z-.001f});b.add({x+.001f,below,z+.001f});
         query(b,[&](const Triangle&t){Vec3 n=cross(t.b-t.a,t.c-t.a);float l=length(n);if(l<1e-8f||std::abs(n.y)/l<.64f)return;

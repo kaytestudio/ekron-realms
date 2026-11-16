@@ -23,6 +23,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Test native world logic
         run: |
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic tests/native/oriented_grab_test.cpp -o /tmp/ekron-oriented-grab
+          /tmp/ekron-oriented-grab
           g++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic tests/native/advanced_physics_test.cpp -o /tmp/ekron-advanced-physics-test
           /tmp/ekron-advanced-physics-test
           g++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic tests/native/multi_contact_test.cpp -o /tmp/ekron-multi-contact-test

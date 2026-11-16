@@ -42,13 +42,24 @@ public:
    auto start=display;
    for(int i=1;i<=steps;i++){
     auto point=start+(next-start)*(float(i)/steps);
-    if(objectOverlap(*mesh,o,point)||overlapsBodies(w,o,held,held,point))return;
-    display=point; // keep the last clear substep instead of discarding all progress
+    auto blocked=[&](physics::Vec3 p){return objectOverlap(*mesh,o,p)||overlapsBodies(w,o,held,held,p);};
+    if(!blocked(point)){display=point;continue;}
+    // Keep tangential progress when the normal component is obstructed.
+    // Re-evaluate from the current camera target every frame, never from a
+    // stale grab ray or a distance-dependent activation radius.
+    auto delta=point-display;
+    for(int axis:{1,0,2}){auto slide=display;if(axis==0)slide.x+=delta.x;if(axis==1)slide.y+=delta.y;if(axis==2)slide.z+=delta.z;if(!blocked(slide))display=slide;}
    }
+   return;
   }
   display=next;
  }
- void rotate(World&w){if(holding())w.objects[held].rotation=(w.objects[held].rotation+1)%4;}
+ void rotate(World&w,const physics::CollisionMesh*mesh=nullptr){
+  if(!holding())return;
+  Object candidate=w.objects[held];candidate.rotation=(candidate.rotation+1)%4;
+  if((mesh&&objectOverlap(*mesh,candidate,display))||overlapsBodies(w,candidate,held,held,display))return;
+  w.objects[held]=candidate;
+ }
  bool release(World&w){
   if(!holding())return false;
   auto &o=w.objects[held];auto b=World::bounds(o);o.x=display.x;o.z=display.z;o.y=display.y-b.h/2;

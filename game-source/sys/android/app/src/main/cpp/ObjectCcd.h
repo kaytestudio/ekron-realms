@@ -1,6 +1,7 @@
 #pragma once
 #include "SandboxWorld.h"
 #include "CollisionMesh.h"
+#include "RigidContactMath.h"
 namespace sandbox {
 inline physics::Vec3 objectCorner(const Object&o,float x,float y,float z){
  auto b=World::bounds(o);x*=b.w/2;y*=b.h/2;z*=b.d/2;
@@ -19,19 +20,23 @@ inline bool sweepObjectFloor(const Object&before,Object&after,const physics::Col
    auto p=objectCorner(a,x,y,z),q=objectCorner(b,x,y,z),d=q-p;float length=physics::length(d);
    if(length<.00001f||(!includeWalls&&d.y>=0))continue;
    physics::CollisionMesh::RayHit hit;
-   if(mesh.raycast(p,d,length+.0001f,hit)&&(includeWalls||hit.normal.y>.64f)){float t=(part+hit.distance/length)/steps;if(t<earliest){earliest=t;contactNormal=hit.normal;contactPoint=p+d*(hit.distance/length);}}
+   if(mesh.raycast(p,d,length+.0001f,hit)&&(includeWalls||hit.normal.y>.64f)){
+    // A trailing face leaving a shallow overlap is not a new impact. Ray
+    // normals are two-sided; without this check an item is pinned by the
+    // underside above it while trying to fall away from that surface.
+    auto ba=World::bounds(a),bb=World::bounds(b);float fraction=hit.distance/length;
+    physics::Vec3 centre{ba.x+(bb.x-ba.x)*fraction,ba.y+(bb.y-ba.y)*fraction,ba.z+(bb.z-ba.z)*fraction};
+    auto position=p+d*fraction;if(physics::dot(centre-position,hit.normal)<-.003f)continue;
+    float t=(part+hit.distance/length)/steps;if(t<earliest){earliest=t;contactNormal=hit.normal;contactPoint=p+d*(hit.distance/length);}}
   }
  }
  if(earliest>1)return false;
- auto contact=at(std::max(0.f,earliest-.001f));after.x=contact.x+contactNormal.x*.004f;after.y=contact.y+contactNormal.y*.004f;after.z=contact.z+contactNormal.z*.004f;after.tiltX=contact.tiltX;after.tiltZ=contact.tiltZ;
- physics::Vec3 velocity{after.vx,after.vy,after.vz};float into=physics::dot(velocity,contactNormal);if(into<0)velocity=velocity-contactNormal*(into*(contactNormal.y>.64f?1.f:1.35f));after.vx=velocity.x;after.vy=velocity.y;after.vz=velocity.z;after.spinX*=.5f;after.spinZ*=.5f;
- // Remove angular velocity INTO the resolved static contact, rather than
- // letting suspension repeatedly wind up against a blocked chassis corner.
- auto bounds=World::bounds(after);auto lever=contactPoint-physics::Vec3{bounds.x,bounds.y,bounds.z};
- auto torque=physics::cross(lever,contactNormal);
- float ix=(bounds.h*bounds.h+bounds.d*bounds.d)/12,iz=(bounds.w*bounds.w+bounds.h*bounds.h)/12;
- float incoming=torque.x*after.spinX+torque.z*after.spinZ,denom=torque.x*torque.x/ix+torque.z*torque.z/iz;
- if(incoming<0&&denom>1e-7f){float impulse=-incoming/denom;after.spinX+=torque.x*impulse/ix;after.spinZ+=torque.z*impulse/iz;}
+ auto contact=at(std::max(0.f,earliest-.0001f));
+ // Do not translate down a slope on every contact. Ground skin is vertical;
+ // wall skin is along its normal. The impulse uses the real triangle normal.
+ auto offset=contactNormal.y>.64f?physics::Vec3{0,.002f,0}:contactNormal*.002f;
+ after.x=contact.x+offset.x;after.y=contact.y+offset.y;after.z=contact.z+offset.z;after.tiltX=contact.tiltX;after.tiltZ=contact.tiltZ;
+ resolveStaticImpact(after,contactPoint,contactNormal,contactNormal.y>.64f?.05f:.35f);
  return true;
 }
 }

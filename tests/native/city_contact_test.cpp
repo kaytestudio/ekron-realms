@@ -27,4 +27,19 @@ int main(){
    std::cout<<"Map rest type="<<type<<" X="<<position.x<<" Z="<<position.z<<" Y="<<resting.y<<'\n';
   }
  }
+ // Actual GLB regression: height drop, downward throw, lateral push, side flip.
+ for(int type:{3,8,12})for(int mode=0;mode<4;mode++){
+  float floor=city.collision->groundHeight(.8f,16.2f,2,-4);
+  World w;ObjectDynamics sim;Object o{type,0,.8f,16.2f};o.y=floor+(mode==0?4.f:1.5f);
+  if(mode==1)o.vy=-12;
+  if(mode==2)o.vx=3;
+  if(mode==3){o.tiltX=1.57079632679f;o.spinZ=1;}
+  w.objects.push_back(o);
+  for(int i=0;i<3600;i++)sim.update(w,*city.collision,1.f/120,-1,city.minimum,city.maximum);
+  assert(w.objects.size()==1);const auto&end=w.objects[0];
+  assert(std::isfinite(end.y)&&end.y>city.minimum[1]-2);
+  assert(!end.awake);
+  std::cout<<"Map dynamic type="<<type<<" scenario="<<mode<<" settled\n";
+ }
+
 }
