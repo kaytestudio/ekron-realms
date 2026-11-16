@@ -7,7 +7,7 @@ struct FpvDrone {
  Mode mode=Absent;physics::Vec3 position{},velocity{},bodyEye{},cameraStart{};
  bool linked=false;physics::Vec3 home{};int returnStage=0,returnClimbs=0;float returnBlocked=0,returnCruise=0;
  float roll=0,yaw=0,pitch=0,bodyYaw=0,bodyPitch=0,exitYaw=0,exitPitch=0,transition=0,fallSpeed=0;
- static constexpr float radius=.22f;
+ static constexpr float radius=.27f;
  bool piloting()const{return mode==Entering||mode==Flying||mode==Leaving;}
  bool blocked(physics::Vec3 p,const physics::CollisionMesh&city,const physics::CollisionMesh&built)const{
   float height=.075f+radius*(std::abs(std::sin(pitch))+std::abs(std::sin(roll)));
