@@ -4,15 +4,25 @@
 #include "ObjectCcd.h"
 #include "ObjectOverlap.h"
 #include "BodyContacts.h"
+#include "CarSuspension.h"
+#include "PairSolver.h"
 namespace sandbox {
 // Lightweight box dynamics, deliberately separate from the immutable city triangle BVH.
 class ObjectDynamics {
  float accumulator_=0;
+ BodyBroadphase broadphase_;
+ BodyBroadphase pairBroadphase_;
 public:
+ PairSolverStats pairStats{};
+ size_t neighbourMeshBuilds=0;
  bool update(World&w,const physics::CollisionMesh&mesh,float dt,int held,const std::array<float,3>&lo,const std::array<float,3>&hi,int*heldIndex=nullptr,int*seatIndex=nullptr){
   accumulator_+=std::clamp(dt,0.f,.05f);bool changed=false;constexpr float step=1.f/120;
   while(accumulator_>=step){accumulator_-=step;
-   for(size_t index=0;index<w.objects.size();index++){
+   for(auto&o:w.objects)if(!std::isfinite(o.x)||!std::isfinite(o.y)||!std::isfinite(o.z))o.destroyed=true;
+   const auto beforeBodies=w.objects;
+   const auto order=physicalOrder(w);
+   broadphase_.build(w,held,step);
+   for(size_t index:order){
     auto&o=w.objects[index];
     if(!std::isfinite(o.x)||!std::isfinite(o.y)||!std::isfinite(o.z)||o.x<lo[0]||o.x>hi[0]||o.z<lo[2]||o.z>hi[2]||o.y<std::max(-50.f,lo[1]-30)){
      if(int(index)!=held)o.destroyed=true;
@@ -21,15 +31,11 @@ public:
     if(int(index)==held||o.anchored||o.frozen)continue;
     if(!o.awake){o.supportCheckTime+=step;if(o.supportCheckTime<.2f)continue;o.supportCheckTime=0;}
     auto panel=[](int t){return t==0||t==2||t==3||t==9||t==10||t==11;};
-    // Broad phase only selects neighbours; all narrow-phase geometry is rotated.
-    physics::CollisionMesh neighbours;
-    for(size_t j=0;j<w.objects.size();j++)if(j!=index&&int(j)!=held&&!w.objects[j].destroyed){
-     auto a=World::bounds(o),b=World::bounds(w.objects[j]);
-     float reach=(a.w+a.h+a.d+b.w+b.h+b.d)*.5f+1;
-     if(std::abs(a.x-b.x)<reach&&std::abs(a.y-b.y)<reach&&std::abs(a.z-b.z)<reach)appendBodySolid(neighbours,w.objects[j]);
-    }
-    neighbours.build();
-    auto ground=[&](float x,float z,float top,float bottom){return std::max(mesh.groundHeight(x,z,top,bottom),neighbours.groundHeight(x,z,top,bottom));};
+    auto ground=[&](float x,float z,float top,float bottom){
+     float height=mesh.groundHeight(x,z,top,bottom);
+     for(size_t j:broadphase_.neighbours[index])if(!w.objects[j].destroyed)height=std::max(height,broadphase_.solid(w,j).groundHeight(x,z,top,bottom));
+     return height;
+    };
     Object beforeStep=o;
     auto b=World::bounds(o);physics::Vec3 half{b.w/2,b.h/2,b.d/2};float oldY=o.y,oldX=o.x,oldZ=o.z;
     auto radius=[&](){return std::abs(std::sin(o.tiltZ))*half.x+std::abs(std::cos(o.tiltZ)*std::cos(o.tiltX))*half.y+std::abs(std::cos(o.tiltZ)*std::sin(o.tiltX))*half.z;};
@@ -41,6 +47,7 @@ public:
       float h=ground(p.x,p.z,p.y+.025f,p.y-.035f);
       if(std::isfinite(h)&&std::abs(p.y-h)<.035f)supported=true;
      }
+     if(o.type==8&&stepSuspension(o,0,ground,false).contacts>=2)supported=true;
      if(supported){o.vx=o.vy=o.vz=o.spinX=o.spinZ=0;continue;}
      o.awake=true;o.restTime=0;
     }
@@ -48,12 +55,12 @@ public:
      physics::Vec3 center{x,y+half.y,z};
      Object candidate=o;candidate.x=x;candidate.y=y;candidate.z=z;
      if(objectOverlap(mesh,candidate,center))return true;
-     return overlapsBodies(w,candidate,int(index),held,center);
+     return broadphase_.overlaps(w,index,candidate,center);
     };
     auto impact=[&](bool axisX,float x,float z){
      float &velocity=axisX?o.vx:o.vz;
      Object candidate=o;candidate.x=x;candidate.z=z;
-     for(size_t j=0;j<w.objects.size();j++)if(j!=index&&int(j)!=held&&!w.objects[j].destroyed){
+     for(size_t j:broadphase_.neighbours[index])if(!w.objects[j].destroyed){
       auto &other=w.objects[j];
       if(!bodiesOverlap(candidate,other))continue;
       float &otherVelocity=axisX?other.vx:other.vz;
@@ -73,6 +80,7 @@ public:
     if(collides(o.x,o.y,nz))impact(false,o.x,nz);else o.z=nz;
     const float airDrag=std::exp(-.015f*step),angularDrag=std::exp(-.1f*step);
     o.vx*=airDrag;o.vz*=airDrag;o.spinX*=angularDrag;o.spinZ*=angularDrag;
+    auto suspension=stepSuspension(o,step,ground);
     o.vy=std::max(-25.f,o.vy-18.f*step);float nextY=o.y+o.vy*step;
     std::array<float,4> heights{};int probe=0;
     float support=-1e6f;
@@ -115,6 +123,12 @@ public:
     if(o.vy<=0&&support>-1e5f&&nextY+half.y-verticalRadius<=support+.012f){
      restingContact=true;
      o.spinX*=.85f;o.spinZ*=.85f;
+     // The chassis/box contact also constrains angular motion. Otherwise a
+     // spring can accumulate roll into the same hard stop on every step.
+     float tx=-(contactPoint.z-o.z),tz=contactPoint.x-o.x;
+     float ix=(b.h*b.h+b.d*b.d)/12,iz=(b.w*b.w+b.h*b.h)/12;
+     float incoming=tx*o.spinX+tz*o.spinZ,denom=tx*tx/ix+tz*tz/iz;
+     if(incoming<0&&denom>1e-7f){float impulse=-incoming/denom;o.spinX+=tx*impulse/ix;o.spinZ+=tz*impulse/iz;}
      o.y=support+.003f;o.vy=std::abs(o.vy)>2?-o.vy*contactMaterial(o).restitution:0;
      // Rest on the current rotated body, not on an upright replacement.
      o.y=support+verticalRadius-half.y+.005f;
@@ -140,48 +154,36 @@ public:
       }
       if(correction>-1e5f)settled.y+=std::clamp(correction,-.2f,.2f);
       auto bounds=World::bounds(settled);
-      if(!objectOverlap(mesh,settled,{bounds.x,bounds.y,bounds.z})&&!overlapsBodies(w,settled,int(index),held,{bounds.x,bounds.y,bounds.z})){
+      if(!objectOverlap(mesh,settled,{bounds.x,bounds.y,bounds.z})&&!broadphase_.overlaps(w,index,settled,{bounds.x,bounds.y,bounds.z})){
        o=settled;o.spinX=o.spinZ=0;
        settlingDoor=std::abs(targetX-o.tiltX)+std::abs(targetZ-o.tiltZ)>.01f;
-      }
-     }
-     // Four wheel support rays (model's long axis is X). Align only a
-     // near-upright car with four nearby supports, never right an airborne
-     // or overturned car. Chassis CCD remains active for side/roof impacts.
-     if(o.type==8&&std::cos(o.tiltX)*std::cos(o.tiltZ)>.7f){
-      float wheel[4];int n=0;bool four=true;
-      for(float x:{-.65f,.65f})for(float z:{-.72f,.72f}){
-       auto point=objectCorner(o,x,-1,z);
-       wheel[n]=ground(point.x,point.z,point.y+.45f,point.y-.45f);
-       if(!std::isfinite(wheel[n]))four=false;
-       n++;
-      }
-      if(four&&*std::max_element(wheel,wheel+4)-*std::min_element(wheel,wheel+4)<.35f){
-       float targetZ=std::atan2((wheel[2]+wheel[3]-wheel[0]-wheel[1])*.5f,b.w*.65f);
-       float targetX=-std::atan2((wheel[1]+wheel[3]-wheel[0]-wheel[2])*.5f,b.d*.72f);
-       Object pose=o;pose.tiltX+=(targetX-o.tiltX)*(1-std::exp(-6.f*step));pose.tiltZ+=(targetZ-o.tiltZ)*(1-std::exp(-6.f*step));
-       float r=std::abs(std::sin(pose.tiltZ))*half.x+std::abs(std::cos(pose.tiltZ)*std::cos(pose.tiltX))*half.y+std::abs(std::cos(pose.tiltZ)*std::sin(pose.tiltX))*half.z;
-       pose.y=o.y+r-verticalRadius;auto pb=World::bounds(pose);
-       if(!objectOverlap(mesh,pose,{pb.x,pb.y,pb.z})&&!overlapsBodies(w,pose,int(index),held,{pb.x,pb.y,pb.z})){
-        o=pose;o.spinX=o.spinZ=0;
-        settlingDoor=std::abs(targetX-o.tiltX)+std::abs(targetZ-o.tiltZ)>.005f;
-       }
       }
      }
      // Contact is dissipative. Terrain gradients must not continuously inject
      // angular energy into a stationary car (the former levitation feedback).
      applyContactFriction(o,step);
-     if(std::hypot(o.vx,o.vz)<.08f&&o.vy==0&&std::hypot(o.spinX,o.spinZ)<.03f&&!unstable&&!settlingDoor){
-      o.restTime+=step;
-      if(o.restTime>.35f){o.vx=o.vy=o.vz=o.spinX=o.spinZ=0;o.awake=false;}
-     }else o.restTime=0;
+     if(o.type!=8||suspension.contacts==0){
+      if(std::hypot(o.vx,o.vz)<.08f&&o.vy==0&&std::hypot(o.spinX,o.spinZ)<.03f&&!unstable&&!settlingDoor){
+       o.restTime+=step;
+       if(o.restTime>.35f){o.vx=o.vy=o.vz=o.spinX=o.spinZ=0;o.awake=false;}
+      }else o.restTime=0;
+     }
     }else if(o.vy>0&&collides(o.x,nextY,o.z))o.vy*=-.35f;
     else o.y=nextY;
     // A validated slow resting correction already resolves support. Sweeping
     // its angular chord again could rewind it to t=0 on the same floor forever.
     bool resolvedRest=restingContact&&std::abs(beforeStep.vy)<2&&std::hypot(o.vx,o.vz)<.5f
-      &&!objectOverlap(mesh,o,{o.x,o.y+half.y,o.z})&&!overlapsBodies(w,o,int(index),held,{o.x,o.y+half.y,o.z});
-    if(!resolvedRest){sweepObjectFloor(beforeStep,o,mesh,true);sweepObjectFloor(beforeStep,o,neighbours,true);}
+      &&!objectOverlap(mesh,o,{o.x,o.y+half.y,o.z})&&!broadphase_.overlaps(w,index,o,{o.x,o.y+half.y,o.z});
+    if(!resolvedRest){
+     sweepObjectFloor(beforeStep,o,mesh,true);
+     for(size_t j:broadphase_.neighbours[index])if(!w.objects[j].destroyed)sweepObjectFloor(beforeStep,o,broadphase_.solid(w,j),true);
+    }
+    if(o.type==8&&suspension.contacts>0){
+     applyContactFriction(o,step*std::clamp(suspension.force/(World::mass(o)*18),0.f,1.f));
+     if(std::abs(o.vy)<.025f&&std::hypot(o.vx,o.vz)<.025f&&std::hypot(o.spinX,o.spinZ)<.1f&&std::abs(o.tiltX-beforeStep.tiltX)+std::abs(o.tiltZ-beforeStep.tiltZ)<.001f&&suspension.contacts>=2&&suspension.force>0){
+      o.restTime+=step;if(o.restTime>.5f){o.vx=o.vy=o.vz=o.spinX=o.spinZ=0;o.awake=false;}
+     }else o.restTime=0;
+    }
     if(!o.floorRecoveryUsed){
      float lift=0;auto current=World::bounds(o);
      for(float x:{-1.f,1.f})for(float y:{-1.f,1.f})for(float z:{-1.f,1.f}){
@@ -213,6 +215,9 @@ public:
     if(o.y<std::max(-50.f,lo[1]-30)||o.x<lo[0]||o.x>hi[0]||o.z<lo[2]||o.z>hi[2])o.destroyed=true;
     changed=true;
    }
+   neighbourMeshBuilds=broadphase_.meshBuilds;
+   pairStats=solveBodyPairs(w,mesh,pairBroadphase_,beforeBodies,held,step);
+   if(pairStats.contacts||pairStats.sweeps)changed=true;
   }
   // Reverse erasure preserves surviving state and repairs live grab/seat indices.
   for(size_t i=w.objects.size();i-->0;)if(w.objects[i].destroyed){

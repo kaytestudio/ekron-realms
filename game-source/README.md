@@ -1,8 +1,9 @@
 # ЭКРОН — исходники текущей Android-игры
 
-Отдельный самодостаточный снимок нативной игры **v0.36-multi-contact**.
+Отдельный самодостаточный снимок нативной игры **v0.37-suspension-pairs**.
 База — `22a025201d375e6863dba1fb916185783f166bef`, с исправлениями контактов текущей ветки.
-Подробности и ограничения: [CONTACT_SYSTEM_RU.md](sys/android/CONTACT_SYSTEM_RU.md).
+Подробности текущего этапа и ограничения: [ADVANCED_PHYSICS_RU.md](sys/android/ADVANCED_PHYSICS_RU.md).
+Предыдущие исправления: [CONTACT_SYSTEM_RU.md](sys/android/CONTACT_SYSTEM_RU.md).
 Не сайт и не WebView: Kotlin + C++17 + OpenGL ES 3.
 
 ## Содержимое
@@ -47,8 +48,9 @@ g++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic tests/native/pickup_settle_de
 ## Проект и готовая сборка
 
 - GitHub: https://github.com/nbnbnjkii/ekron
-- APK v0.34 (ZIP): https://github.com/nbnbnjkii/ekron/actions/runs/43737502598/artifacts/14171161887
-  Для скачивания артефакта может понадобиться вход в GitHub. Срок хранения ограничен.
+- APK (ZIP): https://github.com/nbnbnjkii/ekron/actions/workflows/android-sandbox.yml
+  Выберите успешную сборку нужной ветки, затем артефакт `ekron-native-sandbox-debug`.
+  Для скачивания может понадобиться вход в GitHub. Срок хранения ограничен.
 
 Это снимок, а не автоматически синхронизируемая копия. Основная разработка пока
 остаётся в `/sys/android` исходного репозитория; дальнейшие изменения там не

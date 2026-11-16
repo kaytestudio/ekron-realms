@@ -66,7 +66,7 @@ public:
   int index=holding()?held:target(w,city);if(index<0)return false;
   auto&o=w.objects[index];
   if(holding()){auto b=World::bounds(o);o.x=display.x;o.z=display.z;o.y=display.y-b.h/2;held=-1;}
-  o.frozen=!o.frozen;o.vx=o.vy=o.vz=o.spinX=o.spinZ=0;o.awake=!o.frozen;o.restTime=0;o.supportCheckTime=0;o.embeddedTime=0;
+  o.frozen=!o.frozen;for(auto&wheel:o.wheels)wheel.load=0;o.vx=o.vy=o.vz=o.spinX=o.spinZ=0;o.awake=!o.frozen;o.restTime=0;o.supportCheckTime=0;o.embeddedTime=0;
   if(!o.frozen)o.anchored=false;
   return true;
  }
