@@ -36,12 +36,14 @@ class MainActivity : GameActivity() {
     private external fun nativeCommand(command: Int)
     private external fun nativeStatus(): FloatArray
     private external fun nativeVertical(value: Float)
+    private external fun nativeDroneInput(throttle:Float,yaw:Float,pitch:Float,roll:Float)
     private external fun nativeMove(right: Float, forward: Float)
     private external fun nativeLook(dx: Float, dy: Float)
     private lateinit var lookArea: LookView
     private lateinit var fpvLayer: FrameLayout
     private lateinit var fpvControls: FpvControlView
     private lateinit var dronePlace: HudButton
+    private lateinit var remoteActions: LinearLayout
     private var droneState=0
     private val normalHudVisibility=mutableMapOf<View,Int>()
     private var paused = false
@@ -156,12 +158,12 @@ class MainActivity : GameActivity() {
             if(state.size>=14 && ::fpvLayer.isInitialized){
                 droneState=state[13].toInt()
                 dronePlace.visibility=if(droneState==1)View.VISIBLE else View.GONE
-                val fpv=droneState>=3
+                val fpv=droneState in 3..5
                 if(fpv){
                     if(normalHudVisibility.isEmpty()){
                         closePopup();toolWheel.cancel();joystick.reset();lookArea.reset()
                         for(i in 0 until hud.childCount){val child=hud.getChildAt(i);if(child!==fpvLayer)normalHudVisibility[child]=child.visibility}
-                        Toast.makeText(this@MainActivity,"Слева — движение. Справа — высота и поворот. × — выход.",Toast.LENGTH_LONG).show()
+                        Toast.makeText(this@MainActivity,"Слева — высота и рыскание. Справа — наклоны. × — к пульту.",Toast.LENGTH_LONG).show()
                     }
                     for(i in 0 until hud.childCount){val child=hud.getChildAt(i);if(child!==fpvLayer)child.visibility=View.INVISIBLE}
                     fpvLayer.visibility=View.VISIBLE;fpvLayer.bringToFront()
@@ -296,6 +298,10 @@ class MainActivity : GameActivity() {
         rotateHeldControl=addControl(gravityActions,"Вращать","rotate") { nativeCommand(33) }
         toolActions.addView(spawnActions)
         toolActions.addView(gravityActions)
+        remoteActions=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL;visibility=View.GONE }
+        addControl(remoteActions,"Вернуть","home") { nativeCommand(44) }.apply { contentDescription="Вернуть дрон к игроку" }
+        addControl(remoteActions,"Убрать пульт","remove") { nativeCommand(42) }.apply { contentDescription="Убрать пульт: пустые руки" }
+        toolActions.addView(remoteActions)
         overlay.addView(toolActions,FrameLayout.LayoutParams(-2,-2,Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin=dp(8) })
         interactionControl=action("Открыть","grab") { nativeCommand(if(interactionCode==6)43 else 36) }.apply { visibility=View.GONE }
         overlay.addView(interactionControl,FrameLayout.LayoutParams(dp(80),dp(60),Gravity.BOTTOM or Gravity.END).apply { bottomMargin=dp(8);rightMargin=dp(76) })
@@ -360,7 +366,7 @@ class MainActivity : GameActivity() {
         dronePlace=action("Поставить дрон","build") { nativeCommand(41) }.apply { visibility=View.GONE }
         overlay.addView(dronePlace,FrameLayout.LayoutParams(dp(90),dp(70),Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin=dp(10) })
         fpvLayer=FrameLayout(this).apply { visibility=View.GONE;isMotionEventSplittingEnabled=true }
-        fpvControls=FpvControlView(this,{r,f->nativeMove(r,f)},{nativeVertical(it)},{x,y->nativeLook(x,y)})
+        fpvControls=FpvControlView(this){throttle,yaw,pitch,roll->nativeDroneInput(throttle,yaw,pitch,roll)}
         fpvLayer.addView(fpvControls,FrameLayout.LayoutParams(-1,-1))
         fpvLayer.addView(action("","remove") { fpvControls.reset();nativeCommand(42) }.apply { contentDescription="Выйти из FPV" },FrameLayout.LayoutParams(dp(60),dp(60),Gravity.TOP or Gravity.END).apply { topMargin=dp(8);rightMargin=dp(8) })
         overlay.addView(fpvLayer,FrameLayout.LayoutParams(-1,-1))
@@ -409,6 +415,7 @@ class MainActivity : GameActivity() {
         updateSelectedIcon()
         catalogControl.visibility=if(interactionCode!=4)View.VISIBLE else View.GONE
         spawnActions.visibility=if(toolsState.spawnVisible&&interactionCode!=4)View.VISIBLE else View.GONE
+        remoteActions.visibility=if(toolsState.tool==HandTool.DRONE_REMOTE&&interactionCode!=4)View.VISIBLE else View.GONE
         gravityActions.visibility=if(toolsState.gravityVisible&&interactionCode!=4)View.VISIBLE else View.GONE
         removeControl.visibility=if(toolsState.deleteVisible&&interactionCode!=4)View.VISIBLE else View.GONE
         rotateHeldControl.visibility=if(toolsState.rotateHeldVisible&&interactionCode!=4)View.VISIBLE else View.GONE

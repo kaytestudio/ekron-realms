@@ -32,6 +32,7 @@ std::atomic<float> stickRight{0},stickForward{0};
 std::atomic<bool> gameplayReady{false};
 std::atomic<int> currentTool{0},currentSelection{0},currentSurface{-1},interactionAction{0},freezeState{0};
 std::atomic<int> droneMode{0};
+std::atomic<float> droneThrottle{0},droneYawInput{0},dronePitchInput{0},droneRollInput{0};
 std::atomic<bool> holdingObject{false};
 std::mutex snapshotMutex;
 std::array<float,4> snapshot{0,1.7f,0,0};
@@ -55,6 +56,7 @@ layout(location=4) in float material;
 uniform mat4 objectTransform;
 uniform vec3 eye;
 uniform vec2 angles;
+uniform float cameraRoll;
 uniform float aspect;
 out vec3 tint;
 out vec3 worldNormal;
@@ -66,6 +68,7 @@ void main(){
  float cy=cos(angles.x),sy=sin(angles.x),cp=cos(angles.y),sp=sin(angles.y);
  vec3 q=vec3(cy*p.x-sy*p.z,p.y,sy*p.x+cy*p.z);
  q=vec3(q.x,cp*q.y+sp*q.z,-sp*q.y+cp*q.z);
+ q.xy=mat2(cos(cameraRoll),-sin(cameraRoll),sin(cameraRoll),cos(cameraRoll))*q.xy;
  float f=1.37638;
  gl_Position=vec4(q.x*f/aspect,q.y*f,-1.001334*q.z-.200134,-q.z);
  tint=color;worldNormal=mat3(objectTransform)*normal;texUV=uv;layer=int(material+.5);toEye=p;
@@ -137,9 +140,11 @@ precision highp float;
 in vec2 screen;
 uniform float aspect;
 uniform vec2 angles;
+uniform float cameraRoll;
 out vec4 outColor;
 void main(){
  vec3 ray=normalize(vec3(screen.x*aspect/1.37638,screen.y/1.37638,-1.0));
+ ray.xy=mat2(cos(cameraRoll),sin(cameraRoll),-sin(cameraRoll),cos(cameraRoll))*ray.xy;
  float altitude=cos(angles.y)*ray.y-sin(angles.y)*ray.z;
  float blend=smoothstep(0.0,.85,max(altitude,0.0));
  outColor=vec4(mix(vec3(.56,.61,.63),vec3(.32,.41,.51),blend),1.0);
@@ -157,6 +162,10 @@ void cube(std::vector<Vertex>&v,const sandbox::Box&b){sandbox::appendCube(v,b);}
 }
 
 extern "C" JNIEXPORT void JNICALL Java_com_example_realms_MainActivity_nativeReady(JNIEnv*,jobject,jboolean ready){gameplayReady=ready;if(!ready){stickRight=0;stickForward=0;verticalInput=0;}}
+extern "C" JNIEXPORT void JNICALL Java_com_example_realms_MainActivity_nativeDroneInput(JNIEnv*,jobject,jfloat throttle,jfloat yaw,jfloat pitch,jfloat roll){
+ auto clean=[](float v){return gameplayReady&&std::isfinite(v)?std::clamp(v,-1.f,1.f):0.f;};
+ droneThrottle=clean(throttle);droneYawInput=clean(yaw);dronePitchInput=clean(pitch);droneRollInput=clean(roll);
+}
 extern "C" JNIEXPORT void JNICALL Java_com_example_realms_MainActivity_nativeLook(JNIEnv*,jobject,jfloat dx,jfloat dy){
  if(!gameplayReady||!std::isfinite(dx)||!std::isfinite(dy))return;
  std::lock_guard<std::mutex> lock(commandMutex);lookDx=std::clamp(lookDx+dx,-400.f,400.f);lookDy=std::clamp(lookDy+dy,-400.f,400.f);
@@ -189,7 +198,7 @@ Renderer::Renderer(android_app *app):app_(app),last_(std::chrono::steady_clock::
  savePath_=std::string(app->activity->internalDataPath)+"/sandbox-v1.txt";
  if(retainedWorld)world_=*retainedWorld;else world_.load(savePath_);
  currentSelection=world_.selected;currentSurface=world_.surface;
- if(retainedDrone){drone_=*retainedDrone;if(drone_.piloting()){drone_.mode=sandbox::FpvDrone::Ground;drone_.velocity={};}}
+ if(retainedDrone){drone_=*retainedDrone;if(drone_.piloting()){drone_.mode=sandbox::FpvDrone::Hover;drone_.velocity={};}}
  tools_.tool=retainedWorld?retainedTool:sandbox::HandTool::HAND_EMPTY;
  building_=tools_.tool==sandbox::HandTool::SPAWN_GUN;currentTool=int(tools_.tool);
  display_=eglGetDisplay(EGL_DEFAULT_DISPLAY);
@@ -284,16 +293,21 @@ Renderer::~Renderer(){
 }
 void Renderer::resetInput(){verticalInput=0;leftId_=rightId_=-1;moveX_=moveY_=0;last_=std::chrono::steady_clock::now();}
 void Renderer::handleInput(){
- std::vector<int> pending;{std::lock_guard<std::mutex> lock(commandMutex);pending.swap(commands);if(gameplayReady){if(drone_.mode==sandbox::FpvDrone::Flying){drone_.yaw-=lookDx*.004f;drone_.pitch=std::clamp(drone_.pitch-lookDy*.004f,-1.1f,1.1f);}else if(!drone_.piloting()){world_.yaw-=lookDx*.004f;world_.pitch=std::clamp(world_.pitch-lookDy*.004f,-1.3f,1.3f);}}lookDx=lookDy=0;}
- if(!gameplayReady){pending.clear();resetInput();drone_.leave();}
+ std::vector<int> pending;{std::lock_guard<std::mutex> lock(commandMutex);pending.swap(commands);if(gameplayReady){if(!drone_.piloting()){world_.yaw-=lookDx*.004f;world_.pitch=std::clamp(world_.pitch-lookDy*.004f,-1.3f,1.3f);}}lookDx=lookDy=0;}
+ if(!gameplayReady){pending.clear();resetInput();drone_.leave();droneThrottle=droneYawInput=dronePitchInput=droneRollInput=0;}
  if(roadJob_.valid()&&roadJob_.wait_for(std::chrono::seconds(0))==std::future_status::ready){
   auto point=roadJob_.get();if(point){world_.x=(*point)[0];world_.z=(*point)[1];
    float ground=city_.scene().collision->groundHeight(world_.x,world_.z,2,-10);
    world_.y=std::isfinite(ground)?ground+1.7f:1.7f;world_.yaw=world_.pitch=0;flying_=false;player_.reset(world_.x,world_.y,world_.z);resetInput();}
  }
  for(int command:pending){bool changed=false;
-  if(command==42){drone_.leave();resetInput();continue;}
+  if(command==42){
+   if(drone_.piloting())drone_.leave();
+   else if(tools_.tool==sandbox::HandTool::DRONE_REMOTE){tools_.select(world_,sandbox::HandTool::HAND_EMPTY);building_=false;}
+   droneThrottle=droneYawInput=dronePitchInput=droneRollInput=0;resetInput();continue;
+  }
   if(drone_.piloting())continue;
+  if(command==44&&city_.ready()&&tools_.tool==sandbox::HandTool::DRONE_REMOTE){drone_.returnHome({world_.x,world_.y,world_.z},world_.yaw,*city_.scene().collision,builtCollision_);continue;}
   if(command==40&&city_.ready()&&seatedCar_<0){
    if(drone_.take({world_.x,world_.y,world_.z},world_.yaw,*city_.scene().collision,builtCollision_)){
     tools_.select(world_,sandbox::HandTool::HAND_EMPTY);building_=false;placementPreview_.reset();rebuildBuiltCollision();
@@ -415,8 +429,8 @@ void Renderer::render(){
    else {auto p=physics::Vec3{world_.x-std::sin(world_.yaw)*.75f,world_.y-.35f,world_.z-std::cos(world_.yaw)*.75f};
     if(!drone_.blocked(p,*city_.scene().collision,builtCollision_)){drone_.position=p;drone_.yaw=world_.yaw;}}
   }
-  if(gameplayReady)drone_.update(dt,stickRight.load(),stickForward.load(),verticalInput.load(),0,0,*city_.scene().collision,builtCollision_);
-  if(drone_.piloting()){
+  if(gameplayReady)drone_.update(dt,droneRollInput.load(),dronePitchInput.load(),droneThrottle.load(),droneYawInput.load(),0,*city_.scene().collision,builtCollision_);
+  if(drone_.piloting()||drone_.mode==sandbox::FpvDrone::Hover||drone_.mode==sandbox::FpvDrone::Returning){
    drone_.position.x=std::clamp(drone_.position.x,city_.scene().minimum[0]+.25f,city_.scene().maximum[0]-.25f);
    drone_.position.z=std::clamp(drone_.position.z,city_.scene().minimum[2]+.25f,city_.scene().maximum[2]-.25f);
    drone_.position.y=std::min(drone_.position.y,city_.scene().maximum[1]+15);
@@ -424,7 +438,7 @@ void Renderer::render(){
   if(drone_.position.y<city_.scene().minimum[1]-5){
    if(drone_.piloting())drone_.leave();else if(drone_.mode==sandbox::FpvDrone::Ground)drone_.mode=sandbox::FpvDrone::Absent;
   }
-  if(tools_.tool==sandbox::HandTool::DRONE_REMOTE&&drone_.aimed({world_.x,world_.y,world_.z},world_.yaw,world_.pitch,*city_.scene().collision,builtCollision_))interactionAction=6;
+  if(tools_.tool==sandbox::HandTool::DRONE_REMOTE&&!drone_.piloting()&&((drone_.linked&&(drone_.mode==sandbox::FpvDrone::Hover||drone_.mode==sandbox::FpvDrone::Ground||drone_.mode==sandbox::FpvDrone::Returning))||drone_.aimed({world_.x,world_.y,world_.z},world_.yaw,world_.pitch,*city_.scene().collision,builtCollision_)))interactionAction=6;
  }
  droneMode=int(drone_.mode);
  auto cameraEye=drone_.piloting()?drone_.camera():physics::Vec3{world_.x,world_.y,world_.z};
@@ -464,6 +478,7 @@ void Renderer::render(){
  if(skyProgram_){glDisable(GL_DEPTH_TEST);glDepthMask(GL_FALSE);glUseProgram(skyProgram_);
   glUniform1f(glGetUniformLocation(skyProgram_,"aspect"),float(width_)/height_);
   glUniform2f(glGetUniformLocation(skyProgram_,"angles"),cameraYaw,cameraPitch);
+  glUniform1f(glGetUniformLocation(skyProgram_,"cameraRoll"),drone_.piloting()?drone_.roll*drone_.blend():0);
   glDrawArrays(GL_TRIANGLES,0,3);glDepthMask(GL_TRUE);glEnable(GL_DEPTH_TEST);
  }
  glUseProgram(program_);
@@ -477,6 +492,7 @@ void Renderer::render(){
  glUniform3f(glGetUniformLocation(program_,"lightDirection"),-.45f,-1.f,-.25f);
  glUniform3f(glGetUniformLocation(program_,"lightColor"),.55f,.52f,.48f);
  glUniform3f(glGetUniformLocation(program_,"ambientColor"),.55f,.59f,.65f);
+ glUniform1f(glGetUniformLocation(program_,"cameraRoll"),drone_.piloting()?drone_.roll*drone_.blend():0);
  glUniform3f(glGetUniformLocation(program_,"eye"),cameraEye.x,cameraEye.y,cameraEye.z);glUniform2f(glGetUniformLocation(program_,"angles"),cameraYaw,cameraPitch);glUniform1f(glGetUniformLocation(program_,"aspect"),float(width_)/height_);
  glBindVertexArray(vao_);glBindBuffer(GL_ARRAY_BUFFER,buffer_);glBufferData(GL_ARRAY_BUFFER,vertices.size()*sizeof(Vertex),vertices.data(),GL_STREAM_DRAW);glDrawArrays(GL_TRIANGLES,0,static_cast<GLsizei>(vertices.size()));
  city_.draw(program_,cameraEye.x,cameraEye.z);
@@ -506,14 +522,17 @@ void Renderer::render(){
  if(drone_.mode!=sandbox::FpvDrone::Absent&&drone_.mode!=sandbox::FpvDrone::Flying&&droneModel_.ready()){
   const auto&lo=droneModel_.scene().minimum;const auto&hi=droneModel_.scene().maximum;
   physics::Vec3 center{(lo[0]+hi[0])*.5f,(lo[1]+hi[1])*.5f,(lo[2]+hi[2])*.5f};
-  float c=std::cos(drone_.yaw),s=std::sin(drone_.yaw);auto t=drone_.position-physics::Vec3{c*center.x+s*center.z,center.y,-s*center.x+c*center.z};
-  float matrix[16]={c,0,-s,0,0,1,0,0,s,0,c,0,t.x,t.y,t.z,1};
+  auto rotate=[&](physics::Vec3 p){float cr=std::cos(drone_.roll),sr=std::sin(drone_.roll),cp=std::cos(drone_.pitch),sp=std::sin(drone_.pitch),cy=std::cos(drone_.yaw),sy=std::sin(drone_.yaw);
+   float x=cr*p.x-sr*p.y,y=sr*p.x+cr*p.y,z=sp*y+cp*p.z;y=cp*y-sp*p.z;return physics::Vec3{cy*x+sy*z,y,-sy*x+cy*z};};
+  auto x=rotate({1,0,0}),y=rotate({0,1,0}),z=rotate({0,0,1}),t=drone_.position-rotate(center);
+  float matrix[16]={x.x,x.y,x.z,0,y.x,y.y,y.z,0,z.x,z.y,z.z,0,t.x,t.y,t.z,1};
   glUniformMatrix4fv(glGetUniformLocation(program_,"objectTransform"),1,GL_FALSE,matrix);droneModel_.draw(program_,cameraEye.x,cameraEye.z);
  }
  // Viewmodel uses camera-local coordinates and its own depth range, not a
  // world object: it cannot collide with a wall or drift when looking around.
  if(gameplayReady&&tools_.tool==sandbox::HandTool::DRONE_REMOTE&&remote_.ready()&&!drone_.piloting()&&seatedCar_<0){
   glClear(GL_DEPTH_BUFFER_BIT);
+  glUniform1f(glGetUniformLocation(program_,"cameraRoll"),0);
   glUniform3f(glGetUniformLocation(program_,"eye"),0,0,0);
   glUniform2f(glGetUniformLocation(program_,"angles"),0,0);
   const auto&lo=remote_.scene().minimum;const auto&hi=remote_.scene().maximum;

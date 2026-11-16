@@ -15,9 +15,35 @@ int main(){
  assert(d.position.x<.79f);assert(d.position.y>2);
  d.leave();assert(d.mode==d.Leaving);
  for(int i=0;i<100;i++)d.update(.01f,0,0,0,0,0,city,built);
- assert(d.mode==d.Ground&&!d.piloting());
+ assert(d.mode==d.Hover&&!d.piloting());
+ float hoverHeight=d.position.y;
  for(int i=0;i<500;i++)d.update(.01f,0,0,0,0,0,city,built);
- assert(d.position.y>=.075f&&d.position.y<.11f);
+ assert(std::abs(d.position.y-hoverHeight)<.01f);
+ assert(d.connect({-2,1.7f,0},0,0,city,built));
+ d.leave();for(int i=0;i<100;i++)d.update(.01f,0,0,0,0,0,city,built);
+ assert(d.returnHome({0,1.7f,0},0,city,built));
+ for(int i=0;i<2500;i++)d.update(.01f,0,0,0,0,0,city,built);
+ assert(d.mode==d.Hover&&physics::length(d.position-physics::Vec3{0,1.25f,-.9f})<.1f);
  assert(!d.take({1.05f,1.7f,0},0,city,built));
- std::cout<<"Drone hand/ground spawn, aim connect, camera transition, locked body, swept wall flight, exit and landing OK\n";
+
+ // The two sticks have independent axes: yaw/throttle never become strafe.
+ sandbox::FpvDrone radio;radio.mode=radio.Flying;radio.position={-5,3,-5};
+ for(int i=0;i<100;i++)radio.update(.01f,0,0,1,1,0,city,built);
+ assert(radio.position.y>4&&radio.yaw< -1&&std::abs(radio.position.x+5)<.01f&&std::abs(radio.position.z+5)<.01f);
+ radio.position={-5,3,-5};radio.velocity={};radio.yaw=0;
+ for(int i=0;i<100;i++)radio.update(.01f,0,1,0,0,0,city,built);
+ assert(radio.pitch<-.3f&&radio.position.z< -5.5f);
+ radio.position={-5,3,-5};radio.velocity={};radio.pitch=0;
+ for(int i=0;i<100;i++)radio.update(.01f,1,0,0,0,0,city,built);
+ assert(radio.roll>.3f&&radio.position.x> -4.5f);
+ radio.bodyEye={-5,1.7f,-5};radio.leave();auto exitPosition=radio.position;
+ for(int i=0;i<600;i++)radio.update(.01f,0,0,0,0,0,city,built);
+ assert(radio.mode==radio.Hover&&physics::length(radio.position-exitPosition)<.01f);
+ // Enclosed return must stop safely, not tunnel through a roof.
+ physics::CollisionMesh enclosure;enclosure.addBox({-6,3.3f,-6},{-3,3.5f,-3});enclosure.build();
+ radio.position={-5,3,-5};radio.pitch=radio.roll=0;
+ assert(radio.returnHome({-4,1.7f,-5},0,city,enclosure));
+ for(int i=0;i<2000;i++)radio.update(.01f,0,0,0,0,0,city,enclosure);
+ assert(radio.mode==radio.Hover&&!radio.blocked(radio.position,city,enclosure));
+ std::cout<<"Drone hand/ground spawn, aim connect, camera transition, locked body, swept wall flight, two-stage exit, linked reconnection and return-to-home hover OK\n";
 }
