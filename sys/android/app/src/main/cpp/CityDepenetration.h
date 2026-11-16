@@ -71,22 +71,26 @@ inline bool solveCityContactVelocities(Object&o,const physics::CollisionMesh&mes
  });
  if(support)for(const auto&c:contacts)if(c.normal.y>.64f)support->push_back(c.point);
  auto bounds=World::bounds(o);ContactInertia inertia(o);auto material=contactMaterial(o);
- std::vector<float> normalImpulse(contacts.size(),0);std::vector<physics::Vec3>frictionImpulse(contacts.size());
- for(int pass=0;pass<48;pass++){float largestChange=0;for(size_t k=0;k<contacts.size();k++){
-  size_t i=pass%2?contacts.size()-1-k:k;const auto&contact=contacts[i];
-  auto r=contact.point-physics::Vec3{bounds.x,bounds.y,bounds.z};
-  float incoming=physics::dot(inertia.velocity(o,r),contact.normal);
-  float nextNormal=std::max(0.f,normalImpulse[i]-incoming/inertia.denominator(r,contact.normal));
-  largestChange=std::max(largestChange,std::abs(nextNormal-normalImpulse[i]));
-  inertia.apply(o,r,contact.normal*(nextNormal-normalImpulse[i]));normalImpulse[i]=nextNormal;
-  auto v=inertia.velocity(o,r);auto tangent=v-contact.normal*physics::dot(v,contact.normal);float speed=physics::length(tangent);
-  auto candidate=frictionImpulse[i];if(speed>1e-7f){auto direction=tangent*(1/speed);candidate=candidate-direction*(speed/inertia.denominator(r,direction));}
+ struct Constraint {physics::Vec3 normal,leverX,leverZ,friction{};float normalMass=1,impulse=0;};
+ std::vector<Constraint> constraints;constraints.reserve(contacts.size());
+ auto denominator=[&](const Constraint&c,physics::Vec3 direction){float x=physics::dot(c.leverX,direction),z=physics::dot(c.leverZ,direction);return 1+x*x/inertia.ix+z*z/inertia.iz;};
+ for(const auto&contact:contacts){auto r=contact.point-physics::Vec3{bounds.x,bounds.y,bounds.z};Constraint c;c.normal=contact.normal;c.leverX=physics::cross(inertia.axisX,r);c.leverZ=physics::cross({0,0,1},r);c.normalMass=1/denominator(c,c.normal);constraints.push_back(c);}
+ auto velocity=[&](const Constraint&c){return physics::Vec3{o.vx,o.vy,o.vz}+c.leverX*o.spinX+c.leverZ*o.spinZ;};
+ auto apply=[&](const Constraint&c,physics::Vec3 impulse){o.vx+=impulse.x;o.vy+=impulse.y;o.vz+=impulse.z;o.spinX+=physics::dot(c.leverX,impulse)/inertia.ix;o.spinZ+=physics::dot(c.leverZ,impulse)/inertia.iz;};
+ for(int pass=0;pass<48;pass++){float largestChange=0;for(size_t k=0;k<constraints.size();k++){
+  auto&c=constraints[pass%2?constraints.size()-1-k:k];
+  float incoming=physics::dot(velocity(c),c.normal);
+  float nextNormal=std::max(0.f,c.impulse-incoming*c.normalMass);
+  largestChange=std::max(largestChange,std::abs(nextNormal-c.impulse));
+  apply(c,c.normal*(nextNormal-c.impulse));c.impulse=nextNormal;
+  auto v=velocity(c);auto tangent=v-c.normal*physics::dot(v,c.normal);float speed=physics::length(tangent);
+  auto candidate=c.friction;if(speed>1e-7f){auto direction=tangent*(1/speed);candidate=candidate-direction*(speed/denominator(c,direction));}
   float size=physics::length(candidate),limit=material.staticFriction*nextNormal;
   if(size>limit&&size>1e-9f)candidate=candidate*(limit/size);
-  largestChange=std::max(largestChange,physics::length(candidate-frictionImpulse[i]));
-  inertia.apply(o,r,candidate-frictionImpulse[i]);frictionImpulse[i]=candidate;
+  largestChange=std::max(largestChange,physics::length(candidate-c.friction));
+  apply(c,candidate-c.friction);c.friction=candidate;
  }
- if(largestChange<1e-5f)break;
+ if(largestChange<1e-4f)break;
  }
  return wall;
 }
