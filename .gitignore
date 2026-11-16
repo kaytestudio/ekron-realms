@@ -71,3 +71,7 @@ doc/generated/
 
 # Native test binaries
 tests/native/.bin/
+
+# Standalone Android game source snapshot
+!game-source/sys/android/app/src/main/AndroidManifest.xml
+!game-source/sys/android/app/src/main/res/**/*.xml
