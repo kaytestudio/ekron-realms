@@ -368,7 +368,7 @@ class MainActivity : GameActivity() {
         fpvLayer=FrameLayout(this).apply { visibility=View.GONE;isMotionEventSplittingEnabled=true }
         fpvControls=FpvControlView(this,{throttle,yaw,pitch,roll->nativeDroneInput(throttle,yaw,pitch,roll)},{x,y->nativeLook(x,y)})
         fpvLayer.addView(fpvControls,FrameLayout.LayoutParams(-1,-1))
-        fpvLayer.addView(action("Смена вида","switch") { nativeCommand(45) }.apply { contentDescription="Сменить вид: FPV или позади дрона" },FrameLayout.LayoutParams(dp(82),dp(64),Gravity.TOP or Gravity.END).apply { topMargin=dp(8);rightMargin=dp(76) })
+        fpvLayer.addView(action("Смена вида","switch") { nativeCommand(45) }.apply { contentDescription="Сменить вид: FPV или орбитальная камера" },FrameLayout.LayoutParams(dp(82),dp(64),Gravity.TOP or Gravity.END).apply { topMargin=dp(8);rightMargin=dp(76) })
         fpvLayer.addView(action("","remove") { fpvControls.reset();nativeCommand(42) }.apply { contentDescription="Выйти из FPV" },FrameLayout.LayoutParams(dp(60),dp(60),Gravity.TOP or Gravity.END).apply { topMargin=dp(8);rightMargin=dp(8) })
         overlay.addView(fpvLayer,FrameLayout.LayoutParams(-1,-1))
         addContentView(overlay, ViewGroup.LayoutParams(-1, -1))

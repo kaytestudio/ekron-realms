@@ -8,6 +8,9 @@ struct FpvDrone {
  bool linked=false;physics::Vec3 home{};int returnStage=0,returnClimbs=0;float returnBlocked=0,returnCruise=0;
  bool thirdPerson=false;physics::Vec3 chaseEye{};float exitRoll=0;
  float lookPitch=0;
+ float orbitYaw=0,orbitElevation=.35f,viewMix=0;bool orbitInitialized=false;
+ float viewWeight()const {float t=std::clamp(viewMix,0.f,1.f);return t*t*(3-2*t);}
+ bool outsideView()const{return thirdPerson||viewMix>0;}
  float roll=0,yaw=0,pitch=0,bodyYaw=0,bodyPitch=0,exitYaw=0,exitPitch=0,transition=0,fallSpeed=0;
  static constexpr float radius=.35f;
  static constexpr float transitionSeconds=1.6f;
@@ -22,7 +25,7 @@ struct FpvDrone {
   auto p=eye+physics::Vec3{-std::sin(angle)*.75f,-.35f,-std::cos(angle)*.75f};
   physics::CollisionMesh::RayHit hit;auto d=p-eye;float distance=physics::length(d);
   if(blocked(p,city,built)||city.raycast(eye,d,distance,hit)||built.raycast(eye,d,distance,hit))return false;
-  position=p;lookPitch=0;thirdPerson=false;yaw=angle;pitch=roll=0;linked=false;velocity={};mode=InHands;return true;
+  position=p;lookPitch=0;thirdPerson=false;viewMix=0;orbitInitialized=false;yaw=angle;pitch=roll=0;linked=false;velocity={};mode=InHands;return true;
  }
  bool place(const physics::CollisionMesh&city,const physics::CollisionMesh&built){
   if(mode!=InHands)return false;
@@ -43,30 +46,39 @@ struct FpvDrone {
  }
  bool connect(physics::Vec3 eye,float angle,float tilt,const physics::CollisionMesh&city,const physics::CollisionMesh&built){
   if(!(linked&&(mode==Hover||mode==Ground||mode==Returning))&&!aimed(eye,angle,tilt,city,built))return false;
-  linked=true;thirdPerson=false;
+  linked=true;thirdPerson=false;viewMix=0;orbitInitialized=false;
   bodyEye=eye;bodyYaw=angle;bodyPitch=tilt;transition=0;transitionPresented=false;mode=Entering;velocity={};return true;
  }
  float feedYaw()const{return yaw;}
  float feedPitch()const{return std::clamp(pitch+lookPitch,-1.3f,1.3f);}
- void look(float dx,float dy){(void)dx;if(mode==Flying&&std::isfinite(dy))lookPitch=std::clamp(lookPitch-dy*.004f,-1.2f,1.2f);}
+ void look(float dx,float dy){
+  if(mode!=Flying||!std::isfinite(dx)||!std::isfinite(dy))return;
+  if(thirdPerson){orbitYaw=std::remainder(orbitYaw-dx*.004f,6.28318530718f);orbitElevation=std::clamp(orbitElevation-dy*.004f,-1.35f,1.35f);}
+  else lookPitch=std::clamp(lookPitch-dy*.004f,-1.2f,1.2f);
+ }
  void updateChase(const physics::CollisionMesh&city,const physics::CollisionMesh&built){
   auto anchor=position+physics::Vec3{0,.08f,0};
-  auto desired=anchor+physics::Vec3{std::sin(yaw)*2.5f,.9f,std::cos(yaw)*2.5f};
+  auto desired=anchor+physics::Vec3{std::sin(orbitYaw)*std::cos(orbitElevation)*2.65f,std::sin(orbitElevation)*2.65f,std::cos(orbitYaw)*std::cos(orbitElevation)*2.65f};
   auto delta=desired-anchor;int steps=std::max(1,int(std::ceil(physics::length(delta)/.04f)));chaseEye=anchor;
   for(int i=1;i<=steps;i++){auto p=anchor+delta*(float(i)/steps);
    if(city.intersectsBox(p,{.12f,.12f,.12f})||built.intersectsBox(p,{.12f,.12f,.12f}))break;
    chaseEye=p;
   }
  }
- void toggleView(const physics::CollisionMesh&city,const physics::CollisionMesh&built){if(mode==Flying){thirdPerson=!thirdPerson;if(thirdPerson)updateChase(city,built);}}
- float targetPitch()const {if(!thirdPerson)return feedPitch();auto delta=position+physics::Vec3{0,.08f,0}-chaseEye;return std::atan2(delta.y,std::hypot(delta.x,delta.z));}
- float viewRoll()const {return (mode==Leaving?exitRoll:thirdPerson?0:roll)*blend();}
- float viewYaw()const {float t=blend();if(mode==Leaving)return bodyYaw+std::remainder(exitYaw-bodyYaw,6.28318530718f)*t;return bodyYaw+std::remainder(feedYaw()-bodyYaw,6.28318530718f)*t;}
+ void toggleView(const physics::CollisionMesh&city,const physics::CollisionMesh&built){if(mode==Flying){
+  thirdPerson=!thirdPerson;
+  if(!orbitInitialized){orbitYaw=yaw;orbitElevation=.35f;orbitInitialized=true;}
+  if(thirdPerson&&viewMix==0)updateChase(city,built);
+ }}
+ float targetYaw()const{return feedYaw()+std::remainder(orbitYaw-feedYaw(),6.28318530718f)*viewWeight();}
+ float targetPitch()const {auto delta=position+physics::Vec3{0,.08f,0}-chaseEye;float orbitPitch=std::atan2(delta.y,std::hypot(delta.x,delta.z));return feedPitch()+(orbitPitch-feedPitch())*viewWeight();}
+ float viewRoll()const {return (mode==Leaving?exitRoll:roll*(1-viewWeight()))*blend();}
+ float viewYaw()const {float t=blend();if(mode==Leaving)return bodyYaw+std::remainder(exitYaw-bodyYaw,6.28318530718f)*t;return bodyYaw+std::remainder(targetYaw()-bodyYaw,6.28318530718f)*t;}
  float viewPitch()const {return bodyPitch+((mode==Leaving?exitPitch:targetPitch())-bodyPitch)*blend();}
  void leave(){if(mode==Entering||mode==Flying){cameraStart=camera();exitYaw=viewYaw();exitPitch=viewPitch();exitRoll=viewRoll();transition=0;transitionPresented=false;mode=Leaving;velocity={};}}
  physics::Vec3 feedEye()const{return position+physics::Vec3{-std::sin(yaw)*.16f,.05f,-std::cos(yaw)*.16f};}
  physics::Vec3 camera()const{
-  auto droneEye=thirdPerson?chaseEye:feedEye();
+  auto droneEye=feedEye()+(chaseEye-feedEye())*viewWeight();
   float t=std::clamp(transition/transitionSeconds,0.f,1.f);t=t*t*(3-2*t);
   if(mode==Entering)return bodyEye+(droneEye-bodyEye)*t;
   if(mode==Leaving)return cameraStart+(bodyEye-cameraStart)*t;
@@ -85,6 +97,8 @@ struct FpvDrone {
   (void)look;
   if(mode!=Flying&&mode!=Ground&&mode!=Hover&&mode!=Returning)return;
   if(mode==Flying){
+   // Camera interpolation never resets flight inputs, attitude or velocity.
+   viewMix=std::clamp(viewMix+(thirdPerson?1.f:-1.f)*dt/.6f,0.f,1.f);
    // Mode 2 radio layout: throttle/yaw on the left, pitch/roll on the right.
    yaw-=std::clamp(turn,-1.f,1.f)*1.8f*dt;
    float response=1-std::exp(-8*dt);

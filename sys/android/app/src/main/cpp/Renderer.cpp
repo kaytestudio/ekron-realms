@@ -441,7 +441,7 @@ void Renderer::render(){
   }
   if(tools_.tool==sandbox::HandTool::DRONE_REMOTE&&!drone_.piloting()&&((drone_.linked&&(drone_.mode==sandbox::FpvDrone::Hover||drone_.mode==sandbox::FpvDrone::Ground||drone_.mode==sandbox::FpvDrone::Returning))||drone_.aimed({world_.x,world_.y,world_.z},world_.yaw,world_.pitch,*city_.scene().collision,builtCollision_)))interactionAction=6;
  }
- if(city_.ready()&&drone_.thirdPerson&&drone_.piloting())drone_.updateChase(*city_.scene().collision,builtCollision_);
+ if(city_.ready()&&drone_.outsideView()&&drone_.piloting())drone_.updateChase(*city_.scene().collision,builtCollision_);
  droneMode=int(drone_.mode);
  auto cameraEye=drone_.piloting()?drone_.camera():physics::Vec3{world_.x,world_.y,world_.z};
  float cameraYaw=drone_.piloting()?drone_.viewYaw():world_.yaw;
@@ -528,7 +528,7 @@ void Renderer::render(){
   glDisable(GL_BLEND);glDepthMask(GL_TRUE);glUniform1i(glGetUniformLocation(program_,"previewPass"),0);
   glUniformMatrix4fv(glGetUniformLocation(program_,"objectTransform"),1,GL_FALSE,identity);
  }
- if(drone_.mode!=sandbox::FpvDrone::Absent&&(drone_.mode!=sandbox::FpvDrone::Flying||drone_.thirdPerson)&&droneModel_.ready()){
+ if(drone_.mode!=sandbox::FpvDrone::Absent&&(drone_.mode!=sandbox::FpvDrone::Flying||drone_.viewWeight()>.15f)&&droneModel_.ready()){
   const auto&lo=droneModel_.scene().minimum;const auto&hi=droneModel_.scene().maximum;
   physics::Vec3 center{(lo[0]+hi[0])*.5f,(lo[1]+hi[1])*.5f,(lo[2]+hi[2])*.5f};
   auto rotate=[&](physics::Vec3 p){float cr=std::cos(drone_.roll),sr=std::sin(drone_.roll),cp=std::cos(drone_.pitch),sp=std::sin(drone_.pitch),cy=std::cos(drone_.yaw),sy=std::sin(drone_.yaw);

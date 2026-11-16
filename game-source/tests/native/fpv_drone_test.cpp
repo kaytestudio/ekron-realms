@@ -43,16 +43,31 @@ int main(){
  assert(viewer.pitch==0&&viewer.yaw==0&&physics::length(viewer.feedEye()-eyeBefore)<1e-6f);
  viewer.look(0,10000);assert(viewer.feedPitch()>=-1.3f);
  viewer.mode=viewer.Hover;float cameraPitch=viewer.feedPitch();viewer.look(0,100);assert(viewer.feedPitch()==cameraPitch);
- // Chase view stays behind the nose, sees the drone and shortens at geometry.
- viewer.mode=viewer.Flying;viewer.position={0,3,0};viewer.yaw=0;
- viewer.toggleView(city,built);assert(viewer.thirdPerson);assert(viewer.camera().z>2.4f);
- assert(viewer.targetPitch()<0&&viewer.viewRoll()==0);
- auto fpvEye=viewer.feedEye();assert(physics::length(viewer.camera()-fpvEye)>2);
- physics::CollisionMesh cameraWall;cameraWall.addBox({-3,0,1},{3,6,1.1f});cameraWall.build();
- viewer.updateChase(cameraWall,built);assert(viewer.camera().z<.9f);
+ // Orbit is independent of aircraft heading; view switches interpolate.
+ viewer.mode=viewer.Flying;viewer.position={-5,5,-5};viewer.yaw=0;
+ auto fpvEye=viewer.feedEye();viewer.toggleView(city,built);
+ assert(viewer.thirdPerson&&physics::length(viewer.camera()-fpvEye)<1e-6f);
+ for(int i=0;i<30;i++){viewer.update(.01f,0,0,0,0,0,city,built);viewer.updateChase(city,built);}
+ assert(viewer.viewWeight()>.49f&&viewer.viewWeight()<.51f);
+ for(int i=0;i<40;i++){viewer.update(.01f,0,0,0,0,0,city,built);viewer.updateChase(city,built);}
+ assert(viewer.camera().z>viewer.position.z+2.4f&&viewer.viewRoll()==0);
+ auto physicalPosition=viewer.position;viewer.look(-392.699f,0);viewer.updateChase(city,built);
+ assert(viewer.camera().x>viewer.position.x+2.4f&&viewer.yaw==0);
+ assert(physics::length(viewer.position-physicalPosition)<1e-6f);
+ viewer.look(0,-250);viewer.updateChase(city,built);assert(viewer.camera().y>viewer.position.y+2);
+ viewer.look(0,1000);viewer.updateChase(city,built);assert(viewer.camera().y<viewer.position.y-2);
+ viewer.orbitYaw=0;viewer.orbitElevation=.35f;
+ physics::CollisionMesh cameraWall;cameraWall.addBox({-8,0,-4},{-2,9,-3.9f});cameraWall.build();
+ viewer.updateChase(cameraWall,built);assert(viewer.camera().z< -4.1f);
  assert(!cameraWall.intersectsBox(viewer.camera(),{.12f,.12f,.12f}));
- viewer.yaw=1.57079632679f;viewer.updateChase(city,built);assert(viewer.camera().x>0&&viewer.camera().x<1);
- viewer.toggleView(city,built);assert(!viewer.thirdPerson&&physics::length(viewer.camera()-viewer.feedEye())<1e-6f);
+ auto beforeSwitch=viewer.camera();viewer.toggleView(city,built);
+ assert(physics::length(viewer.camera()-beforeSwitch)<.001f);
+ for(int i=0;i<70;i++)viewer.update(.01f,0,0,0,0,0,city,built);
+ assert(!viewer.thirdPerson&&physics::length(viewer.camera()-viewer.feedEye())<1e-6f);
+ // Identical joystick inputs produce identical flight in either view.
+ sandbox::FpvDrone first,orbit;first.mode=first.Flying;first.position={-5,5,-5};orbit=first;orbit.toggleView(city,built);orbit.look(300,-100);
+ for(int i=0;i<100;i++){first.update(.01f,.4f,.5f,.2f,.3f,0,city,built);orbit.update(.01f,.4f,.5f,.2f,.3f,0,city,built);orbit.updateChase(city,built);}
+ assert(physics::length(first.position-orbit.position)<1e-6f&&first.yaw==orbit.yaw&&first.pitch==orbit.pitch&&first.roll==orbit.roll);
  // The two sticks have independent axes: yaw/throttle never become strafe.
  sandbox::FpvDrone radio;radio.mode=radio.Flying;radio.position={-5,3,-5};
  for(int i=0;i<100;i++)radio.update(.01f,0,0,1,1,0,city,built);

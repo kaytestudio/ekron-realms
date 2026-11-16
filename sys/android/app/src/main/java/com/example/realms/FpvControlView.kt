@@ -15,7 +15,7 @@ class FpvControlView(context: Context, private val input: (Float,Float,Float,Flo
     private var roll=0f
     private val leftStick=StickView(context){x,y->yaw=x;throttle=y;send()}
     private val rightStick=StickView(context){x,y->roll=x;pitch=y;send()}
-    private val cameraLook=LookView(context){x,y->look(x,y)}
+    private val cameraLook=LookView(context,0f){x,y->look(x,y)}
     private fun send(){input(throttle,yaw,pitch,roll)}
     init {
         isMotionEventSplittingEnabled=true;isClickable=true

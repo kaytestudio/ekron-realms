@@ -101,14 +101,14 @@ class HudButton(context: Context, var caption: String, var symbol: String) : Vie
 }
 
 /** Shares the SAME Android touch dispatcher as the stick. No hand-off to a second surface. */
-class LookView(context: Context, private val look: (Float, Float) -> Unit) : View(context) {
+class LookView(context: Context, private val startFraction: Float = .42f, private val look: (Float, Float) -> Unit) : View(context) {
     private val drag = PointerDrag()
     init { contentDescription = "Обзор: проведите пальцем справа" }
     fun reset() { drag.reset() }
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when(event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                if(event.x < width * .42f)return false
+                if(event.x < width * startFraction)return false
                 drag.start(event.getPointerId(0),event.x,event.y)
                 parent.requestDisallowInterceptTouchEvent(true)
             }
