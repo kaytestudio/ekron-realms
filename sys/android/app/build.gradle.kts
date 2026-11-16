@@ -12,8 +12,8 @@ android {
         applicationId = "com.example.realms"
         minSdk = 30
         targetSdk = 34
-        versionCode = 43
-        versionName = "0.43-fpv-mode2-return"
+        versionCode = 44
+        versionName = "0.44-fpv-live-monitor"
         externalNativeBuild {
             cmake { cppFlags += "-std=c++17" }
         }

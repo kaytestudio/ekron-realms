@@ -8,6 +8,8 @@ struct FpvDrone {
  bool linked=false;physics::Vec3 home{};int returnStage=0,returnClimbs=0;float returnBlocked=0,returnCruise=0;
  float roll=0,yaw=0,pitch=0,bodyYaw=0,bodyPitch=0,exitYaw=0,exitPitch=0,transition=0,fallSpeed=0;
  static constexpr float radius=.27f;
+ static constexpr float transitionSeconds=1.6f;
+ bool transitionPresented=false;
  bool piloting()const{return mode==Entering||mode==Flying||mode==Leaving;}
  bool blocked(physics::Vec3 p,const physics::CollisionMesh&city,const physics::CollisionMesh&built)const{
   float height=.075f+radius*(std::abs(std::sin(pitch))+std::abs(std::sin(roll)));
@@ -40,19 +42,20 @@ struct FpvDrone {
  bool connect(physics::Vec3 eye,float angle,float tilt,const physics::CollisionMesh&city,const physics::CollisionMesh&built){
   if(!(linked&&(mode==Hover||mode==Ground||mode==Returning))&&!aimed(eye,angle,tilt,city,built))return false;
   linked=true;
-  bodyEye=eye;bodyYaw=angle;bodyPitch=tilt;transition=0;mode=Entering;velocity={};return true;
+  bodyEye=eye;bodyYaw=angle;bodyPitch=tilt;transition=0;transitionPresented=false;mode=Entering;velocity={};return true;
  }
  float viewYaw()const {float t=blend();if(mode==Leaving)return bodyYaw+std::remainder(exitYaw-bodyYaw,6.28318530718f)*t;return bodyYaw+std::remainder(yaw-bodyYaw,6.28318530718f)*t;}
  float viewPitch()const {return bodyPitch+((mode==Leaving?exitPitch:pitch)-bodyPitch)*blend();}
- void leave(){if(mode==Entering||mode==Flying){cameraStart=camera();exitYaw=viewYaw();exitPitch=viewPitch();transition=0;mode=Leaving;velocity={};}}
+ void leave(){if(mode==Entering||mode==Flying){cameraStart=camera();exitYaw=viewYaw();exitPitch=viewPitch();transition=0;transitionPresented=false;mode=Leaving;velocity={};}}
+ physics::Vec3 feedEye()const{return position+physics::Vec3{-std::sin(yaw)*.12f,.04f,-std::cos(yaw)*.12f};}
  physics::Vec3 camera()const{
-  auto droneEye=position+physics::Vec3{-std::sin(yaw)*.12f,.04f,-std::cos(yaw)*.12f};
-  float t=std::clamp(transition/.7f,0.f,1.f);t=t*t*(3-2*t);
+  auto droneEye=feedEye();
+  float t=std::clamp(transition/transitionSeconds,0.f,1.f);t=t*t*(3-2*t);
   if(mode==Entering)return bodyEye+(droneEye-bodyEye)*t;
   if(mode==Leaving)return cameraStart+(bodyEye-cameraStart)*t;
   return droneEye;
  }
- float blend()const {float t=std::clamp(transition/.7f,0.f,1.f);t=t*t*(3-2*t);return mode==Entering?t:mode==Leaving?1-t:1;}
+ float blend()const {float t=std::clamp(transition/transitionSeconds,0.f,1.f);t=t*t*(3-2*t);return mode==Entering?t:mode==Leaving?1-t:1;}
  bool returnHome(physics::Vec3 eye,float angle,const physics::CollisionMesh&city,const physics::CollisionMesh&built){
   if(piloting()||!(mode==Ground||mode==Hover||mode==Returning))return false;
   auto target=eye+physics::Vec3{-std::sin(angle)*.9f,-.45f,-std::cos(angle)*.9f};
@@ -61,7 +64,7 @@ struct FpvDrone {
  }
  void update(float dt,float right,float forward,float vertical,float turn,float look,const physics::CollisionMesh&city,const physics::CollisionMesh&built){
   dt=std::clamp(dt,0.f,.05f);
-  if(mode==Entering||mode==Leaving){transition+=dt;if(transition>=.7f)mode=mode==Entering?Flying:Hover;return;}
+  if(mode==Entering||mode==Leaving){if(!transitionPresented){transitionPresented=true;return;}transition+=dt;if(transition>=transitionSeconds)mode=mode==Entering?Flying:Hover;return;}
   (void)look;
   if(mode!=Flying&&mode!=Ground&&mode!=Hover&&mode!=Returning)return;
   if(mode==Flying){

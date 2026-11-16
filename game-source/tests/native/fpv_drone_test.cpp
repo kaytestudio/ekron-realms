@@ -9,18 +9,29 @@ int main(){
  auto body=physics::Vec3{0,1.7f,0};float pitch=std::atan2(d.position.y-body.y,.75f);
  assert(d.connect(body,0,pitch,city,built));assert(d.piloting());
  auto start=d.camera();assert(physics::length(start-body)<.001f);
- for(int i=0;i<100;i++)d.update(.01f,0,0,0,0,0,city,built);
+ auto feed=d.feedEye();assert(physics::length(feed-body)>.5f);
+ d.update(.01f,0,0,0,0,0,city,built);
+ assert(physics::length(d.camera()-body)<1e-6f); // first displayed frame is player camera
+ float previousDistance=0;
+ for(int i=0;i<80;i++){
+  d.update(.01f,0,0,0,0,0,city,built);
+  float distance=physics::length(d.camera()-body);assert(distance>=previousDistance-1e-6f);previousDistance=distance;
+ }
+ assert(d.mode==d.Entering);assert(physics::length(d.camera()-(body+(feed-body)*.5f))<.001f);
+ assert(physics::length(d.feedEye()-feed)<1e-6f); // monitor is never the interpolated player view
+ for(int i=0;i<90;i++)d.update(.01f,0,0,0,0,0,city,built);
+ assert(physics::length(d.camera()-d.feedEye())<1e-6f);
  assert(d.mode==d.Flying);assert(physics::length(d.bodyEye-body)<.001f);
  for(int i=0;i<200;i++)d.update(.01f,1,0,1,0,0,city,built);
  assert(d.position.x<.79f);assert(d.position.y>2);
  d.leave();assert(d.mode==d.Leaving);
- for(int i=0;i<100;i++)d.update(.01f,0,0,0,0,0,city,built);
+ for(int i=0;i<200;i++)d.update(.01f,0,0,0,0,0,city,built);
  assert(d.mode==d.Hover&&!d.piloting());
  float hoverHeight=d.position.y;
  for(int i=0;i<500;i++)d.update(.01f,0,0,0,0,0,city,built);
  assert(std::abs(d.position.y-hoverHeight)<.01f);
  assert(d.connect({-2,1.7f,0},0,0,city,built));
- d.leave();for(int i=0;i<100;i++)d.update(.01f,0,0,0,0,0,city,built);
+ d.leave();for(int i=0;i<200;i++)d.update(.01f,0,0,0,0,0,city,built);
  assert(d.returnHome({0,1.7f,0},0,city,built));
  for(int i=0;i<2500;i++)d.update(.01f,0,0,0,0,0,city,built);
  assert(d.mode==d.Hover&&physics::length(d.position-physics::Vec3{0,1.25f,-.9f})<.1f);

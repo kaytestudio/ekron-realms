@@ -473,17 +473,28 @@ void Renderer::render(){
   placementPreview_=sandbox::RaycastPlacement::preview(world_,*city_.scene().collision,builtCollision_,city_.scene().minimum,city_.scene().maximum);
   if(placementPreview_&&placementPreview_->type==8&&!car_.ready())placementPreview_.reset();
  }
- glViewport(0,0,width_,height_);glClearColor(.56f,.61f,.63f,1);glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
+ const float identity[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
+ auto drawCar=[&](const sandbox::Object&o,bool held,bool hologram,physics::Vec3 sortEye){auto b=sandbox::World::bounds(o);physics::Vec3 target{b.x,b.y,b.z};if(held)target=tools_.display;
+  const auto &lo=car_.scene().minimum,&hi=car_.scene().maximum;physics::Vec3 source{(lo[0]+hi[0])/2,(lo[1]+hi[1])/2,(lo[2]+hi[2])/2};
+  float ax=o.tiltX,az=o.tiltZ,ay=o.rotation*1.57079632679f;
+  auto rotate=[&](physics::Vec3 p){float x=std::cos(ay)*p.x+std::sin(ay)*p.z,z=-std::sin(ay)*p.x+std::cos(ay)*p.z;float y=std::cos(ax)*p.y-std::sin(ax)*z;z=std::sin(ax)*p.y+std::cos(ax)*z;return physics::Vec3{std::cos(az)*x-std::sin(az)*y,std::sin(az)*x+std::cos(az)*y,z};};
+  auto x=rotate({1,0,0}),y=rotate({0,1,0}),z=rotate({0,0,1}),t=target-rotate(source);
+  float matrix[16]={x.x,x.y,x.z,0,y.x,y.y,y.z,0,z.x,z.y,z.z,0,t.x,t.y,t.z,1};
+  glUniformMatrix4fv(glGetUniformLocation(program_,"objectTransform"),1,GL_FALSE,matrix);car_.draw(program_,sortEye.x,sortEye.z,hologram);
+ };
+ // Both displays render the same world snapshot, but with independent cameras.
+ // No physics update, player HUD, remote viewmodel or drone self-mesh in feed.
+ auto drawWorld=[&](physics::Vec3 cameraEye,float cameraYaw,float cameraPitch,float viewRoll,int viewX,int viewY,int viewWidth,int viewHeight){
+ glViewport(viewX,viewY,viewWidth,viewHeight);glClearColor(.56f,.61f,.63f,1);glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
  glBindVertexArray(vao_);
  if(skyProgram_){glDisable(GL_DEPTH_TEST);glDepthMask(GL_FALSE);glUseProgram(skyProgram_);
-  glUniform1f(glGetUniformLocation(skyProgram_,"aspect"),float(width_)/height_);
+  glUniform1f(glGetUniformLocation(skyProgram_,"aspect"),float(viewWidth)/viewHeight);
   glUniform2f(glGetUniformLocation(skyProgram_,"angles"),cameraYaw,cameraPitch);
-  glUniform1f(glGetUniformLocation(skyProgram_,"cameraRoll"),drone_.piloting()?drone_.roll*drone_.blend():0);
+  glUniform1f(glGetUniformLocation(skyProgram_,"cameraRoll"),viewRoll);
   glDrawArrays(GL_TRIANGLES,0,3);glDepthMask(GL_TRUE);glEnable(GL_DEPTH_TEST);
  }
  glUseProgram(program_);
  glUniform1i(glGetUniformLocation(program_,"previewPass"),0);
- const float identity[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
  glUniformMatrix4fv(glGetUniformLocation(program_,"objectTransform"),1,GL_FALSE,identity);
  textures_.bind();glUniform1i(glGetUniformLocation(program_,"albedo"),0);
  glUniform1i(glGetUniformLocation(program_,"texturesReady"),texturesReady_?1:0);
@@ -492,24 +503,20 @@ void Renderer::render(){
  glUniform3f(glGetUniformLocation(program_,"lightDirection"),-.45f,-1.f,-.25f);
  glUniform3f(glGetUniformLocation(program_,"lightColor"),.55f,.52f,.48f);
  glUniform3f(glGetUniformLocation(program_,"ambientColor"),.55f,.59f,.65f);
- glUniform1f(glGetUniformLocation(program_,"cameraRoll"),drone_.piloting()?drone_.roll*drone_.blend():0);
- glUniform3f(glGetUniformLocation(program_,"eye"),cameraEye.x,cameraEye.y,cameraEye.z);glUniform2f(glGetUniformLocation(program_,"angles"),cameraYaw,cameraPitch);glUniform1f(glGetUniformLocation(program_,"aspect"),float(width_)/height_);
+ glUniform1f(glGetUniformLocation(program_,"cameraRoll"),viewRoll);
+ glUniform3f(glGetUniformLocation(program_,"eye"),cameraEye.x,cameraEye.y,cameraEye.z);glUniform2f(glGetUniformLocation(program_,"angles"),cameraYaw,cameraPitch);glUniform1f(glGetUniformLocation(program_,"aspect"),float(viewWidth)/viewHeight);
  glBindVertexArray(vao_);glBindBuffer(GL_ARRAY_BUFFER,buffer_);glBufferData(GL_ARRAY_BUFFER,vertices.size()*sizeof(Vertex),vertices.data(),GL_STREAM_DRAW);glDrawArrays(GL_TRIANGLES,0,static_cast<GLsizei>(vertices.size()));
  city_.draw(program_,cameraEye.x,cameraEye.z);
- auto drawCar=[&](const sandbox::Object&o,bool held,bool hologram){auto b=sandbox::World::bounds(o);physics::Vec3 target{b.x,b.y,b.z};if(held)target=tools_.display;
-  const auto &lo=car_.scene().minimum,&hi=car_.scene().maximum;physics::Vec3 source{(lo[0]+hi[0])/2,(lo[1]+hi[1])/2,(lo[2]+hi[2])/2};
-  float ax=o.tiltX,az=o.tiltZ,ay=o.rotation*1.57079632679f;
-  auto rotate=[&](physics::Vec3 p){float x=std::cos(ay)*p.x+std::sin(ay)*p.z,z=-std::sin(ay)*p.x+std::cos(ay)*p.z;float y=std::cos(ax)*p.y-std::sin(ax)*z;z=std::sin(ax)*p.y+std::cos(ax)*z;return physics::Vec3{std::cos(az)*x-std::sin(az)*y,std::sin(az)*x+std::cos(az)*y,z};};
-  auto x=rotate({1,0,0}),y=rotate({0,1,0}),z=rotate({0,0,1}),t=target-rotate(source);
-  float matrix[16]={x.x,x.y,x.z,0,y.x,y.y,y.z,0,z.x,z.y,z.z,0,t.x,t.y,t.z,1};
-  glUniformMatrix4fv(glGetUniformLocation(program_,"objectTransform"),1,GL_FALSE,matrix);car_.draw(program_,cameraEye.x,cameraEye.z,hologram);
+
+ for(size_t i=0;i<world_.objects.size();i++)if(world_.objects[i].type==8)drawCar(world_.objects[i],int(i)==tools_.held,false,cameraEye);
+
  };
- for(size_t i=0;i<world_.objects.size();i++)if(world_.objects[i].type==8)drawCar(world_.objects[i],int(i)==tools_.held,false);
+ drawWorld(cameraEye,cameraYaw,cameraPitch,drone_.piloting()?drone_.roll*drone_.blend():0,0,0,width_,height_);
 
  glUniformMatrix4fv(glGetUniformLocation(program_,"objectTransform"),1,GL_FALSE,identity);
  if(placementPreview_){
   glUniform1i(glGetUniformLocation(program_,"previewPass"),1);
-  if(placementPreview_->type==8)drawCar(*placementPreview_,false,true);
+  if(placementPreview_->type==8)drawCar(*placementPreview_,false,true,cameraEye);
   else{
    std::vector<Vertex> ghost;sandbox::appendObject(ghost,*placementPreview_,true,true);
    glUniform1i(glGetUniformLocation(program_,"modelPass"),0);textures_.bind();
@@ -540,6 +547,18 @@ void Renderer::render(){
   float transform[16]={1,0,0,0,0,1,0,0,0,0,1,0,x,y,z,1};
   glUniformMatrix4fv(glGetUniformLocation(program_,"objectTransform"),1,GL_FALSE,transform);
   remote_.draw(program_,0,0);
+ }
+ // A native UI monitor above the controller, using a scissored second view.
+ // This avoids readback/Bitmap copies and never samples the player's camera.
+ if(gameplayReady&&tools_.tool==sandbox::HandTool::DRONE_REMOTE&&!drone_.piloting()&&seatedCar_<0&&drone_.mode!=sandbox::FpvDrone::Absent&&drone_.mode!=sandbox::FpvDrone::InHands){
+  int monitorWidth=std::max(16,int(std::min(width_*.22f,height_*.46f)));
+  int monitorHeight=monitorWidth*9/16;
+  int monitorX=(width_-monitorWidth)/2,monitorY=int(height_*.20f);
+  glEnable(GL_SCISSOR_TEST);glScissor(monitorX-3,monitorY-3,monitorWidth+6,monitorHeight+6);
+  glClearColor(.12f,.65f,.58f,1);glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
+  glScissor(monitorX,monitorY,monitorWidth,monitorHeight);
+  drawWorld(drone_.feedEye(),drone_.yaw,drone_.pitch,drone_.roll,monitorX,monitorY,monitorWidth,monitorHeight);
+  glDisable(GL_SCISSOR_TEST);glViewport(0,0,width_,height_);
  }
  if(eglSwapBuffers(display_,surface_)==EGL_TRUE){
   {std::lock_guard<std::mutex> lock(snapshotMutex);snapshot={world_.x,world_.y,world_.z,flying_?1.f:0.f};}
