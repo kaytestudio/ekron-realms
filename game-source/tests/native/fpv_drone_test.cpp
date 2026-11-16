@@ -39,10 +39,20 @@ int main(){
 
  // Free camera look must not change flight attitude or position.
  sandbox::FpvDrone viewer;viewer.mode=viewer.Flying;viewer.position={0,3,0};auto eyeBefore=viewer.feedEye();
- viewer.look(100,-100);assert(viewer.feedPitch()>.3f&&viewer.feedYaw()<-.3f);
+ viewer.look(100,-100);assert(viewer.feedPitch()>.3f&&viewer.feedYaw()==viewer.yaw);
  assert(viewer.pitch==0&&viewer.yaw==0&&physics::length(viewer.feedEye()-eyeBefore)<1e-6f);
  viewer.look(0,10000);assert(viewer.feedPitch()>=-1.3f);
  viewer.mode=viewer.Hover;float cameraPitch=viewer.feedPitch();viewer.look(0,100);assert(viewer.feedPitch()==cameraPitch);
+ // Chase view stays behind the nose, sees the drone and shortens at geometry.
+ viewer.mode=viewer.Flying;viewer.position={0,3,0};viewer.yaw=0;
+ viewer.toggleView(city,built);assert(viewer.thirdPerson);assert(viewer.camera().z>2.4f);
+ assert(viewer.targetPitch()<0&&viewer.viewRoll()==0);
+ auto fpvEye=viewer.feedEye();assert(physics::length(viewer.camera()-fpvEye)>2);
+ physics::CollisionMesh cameraWall;cameraWall.addBox({-3,0,1},{3,6,1.1f});cameraWall.build();
+ viewer.updateChase(cameraWall,built);assert(viewer.camera().z<.9f);
+ assert(!cameraWall.intersectsBox(viewer.camera(),{.12f,.12f,.12f}));
+ viewer.yaw=1.57079632679f;viewer.updateChase(city,built);assert(viewer.camera().x>0&&viewer.camera().x<1);
+ viewer.toggleView(city,built);assert(!viewer.thirdPerson&&physics::length(viewer.camera()-viewer.feedEye())<1e-6f);
  // The two sticks have independent axes: yaw/throttle never become strafe.
  sandbox::FpvDrone radio;radio.mode=radio.Flying;radio.position={-5,3,-5};
  for(int i=0;i<100;i++)radio.update(.01f,0,0,1,1,0,city,built);
