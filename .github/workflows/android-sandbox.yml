@@ -23,6 +23,12 @@ jobs:
       - uses: actions/checkout@v4
       - name: Test native world logic
         run: |
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic tests/native/contact_energy_test.cpp -o /tmp/ekron-contact-energy
+          /tmp/ekron-contact-energy
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic tests/native/fpv_drone_test.cpp -o /tmp/ekron-fpv-drone
+          /tmp/ekron-fpv-drone
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic tests/native/fpv_assets_test.cpp sys/android/app/src/main/cpp/GltfScene.cpp sys/android/app/src/main/cpp/ImageDecode.cpp -o /tmp/ekron-fpv-assets
+          /tmp/ekron-fpv-assets
           g++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic tests/native/oriented_grab_test.cpp -o /tmp/ekron-oriented-grab
           /tmp/ekron-oriented-grab
           g++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic tests/native/advanced_physics_test.cpp -o /tmp/ekron-advanced-physics-test

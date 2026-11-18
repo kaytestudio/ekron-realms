@@ -36,9 +36,16 @@ class MainActivity : GameActivity() {
     private external fun nativeCommand(command: Int)
     private external fun nativeStatus(): FloatArray
     private external fun nativeVertical(value: Float)
+    private external fun nativeDroneInput(throttle:Float,yaw:Float,pitch:Float,roll:Float)
     private external fun nativeMove(right: Float, forward: Float)
     private external fun nativeLook(dx: Float, dy: Float)
     private lateinit var lookArea: LookView
+    private lateinit var fpvLayer: FrameLayout
+    private lateinit var fpvControls: FpvControlView
+    private lateinit var dronePlace: HudButton
+    private lateinit var remoteActions: LinearLayout
+    private var droneState=0
+    private val normalHudVisibility=mutableMapOf<View,Int>()
     private var paused = false
     private var worldReady = false
     private var flyingNow = false
@@ -62,6 +69,7 @@ class MainActivity : GameActivity() {
     private val catalogExecutor=Executors.newSingleThreadExecutor()
     private var catalogAdapter: BaseAdapter? = null
     private lateinit var hud: FrameLayout
+    private lateinit var toolWheel: ToolWheelView
     private lateinit var weapon: ToolArtView
     private lateinit var selectedImage: ImageView
     private lateinit var selectedSlot: FrameLayout
@@ -101,7 +109,7 @@ class MainActivity : GameActivity() {
                         if(pendingSurface==null && nativeSurface in listOf(1,2,3,5,6))selectedSurface=nativeSurface
                     }
                     if(state.size>=12){interactionCode=state[11].toInt();interactionControl.visibility=if(interactionCode>0)View.VISIBLE else View.GONE
-                        interactionControl.caption=when(interactionCode){1->"Открыть";2->"Закрыть";3->"Сесть";4->"Выйти";else->""}
+                        interactionControl.caption=when(interactionCode){6->"Подключиться";1->"Открыть";2->"Закрыть";3->"Сесть";4->"Выйти";else->""}
                         interactionControl.contentDescription=interactionControl.caption;interactionControl.invalidate()
                     }
                     if(state.size>=13){freezeControl.caption=if(state[12]>.5f) "Разморозить" else "Заморозить";freezeControl.contentDescription=freezeControl.caption;freezeControl.invalidate()}
@@ -143,6 +151,27 @@ class MainActivity : GameActivity() {
                         HandTool.SPAWN_GUN -> "Спавн-пушка: ${items[selected]}"
                         HandTool.GRAVITY_GUN -> if(toolsState.holding) "Предмет захвачен" else "Грави-пушка: наведите на свою постройку"
                         HandTool.DELETE_TOOL -> "Удаление своих построек"
+                        HandTool.DRONE_REMOTE -> "Пульт FPV · подключение к дрону"
+                    }
+                }
+            }
+            if(state.size>=14 && ::fpvLayer.isInitialized){
+                droneState=state[13].toInt()
+                dronePlace.visibility=if(droneState==1)View.VISIBLE else View.GONE
+                val fpv=droneState in 3..5
+                if(fpv){
+                    if(normalHudVisibility.isEmpty()){
+                        closePopup();toolWheel.cancel();joystick.reset();lookArea.reset()
+                        for(i in 0 until hud.childCount){val child=hud.getChildAt(i);if(child!==fpvLayer)normalHudVisibility[child]=child.visibility}
+                        Toast.makeText(this@MainActivity,"Слева — высота и рыскание. Справа — наклоны. × — к пульту.",Toast.LENGTH_LONG).show()
+                    }
+                    for(i in 0 until hud.childCount){val child=hud.getChildAt(i);if(child!==fpvLayer)child.visibility=View.INVISIBLE}
+                    fpvLayer.visibility=View.VISIBLE;fpvLayer.bringToFront()
+                }else {
+                    fpvLayer.visibility=View.GONE
+                    if(normalHudVisibility.isNotEmpty()){
+                        fpvControls.reset();normalHudVisibility.forEach { (view,visibility)->view.visibility=visibility };normalHudVisibility.clear();renderTools()
+                        dronePlace.visibility=if(droneState==1)View.VISIBLE else View.GONE
                     }
                 }
             }
@@ -217,11 +246,28 @@ class MainActivity : GameActivity() {
         }
         for (control in listOf(jump,crouchControl)) movement.addView(control, LinearLayout.LayoutParams(dp(actionSize),dp(actionSize)))
         overlay.addView(movement, FrameLayout.LayoutParams(-2,-2,Gravity.BOTTOM or Gravity.END).apply { bottomMargin=dp(8);rightMargin=dp(8) })
-        // Immediate three-tool cycle. Never opens a menu or catalogue.
-        val switchWeapon=action("", "switch") { selectTool(toolsState.nextTool()) }.apply { visualScale=.73f }
-        switchWeapon.contentDescription="Смена оружия"
+        toolWheel=ToolWheelView(this) { selectTool(it) }
+        overlay.addView(toolWheel,FrameLayout.LayoutParams(-1,-1))
+        // Click action is retained for accessibility; touch uses hold/drag/release.
+        val switchWeapon=action("", "switch") {
+            if(worldReady && active && !paused) AlertDialog.Builder(this)
+                .setTitle("Выбор инструмента")
+                .setItems(arrayOf("Грави-пушка", "Пульт FPV", "Пустые руки")) { _, index ->
+                    selectTool(ToolWheelSelection.tools[index])
+                }.show()
+        }.apply { visualScale=.73f }
+        switchWeapon.contentDescription="Выбор инструмента: удерживайте, проведите и отпустите"
+        switchWeapon.setOnTouchListener { view, event ->
+            if(!worldReady || !active || paused) { toolWheel.cancel(); true }
+            else {
+                if(event.actionMasked==MotionEvent.ACTION_DOWN) view.parent.requestDisallowInterceptTouchEvent(true)
+                toolWheel.gesture(event,toolsState.tool) {
+                    closePopup();lookArea.reset();toolWheel.bringToFront()
+                }
+            }
+        }
         overlay.addView(switchWeapon,FrameLayout.LayoutParams(dp(60),dp(60),Gravity.TOP or Gravity.END).apply { topMargin=dp(66);rightMargin=dp(8) })
-        catalogControl=action("", "cube") { showBuildCatalog() }.apply { contentDescription="Открыть предметы";visualScale=.73f }
+        catalogControl=action("", "cube") { showBuildCatalog() }.apply { contentDescription="Спавн: открыть каталог";visualScale=.73f }
         overlay.addView(catalogControl,FrameLayout.LayoutParams(dp(60),dp(60),Gravity.TOP or Gravity.END).apply { topMargin=dp(66);rightMargin=dp(72) })
         removeControl=action("", "remove") { nativeCommand(4) }.apply { danger=true;visualScale=.73f;contentDescription="Удалить" }
         overlay.addView(removeControl,FrameLayout.LayoutParams(dp(60),dp(60),Gravity.TOP or Gravity.END).apply { topMargin=dp(126);rightMargin=dp(72) })
@@ -242,7 +288,7 @@ class MainActivity : GameActivity() {
         selectedSwatch=MaterialBlockView(this,selectedSurface)
         selectedSlot.addView(selectedSwatch,FrameLayout.LayoutParams(dp(25),dp(25),Gravity.BOTTOM or Gravity.END))
         // Selection art remains available inside the catalogue, not as a duplicate HUD opener.
-        addControl(spawnActions,"","build") { nativeCommand(200+BuildCatalog.entries[selected].nativeType) }.apply { contentDescription="Установить выбранный предмет" }
+        addControl(spawnActions,"","build") { if(requestedTool==null)nativeCommand(200+BuildCatalog.entries[selected].nativeType) }.apply { contentDescription="Установить выбранный предмет" }
         val turns=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
         addControl(turns,"","left") { nativeCommand(31) }.apply { contentDescription="Повернуть влево" }
         addControl(turns,"","right") { nativeCommand(2) }.apply { contentDescription="Повернуть вправо" }
@@ -252,8 +298,12 @@ class MainActivity : GameActivity() {
         rotateHeldControl=addControl(gravityActions,"Вращать","rotate") { nativeCommand(33) }
         toolActions.addView(spawnActions)
         toolActions.addView(gravityActions)
+        remoteActions=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL;visibility=View.GONE }
+        addControl(remoteActions,"Вернуть","home") { nativeCommand(44) }.apply { contentDescription="Вернуть дрон к игроку" }
+        addControl(remoteActions,"Убрать пульт","remove") { nativeCommand(42) }.apply { contentDescription="Убрать пульт: пустые руки" }
+        toolActions.addView(remoteActions)
         overlay.addView(toolActions,FrameLayout.LayoutParams(-2,-2,Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin=dp(8) })
-        interactionControl=action("Открыть","grab") { nativeCommand(36) }.apply { visibility=View.GONE }
+        interactionControl=action("Открыть","grab") { nativeCommand(if(interactionCode==6)43 else 36) }.apply { visibility=View.GONE }
         overlay.addView(interactionControl,FrameLayout.LayoutParams(dp(80),dp(60),Gravity.BOTTOM or Gravity.END).apply { bottomMargin=dp(8);rightMargin=dp(76) })
         renderTools()
         // Flight is now in the pause menu; its altitude controls do not cover the action column.
@@ -313,6 +363,14 @@ class MainActivity : GameActivity() {
                 }
             }
         }
+        dronePlace=action("Поставить дрон","build") { nativeCommand(41) }.apply { visibility=View.GONE }
+        overlay.addView(dronePlace,FrameLayout.LayoutParams(dp(90),dp(70),Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin=dp(10) })
+        fpvLayer=FrameLayout(this).apply { visibility=View.GONE;isMotionEventSplittingEnabled=true }
+        fpvControls=FpvControlView(this,{throttle,yaw,pitch,roll->nativeDroneInput(throttle,yaw,pitch,roll)},{x,y->nativeLook(x,y)})
+        fpvLayer.addView(fpvControls,FrameLayout.LayoutParams(-1,-1))
+        fpvLayer.addView(action("Смена вида","switch") { nativeCommand(45) }.apply { contentDescription="Сменить вид: FPV или орбитальная камера" },FrameLayout.LayoutParams(dp(82),dp(64),Gravity.TOP or Gravity.END).apply { topMargin=dp(8);rightMargin=dp(76) })
+        fpvLayer.addView(action("","remove") { fpvControls.reset();nativeCommand(42) }.apply { contentDescription="Выйти из FPV" },FrameLayout.LayoutParams(dp(60),dp(60),Gravity.TOP or Gravity.END).apply { topMargin=dp(8);rightMargin=dp(8) })
+        overlay.addView(fpvLayer,FrameLayout.LayoutParams(-1,-1))
         addContentView(overlay, ViewGroup.LayoutParams(-1, -1))
         hideSystemUi()
         catalogExecutor.execute {
@@ -355,10 +413,10 @@ class MainActivity : GameActivity() {
     private fun renderTools() {
         weapon.tool=toolsState.tool
         weapon.visibility=if(toolsState.viewmodelVisible&&interactionCode!=4)View.VISIBLE else View.GONE
-        if(!toolsState.spawnVisible && catalogAdapter!=null)closePopup()
         updateSelectedIcon()
-        catalogControl.visibility=if(toolsState.spawnVisible&&interactionCode!=4)View.VISIBLE else View.GONE
+        catalogControl.visibility=if(interactionCode!=4)View.VISIBLE else View.GONE
         spawnActions.visibility=if(toolsState.spawnVisible&&interactionCode!=4)View.VISIBLE else View.GONE
+        remoteActions.visibility=if(toolsState.tool==HandTool.DRONE_REMOTE&&interactionCode!=4)View.VISIBLE else View.GONE
         gravityActions.visibility=if(toolsState.gravityVisible&&interactionCode!=4)View.VISIBLE else View.GONE
         removeControl.visibility=if(toolsState.deleteVisible&&interactionCode!=4)View.VISIBLE else View.GONE
         rotateHeldControl.visibility=if(toolsState.rotateHeldVisible&&interactionCode!=4)View.VISIBLE else View.GONE
@@ -370,14 +428,46 @@ class MainActivity : GameActivity() {
     private fun selectTool(tool: HandTool) {
         closePopup();requestedTool=tool;toolsState.select(tool);nativeCommand(20+tool.ordinal);renderTools()
     }
-    private fun showBuildCatalog() {
-        val container=panel("Строительство")
+    private fun showBuildCatalog(category: Int = 0) {
+        if(!worldReady || !active || paused || interactionCode==4)return
+        val container=panel("Спавн")
+        val tabs=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
+        listOf("Строительство", "Мебель", "Оружие", "FPV Дроны").forEachIndexed { index, title ->
+            tabs.addView(Button(this).apply { text=title;textSize=10f;isSelected=index==category
+                setTextColor(if(index==category)0xff7dffd2.toInt() else Color.WHITE)
+                setOnClickListener { showBuildCatalog(index) }
+            },LinearLayout.LayoutParams(0,dp(48),1f))
+        }
+        container.addView(tabs)
+        val visibleItems=BuildCatalog.indicesForCategory(category)
+        if(category==3){
+            val cards=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
+            fun card(title:String,asset:String,choose:()->Unit){
+                val image=ImageView(this).apply { scaleType=ImageView.ScaleType.FIT_CENTER;contentDescription=title }
+                val item=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;gravity=Gravity.CENTER;isClickable=true;contentDescription=title;setOnClickListener { choose() } }
+                item.addView(image,LinearLayout.LayoutParams(-1,0,1f));item.addView(label(title,12f).apply { gravity=Gravity.CENTER },LinearLayout.LayoutParams(-1,dp(36)))
+                cards.addView(item,LinearLayout.LayoutParams(0,-1,1f))
+                catalogExecutor.execute {
+                    val bitmap=try { assets.open(asset).use { BitmapFactory.decodeStream(it) } }catch(_:Exception){null}
+                    handler.post { if(!isDestroyed)image.setImageBitmap(bitmap) }
+                }
+            }
+            card("Пульт FPV · взять", "catalog/rendered/fpv_remote.webp"){selectTool(HandTool.DRONE_REMOTE)}
+            card("FPV-дрон · достать", "catalog/rendered/fpv_drone.webp"){nativeCommand(40);closePopup()}
+            container.addView(cards,LinearLayout.LayoutParams(-1,0,1f))
+            return
+        }
+        if(visibleItems.isEmpty()){
+            container.addView(label("В этом разделе пока нет предметов",14f).apply { gravity=Gravity.CENTER },LinearLayout.LayoutParams(-1,0,1f))
+            return
+        }
         val grid=GridView(this).apply { numColumns=4;horizontalSpacing=dp(4);verticalSpacing=dp(4);clipToPadding=false;isMotionEventSplittingEnabled=true }
         val adapter=object : BaseAdapter() {
-            override fun getCount()=items.size
-            override fun getItem(position: Int)=items[position]
-            override fun getItemId(position: Int)=position.toLong()
-            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View = LinearLayout(this@MainActivity).apply {
+            override fun getCount()=visibleItems.size
+            override fun getItem(position: Int)=items[visibleItems[position]]
+            override fun getItemId(position: Int)=visibleItems[position].toLong()
+            override fun getView(row: Int, convertView: View?, parent: ViewGroup): View = LinearLayout(this@MainActivity).apply {
+                val position=visibleItems[row]
                 orientation=LinearLayout.VERTICAL;gravity=Gravity.CENTER
                 contentDescription=items[position];minimumHeight=dp(84)
                 layoutParams=AbsListView.LayoutParams(-1,dp(84))
@@ -395,13 +485,16 @@ class MainActivity : GameActivity() {
             }
         }
         catalogAdapter=adapter;grid.adapter=adapter;container.addView(grid,LinearLayout.LayoutParams(-1,0,1f))
-        grid.setOnItemClickListener { _,_,index,_ ->
-            nativeCommand(100+BuildCatalog.entries[index].nativeType)
+        grid.setOnItemClickListener { _,_,row,_ ->
+            val index=visibleItems[row]
+            requestedTool=HandTool.SPAWN_GUN;toolsState.select(HandTool.SPAWN_GUN)
+            nativeCommand(300+BuildCatalog.entries[index].nativeType)
             pendingSelection=index;selected=index;selectedSurface=BuildCatalog.entries[index].defaultSurface
-            updateSelectedIcon();closePopup()
+            updateSelectedIcon();closePopup();renderTools()
         }
     }
     private fun setPaused(value: Boolean) {
+        if(::toolWheel.isInitialized)toolWheel.cancel()
         closePopup();paused=value;joystick.reset();lookArea.reset();weapon.running=!value && active;nativeVertical(0f)
         nativeReady(worldReady && active && !paused)
     }
@@ -425,6 +518,8 @@ class MainActivity : GameActivity() {
         if (::coordinates.isInitialized) { handler.removeCallbacks(poll); handler.post(poll) }
     }
     override fun onPause() {
+        if(::toolWheel.isInitialized)toolWheel.cancel()
+        if(::fpvControls.isInitialized)fpvControls.reset()
         closePopup();weapon.running=false
         active = false; nativeReady(false)
         if (::joystick.isInitialized) joystick.reset();if (::lookArea.isInitialized)lookArea.reset()

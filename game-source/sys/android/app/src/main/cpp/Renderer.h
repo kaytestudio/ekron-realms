@@ -4,6 +4,7 @@
 #include <chrono>
 #include "SandboxWorld.h"
 #include "ToolInteraction.h"
+#include "FpvDrone.h"
 #include "ObjectDynamics.h"
 #include "WorldRecovery.h"
 #include "Interaction.h"
@@ -30,6 +31,9 @@ private:
     TextureLoader textures_;
     city::GltfRenderer city_;
     city::GltfRenderer car_;
+    city::GltfRenderer remote_;
+    city::GltfRenderer droneModel_;
+    sandbox::FpvDrone drone_;
     bool texturesReady_=false;
     int width_=1,height_=1,leftId_=-1,rightId_=-1;
     float originX_=0,originY_=0,rightX_=0,rightY_=0,moveX_=0,moveY_=0;
@@ -39,6 +43,7 @@ private:
     bool carWasAnchored_=false;
     std::optional<sandbox::Object> placementPreview_;
     bool building_=false;
+    sandbox::HandTool spawnReturnTool_=sandbox::HandTool::HAND_EMPTY;
     bool flying_=false;
     sandbox::World world_;
     sandbox::ToolInteraction tools_;
@@ -54,7 +59,7 @@ private:
     std::future<std::optional<std::array<float,2>>> roadJob_;
     physics::CollisionMesh builtCollision_;
     void rebuildBuiltCollision();
-    struct PreparedAssets {city::Scene city,car;TextureLoader::Prepared textures;std::string log;float parkingX=0,parkingZ=0,parkingY=0;bool valid=false,carValid=false;};
+    struct PreparedAssets {city::Scene city,car,remote,drone;TextureLoader::Prepared textures;std::string log;float parkingX=0,parkingZ=0,parkingY=0;bool valid=false,carValid=false,remoteValid=false,droneValid=false;};
     std::future<PreparedAssets> assetsJob_;
     void advanceLoading();
     bool assetsInstalled_=false;
