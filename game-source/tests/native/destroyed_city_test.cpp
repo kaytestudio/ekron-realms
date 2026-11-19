@@ -4,6 +4,7 @@
 #include <fstream>
 #include <iostream>
 #include <chrono>
+#include "../../sys/android/app/src/main/cpp/PlayerPhysics.h"
 #include "fixtures/LegacyLevelPlacement.h"
 int main(){
  // Rasterization must produce the same regions and clearance choices as brute force.
@@ -22,20 +23,22 @@ int main(){
  }
  auto started=std::chrono::steady_clock::now();
 
- city::Scene scene;std::string log;city::LoadOptions options;options.targetExtent=998;
+ city::Scene scene;std::string log;city::LoadOptions options;options.targetExtent=4000;options.preferredSpawnX=24;options.preferredSpawnZ=104;
  int last=0,updates=0;options.progress=[&](int p){assert(p>=last&&p<=100);last=p;updates++;};
  auto read=[](const std::string&p,std::vector<unsigned char>&b){std::ifstream f(p,std::ios::binary);if(!f)return false;b.assign(std::istreambuf_iterator<char>(f),{});return true;};
- assert(scene.load("sys/android/app/src/main/assets/models/destroyed_city.glb",read,log,options));
+ assert(scene.load("sys/android/app/src/main/assets/models/military_city.glb",read,log,options));
  assert(last==100&&updates>=6);
  assert(scene.batches.size()>50&&scene.batches.size()<200);
- assert(scene.materials.size()==3&&scene.images.size()==1);
- assert(scene.maximum[0]-scene.minimum[0]>997);
+ assert(scene.materials.size()>100&&scene.images.size()>=4);
+ assert(scene.maximum[0]-scene.minimum[0]>3999);
  size_t triangles=0;bool colored=false;
  for(const auto&batch:scene.batches){triangles+=batch.vertices.size()/3;for(const auto&v:batch.vertices)if(v.r!=1||v.g!=1||v.b!=1)colored=true;}
- assert(triangles>300000&&triangles<350000&&colored);
- const auto&image=scene.images[0];assert(image.width==512&&image.height==512);
+ assert(triangles>300000&&triangles<400000&&colored);
+ const auto&image=scene.images[0];assert(image.width>0&&image.height>0);
  bool varied=false;for(size_t i=4;i<image.rgba.size();i+=4)if(image.rgba[i]!=image.rgba[0]){varied=true;break;}assert(varied);
  assert(scene.collision&&scene.collision->size()>300000);
+ physics::PlayerController capsule;float floor=scene.collision->groundHeight(24,104,3,-2);
+ assert(std::isfinite(floor)&&!capsule.overlaps(*scene.collision,24,floor+1.701f,104));
  sandbox::World world;world.walls=scene.colliders;world.wallSegments=scene.wallSegments;
  world.x=scene.spawnX;world.z=scene.spawnZ;
  assert(!world.blocked({world.x,0,world.z,.62f,2,.62f,0,0,0}));

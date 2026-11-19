@@ -135,7 +135,7 @@ void prepare(Scene &s,const LoadOptions &options){
  if(options.progress)options.progress(65);
  sandbox::World collisionWorld;collisionWorld.walls=s.colliders;collisionWorld.wallSegments=s.wallSegments;
  SpawnPoint spawn;
- if(!findRoadSpawn(collisionWorld,s.minimum,s.maximum,-3.4f,32.7f,spawn))throw std::runtime_error("No connected, supported free spawn in the collision grid");
+ if(!findRoadSpawn(collisionWorld,s.minimum,s.maximum,options.preferredSpawnX,options.preferredSpawnZ,spawn))throw std::runtime_error("No connected, supported free spawn in the collision grid");
  s.spawnX=spawn.x;s.spawnZ=spawn.z;
  applyFallbackUV(s);
  if(options.progress)options.progress(80);

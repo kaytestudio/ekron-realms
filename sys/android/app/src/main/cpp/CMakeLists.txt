@@ -3,7 +3,7 @@ project(realms LANGUAGES C CXX)
 
 # The real Android entry point: GameActivity -> native_app_glue -> GLES sandbox.
 # No WebView, npm, JavaScript bundle or remote content is included in this APK.
-add_library(realms SHARED main.cpp AndroidOut.cpp Renderer.cpp TextureLoader.cpp ImageDecode.cpp GltfScene.cpp GltfRenderer.cpp)
+add_library(realms SHARED main.cpp AndroidOut.cpp Renderer.cpp TextureLoader.cpp ImageDecode.cpp GltfScene.cpp GltfRenderer.cpp MilitaryEffects.cpp)
 target_compile_features(realms PRIVATE cxx_std_17)
 # Debug APK is also the distributed play-test build. Keep symbols, but optimize
 # native scene decoding, navigation and BVH construction on phones.

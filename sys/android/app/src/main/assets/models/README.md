@@ -1,3 +1,7 @@
+# Активная карта v0.50
+
+`military_city.glb` из пользовательского redesign-military-city-map.zip (80a6fbe194cffc894aac46941266c8bdd1f02d03), seed 20240229. Коллизии сохранены, движущиеся эффекты воспроизводятся C++/GLES. См. `MILITARY_CITY_V50_RU.md`. Обе прежние карты не входят в APK. Ниже исторические сведения.
+
 # Текущая карта — v0.48
 
 `destroyed_city.glb` экспортирована из пользовательского архива `3d-destroyed-city-map.zip`, commit f2d65a465935ba7312491d0de8cb764e57db06f4. Seed 2025, 12 кварталов, 65% разрушений. Подробнее: `DESTROYED_CITY_V48_RU.md`.

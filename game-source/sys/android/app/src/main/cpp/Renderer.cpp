@@ -97,6 +97,7 @@ uniform float modelRoughness;
 uniform vec3 lightDirection;
 uniform vec3 lightColor;
 uniform vec3 ambientColor;
+uniform vec4 fireLights[6];
 out vec4 outColor;
 void main(){
  vec3 base=pow(tint,vec3(2.2));
@@ -122,6 +123,8 @@ void main(){
  // Broad, cool ambient light keeps overcast facades readable without hard shadows.
  float sky=.78+.22*max(n.y,0.0);
  vec3 lit=base*(ambientColor*sky+lightColor*diffuse);
+ for(int i=0;i<6;i++){vec3 delta=fireLights[i].xyz-(toEye+eye);float dist=length(delta);float fall=max(0.,1.-dist/30.);lit+=base*vec3(1.,.34,.08)*fireLights[i].w*fall*fall*.9;}
+
  float roughness=modelPass?modelRoughness:(layer==7?.18:layer==3?.48:.94);
  float strength=modelPass?.035:(layer==7?.28:layer==3?.12:.006);
  vec3 halfVector=normalize(normalize(-lightDirection)-normalize(toEye));
@@ -214,14 +217,14 @@ Renderer::Renderer(android_app *app):app_(app),last_(std::chrono::steady_clock::
  auto manager=app_->activity->assetManager;auto navigation=std::make_shared<sandbox::World>(world_);
  assetsJob_=std::async(std::launch::async,[manager,navigation](){
   PreparedAssets result;result.textures=TextureLoader::prepare(manager);loadPercent=12;loadStage=2;
-  city::LoadOptions cityOptions;cityOptions.targetExtent=998.f;
+  city::LoadOptions cityOptions;cityOptions.targetExtent=4000.f;cityOptions.preferredSpawnX=24;cityOptions.preferredSpawnZ=104;
   cityOptions.progress=[](int p){loadPercent=12+p*46/100;};
-  result.valid=city::GltfRenderer::prepare(manager,"models/destroyed_city.glb",result.city,result.log,cityOptions);loadPercent=58;
+  result.valid=city::GltfRenderer::prepare(manager,"models/military_city.glb",result.city,result.log,cityOptions);loadPercent=58;
   if(!result.valid)return result;
   loadStage=3;
   navigation->walls=result.city.colliders;navigation->wallSegments=result.city.wallSegments;
   city::SpawnPoint anchor;
-  if(city::findRoadSpawn(*navigation,result.city.minimum,result.city.maximum,-3.4f,32.7f,anchor)){
+  if(city::findRoadSpawn(*navigation,result.city.minimum,result.city.maximum,24.f,104.f,anchor)){
    navigation->x=anchor.x;navigation->z=anchor.z;
    if(city::findCarParking(*navigation,result.city.minimum,result.city.maximum,anchor.x+3,anchor.z-9,result.parkingX,result.parkingZ)){
     float ground=result.city.collision->groundHeight(result.parkingX,result.parkingZ,2,-10);result.parkingY=std::isfinite(ground)?ground:0;
@@ -257,7 +260,7 @@ void Renderer::advanceLoading(){
   if(data.remoteValid)remote_.beginUpload(std::move(data.remote));
   if(data.droneValid)droneModel_.beginUpload(std::move(data.drone));
   world_.scenery.clear();world_.walls=city_.scene().colliders;world_.wallSegments=city_.scene().wallSegments;
-  savePath_=std::string(app_->activity->internalDataPath)+"/destroyed-city-2025-v1.txt";
+  savePath_=std::string(app_->activity->internalDataPath)+"/military-city-20240229-v1.txt";
   bool restoredWorld=retainedWorld.has_value();
   if(!retainedWorld){world_.objects.clear();restoredWorld=world_.load(savePath_);}
   carParking_={8,0,data.parkingX,data.parkingZ};carParking_.y=data.parkingY;carParkingValid_=data.carValid;
@@ -291,7 +294,7 @@ Renderer::~Renderer(){
  if(saveJob_.valid())saveJob_.get();
  if(saveDirty_)world_.save(savePath_);
  if(assetsInstalled_){retainedWorld=world_;retainedDrone=drone_;retainedTool=tools_.tool;retainedFlying=flying_;}
- if(display_!=EGL_NO_DISPLAY){if(context_!=EGL_NO_CONTEXT&&surface_!=EGL_NO_SURFACE&&eglMakeCurrent(display_,surface_,surface_,context_)){droneModel_.release();remote_.release();car_.release();city_.release();textures_.release();if(skyProgram_)glDeleteProgram(skyProgram_);if(buffer_)glDeleteBuffers(1,&buffer_);if(vao_)glDeleteVertexArrays(1,&vao_);if(program_)glDeleteProgram(program_);}eglMakeCurrent(display_,EGL_NO_SURFACE,EGL_NO_SURFACE,EGL_NO_CONTEXT);if(context_!=EGL_NO_CONTEXT)eglDestroyContext(display_,context_);if(surface_!=EGL_NO_SURFACE)eglDestroySurface(display_,surface_);eglTerminate(display_);}
+ if(display_!=EGL_NO_DISPLAY){if(context_!=EGL_NO_CONTEXT&&surface_!=EGL_NO_SURFACE&&eglMakeCurrent(display_,surface_,surface_,context_)){militaryEffects_.release();droneModel_.release();remote_.release();car_.release();city_.release();textures_.release();if(skyProgram_)glDeleteProgram(skyProgram_);if(buffer_)glDeleteBuffers(1,&buffer_);if(vao_)glDeleteVertexArrays(1,&vao_);if(program_)glDeleteProgram(program_);}eglMakeCurrent(display_,EGL_NO_SURFACE,EGL_NO_SURFACE,EGL_NO_CONTEXT);if(context_!=EGL_NO_CONTEXT)eglDestroyContext(display_,context_);if(surface_!=EGL_NO_SURFACE)eglDestroySurface(display_,surface_);eglTerminate(display_);}
 }
 void Renderer::resetInput(){verticalInput=0;leftId_=rightId_=-1;moveX_=moveY_=0;last_=std::chrono::steady_clock::now();}
 void Renderer::handleInput(){
@@ -378,7 +381,7 @@ void Renderer::handleInput(){
    // Copy immutable navigation data once. BFS and allocations run only on the worker.
    auto navigation=std::make_shared<sandbox::World>();navigation->walls=world_.walls;navigation->wallSegments=world_.wallSegments;navigation->objects=world_.objects;
    auto lo=city_.scene().minimum,hi=city_.scene().maximum;
-   roadJob_=std::async(std::launch::async,[navigation,lo,hi]()->std::optional<std::array<float,2>>{city::SpawnPoint p;if(city::findRoadSpawn(*navigation,lo,hi,-3.4f,32.7f,p))return std::array<float,2>{p.x,p.z};return {};});
+   roadJob_=std::async(std::launch::async,[navigation,lo,hi]()->std::optional<std::array<float,2>>{city::SpawnPoint p;if(city::findRoadSpawn(*navigation,lo,hi,24.f,104.f,p))return std::array<float,2>{p.x,p.z};return {};});
   }
   if(changed){saveDirty_=true;rebuildBuiltCollision();}
  }
@@ -449,6 +452,7 @@ void Renderer::render(){
  float cameraYaw=drone_.piloting()?drone_.viewYaw():world_.yaw;
  float cameraPitch=drone_.piloting()?drone_.viewPitch():world_.pitch;
  if(gameplayReady)tools_.pull(world_,dt,city_.scene().collision.get());
+ if(gameplayReady)militaryEffects_.update(dt,cameraEye.x,cameraEye.z);
  std::vector<Vertex> vertices;vertices.reserve((world_.scenery.size()+world_.objects.size()*10+1)*36);
  // Old street-specific graffiti coordinates do not belong to the replacement city.
  for(const auto &b:world_.scenery)cube(vertices,b);for(size_t i=0;i<world_.objects.size();i++){
@@ -498,6 +502,7 @@ void Renderer::render(){
   glDrawArrays(GL_TRIANGLES,0,3);glDepthMask(GL_TRUE);glEnable(GL_DEPTH_TEST);
  }
  glUseProgram(program_);
+ militaryEffects_.lights(program_,cameraEye.x,cameraEye.z);
  glUniform1i(glGetUniformLocation(program_,"previewPass"),0);
  glUniformMatrix4fv(glGetUniformLocation(program_,"objectTransform"),1,GL_FALSE,identity);
  textures_.bind();glUniform1i(glGetUniformLocation(program_,"albedo"),0);
@@ -513,6 +518,8 @@ void Renderer::render(){
  city_.draw(program_,cameraEye.x,cameraEye.z);
 
  for(size_t i=0;i<world_.objects.size();i++)if(world_.objects[i].type==8)drawCar(world_.objects[i],int(i)==tools_.held,false,cameraEye);
+ militaryEffects_.draw(cameraEye.x,cameraEye.y,cameraEye.z,cameraYaw,cameraPitch,viewRoll,viewWidth,viewHeight);
+ glUseProgram(program_);
 
  };
  drawWorld(cameraEye,cameraYaw,cameraPitch,drone_.piloting()?drone_.viewRoll():0,0,0,width_,height_);
@@ -579,7 +586,7 @@ void Renderer::rebuildBuiltCollision(){
 void Renderer::respawnPlayer(){
  if(!city_.scene().collision)return;
  tools_.cancel(world_);rebuildBuiltCollision();
- auto point=sandbox::recoveryPoint(world_,*city_.scene().collision,builtCollision_);
+ auto point=sandbox::recoveryPoint(world_,*city_.scene().collision,builtCollision_,24,104);
  if(!point){debugNotice=2;return;}
  world_.x=point->x;world_.y=point->y;world_.z=point->z;world_.yaw=world_.pitch=0;flying_=false;
  player_.reset(world_.x,world_.y,world_.z);stickRight=stickForward=verticalInput=0;resetInput();debugNotice=4;

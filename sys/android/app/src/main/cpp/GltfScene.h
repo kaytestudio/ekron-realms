@@ -28,6 +28,7 @@ struct LoadOptions {
     bool level=true;
     bool buildPhysics=true;
     float targetExtent=80.f;
+    float preferredSpawnX=-3.4f,preferredSpawnZ=32.7f;
     float x=0,y=0,z=0,yaw=0;
 };
 struct Scene {
