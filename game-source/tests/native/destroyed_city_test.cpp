@@ -3,10 +3,30 @@
 #include <cassert>
 #include <fstream>
 #include <iostream>
+#include <chrono>
+#include "fixtures/LegacyLevelPlacement.h"
 int main(){
+ // Rasterization must produce the same regions and clearance choices as brute force.
+ for(int trial=0;trial<6;trial++){
+  sandbox::World w;w.walls.clear();w.wallSegments.clear();w.objects.clear();
+  w.walls.push_back({-3,0,2,2,2,5,0,0,0});
+  w.objects.push_back({5,trial%4,3,-2});
+  w.wallSegments.push_back({-8,-7,7,float(trial)-3});
+  w.wallSegments.push_back({-2,7,8,7});
+  std::array<float,3> lo{-10,0,-10},hi{10,5,10};
+  city::SpawnPoint a;legacy_city::SpawnPoint b;
+  std::vector<std::array<float,2>> ar,br;
+  bool ok=city::findRoadSpawn(w,lo,hi,1,1,a,&ar);
+  assert(ok==legacy_city::findRoadSpawn(w,lo,hi,1,1,b,&br));
+  assert(ok&&a.x==b.x&&a.z==b.z&&a.reachableCells==b.reachableCells&&ar==br);
+ }
+ auto started=std::chrono::steady_clock::now();
+
  city::Scene scene;std::string log;city::LoadOptions options;options.targetExtent=998;
+ int last=0,updates=0;options.progress=[&](int p){assert(p>=last&&p<=100);last=p;updates++;};
  auto read=[](const std::string&p,std::vector<unsigned char>&b){std::ifstream f(p,std::ios::binary);if(!f)return false;b.assign(std::istreambuf_iterator<char>(f),{});return true;};
  assert(scene.load("sys/android/app/src/main/assets/models/destroyed_city.glb",read,log,options));
+ assert(last==100&&updates>=6);
  assert(scene.batches.size()>50&&scene.batches.size()<200);
  assert(scene.materials.size()==3&&scene.images.size()==1);
  assert(scene.maximum[0]-scene.minimum[0]>997);
@@ -23,5 +43,6 @@ int main(){
  float x=0,z=0;assert(city::findCarParking(world,scene.minimum,scene.maximum,spawn.x+3,spawn.z-9,x,z));
  // Recovery must work away from the origin on the kilometre-wide map, too.
  assert(city::findRoadSpawn(world,scene.minimum,scene.maximum,300,300,spawn));
+ std::cout<<"Load + navigation seconds: "<<std::chrono::duration<double>(std::chrono::steady_clock::now()-started).count()<<"\n";
  std::cout<<log<<" triangles="<<triangles<<" parking="<<x<<","<<z<<"\n";
 }

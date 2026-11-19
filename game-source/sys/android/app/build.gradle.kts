@@ -7,13 +7,13 @@ android {
     namespace = "com.example.realms"
     compileSdk = 34
 
-    androidResources { noCompress += "mp4" }
+    androidResources { noCompress += listOf("mp4", "glb") }
     defaultConfig {
         applicationId = "com.example.realms"
         minSdk = 30
         targetSdk = 34
-        versionCode = 48
-        versionName = "0.48-destroyed-city"
+        versionCode = 49
+        versionName = "0.49-city-loading-fix"
         externalNativeBuild {
             cmake { cppFlags += "-std=c++17" }
         }

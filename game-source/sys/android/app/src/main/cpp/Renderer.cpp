@@ -215,6 +215,7 @@ Renderer::Renderer(android_app *app):app_(app),last_(std::chrono::steady_clock::
  assetsJob_=std::async(std::launch::async,[manager,navigation](){
   PreparedAssets result;result.textures=TextureLoader::prepare(manager);loadPercent=12;loadStage=2;
   city::LoadOptions cityOptions;cityOptions.targetExtent=998.f;
+  cityOptions.progress=[](int p){loadPercent=12+p*46/100;};
   result.valid=city::GltfRenderer::prepare(manager,"models/destroyed_city.glb",result.city,result.log,cityOptions);loadPercent=58;
   if(!result.valid)return result;
   loadStage=3;
@@ -249,7 +250,7 @@ void Renderer::advanceLoading(){
   if(!assetsJob_.valid()||assetsJob_.wait_for(std::chrono::seconds(0))!=std::future_status::ready)return;
   PreparedAssets data;
   try{data=assetsJob_.get();}catch(const std::exception&e){__android_log_print(ANDROID_LOG_ERROR,"Ekron","Loading: %s",e.what());loadStage=-1;return;}
-  if(!data.valid){loadStage=-1;return;}
+  if(!data.valid){__android_log_print(ANDROID_LOG_ERROR,"Ekron","City loading failed: %s",data.log.c_str());loadStage=-1;return;}
   texturesReady_=textures_.upload(data.textures);
   city_.beginUpload(std::move(data.city));
   if(data.carValid)car_.beginUpload(std::move(data.car));

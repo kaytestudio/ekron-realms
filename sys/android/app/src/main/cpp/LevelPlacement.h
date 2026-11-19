@@ -25,10 +25,27 @@ inline bool findRoadSpawn(const sandbox::World &world,const std::array<float,3>&
     constexpr float step=.25f;
     int width=int((hi[0]-lo[0])/step),depth=int((hi[2]-lo[2])/step);
     if(width<3||depth<3||width>512||depth>512)return false;
-    std::vector<unsigned char> free(size_t(width)*depth),seen(free.size());
+    std::vector<unsigned char> free(size_t(width)*depth,1),seen(free.size());
     auto px=[&](int i){return lo[0]+(i%width+.5f)*step;};
     auto pz=[&](int i){return lo[2]+(i/width+.5f)*step;};
-    for(int i=0;i<width*depth;i++)free[i]=!world.blocked({px(i),0,pz(i),.62f,2,.62f,0,0,0});
+    // Rasterize only the cells near each obstacle. The old all-cells × all-walls
+    // loop performed hundreds of millions of slab tests on this city.
+    auto raster=[&](float minX,float minZ,float maxX,float maxZ,auto blocked){
+        int x0=std::max(0,int(std::floor((minX-lo[0]-.34f)/step)));
+        int x1=std::min(width-1,int(std::floor((maxX-lo[0]+.34f)/step)));
+        int z0=std::max(0,int(std::floor((minZ-lo[2]-.34f)/step)));
+        int z1=std::min(depth-1,int(std::floor((maxZ-lo[2]+.34f)/step)));
+        for(int z=z0;z<=z1;z++)for(int x=x0;x<=x1;x++){
+            int i=z*width+x;
+            if(free[i]&&blocked(sandbox::Box{px(i),0,pz(i),.62f,2,.62f,0,0,0}))free[i]=0;
+        }
+    };
+    auto box=[&](const sandbox::Box&b){raster(b.x-b.w/2,b.z-b.d/2,b.x+b.w/2,b.z+b.d/2,
+        [&](const sandbox::Box&cell){return sandbox::World::overlap(cell,b);});};
+    for(const auto&b:world.walls)box(b);
+    for(const auto&o:world.objects)box(sandbox::World::bounds(o));
+    for(const auto&w:world.wallSegments)raster(std::min(w.ax,w.bx),std::min(w.az,w.bz),std::max(w.ax,w.bx),std::max(w.az,w.bz),
+        [&](const sandbox::Box&cell){return sandbox::intersectsWall(cell,w);});
     std::vector<int> largest,preferredRegion;
     int preferredCellX=int(std::floor((preferredX-lo[0])/step)),preferredCellZ=int(std::floor((preferredZ-lo[2])/step));
     int preferredCell=preferredCellX>=0&&preferredCellX<width&&preferredCellZ>=0&&preferredCellZ<depth?preferredCellZ*width+preferredCellX:-1;
@@ -55,8 +72,8 @@ inline bool findRoadSpawn(const sandbox::World &world,const std::array<float,3>&
     // Prefer at least 1.5 m from surrounding obstacles; only relax on narrow maps.
     for(float clearance:{3.f,2.f,1.2f}){
         float best=std::numeric_limits<float>::max();bool found=false;
-        for(int i:largest){float x=px(i),z=pz(i);if(world.blocked({x,0,z,clearance,2,clearance,0,0,0}))continue;
-            float score=(x-preferredX)*(x-preferredX)+(z-preferredZ)*(z-preferredZ);
+        for(int i:largest){float x=px(i),z=pz(i);float score=(x-preferredX)*(x-preferredX)+(z-preferredZ)*(z-preferredZ);
+            if(score>=best||world.blocked({x,0,z,clearance,2,clearance,0,0,0}))continue;
             if(score<best){best=score;out={x,z,largest.size(),playerInRegion};found=true;}
         }
         if(found)return true;

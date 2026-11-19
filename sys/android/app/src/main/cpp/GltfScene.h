@@ -23,6 +23,8 @@ struct Material {
 };
 struct Batch { std::vector<Vertex> vertices;int material=-1;bool decorativeWire=false; };
 struct LoadOptions {
+    // CPU loading milestones; optional, called on the loading worker.
+    std::function<void(int)> progress;
     bool level=true;
     bool buildPhysics=true;
     float targetExtent=80.f;
