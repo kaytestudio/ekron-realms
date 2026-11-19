@@ -29,6 +29,7 @@ jobs:
         run: "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager 'platforms;android-34' 'build-tools;34.0.0'"
       - uses: gradle/actions/setup-gradle@v4
       - name: Test and build standalone APK
+        shell: bash
         working-directory: prototypes/destroyed-city/libgdx
         run: ./gradlew :core:test :android:assembleDebug --stacktrace 2>&1 | tee "$RUNNER_TEMP/city-build.log"
       - name: Publish build diagnostics
