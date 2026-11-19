@@ -1,0 +1,54 @@
+name: Standalone LibGDX city APK
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'prototypes/destroyed-city/libgdx/**'
+      - '.github/workflows/destroyed-city-libgdx.yml'
+  pull_request:
+    paths:
+      - 'prototypes/destroyed-city/libgdx/**'
+      - '.github/workflows/destroyed-city-libgdx.yml'
+permissions:
+  contents: read
+  checks: write
+jobs:
+  apk:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify generator is unchanged
+        working-directory: prototypes/destroyed-city/libgdx
+        run: cmp originals/DestroyedCity.kt.txt core/src/main/kotlin/com/example/city/DestroyedCity.kt
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Android SDK
+        run: "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager 'platforms;android-34' 'build-tools;34.0.0'"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Test and build standalone APK
+        shell: bash
+        working-directory: prototypes/destroyed-city/libgdx
+        run: ./gradlew :core:test :android:assembleDebug --stacktrace 2>&1 | tee "$RUNNER_TEMP/city-build.log"
+      - name: Publish build diagnostics
+        if: failure() && github.event_name != 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = process.env.RUNNER_TEMP + '/city-build.log';
+            const log = fs.existsSync(path) ? fs.readFileSync(path, 'utf8') : 'No Gradle log available';
+            await github.rest.checks.create({
+              ...context.repo, name: 'City build diagnostics', head_sha: context.sha,
+              status: 'completed', conclusion: 'failure',
+              output: {title: 'Gradle failure details', summary: log.slice(-60000)}
+            });
+      - name: Verify ARM64 native backend packaged
+        run: unzip -l prototypes/destroyed-city/libgdx/android/build/outputs/apk/debug/android-debug.apk | grep 'lib/arm64-v8a/libgdx.so'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: destroyed-city-libgdx-debug
+          path: prototypes/destroyed-city/libgdx/android/build/outputs/apk/debug/android-debug.apk
+          if-no-files-found: error
