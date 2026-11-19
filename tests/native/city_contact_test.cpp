@@ -6,7 +6,7 @@
 int main(){
  city::Scene city;std::string log;
  auto read=[](const std::string&p,std::vector<unsigned char>&out){std::ifstream f(p,std::ios::binary);if(!f)return false;out.assign(std::istreambuf_iterator<char>(f),{});return true;};
- assert(city.load("sys/android/app/src/main/assets/models/abandoned_city_street_for_games.glb",read,log));
+ assert(city.load("tests/native/fixtures/abandoned_city_street_for_games.glb",read,log));
  using namespace sandbox;
  for(auto position:std::vector<physics::Vec3>{{.8f,0,16.2f},{-3.9f,0,26.2f},{1.6f,0,28.5f}}){
   for(int type:{3,8,12}){

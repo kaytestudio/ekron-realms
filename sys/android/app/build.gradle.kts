@@ -12,8 +12,8 @@ android {
         applicationId = "com.example.realms"
         minSdk = 30
         targetSdk = 34
-        versionCode = 47
-        versionName = "0.47-drone-orbit-camera"
+        versionCode = 48
+        versionName = "0.48-destroyed-city"
         externalNativeBuild {
             cmake { cppFlags += "-std=c++17" }
         }

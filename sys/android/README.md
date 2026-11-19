@@ -1,3 +1,5 @@
+> **v0.48:** основная карта заменена на `destroyed_city.glb` из пользовательского генератора. Актуальные сведения: [DESTROYED_CITY_V48_RU.md](DESTROYED_CITY_V48_RU.md). Описание прежней GLB ниже — историческое.
+
 # ЭКРОН — нативная Android-песочница
 
 Основной Android-проект для этих изменений: **`sys/android`**. Дубликаты в `engine/android` и `engine/sys/android` не обновлялись.

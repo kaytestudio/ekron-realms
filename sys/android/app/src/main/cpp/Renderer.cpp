@@ -70,7 +70,7 @@ void main(){
  q=vec3(q.x,cp*q.y+sp*q.z,-sp*q.y+cp*q.z);
  q.xy=mat2(cos(cameraRoll),sin(cameraRoll),-sin(cameraRoll),cos(cameraRoll))*q.xy;
  float f=1.37638;
- gl_Position=vec4(q.x*f/aspect,q.y*f,-1.001334*q.z-.200134,-q.z);
+ gl_Position=vec4(q.x*f/aspect,q.y*f,-1.000100*q.z-.200010,-q.z);
  tint=color;worldNormal=mat3(objectTransform)*normal;texUV=uv;layer=int(material+.5);toEye=p;
 })";
 const char *fragment=R"(#version 300 es
@@ -111,7 +111,7 @@ void main(){
  float alpha=1.0;
  if(modelPass){
   vec4 sampleColor=modelTextured?texture(modelAlbedo,texUV):vec4(1.0);
-  base=baseColorFactor.rgb*sampleColor.rgb;alpha=baseColorFactor.a*sampleColor.a;
+  base=baseColorFactor.rgb*sampleColor.rgb*tint;alpha=baseColorFactor.a*sampleColor.a;
   if(alphaMode==1&&alpha<alphaCutoff)discard;
   if(alphaMode!=2)alpha=1.0;
  }
@@ -214,7 +214,8 @@ Renderer::Renderer(android_app *app):app_(app),last_(std::chrono::steady_clock::
  auto manager=app_->activity->assetManager;auto navigation=std::make_shared<sandbox::World>(world_);
  assetsJob_=std::async(std::launch::async,[manager,navigation](){
   PreparedAssets result;result.textures=TextureLoader::prepare(manager);loadPercent=12;loadStage=2;
-  result.valid=city::GltfRenderer::prepare(manager,"models/abandoned_city_street_for_games.glb",result.city,result.log);loadPercent=58;
+  city::LoadOptions cityOptions;cityOptions.targetExtent=998.f;
+  result.valid=city::GltfRenderer::prepare(manager,"models/destroyed_city.glb",result.city,result.log,cityOptions);loadPercent=58;
   if(!result.valid)return result;
   loadStage=3;
   navigation->walls=result.city.colliders;navigation->wallSegments=result.city.wallSegments;
@@ -255,7 +256,7 @@ void Renderer::advanceLoading(){
   if(data.remoteValid)remote_.beginUpload(std::move(data.remote));
   if(data.droneValid)droneModel_.beginUpload(std::move(data.drone));
   world_.scenery.clear();world_.walls=city_.scene().colliders;world_.wallSegments=city_.scene().wallSegments;
-  savePath_=std::string(app_->activity->internalDataPath)+"/city-glb-v1.txt";
+  savePath_=std::string(app_->activity->internalDataPath)+"/destroyed-city-2025-v1.txt";
   bool restoredWorld=retainedWorld.has_value();
   if(!retainedWorld){world_.objects.clear();restoredWorld=world_.load(savePath_);}
   carParking_={8,0,data.parkingX,data.parkingZ};carParking_.y=data.parkingY;carParkingValid_=data.carValid;
@@ -448,7 +449,7 @@ void Renderer::render(){
  float cameraPitch=drone_.piloting()?drone_.viewPitch():world_.pitch;
  if(gameplayReady)tools_.pull(world_,dt,city_.scene().collision.get());
  std::vector<Vertex> vertices;vertices.reserve((world_.scenery.size()+world_.objects.size()*10+1)*36);
- if(city_.ready())sandbox::appendCityGraffiti(vertices,*city_.scene().collision);
+ // Old street-specific graffiti coordinates do not belong to the replacement city.
  for(const auto &b:world_.scenery)cube(vertices,b);for(size_t i=0;i<world_.objects.size();i++){
   if(world_.objects[i].type==8)continue;
   size_t objectBegin=vertices.size();

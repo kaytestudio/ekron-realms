@@ -1,3 +1,9 @@
+# Текущая карта — v0.48
+
+`destroyed_city.glb` экспортирована из пользовательского архива `3d-destroyed-city-map.zip`, commit f2d65a465935ba7312491d0de8cb764e57db06f4. Seed 2025, 12 кварталов, 65% разрушений. Подробнее: `DESTROYED_CITY_V48_RU.md`.
+
+Прежняя `abandoned_city_street_for_games.glb` удалена из ресурсов APK; копия осталась только в тестовых fixtures. Следующие сведения о прежней модели сохранены как исторические.
+
 # Пользовательский квартал
 
 `abandoned_city_street_for_games.glb` скопирован без изменения содержимого из коммита `5e0cccb9958b1bc4084fcb8c109abd2329ce7782` репозитория nbnbnjkii/ekron.

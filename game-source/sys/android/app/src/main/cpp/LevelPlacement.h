@@ -9,6 +9,19 @@ struct SpawnPoint {float x=0,z=0;size_t reachableCells=0;bool playerInRegion=fal
 // Prefer the requested sizeable street component; fall back to the largest region.
 inline bool findRoadSpawn(const sandbox::World &world,const std::array<float,3>&lo,
                           const std::array<float,3>&hi,float preferredX,float preferredZ,SpawnPoint &out,std::vector<std::array<float,2>> *reachable=nullptr){
+    // Large maps use a local recovery/parking search, not a multi-million-cell grid.
+    // Exact mesh collision and the full player boundary are unchanged.
+    if(hi[0]-lo[0]>128 || hi[2]-lo[2]>128){
+        float cx=std::clamp(preferredX,lo[0]+32,hi[0]-32);
+        float cz=std::clamp(preferredZ,lo[2]+32,hi[2]-32);
+        std::array<float,3> a{std::max(lo[0],cx-48),lo[1],std::max(lo[2],cz-48)};
+        std::array<float,3> b{std::min(hi[0],cx+48),hi[1],std::min(hi[2],cz+48)};
+        sandbox::World local=world;local.wallSegments.clear();
+        for(const auto&w:world.wallSegments)
+            if(std::max(w.ax,w.bx)>=a[0]-4&&std::min(w.ax,w.bx)<=b[0]+4&&
+               std::max(w.az,w.bz)>=a[2]-4&&std::min(w.az,w.bz)<=b[2]+4)local.wallSegments.push_back(w);
+        return findRoadSpawn(local,a,b,preferredX,preferredZ,out,reachable);
+    }
     constexpr float step=.25f;
     int width=int((hi[0]-lo[0])/step),depth=int((hi[2]-lo[2])/step);
     if(width<3||depth<3||width>512||depth>512)return false;

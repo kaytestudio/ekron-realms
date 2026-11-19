@@ -1,0 +1,13 @@
+{
+  "name": "ekron-city-map-export",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "export": "tsx export.ts"
+  },
+  "dependencies": {
+    "@napi-rs/canvas": "1.1.1",
+    "three": "0.180.0",
+    "tsx": "4.23.15"
+  }
+}

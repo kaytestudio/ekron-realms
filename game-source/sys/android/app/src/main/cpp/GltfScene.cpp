@@ -189,7 +189,7 @@ bool Scene::load(const std::string &path,const ReadFile &read,std::string &diagn
    if(node.mesh>=0)for(const auto &p:model.meshes.at(node.mesh).primitives){
     if(p.mode!=-1&&p.mode!=TINYGLTF_MODE_TRIANGLES)throw std::runtime_error("Only triangle primitives are supported");
     Access positions(model,p.attributes.at("POSITION"));if(positions.channels!=3)throw std::runtime_error("POSITION must be VEC3");
-    std::optional<Access> normals,uv,indices;if(p.attributes.count("NORMAL"))normals.emplace(model,p.attributes.at("NORMAL"));if(p.attributes.count("TEXCOORD_0"))uv.emplace(model,p.attributes.at("TEXCOORD_0"));if(p.indices>=0)indices.emplace(model,p.indices);
+    std::optional<Access> normals,uv,indices,colors;if(p.attributes.count("COLOR_0"))colors.emplace(model,p.attributes.at("COLOR_0"));if(p.attributes.count("NORMAL"))normals.emplace(model,p.attributes.at("NORMAL"));if(p.attributes.count("TEXCOORD_0"))uv.emplace(model,p.attributes.at("TEXCOORD_0"));if(p.indices>=0)indices.emplace(model,p.indices);
     size_t count=indices?indices->a.count:positions.a.count;if(count%3||vertexCount+count>6000000)throw std::runtime_error("Invalid or excessive triangle count");vertexCount+=count;
     Batch batch;
     if(options.level)for(const char*wire:{"Plane.009_","Plane.010_","Plane.011_","Plane.012_","Plane.013_","Plane.014_","Plane.015_"})if(node.name.rfind(wire,0)==0)batch.decorativeWire=true;
@@ -210,7 +210,7 @@ bool Scene::load(const std::string &path,const ReadFile &read,std::string &diagn
      batch.material=int(result.materials.size());result.materials.push_back(original);
     }
 
-    for(size_t i=0;i<count;i++){size_t idx=indices?indices->index(i):i;Vec v=point(matrix,{positions.get(idx,0),positions.get(idx,1),positions.get(idx,2)}),n=normals?transformedNormal(matrix,{normals->get(idx,0),normals->get(idx,1),normals->get(idx,2)}):Vec{0,1,0};batch.vertices.push_back({v[0],v[1],v[2],n[0],n[1],n[2],uv?uv->get(idx,0):0,uv?uv->get(idx,1):0});}
+    for(size_t i=0;i<count;i++){size_t idx=indices?indices->index(i):i;Vec v=point(matrix,{positions.get(idx,0),positions.get(idx,1),positions.get(idx,2)}),n=normals?transformedNormal(matrix,{normals->get(idx,0),normals->get(idx,1),normals->get(idx,2)}):Vec{0,1,0};batch.vertices.push_back({v[0],v[1],v[2],n[0],n[1],n[2],uv?uv->get(idx,0):0,uv?uv->get(idx,1):0,colors?colors->get(idx,0):1,colors?colors->get(idx,1):1,colors?colors->get(idx,2):1});}
     if(!normals)for(size_t i=0;i<count;i+=3){auto &a=batch.vertices[i],&b=batch.vertices[i+1],&c=batch.vertices[i+2];auto n=normal(cross({b.x-a.x,b.y-a.y,b.z-a.z},{c.x-a.x,c.y-a.y,c.z-a.z}));for(size_t k=i;k<i+3;k++){batch.vertices[k].nx=n[0];batch.vertices[k].ny=n[1];batch.vertices[k].nz=n[2];}}
     const double det=matrix[0]*(matrix[5]*matrix[10]-matrix[9]*matrix[6])-matrix[4]*(matrix[1]*matrix[10]-matrix[9]*matrix[2])+matrix[8]*(matrix[1]*matrix[6]-matrix[5]*matrix[2]);
     if(det<0)for(size_t i=0;i<count;i+=3)std::swap(batch.vertices[i+1],batch.vertices[i+2]);

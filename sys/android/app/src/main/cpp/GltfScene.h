@@ -9,7 +9,7 @@
 
 namespace city {
 using ReadFile=std::function<bool(const std::string&,std::vector<unsigned char>&)>;
-struct Vertex { float x,y,z,nx,ny,nz,u,v; };
+struct Vertex { float x,y,z,nx,ny,nz,u,v; float r=1,g=1,b=1; };
 struct Image { int width=0,height=0;std::vector<unsigned char> rgba; };
 struct Material {
     std::array<float,4> color{1,1,1,1};
