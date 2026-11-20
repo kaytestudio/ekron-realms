@@ -31,6 +31,8 @@ private:
     EGLSurface surface_=EGL_NO_SURFACE;
     EGLContext context_=EGL_NO_CONTEXT;
     GLuint program_=0,skyProgram_=0,buffer_=0,vao_=0;
+    size_t dynamicCapacity_=0;
+    void uploadDynamic(const std::vector<sandbox::MeshVertex>&vertices);
     TextureLoader textures_;
     military::Effects militaryEffects_;
     sandbox::PlayerView playerView_;

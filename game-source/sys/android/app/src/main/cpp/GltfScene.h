@@ -21,6 +21,13 @@ struct Material {
     float roughness=.9f;
     bool worldSpaceUV=false;
 };
+// Identical source image + wrap modes can share GPU storage. Material color,
+// roughness and transparency remain per draw, not part of the texture object.
+inline size_t sharedTextureOwner(const std::vector<Material>&materials,size_t index){
+ const auto&m=materials.at(index);
+ for(size_t j=0;j<index;j++){const auto&p=materials[j];if(p.image==m.image&&p.wrapS==m.wrapS&&p.wrapT==m.wrapT)return j;}
+ return index;
+}
 struct Batch { std::vector<Vertex> vertices;int material=-1;bool decorativeWire=false;bool rotor=false; };
 struct LoadOptions {
     // CPU loading milestones; optional, called on the loading worker.

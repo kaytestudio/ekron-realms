@@ -22,7 +22,9 @@ public:
   barrelImpacts.clear();
   accumulator_+=std::clamp(dt,0.f,.05f);bool changed=false;constexpr float step=1.f/120;
   while(accumulator_>=step){accumulator_-=step;
-   for(auto&o:w.objects)if(!std::isfinite(o.x)||!std::isfinite(o.y)||!std::isfinite(o.z))o.destroyed=true;
+   // Validate all sort keys and geometry inputs BEFORE physicalOrder/BVH.
+   // NaN angles break strict ordering; non-finite velocities poison sweeps.
+   for(auto&o:w.objects)sanitizeBodyState(o);
    const auto beforeBodies=w.objects;
    const auto order=physicalOrder(w);
    broadphase_.build(w,held,step);
@@ -206,6 +208,7 @@ public:
    neighbourMeshBuilds=broadphase_.meshBuilds;
    pairStats=solveBodyPairs(w,mesh,pairBroadphase_,beforeBodies,held,step);
    if(pairStats.contacts||pairStats.sweeps)changed=true;
+   for(auto&o:w.objects)sanitizeBodyState(o);
    for(size_t i=0;i<w.objects.size();i++){auto&o=w.objects[i];if(o.type!=29||o.destroyed||int(i)==held)continue;
     const auto&old=beforeBodies[i];float impact=physics::length({o.vx-old.vx,o.vy-old.vy,o.vz-old.vz});
     if(impact>=5.5f){auto b=World::bounds(o);barrelImpacts.push_back({b.x,b.y,b.z});o.destroyed=true;changed=true;}

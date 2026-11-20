@@ -303,6 +303,13 @@ Renderer::~Renderer(){
  if(assetsInstalled_){retainedWorld=world_;retainedDrone=drone_;retainedTool=tools_.tool;retainedFlying=flying_;}
  if(display_!=EGL_NO_DISPLAY){if(context_!=EGL_NO_CONTEXT&&surface_!=EGL_NO_SURFACE&&eglMakeCurrent(display_,surface_,surface_,context_)){militaryEffects_.release();droneModel_.release();remote_.release();car_.release();city_.release();textures_.release();if(skyProgram_)glDeleteProgram(skyProgram_);if(buffer_)glDeleteBuffers(1,&buffer_);if(vao_)glDeleteVertexArrays(1,&vao_);if(program_)glDeleteProgram(program_);}eglMakeCurrent(display_,EGL_NO_SURFACE,EGL_NO_SURFACE,EGL_NO_CONTEXT);if(context_!=EGL_NO_CONTEXT)eglDestroyContext(display_,context_);if(surface_!=EGL_NO_SURFACE)eglDestroySurface(display_,surface_);eglTerminate(display_);}
 }
+void Renderer::uploadDynamic(const std::vector<sandbox::MeshVertex>&vertices){
+ glBindVertexArray(vao_);glBindBuffer(GL_ARRAY_BUFFER,buffer_);
+ size_t bytes=vertices.size()*sizeof(sandbox::MeshVertex);
+ if(bytes>dynamicCapacity_){size_t capacity=std::max(size_t(65536),dynamicCapacity_);while(capacity<bytes)capacity*=2;glBufferData(GL_ARRAY_BUFFER,capacity,nullptr,GL_DYNAMIC_DRAW);dynamicCapacity_=capacity;}
+ if(bytes)glBufferSubData(GL_ARRAY_BUFFER,0,bytes,vertices.data());
+ glDrawArrays(GL_TRIANGLES,0,static_cast<GLsizei>(vertices.size()));
+}
 void Renderer::resetInput(){verticalInput=0;leftId_=rightId_=-1;moveX_=moveY_=0;last_=std::chrono::steady_clock::now();}
 void Renderer::handleInput(){
  std::vector<int> pending;{std::lock_guard<std::mutex> lock(commandMutex);pending.swap(commands);if(gameplayReady){if(drone_.mode==sandbox::FpvDrone::Flying)drone_.look(lookDx,lookDy);else if(!drone_.piloting()){world_.yaw-=lookDx*.004f;world_.pitch=std::clamp(world_.pitch-lookDy*.004f,-1.3f,1.3f);}}lookDx=lookDy=0;}
@@ -542,7 +549,7 @@ void Renderer::render(){
  glUniform3f(glGetUniformLocation(program_,"eye"),cameraEye.x,cameraEye.y,cameraEye.z);glUniform2f(glGetUniformLocation(program_,"angles"),cameraYaw,cameraPitch);glUniform1f(glGetUniformLocation(program_,"aspect"),float(viewWidth)/viewHeight);
  size_t worldVertexCount=vertices.size();
  if(seatedCar_<0&&physics::length(cameraEye-physics::Vec3{world_.x,world_.y,world_.z})>.65f)playerView_.append(vertices,{world_.x,world_.y,world_.z},crouched_,prone_,flying_?0:player_.eyeHeight());
- glBindVertexArray(vao_);glBindBuffer(GL_ARRAY_BUFFER,buffer_);glBufferData(GL_ARRAY_BUFFER,vertices.size()*sizeof(Vertex),vertices.data(),GL_STREAM_DRAW);glDrawArrays(GL_TRIANGLES,0,static_cast<GLsizei>(vertices.size()));
+ uploadDynamic(vertices);
  vertices.resize(worldVertexCount);
  city_.draw(program_,cameraEye.x,cameraEye.z);
 
@@ -561,7 +568,7 @@ void Renderer::render(){
    std::vector<Vertex> ghost;sandbox::appendObject(ghost,*placementPreview_,true,true);
    glUniform1i(glGetUniformLocation(program_,"modelPass"),0);textures_.bind();
    glEnable(GL_BLEND);glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);glDepthMask(GL_TRUE);
-   glBindVertexArray(vao_);glBindBuffer(GL_ARRAY_BUFFER,buffer_);glBufferData(GL_ARRAY_BUFFER,ghost.size()*sizeof(Vertex),ghost.data(),GL_STREAM_DRAW);glDrawArrays(GL_TRIANGLES,0,static_cast<GLsizei>(ghost.size()));
+   uploadDynamic(ghost);
   }
   glDisable(GL_BLEND);glDepthMask(GL_TRUE);glUniform1i(glGetUniformLocation(program_,"previewPass"),0);
   glUniformMatrix4fv(glGetUniformLocation(program_,"objectTransform"),1,GL_FALSE,identity);
