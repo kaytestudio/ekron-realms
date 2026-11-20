@@ -63,3 +63,15 @@ doc/generated/
 !README.md
 !Makefile
 
+
+# Android entry point resources (the legacy rules ignore all XML)
+!sys/android/app/src/main/AndroidManifest.xml
+!sys/android/app/src/main/res/values/
+!sys/android/app/src/main/res/values/*.xml
+
+# Native test binaries
+tests/native/.bin/
+
+# Standalone Android game source snapshot
+!game-source/sys/android/app/src/main/AndroidManifest.xml
+!game-source/sys/android/app/src/main/res/**/*.xml

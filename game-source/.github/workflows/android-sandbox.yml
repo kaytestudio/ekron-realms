@@ -1,0 +1,110 @@
+name: Native Android sandbox
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'sys/android/**'
+      - 'tests/native/**'
+      - 'tools/*android*'
+      - '.github/workflows/android-sandbox.yml'
+  pull_request:
+    paths:
+      - 'sys/android/**'
+      - 'tests/native/**'
+      - 'tools/*android*'
+      - '.github/workflows/android-sandbox.yml'
+permissions:
+  contents: read
+jobs:
+  apk:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test native world logic
+        run: |
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic tests/native/advanced_physics_test.cpp -o /tmp/ekron-advanced-physics-test
+          /tmp/ekron-advanced-physics-test
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic tests/native/multi_contact_test.cpp -o /tmp/ekron-multi-contact-test
+          /tmp/ekron-multi-contact-test
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic tests/native/contact_system_test.cpp -o /tmp/ekron-contact-test
+          /tmp/ekron-contact-test
+          g++ -std=c++17 -O1 -Wall -Wextra -Werror -pedantic tests/native/city_contact_test.cpp sys/android/app/src/main/cpp/GltfScene.cpp sys/android/app/src/main/cpp/ImageDecode.cpp -o /tmp/ekron-city-contact-test
+          /tmp/ekron-city-contact-test
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic tests/native/pickup_settle_delete_test.cpp -o /tmp/ekron-pickup-settle-test
+          /tmp/ekron-pickup-settle-test
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic tests/native/fence_gravity_test.cpp -o /tmp/ekron-fence-gravity-test
+          /tmp/ekron-fence-gravity-test
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic tests/native/swept_floor_test.cpp -o /tmp/ekron-swept-floor-test
+          /tmp/ekron-swept-floor-test
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic tests/native/rest_stability_test.cpp -o /tmp/ekron-rest-test
+          /tmp/ekron-rest-test
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic tests/native/object_cleanup_test.cpp -o /tmp/ekron-cleanup-test
+          /tmp/ekron-cleanup-test
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic tests/native/freeze_edge_test.cpp -o /tmp/ekron-freeze-test
+          /tmp/ekron-freeze-test
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic tests/native/interaction_test.cpp -o /tmp/ekron-interaction-test
+          /tmp/ekron-interaction-test
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic tests/native/world_recovery_test.cpp -o /tmp/ekron-recovery-test
+          /tmp/ekron-recovery-test
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic tests/native/fence_jump_test.cpp -o /tmp/ekron-fence-jump-test
+          /tmp/ekron-fence-jump-test
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic tests/native/indoor_placement_test.cpp -o /tmp/ekron-indoor-test
+          /tmp/ekron-indoor-test
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic tests/native/object_dynamics_test.cpp -o /tmp/ekron-dynamics-test
+          /tmp/ekron-dynamics-test
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic tests/native/raycast_placement_test.cpp -o /tmp/ekron-raycast-test
+          /tmp/ekron-raycast-test
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic tests/native/tool_interaction_test.cpp -o /tmp/ekron-tools-test
+          /tmp/ekron-tools-test
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic tests/native/fence_collision_test.cpp -o /tmp/ekron-fence-test
+          /tmp/ekron-fence-test
+          g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/native/player_physics_test.cpp -o /tmp/ekron-physics-test
+          /tmp/ekron-physics-test
+          g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/native/sandbox_world_test.cpp -o /tmp/ekron-world-test
+          /tmp/ekron-world-test
+          g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/native/building_collision_test.cpp -o /tmp/ekron-building-test
+          /tmp/ekron-building-test
+          g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/native/level_placement_test.cpp -o /tmp/ekron-placement-test
+          /tmp/ekron-placement-test
+          g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/native/debug_player_test.cpp -o /tmp/ekron-debug-test
+          /tmp/ekron-debug-test
+          g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/native/texture_mesh_test.cpp -o /tmp/ekron-texture-test
+          /tmp/ekron-texture-test
+          g++ -std=c++17 -O1 -Wall -Wextra -Werror -pedantic tests/native/gltf_scene_test.cpp sys/android/app/src/main/cpp/GltfScene.cpp sys/android/app/src/main/cpp/ImageDecode.cpp -o /tmp/ekron-gltf-test
+          /tmp/ekron-gltf-test
+      - name: Validate GLSL ES shaders
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y glslang-tools
+          python3 tools/validate_android_shaders.py
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android tools using runner SDK
+        run: |
+          set +e
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          "$SDKMANAGER" 'platforms;android-34' 'build-tools;34.0.0' 'ndk;26.1.10909125' 'cmake;3.22.1' 2>&1 | tee /tmp/android-tools.log
+          result=${PIPESTATUS[0]}
+          if [ "$result" -ne 0 ]; then
+            python3 -c 'import pathlib; s=pathlib.Path("/tmp/android-tools.log").read_text()[-10000:]; print("::error::"+s.replace("%","%25").replace("\r","%0D").replace("\n","%0A"))'
+          fi
+          exit "$result"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build native debug APK
+        working-directory: sys/android
+        run: |
+          set +e
+          ./gradlew :app:assembleDebug :app:testDebugUnitTest --stacktrace 2>&1 | tee /tmp/android-build.log
+          result=${PIPESTATUS[0]}
+          if [ "$result" -ne 0 ]; then
+            python3 -c 'import pathlib; s=pathlib.Path("/tmp/android-build.log").read_text(); lines=s.splitlines(); picks=[i for i,l in enumerate(lines) if any(k in l for k in ["e: ","FAILURE:","What went wrong:","error:","Could not", "Execution failed", "Caused by:"])]; text="\n".join("\n".join(lines[max(0,i-1):i+6]) for i in picks) or s[-10000:]; print("::error::"+text[-14000:].replace("%","%25").replace("\r","%0D").replace("\n","%0A"))'
+          fi
+          exit "$result"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ekron-native-sandbox-debug
+          path: sys/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error

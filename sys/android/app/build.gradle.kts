@@ -7,12 +7,16 @@ android {
     namespace = "com.example.realms"
     compileSdk = 34
 
+    androidResources { noCompress += "mp4" }
     defaultConfig {
         applicationId = "com.example.realms"
         minSdk = 30
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 47
+        versionName = "0.47-drone-orbit-camera"
+        externalNativeBuild {
+            cmake { cppFlags += "-std=c++17" }
+        }
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
