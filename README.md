@@ -1,100 +1,224 @@
-This is the fully updated and polished `README.md` content you provided.
+# Ekron Realms
 
------
+[![Desktop client (Debian)](https://github.com/kaytestudio/ekron-realms/actions/workflows/desktop-debian.yml/badge.svg)](https://github.com/kaytestudio/ekron-realms/actions/workflows/desktop-debian.yml)
+[![Desktop client (macOS)](https://github.com/kaytestudio/ekron-realms/actions/workflows/desktop-macos.yml/badge.svg)](https://github.com/kaytestudio/ekron-realms/actions/workflows/desktop-macos.yml)
+[![Native Android sandbox](https://github.com/kaytestudio/ekron-realms/actions/workflows/android-sandbox.yml/badge.svg)](https://github.com/kaytestudio/ekron-realms/actions/workflows/android-sandbox.yml)
+[![Native iOS sandbox](https://github.com/kaytestudio/ekron-realms/actions/workflows/ios-sandbox.yml/badge.svg)](https://github.com/kaytestudio/ekron-realms/actions/workflows/ios-sandbox.yml)
+[![Networking foundation](https://github.com/kaytestudio/ekron-realms/actions/workflows/network-foundation.yml/badge.svg)](https://github.com/kaytestudio/ekron-realms/actions/workflows/network-foundation.yml)
 
-# Ekron Realms FPS
+**Ekron Realms** is an open-source 3D urban sandbox and first-person exploration/building game. It features a shared native **C++17** world, rigid-body physics, and glTF 2.0 asset pipeline running natively across **Linux (`.deb`)**, **macOS (`.app`)**, **Android (`.apk`)**, and **iOS (`.ipa`)**, alongside an optional **Free Pascal** desktop launcher (`realms-launcher`), an experimental **TLS online presence relay**, and the classic **Free Pascal / Lazarus** engine codebase.
 
-## Overview
-
-**Ekron Realms FPS** is an exhilarating open-source first-person shooter game, developed with the **Free Pascal Compiler** and **Lazarus IDE**. Whether you're diving into the immersive campaign or contributing to the codebase, Ekron Realms FPS offers a thrilling and collaborative experience.
-
-The game is built for both players and developers, encouraging community-driven innovation and creativity.
+---
 
 ## Key Features
 
-  * **Open Source**: Fully licensed under the **GPL v3**, promoting openness, modifications, and community contributions.
-  * **Cross-Platform Compatibility**: Runs seamlessly on:
-      * **Windows, macOS, Linux**: Fully supported on major desktop operating systems.
-      * **Raspberry Pi**: Optimized for ARM devices like Raspberry Pi 3+.
-      * **Apple Silicon**: Native support for M1, M2, and newer Apple chips.
-      * **Android & iOS**: Playable on both Android and Apple mobile devices.
-  * **Powerful Development Tools**: Built with Free Pascal and **Lazarus IDE 3.0** for accessible and robust development.
-  * **Community-Driven Development**: Contributions from developers worldwide shape the game's evolution.
-  * **Customizable and Expandable**: Designed with modding and expandability in mind.
+- **Shared Native C++17 Simulation Core**: Zero-duplication world state, continuous collision detection (CCD), multi-contact rigid-body solver, player movement/facade collisions, and glTF 2.0 model loading (`tinygltf` + `stb_image`) shared across Desktop, Android, and iOS.
+- **3D Urban Environment**: Freely explorable wartime/abandoned city street (`abandoned_city_street_for_games.glb`) with accessible interiors, seamless procedural `sRGB` material texture arrays with mipmaps, directional lighting, exponential fog, and procedural sky gradient.
+- **Building & World Persistence**: Four-tab build and equipment catalog (*Materials*, *Construction*, *Furniture*, *Tech/Vehicles* — walls, floors, windows, doors, tables, chairs, wardrobes, sofas, props, and FPV drone) with raycast holographic preview, 90° snap rotation, object removal, and automatic local persistence (`city-glb-v1.txt`).
+- **Interactive Tools, Vehicles & FPV Drone**:
+  - **Gravity Gun**: Grab, carry, orient, throw, and freeze/unfreeze dynamic objects in place.
+  - **FPV Quadcopter & Live Controller Monitor**: Deployable FPV drone (`fpv_drone.glb`) with Mode-2 flight physics, return-to-home, FPV/chase camera switching, and an offscreen `480×270` live video feed rendered onto the handheld 3D controller (`chasing_m2_rc_underwater_drone_remote.glb`).
+  - **Contextual World Interactions**: Enter and recover the **UAZ-469** (`uaz_469_1973_classic.glb`), sit on furniture, interact with doors, toggle `noclip` flight, teleport back to road/spawn, and export player coordinates as `config/spawn.json`.
+- **Experimental Online Player Presence**: Optional self-hosted TLS 1.2+ relay (`server/sandbox_relay.py`) with strict certificate/hostname verification and shared-token authentication (`EKRON_JOIN_TOKEN`) that renders live remote player markers on Android, iOS, and Desktop *(player presence only; building, physics, and vehicles are not yet synchronized)*.
 
-## Getting Started
+---
 
-### Prerequisites
+## Supported Platforms & CI Artifacts
 
-Before diving in, make sure you have the following tools installed:
+| Platform | Source Directory | Graphics & App Stack | Package / CI Artifact | GitHub Actions Workflow |
+| :--- | :--- | :--- | :--- | :--- |
+| **Linux (Debian / Ubuntu)** | `sys/desktop/`, `sys/linux/` | C++17, SDL2, OpenGL 3.3 Core + optional FPC `realms-launcher` | `ekron-realms_*.deb` (`ekron-realms-linux-deb`) | [`desktop-debian.yml`](.github/workflows/desktop-debian.yml) |
+| **macOS (Apple Silicon & Intel)** | `sys/desktop/`, `sys/mac/` | C++17, SDL2, OpenGL 3.3 Core + optional FPC `realms-launcher` | `EkronRealms.app` (`ekron-realms-macos-app`) | [`desktop-macos.yml`](.github/workflows/desktop-macos.yml) |
+| **Android** | `sys/android/` | C++17, GameActivity (JNI / Kotlin), OpenGL ES 3.0 | `app-debug.apk` (`ekron-native-sandbox-debug`) | [`android-sandbox.yml`](.github/workflows/android-sandbox.yml) |
+| **iOS** | `sys/ios/` | C++17, Objective-C++ / Swift (UIKit), Metal | `ekron-native-sandbox-debug.ipa` | [`ios-sandbox.yml`](.github/workflows/ios-sandbox.yml) |
+| **Presence Relay (Experimental)** | `server/` | Python 3.10+ (`ssl` TLS 1.2+) | `server/sandbox_relay.py` | [`network-foundation.yml`](.github/workflows/network-foundation.yml) |
 
-  * **Free Pascal Compiler (FPC)**: Get the latest version from the [FPC website](https://www.freepascal.org/).
-  * **Lazarus IDE 3.0**: Download the latest Lazarus IDE from [here](https://www.lazarus-ide.org/).
-  * **Platform-Specific Requirements**:
-      * **Raspberry Pi**: RPi 3+ or newer for optimal performance.
-      * **Apple M1/M2+**: Compatible with Apple Silicon devices.
-      * **Android/iOS**: Set up a development environment (e.g., Android Studio for Android, Xcode for iOS).
+---
 
-### Installation
+## Quick Start
 
-1.  **Clone the Repository**:
-    ```bash
-    git clone https://github.com/ringsce/ekron-realms.git
-    cd ekron-realms
-    ```
-2.  **Open the Project**: Open the `.lpi` project file in Lazarus IDE.
-3.  **Configure the Target Platform**:
-      * Set the project to target your desired platform (e.g., Windows, macOS, Linux, Android, or iOS).
-      * Adjust compiler settings if necessary for your platform.
-4.  **Build the Game**: Use the "Build" option in Lazarus IDE to compile the game.
-5.  **Run and Play**: Execute the built file on your system or mobile device to start playing.
+### Clone the Repository
 
-### Platform-Specific Notes
+```bash
+git clone https://github.com/kaytestudio/ekron-realms.git
+cd ekron-realms
+```
 
-  * **Linux**: Ensure SDL2 and other required libraries are installed.
-  * **Windows**: Lazarus automatically includes necessary dependencies; just build and run.
-  * **macOS**: Use the latest version of Xcode to assist with macOS compatibility.
-  * **Android/iOS**: Make sure to have a properly configured environment for mobile development (e.g., Android Studio or Xcode).
+### Desktop — Linux (Debian / Ubuntu)
+
+Install required dependencies (`fpc` is optional for building `realms-launcher`; `libssl-dev` is optional for experimental TLS online presence; `file` and `dpkg-dev` are used when packaging `.deb`):
+
+```bash
+sudo apt-get update
+sudo apt-get install -y \
+  build-essential cmake ninja-build pkg-config \
+  libsdl2-dev libgl1-mesa-dev libssl-dev \
+  fpc fp-units-fcl file dpkg-dev
+```
+
+Configure, build, and run:
+
+```bash
+cmake -S . -B build -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_INSTALL_PREFIX=/usr \
+  -DENABLE_FPC_CLIENT=ON
+cmake --build build -j"$(nproc)"
+
+# Run directly from the build tree
+./build/ekron-realms --assets sys/android/app/src/main/assets
+
+# Optional: build a Debian package (.deb)
+(cd build && cpack -G DEB)
+```
+
+### Desktop — macOS (Apple Silicon & Intel)
+
+Install dependencies via Homebrew (`fpc` is optional for `realms-launcher`; `openssl@3` is optional for experimental TLS online presence):
+
+```bash
+brew install cmake ninja sdl2 fpc
+```
+
+Configure, build, and launch the `.app` bundle:
+
+```bash
+cmake -S . -B build -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DENABLE_FPC_CLIENT=ON
+cmake --build build -j"$(sysctl -n hw.ncpu)"
+
+open build/EkronRealms.app
+```
+
+### Android (`sys/android`)
+
+Requires **JDK 17**, **Android SDK 34** (`build-tools;34.0.0`), **NDK `26.1.10909125`**, and **CMake `3.22.1`**:
+
+```bash
+cd sys/android
+./gradlew :app:assembleDebug
+```
+
+The debug APK is written to `sys/android/app/build/outputs/apk/debug/app-debug.apk`.
+
+### iOS (`sys/ios`)
+
+Open `sys/ios/realms/realms.xcodeproj` in **Xcode** on macOS and select the **`realms iOS`** scheme, or build an unsigned archive from the command line:
+
+```bash
+xcodebuild archive \
+  -project "sys/ios/realms/realms.xcodeproj" \
+  -scheme "realms iOS" \
+  -configuration Debug \
+  -destination "generic/platform=iOS" \
+  -sdk iphoneos \
+  -archivePath "/tmp/ekron-ios-sandbox.xcarchive" \
+  DEVELOPMENT_TEAM="" \
+  CODE_SIGN_STYLE=Manual \
+  CODE_SIGN_IDENTITY="" \
+  CODE_SIGNING_REQUIRED=NO \
+  CODE_SIGNING_ALLOWED=NO \
+  AD_HOC_CODE_SIGNING_ALLOWED=YES
+```
+
+---
+
+## Desktop Controls & CLI Options
+
+### Keyboard & Mouse Controls
+
+| Input | Action |
+| :--- | :--- |
+| `W A S D` | Move player (or FPV drone throttle & yaw) |
+| `Mouse` | Look around (or FPV drone pitch & roll; Arrow keys also supported) |
+| `Space` / `C` / `Z` | Jump (ascend in flight) / Crouch (descend in flight) / Prone |
+| `1` / `2` / `3` | Equip **Gravity Gun** / **FPV Remote** / **Empty Hands** |
+| `Q` / `Tab` / `B` | Open or close Build & Equipment Catalog |
+| `Left Click` | Grab/drop object (Gravity Gun), place selected item (Build), or connect FPV drone |
+| `Right Click` / `F` | Freeze/unfreeze object or cancel Build preview |
+| `R` / `Mouse Wheel` | Rotate build preview or held object by `90°` |
+| `X` / `Delete` | Remove aimed placed object |
+| `E` | Contextual interaction (doors, UAZ-469, sofa, FPV drone) |
+| `V` / `H` | Toggle FPV/chase drone camera / Return FPV drone home |
+| `N` / `P` / `F11` / `Esc` | Toggle `noclip` flight / Copy `spawn.json` / Fullscreen / Pause menu |
+
+### Command-Line Flags
+
+```text
+--version              Print client version and target architecture
+--headless-smoke       Verify assets, GLB scenes, textures, physics, and save/load without opening a window
+--assets <dir>         Override path to the shared Ekron assets directory
+--online-host <host>   Connect to an experimental TLS presence relay (requires EKRON_JOIN_TOKEN env var)
+--online-port <port>   Presence relay port (default: 38475)
+--online-name <name>   Player display name (default: Player)
+--help                 Show CLI usage and controls
+```
+
+---
+
+## Testing & Verification
+
+```bash
+# Run desktop CTest suite (HUD layout, --version, and --headless-smoke)
+ctest --test-dir build --output-on-failure -V
+
+# Validate Android GLSL ES 3.0 and iOS Metal shaders
+python3 tools/validate_android_shaders.py
+python3 tools/validate_ios_shaders.py
+
+# Run experimental TLS presence relay protocol tests
+python3 -m unittest discover -s tests/network -v
+```
+
+Standalone native C++17 unit tests covering rigid-body physics, swept floor/CCD collisions, indoor/raycast placement, glTF loading, FPV drone simulation, HUD scaling, and online presence live under [`tests/native/`](tests/native) and run automatically in CI.
+
+---
+
+## Repository Structure & Documentation
+
+```text
+ekron-realms/
+├── CMakeLists.txt              # Desktop CMake build, CTest smoke suite, and CPack (.deb / .app) packaging
+├── cmake/                      # CMake find-modules (SDL2, SDL3, FPC, Lazarus, KayteIDE, KCC)
+├── Resources/                  # macOS Info.plist and Linux .desktop launcher entry
+├── sys/
+│   ├── android/                # Native Android sandbox (GameActivity + OpenGL ES 3.0 + shared C++17 core & assets)
+│   ├── ios/                    # Native iOS sandbox (UIKit + Metal Xcode project sharing C++17 core & assets)
+│   ├── desktop/                # Native Linux & macOS desktop client (SDL2 + OpenGL 3.3 Core)
+│   ├── linux/ & mac/           # Platform units for the Free Pascal launcher & legacy engine
+│   └── ...                     # Additional legacy platform ports
+├── server/                     # Experimental Python TLS 1.2+ online presence relay
+├── Projects/                   # Free Pascal launcher (realms_launcher.lpr) and Lazarus / Delphi projects
+├── tests/                      # C++17 simulation/physics unit tests (tests/native) & TLS relay tests (tests/network)
+├── tools/                      # Procedural texture generator, catalog icon renderer, and shader validators
+└── docs/                       # Sandbox design notes and cross-platform HUD verification guide
+```
+
+### Further Reading
+
+- [`sys/desktop/README.md`](sys/desktop/README.md) — Native Linux & macOS desktop client guide (Russian)
+- [`sys/android/README.md`](sys/android/README.md) — Native Android sandbox architecture & build notes (Russian)
+- [`sys/ios/README.md`](sys/ios/README.md) — Native iOS Metal sandbox & unsigned IPA instructions (Russian)
+- [`server/README.md`](server/README.md) — Experimental TLS online presence relay setup, security notes, and protocol v1
+- [`docs/HUD_TESTING.md`](docs/HUD_TESTING.md) — Cross-platform HUD & input verification checklist
+- [`docs/SANDBOX_EN.md`](docs/SANDBOX_EN.md) · [`docs/SANDBOX_PT_PT.md`](docs/SANDBOX_PT_PT.md) · [`docs/SANDBOX_RU.md`](docs/SANDBOX_RU.md) — Urban sandbox design direction
+- [`BUILD.md`](BUILD.md) — Extended CMake, Free Pascal, and Lazarus build reference
+
+---
 
 ## Contributing
 
-We encourage developers of all skill levels to contribute\! Whether you're fixing bugs, adding features, or enhancing documentation, your efforts are greatly valued.
+Contributions, bug reports, and feature discussions are welcome!
 
-### How to Contribute
+1. Fork the repository and create a feature branch from `main`.
+2. Build and run the relevant test suites (`ctest`, `tests/native`, or `tests/network`) for your changes.
+3. Open a pull request against `main` with a clear summary of what changed and how it was verified.
 
-1.  **Fork the Repository**: Create a fork on GitHub.
-2.  **Create a Branch**: Develop your changes on a dedicated branch.
-3.  **Submit a Pull Request**: Open a pull request against the `main` branch.
+Please review [`CONTRIBUTING.md`](CONTRIBUTING.md) and our [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) before submitting contributions.
 
-For more details, check the [CONTRIBUTING.md](https://www.google.com/search?q=CONTRIBUTING.md) file.
-
-### Areas to Contribute
-
-  * **Gameplay Features**: Design new levels, maps, or improve AI behavior.
-  * **Graphics and Sound**: Enhance visual and audio assets for an immersive experience.
-  * **Bug Fixes**: Resolve issues reported by the community.
-  * **Documentation**: Help make the project easier to understand for newcomers.
+---
 
 ## License
 
-Ekron Realms FPS is licensed under the **GNU General Public License v3.0**. For more information, see the [LICENSE](https://www.google.com/search?q=LICENSE) file.
-
-## Community and Support
-
-Join our community to help shape the future of Ekron Realms FPS:
-
-  * **GitHub Issues**: Report bugs, request features, or propose ideas.
-  * **Community Discussions**: Share insights and engage with developers and players.
-  * **Code Contributions**: Fork the repository and start coding\!
-
-### Stay Updated
-
-  * Follow the project on [GitHub](https://github.com/ringsce/ekron-realms).
-  * Join the development discussions.
-  * Stay tuned for new releases and updates.
-
------
-
-[](https://paypal.me/gleentech)
-
------
+Ekron Realms is free and open-source software licensed under the **GNU Affero General Public License v3.0 (`AGPL-3.0`)** (with individual vendored third-party libraries such as `stb_image` and `tinygltf` under their respective permissive licenses). See [`LICENSE`](LICENSE) for the full license text.
