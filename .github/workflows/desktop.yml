@@ -56,20 +56,28 @@ jobs:
             libsdl2-dev \
             libgl1-mesa-dev \
             fpc \
+            fp-units-fcl \
             file \
             dpkg-dev
 
       - name: Configure and build Linux desktop client
         shell: bash
         run: |
-          set -euo pipefail
-          cmake -S . -B build -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INSTALL_PREFIX=/usr \
-            -DENABLE_FPC_CLIENT=ON
-          cmake --build build -j"$(nproc)"
-          test -x build/ekron-realms
-          test -x build/realms-launcher
+          set -o pipefail
+          {
+            cmake -S . -B build -G Ninja \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_INSTALL_PREFIX=/usr \
+              -DENABLE_FPC_CLIENT=ON &&
+            cmake --build build -j"$(nproc)" &&
+            test -x build/ekron-realms &&
+            test -x build/realms-launcher
+          } 2>&1 | tee /tmp/linux-build.log || {
+            tail -n 30 /tmp/linux-build.log | while IFS= read -r line; do
+              [ -n "$line" ] && echo "::error::[linux-build] $line"
+            done
+            exit 1
+          }
 
       - name: Run CTest smoke checks
         shell: bash
@@ -125,11 +133,18 @@ jobs:
       - name: Configure and build macOS .app bundle
         shell: bash
         run: |
-          set -euo pipefail
-          cmake -S . -B build -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DENABLE_FPC_CLIENT=ON
-          cmake --build build -j"$(sysctl -n hw.ncpu)"
+          set -o pipefail
+          {
+            cmake -S . -B build -G Ninja \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DENABLE_FPC_CLIENT=ON &&
+            cmake --build build -j"$(sysctl -n hw.ncpu)"
+          } 2>&1 | tee /tmp/macos-build.log || {
+            tail -n 30 /tmp/macos-build.log | while IFS= read -r line; do
+              [ -n "$line" ] && echo "::error::[macos-build] $line"
+            done
+            exit 1
+          }
 
       - name: Bundle SDL2 framework library and ad-hoc sign .app
         shell: bash

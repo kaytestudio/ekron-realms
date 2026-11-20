@@ -3,7 +3,7 @@ program realms_launcher;
 {$mode objfpc}{$H+}
 
 uses
-  SysUtils, Classes, Process,
+  SysUtils, BaseUnix,
   {$IFDEF DARWIN}
   ekron_platform_mac
   {$ELSE}
@@ -15,8 +15,9 @@ const
 
 var
   ExeDir, EngineBin, AssetsDir, Arg: AnsiString;
-  Proc: TProcess;
-  Idx: Integer;
+  ArgStrings: array of AnsiString;
+  ArgPtrs: array of PChar;
+  Idx, ArgCount: Integer;
 begin
   ExeDir := ExtractFilePath(ExpandFileName(ParamStr(0)));
   EngineBin := EkronDefaultEngineBinary(ExeDir);
@@ -45,15 +46,20 @@ begin
     Halt(1);
   end;
 
-  Proc := TProcess.Create(nil);
-  try
-    Proc.Executable := EngineBin;
-    Proc.Options := [poWaitOnExit];
-    for Idx := 1 to ParamCount do
-      Proc.Parameters.Add(ParamStr(Idx));
-    Proc.Execute;
-    Halt(Proc.ExitStatus);
-  finally
-    Proc.Free;
+  ArgCount := ParamCount + 1;
+  SetLength(ArgStrings, ArgCount);
+  SetLength(ArgPtrs, ArgCount + 1);
+
+  ArgStrings[0] := EngineBin;
+  ArgPtrs[0] := PChar(ArgStrings[0]);
+  for Idx := 1 to ParamCount do
+  begin
+    ArgStrings[Idx] := ParamStr(Idx);
+    ArgPtrs[Idx] := PChar(ArgStrings[Idx]);
   end;
+  ArgPtrs[ArgCount] := nil;
+
+  FpExecv(PChar(EngineBin), PPChar(@ArgPtrs[0]));
+  WriteLn(StdErr, '[Ekron Launcher] FpExecv failed for: ', EngineBin, ' (errno=', fpgeterrno, ')');
+  Halt(127);
 end.
