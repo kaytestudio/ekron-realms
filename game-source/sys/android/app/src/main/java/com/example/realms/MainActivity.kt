@@ -543,7 +543,8 @@ class MainActivity : GameActivity() {
                         append("\n${java.util.Date(e.timestamp)}: $reason, status=${e.status}, PSS=${e.pss} KB, RSS=${e.rss} KB\n${e.description.orEmpty()}\n")
                         runCatching { if(e.reason==android.app.ApplicationExitInfo.REASON_ANR) e.traceInputStream?.use { input ->
                             val data=ByteArray(8000);val n=input.read(data);if(n>0)append(String(data,0,n,Charsets.UTF_8))
-                        } }
+                            Unit
+                        }; Unit }
                     }
                 }.take(28000)
             }.getOrElse { "Не удалось получить историю завершений: ${it.javaClass.simpleName}. Пришлите модель телефона и действия перед вылетом." }

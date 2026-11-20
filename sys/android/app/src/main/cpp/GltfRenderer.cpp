@@ -26,9 +26,12 @@ bool GltfRenderer::load(AAssetManager *assets,const std::string&path,std::string
 bool GltfRenderer::uploadStep(std::string &log){
     if(!uploading_)return ready();
     glActiveTexture(GL_TEXTURE1);glPixelStorei(GL_UNPACK_ALIGNMENT,1);
-    // One per material preserves distinct glTF sampler wrapping modes.
+    // Share identical image/sampler storage, while retaining material draw state.
     if(nextMaterial_<scene_.materials.size()){
-        const auto&material=scene_.materials[nextMaterial_++];
+        const size_t index=nextMaterial_++;
+        const auto&material=scene_.materials[index];
+        const size_t owner=sharedTextureOwner(scene_.materials,index);
+        if(owner<index){textures_.push_back(textures_.at(owner));}else{
         GLuint texture=0;glGenTextures(1,&texture);textures_.push_back(texture);glBindTexture(GL_TEXTURE_2D,texture);
         const unsigned char white[4]={255,255,255,255};const Image *image=nullptr;
         if(material.image>=0&&size_t(material.image)<scene_.images.size())image=&scene_.images[material.image];
@@ -36,6 +39,7 @@ bool GltfRenderer::uploadStep(std::string &log){
         glTexImage2D(GL_TEXTURE_2D,0,GL_SRGB8_ALPHA8,valid?image->width:1,valid?image->height:1,0,GL_RGBA,GL_UNSIGNED_BYTE,valid?image->rgba.data():white);
         glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,wrap(material.wrapS));glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,wrap(material.wrapT));
         glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR_MIPMAP_LINEAR);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);glGenerateMipmap(GL_TEXTURE_2D);
+        }
     }else if(nextBatch_<scene_.batches.size()){
         const auto&batch=scene_.batches[nextBatch_++];
         if(batch.vertices.empty())return false;Mesh mesh;mesh.count=static_cast<GLsizei>(batch.vertices.size());mesh.material=batch.material;
@@ -80,5 +84,5 @@ void GltfRenderer::draw(GLuint program,float eyeX,float eyeZ,bool hologram,float
     }
     glDisable(GL_BLEND);glDepthMask(GL_TRUE);glActiveTexture(GL_TEXTURE0);glUniform1i(glGetUniformLocation(program,"modelPass"),0);
 }
-void GltfRenderer::release(){for(auto&m:meshes_){if(m.vbo)glDeleteBuffers(1,&m.vbo);if(m.vao)glDeleteVertexArrays(1,&m.vao);}meshes_.clear();if(!textures_.empty())glDeleteTextures(static_cast<GLsizei>(textures_.size()),textures_.data());textures_.clear();scene_=Scene{};uploading_=false;}
+void GltfRenderer::release(){for(auto&m:meshes_){if(m.vbo)glDeleteBuffers(1,&m.vbo);if(m.vao)glDeleteVertexArrays(1,&m.vao);}meshes_.clear();if(!textures_.empty()){auto owned=textures_;std::sort(owned.begin(),owned.end());owned.erase(std::unique(owned.begin(),owned.end()),owned.end());glDeleteTextures(static_cast<GLsizei>(owned.size()),owned.data());}textures_.clear();scene_=Scene{};uploading_=false;}
 }
