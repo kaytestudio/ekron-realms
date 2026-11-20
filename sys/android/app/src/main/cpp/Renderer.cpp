@@ -63,15 +63,20 @@ out vec3 worldNormal;
 out vec2 texUV;
 flat out int layer;
 out vec3 toEye;
+uniform float rotorAngle;
+uniform vec3 rotorPivot;
+uniform bool modelPass;
 void main(){
- vec3 p=(objectTransform*vec4(position,1.0)).xyz-eye;
+ vec3 localPosition=position,localNormal=normal;
+ if(modelPass&&abs(rotorAngle)>.0001){float c=cos(rotorAngle),s=sin(rotorAngle);mat3 rotation=mat3(c,0.,-s,0.,1.,0.,s,0.,c);localPosition=rotorPivot+rotation*(position-rotorPivot);localNormal=rotation*normal;}
+ vec3 p=(objectTransform*vec4(localPosition,1.0)).xyz-eye;
  float cy=cos(angles.x),sy=sin(angles.x),cp=cos(angles.y),sp=sin(angles.y);
  vec3 q=vec3(cy*p.x-sy*p.z,p.y,sy*p.x+cy*p.z);
  q=vec3(q.x,cp*q.y+sp*q.z,-sp*q.y+cp*q.z);
  q.xy=mat2(cos(cameraRoll),sin(cameraRoll),-sin(cameraRoll),cos(cameraRoll))*q.xy;
  float f=1.37638;
  gl_Position=vec4(q.x*f/aspect,q.y*f,-1.000100*q.z-.200010,-q.z);
- tint=color;worldNormal=mat3(objectTransform)*normal;texUV=uv;layer=int(material+.5);toEye=p;
+ tint=color;worldNormal=mat3(objectTransform)*localNormal;texUV=uv;layer=int(material+.5);toEye=p;
 })";
 const char *fragment=R"(#version 300 es
 precision highp float;
@@ -98,6 +103,7 @@ uniform vec3 lightDirection;
 uniform vec3 lightColor;
 uniform vec3 ambientColor;
 uniform vec4 fireLights[6];
+uniform vec4 blastLight;
 out vec4 outColor;
 void main(){
  vec3 base=pow(tint,vec3(2.2));
@@ -125,6 +131,7 @@ void main(){
  vec3 lit=base*(ambientColor*sky+lightColor*diffuse);
  for(int i=0;i<6;i++){vec3 delta=fireLights[i].xyz-(toEye+eye);float dist=length(delta);float fall=max(0.,1.-dist/30.);lit+=base*vec3(1.,.34,.08)*fireLights[i].w*fall*fall*.9;}
 
+ float blastDistance=length(blastLight.xyz-(toEye+eye));lit+=vec3(1.,.5,.12)*blastLight.w*max(0.,1.-blastDistance/8.)*3.;
  float roughness=modelPass?modelRoughness:(layer==7?.18:layer==3?.48:.94);
  float strength=modelPass?.035:(layer==7?.28:layer==3?.12:.006);
  vec3 halfVector=normalize(normalize(-lightDirection)-normalize(toEye));
@@ -234,7 +241,7 @@ Renderer::Renderer(android_app *app):app_(app),last_(std::chrono::steady_clock::
   }
   city::LoadOptions remoteOptions;remoteOptions.level=false;remoteOptions.buildPhysics=false;remoteOptions.targetExtent=.38f;
   result.remoteValid=city::GltfRenderer::prepare(manager,"models/chasing_m2_rc_underwater_drone_remote.glb",result.remote,result.log,remoteOptions);
-  remoteOptions.targetExtent=.50f;
+  remoteOptions.targetExtent=.50f;remoteOptions.animateRotors=true;
   result.droneValid=city::GltfRenderer::prepare(manager,"models/fpv_drone.glb",result.drone,result.log,remoteOptions);
   if(!result.remoteValid||!result.droneValid)result.valid=false;
   loadPercent=80;return result;
@@ -312,6 +319,7 @@ void Renderer::handleInput(){
    else if(tools_.tool==sandbox::HandTool::DRONE_REMOTE){tools_.select(world_,sandbox::HandTool::HAND_EMPTY);building_=false;}
    droneThrottle=droneYawInput=dronePitchInput=droneRollInput=0;resetInput();continue;
   }
+  if(command==46&&!drone_.piloting()&&seatedCar_<0){playerView_.toggle();continue;}
   if(drone_.piloting())continue;
   if(command==44&&city_.ready()&&tools_.tool==sandbox::HandTool::DRONE_REMOTE){drone_.returnHome({world_.x,world_.y,world_.z},world_.yaw,*city_.scene().collision,builtCollision_);continue;}
   if(command==40&&city_.ready()&&seatedCar_<0){
@@ -321,7 +329,10 @@ void Renderer::handleInput(){
   }
   if(command==41&&city_.ready()){drone_.place(*city_.scene().collision,builtCollision_);continue;}
   if(command==43&&city_.ready()&&tools_.tool==sandbox::HandTool::DRONE_REMOTE){
-   if(drone_.connect({world_.x,world_.y,world_.z},world_.yaw,world_.pitch,*city_.scene().collision,builtCollision_)){resetInput();}continue;
+   if(drone_.connect({world_.x,world_.y,world_.z},world_.yaw,world_.pitch,*city_.scene().collision,builtCollision_)){
+    auto eye=physics::Vec3{world_.x,world_.y,world_.z};drone_.bodyEye=playerView_.camera(eye,world_.yaw,world_.pitch,0,true,*city_.scene().collision,builtCollision_);
+    if(physics::length(drone_.bodyEye-eye)>.01f){float target=std::atan2(eye.y-drone_.bodyEye.y,std::hypot(eye.x-drone_.bodyEye.x,eye.z-drone_.bodyEye.z));drone_.bodyPitch=world_.pitch+(target-world_.pitch)*playerView_.mix;}
+    resetInput();}continue;
   }
   if(command==36&&city_.ready()){
    if(seatedCar_>=0){
@@ -404,6 +415,8 @@ void Renderer::render(){
  if(gameplayReady&&city_.ready()){
   size_t objectCountBefore=world_.objects.size();
   bool moving=dynamics_.update(world_,*city_.scene().collision,dt,tools_.held,city_.scene().minimum,city_.scene().maximum,&tools_.held,&seatedCar_);
+  for(auto point:dynamics_.barrelImpacts){blasts_.explode(world_,point);saveDirty_=true;}
+  if(!dynamics_.barrelImpacts.empty())rebuildBuiltCollision();
   if(world_.objects.size()!=objectCountBefore)saveDirty_=true;
   if(moving){rebuildBuiltCollision();motionSaveTime_+=dt;if(motionSaveTime_>.75f){saveDirty_=true;motionSaveTime_=0;}}
   else if(motionSaveTime_>0){saveDirty_=true;motionSaveTime_=0;}
@@ -436,6 +449,7 @@ void Renderer::render(){
     if(!drone_.blocked(p,*city_.scene().collision,builtCollision_)){drone_.position=p;drone_.yaw=world_.yaw;}}
   }
   if(gameplayReady)drone_.update(dt,droneRollInput.load(),dronePitchInput.load(),droneThrottle.load(),droneYawInput.load(),0,*city_.scene().collision,builtCollision_);
+  if(drone_.crashPending){drone_.crashPending=false;blasts_.explode(world_,drone_.crashPoint);tools_.select(world_,sandbox::HandTool::HAND_EMPTY);building_=false;droneThrottle=droneYawInput=dronePitchInput=droneRollInput=0;resetInput();saveDirty_=true;}
   if(drone_.piloting()||drone_.mode==sandbox::FpvDrone::Hover||drone_.mode==sandbox::FpvDrone::Returning){
    drone_.position.x=std::clamp(drone_.position.x,city_.scene().minimum[0]+.25f,city_.scene().maximum[0]-.25f);
    drone_.position.z=std::clamp(drone_.position.z,city_.scene().minimum[2]+.25f,city_.scene().maximum[2]-.25f);
@@ -451,9 +465,20 @@ void Renderer::render(){
  auto cameraEye=drone_.piloting()?drone_.camera():physics::Vec3{world_.x,world_.y,world_.z};
  float cameraYaw=drone_.piloting()?drone_.viewYaw():world_.yaw;
  float cameraPitch=drone_.piloting()?drone_.viewPitch():world_.pitch;
+ if(gameplayReady)playerView_.updateBody({world_.x,world_.y,world_.z},world_.yaw,dt);
+ if(city_.ready()){
+  auto eye=physics::Vec3{world_.x,world_.y,world_.z};
+  auto chase=playerView_.camera(eye,world_.yaw,world_.pitch,gameplayReady?dt:0,!drone_.piloting()&&seatedCar_<0,*city_.scene().collision,builtCollision_);
+  if(!drone_.piloting()&&seatedCar_<0){cameraEye=chase;float distance=physics::length(chase-eye);if(distance>.01f){float target=std::atan2(eye.y-chase.y,std::hypot(eye.x-chase.x,eye.z-chase.z));cameraPitch=world_.pitch+(target-world_.pitch)*playerView_.mix;}}
+  if(gameplayReady)blasts_.update(dt,*city_.scene().collision,builtCollision_);
+ }
+ if(gameplayReady&&city_.ready()&&drone_.mode!=sandbox::FpvDrone::Absent&&drone_.mode!=sandbox::FpvDrone::Ground&&drone_.mode!=sandbox::FpvDrone::InHands){
+  float floor=std::max(city_.scene().collision->groundHeight(drone_.position.x,drone_.position.z,drone_.position.y,drone_.position.y-.2f),builtCollision_.groundHeight(drone_.position.x,drone_.position.z,drone_.position.y,drone_.position.y-.2f));
+  if(!std::isfinite(floor)||drone_.position.y-floor>.13f)rotorPhase_=std::fmod(rotorPhase_+dt*180,6.2831853f);
+ }
  if(gameplayReady)tools_.pull(world_,dt,city_.scene().collision.get());
  if(gameplayReady)militaryEffects_.update(dt,cameraEye.x,cameraEye.z);
- std::vector<Vertex> vertices;vertices.reserve((world_.scenery.size()+world_.objects.size()*10+1)*36);
+ std::vector<Vertex> vertices;blasts_.append(vertices);vertices.reserve((world_.scenery.size()+world_.objects.size()*10+1)*36);
  // Old street-specific graffiti coordinates do not belong to the replacement city.
  for(const auto &b:world_.scenery)cube(vertices,b);for(size_t i=0;i<world_.objects.size();i++){
   if(world_.objects[i].type==8)continue;
@@ -503,6 +528,7 @@ void Renderer::render(){
  }
  glUseProgram(program_);
  militaryEffects_.lights(program_,cameraEye.x,cameraEye.z);
+ auto flash=blasts_.light();glUniform4fv(glGetUniformLocation(program_,"blastLight"),1,flash.data());
  glUniform1i(glGetUniformLocation(program_,"previewPass"),0);
  glUniformMatrix4fv(glGetUniformLocation(program_,"objectTransform"),1,GL_FALSE,identity);
  textures_.bind();glUniform1i(glGetUniformLocation(program_,"albedo"),0);
@@ -514,7 +540,10 @@ void Renderer::render(){
  glUniform3f(glGetUniformLocation(program_,"ambientColor"),.55f,.59f,.65f);
  glUniform1f(glGetUniformLocation(program_,"cameraRoll"),viewRoll);
  glUniform3f(glGetUniformLocation(program_,"eye"),cameraEye.x,cameraEye.y,cameraEye.z);glUniform2f(glGetUniformLocation(program_,"angles"),cameraYaw,cameraPitch);glUniform1f(glGetUniformLocation(program_,"aspect"),float(viewWidth)/viewHeight);
+ size_t worldVertexCount=vertices.size();
+ if(seatedCar_<0&&physics::length(cameraEye-physics::Vec3{world_.x,world_.y,world_.z})>.65f)playerView_.append(vertices,{world_.x,world_.y,world_.z},crouched_,prone_);
  glBindVertexArray(vao_);glBindBuffer(GL_ARRAY_BUFFER,buffer_);glBufferData(GL_ARRAY_BUFFER,vertices.size()*sizeof(Vertex),vertices.data(),GL_STREAM_DRAW);glDrawArrays(GL_TRIANGLES,0,static_cast<GLsizei>(vertices.size()));
+ vertices.resize(worldVertexCount);
  city_.draw(program_,cameraEye.x,cameraEye.z);
 
  for(size_t i=0;i<world_.objects.size();i++)if(world_.objects[i].type==8)drawCar(world_.objects[i],int(i)==tools_.held,false,cameraEye);
@@ -544,11 +573,11 @@ void Renderer::render(){
    float x=cr*p.x+sr*p.y,y=-sr*p.x+cr*p.y,z=sp*y+cp*p.z;y=cp*y-sp*p.z;return physics::Vec3{cy*x+sy*z,y,-sy*x+cy*z};};
   auto x=rotate({1,0,0}),y=rotate({0,1,0}),z=rotate({0,0,1}),t=drone_.position-rotate(center);
   float matrix[16]={x.x,x.y,x.z,0,y.x,y.y,y.z,0,z.x,z.y,z.z,0,t.x,t.y,t.z,1};
-  glUniformMatrix4fv(glGetUniformLocation(program_,"objectTransform"),1,GL_FALSE,matrix);droneModel_.draw(program_,cameraEye.x,cameraEye.z);
+  glUniformMatrix4fv(glGetUniformLocation(program_,"objectTransform"),1,GL_FALSE,matrix);droneModel_.draw(program_,cameraEye.x,cameraEye.z,false,rotorPhase_);
  }
  // Viewmodel uses camera-local coordinates and its own depth range, not a
  // world object: it cannot collide with a wall or drift when looking around.
- if(gameplayReady&&tools_.tool==sandbox::HandTool::DRONE_REMOTE&&remote_.ready()&&!drone_.piloting()&&seatedCar_<0){
+ if(gameplayReady&&tools_.tool==sandbox::HandTool::DRONE_REMOTE&&remote_.ready()&&!drone_.piloting()&&seatedCar_<0&&playerView_.mix<.01f){
   glClear(GL_DEPTH_BUFFER_BIT);
   glUniform1f(glGetUniformLocation(program_,"cameraRoll"),0);
   glUniform3f(glGetUniformLocation(program_,"eye"),0,0,0);

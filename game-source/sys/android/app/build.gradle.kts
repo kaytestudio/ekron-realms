@@ -12,8 +12,8 @@ android {
         applicationId = "com.example.realms"
         minSdk = 30
         targetSdk = 34
-        versionCode = 50
-        versionName = "0.50-military-city"
+        versionCode = 51
+        versionName = "0.51-player-camera-blasts"
         externalNativeBuild {
             cmake { cppFlags += "-std=c++17" }
         }

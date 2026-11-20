@@ -41,6 +41,13 @@ object BuildCatalog {
         CatalogItem(25, "Шина", "textures/rust.png",3),
         CatalogItem(26, "Столб ограждения", "textures/rust.png",3),
         CatalogItem(27, "Стальная балка", "textures/rust.png",3),
-        CatalogItem(28, "Мусорный контейнер", "textures/rust.png",3)
+        CatalogItem(28, "Мусорный контейнер", "textures/rust.png",3),
+        CatalogItem(29, "Взрывная бочка", "textures/rust.png",-1),
+        CatalogItem(30, "Малый деревянный ящик", "textures/wood.png",5),
+        CatalogItem(31, "Большой деревянный ящик", "textures/wood.png",5),
+        CatalogItem(32, "Малый металлический ящик", "textures/rust.png",3),
+        CatalogItem(33, "Большой металлический ящик", "textures/rust.png",3),
+        CatalogItem(34, "Бетонный блок малый", "textures/concrete.png",1),
+        CatalogItem(35, "Бетонный блок большой", "textures/concrete.png",1)
     )
 }

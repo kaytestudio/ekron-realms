@@ -79,6 +79,9 @@ inline void appendObject(std::vector<MeshVertex>&v,const sandbox::Object&o,bool 
    part(0,.15f,0,1.9f,.25f,.25f,.25f,.28f,.3f,sandbox::Rust);part(0,.15f,-.13f,1.9f,.12f,.04f,.45f,.47f,.48f,sandbox::Plain);
   }else if(o.type==28){ // outdoor dumpster
    part(0,.35f,0,1.05f,.7f,.7f,.16f,.25f,.2f,sandbox::Rust);part(0,.76f,0,1.15f,.12f,.78f,.1f,.16f,.12f,sandbox::Plain);
+  }else if(o.type==29){
+   part(0,.57f,0,.68f,1.08f,.68f,.8f,.025f,.015f,sandbox::Plain);
+   for(float y:{.2f,.9f})part(0,y,0,.72f,.065f,.72f,.15f,.15f,.14f,sandbox::Plain);
   }else appendCube(v,body);
  int surface=World::fixedSurface(o.type);
  if(surface>=0)for(size_t i=begin;i<v.size();i++){if(v[i].layer!=Plain||(o.type!=3&&o.type!=6)){v[i].layer=float(surface);v[i].r=v[i].g=v[i].b=1;}}

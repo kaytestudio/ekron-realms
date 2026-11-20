@@ -12,7 +12,7 @@ enum Material { Asphalt=0, Concrete=1, Brick=2, Rust=3, Plain=4, Wood=5, Fabric=
 // Keep the original numeric IDs stable: saved worlds and the Android catalog
 // use these values as their wire format. New catalog entries append to this
 // range instead of renumbering existing furniture and vehicles.
-static constexpr int kObjectTypeCount=29;
+static constexpr int kObjectTypeCount=36;
 struct Box { float x,y,z,w,h,d,r,g,b; int material=Concrete; };
 struct WheelState {float compression=0,load=0;bool grounded=false;};
 struct Object { int type,rotation; float x,z; float y=0; float vx=0,vy=0,vz=0,tiltX=0,tiltZ=0;bool awake=true,anchored=false;int surface=-1;float doorAngle=0,doorTarget=0;bool frozen=false;float spinX=0,spinZ=0;float supportCheckTime=0;float restTime=0;float embeddedTime=0;bool destroyed=false;bool floorRecoveryUsed=false;bool edgeKick=false;std::array<WheelState,4> wheels{}; };
@@ -56,7 +56,8 @@ public:
             {1.0f,1.0f,1.0f}, {.72f,1.14f,.72f}, {1.1f,.35f,1.1f}, {2.0f,.32f,.32f},
             {1.9f,.42f,.45f}, {1.42f,.70f,.34f}, {1.6f,.84f,.5f}, {.75f,1.0f,.75f},
             {.7f,1.49f,.7f}, {1.8f,1.45f,.5f}, {.72f,.20f,.72f}, {1.8f,1.45f,.45f},
-            {.8f,.45f,.68f}, {.18f,2.4f,.18f}, {2.0f,.3f,.3f}, {1.15f,.82f,.8f}
+            {.8f,.45f,.68f}, {.18f,2.4f,.18f}, {2.0f,.3f,.3f}, {1.15f,.82f,.8f},
+            {.72f,1.14f,.72f},{.6f,.6f,.6f},{1.4f,1.4f,1.4f},{.7f,.7f,.7f},{1.3f,1.3f,1.3f},{1.5f,.5f,.6f},{2.4f,.8f,.8f}
         };
         int type=std::clamp(o.type,0,kObjectTypeCount-1);
         auto p=dims[type];
@@ -82,6 +83,10 @@ public:
     }
     static int fixedSurface(int type) {
         if(type==11||type==14||type==16||type==17||type==19||type==20||type==21||type==23||type==26)return Rust;
+        if(type==29)return -1;
+        if(type==30||type==31)return Wood;
+        if(type==32||type==33)return Rust;
+        if(type>=34&&type<=35)return Concrete;
         if(type==8||type==2)return -1;
         if(type==9||type==3||type==4||type==5||type==6||type==13||type==15||type==17||type==22)return Wood;
         if(type==10)return Brick;
