@@ -193,6 +193,7 @@ class MainActivity : GameActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        collectExitReport()
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         val overlay = FrameLayout(this).apply { isMotionEventSplittingEnabled = true }
         hud=overlay
@@ -508,16 +509,54 @@ class MainActivity : GameActivity() {
     private fun showPauseMenu() {
         setPaused(true)
         val dialog=AlertDialog.Builder(this).setTitle("Пауза")
-            .setItems(arrayOf("Продолжить",if(flyingNow) "Выключить полёт" else "Включить полёт","На дорогу","Восстановить УАЗ","На спавн","Камера: 1-е / 3-е лицо")) { _, which ->
+            .setItems(arrayOf("Продолжить",if(flyingNow) "Выключить полёт" else "Включить полёт","На дорогу","Восстановить УАЗ","На спавн","Камера: 1-е / 3-е лицо","Отчёт о вылете")) { _, which ->
                 setPaused(false)
                 if(which==1)nativeCommand(6)
                 if(which==2)nativeCommand(7)
                 if(which==3)nativeCommand(34)
                 if(which==4)nativeCommand(35)
                 if(which==5)nativeCommand(46)
+                if(which==6)handler.post { showExitReport() }
             }.create()
         dialog.setOnDismissListener { setPaused(false);hideSystemUi() }
         dialog.show()
+    }
+    @Volatile private var exitReport = "Отчёт ещё готовится. Откройте этот пункт через несколько секунд."
+    private fun collectExitReport() {
+        catalogExecutor.execute {
+            val report = runCatching {
+                val manager=getSystemService(ACTIVITY_SERVICE) as android.app.ActivityManager
+                val memory=android.app.ActivityManager.MemoryInfo().also { manager.getMemoryInfo(it) }
+                val exits=manager.getHistoricalProcessExitReasons(packageName,0,3)
+                buildString {
+                    append("ЭКРОН v0.52\nУстройство: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}\nAndroid: ${android.os.Build.VERSION.RELEASE}\n")
+                    append("RAM: ${memory.totalMem/1048576} MB, свободно ${memory.availMem/1048576} MB\n")
+                    if(exits.isEmpty())append("Android не сохранил сведения о предыдущем завершении.\n")
+                    for(e in exits){
+                        val reason=when(e.reason){
+                            android.app.ApplicationExitInfo.REASON_CRASH_NATIVE -> "Нативный сбой"
+                            android.app.ApplicationExitInfo.REASON_CRASH -> "Java/Kotlin сбой"
+                            android.app.ApplicationExitInfo.REASON_LOW_MEMORY -> "Недостаточно памяти"
+                            android.app.ApplicationExitInfo.REASON_ANR -> "Приложение не отвечает"
+                            else -> "Код ${e.reason}"
+                        }
+                        append("\n${java.util.Date(e.timestamp)}: $reason, status=${e.status}, PSS=${e.pss} KB, RSS=${e.rss} KB\n${e.description.orEmpty()}\n")
+                        runCatching { if(e.reason==android.app.ApplicationExitInfo.REASON_ANR) e.traceInputStream?.use { input ->
+                            val data=ByteArray(8000);val n=input.read(data);if(n>0)append(String(data,0,n,Charsets.UTF_8))
+                        } }
+                    }
+                }.take(28000)
+            }.getOrElse { "Не удалось получить историю завершений: ${it.javaClass.simpleName}. Пришлите модель телефона и действия перед вылетом." }
+            exitReport=report
+        }
+    }
+    private fun showExitReport(){
+        setPaused(true)
+        val report=exitReport
+        AlertDialog.Builder(this).setTitle("Отчёт о завершении игры").setMessage(report)
+            .setPositiveButton("Скопировать") { _,_ ->
+                (getSystemService(CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Ekron crash",report))
+            }.setNegativeButton("Закрыть",null).setOnDismissListener { setPaused(false);hideSystemUi() }.show()
     }
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
         if(keyCode==KeyEvent.KEYCODE_V && worldReady && !paused){nativeCommand(46);return true}
