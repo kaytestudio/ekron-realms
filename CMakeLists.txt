@@ -231,6 +231,9 @@ endif()
 # =============================================================================
 enable_testing()
 
+add_executable(ekron_desktop_hud_layout_test tests/native/desktop_hud_layout_test.cpp)
+add_test(NAME ekron_desktop_hud_layout COMMAND ekron_desktop_hud_layout_test)
+
 if(TARGET ekron-realms)
     add_test(
         NAME ekron_desktop_version

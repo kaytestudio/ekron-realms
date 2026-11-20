@@ -35,7 +35,9 @@ std::atomic<int> droneMode{0};
 std::atomic<float> droneThrottle{0},droneYawInput{0},dronePitchInput{0},droneRollInput{0};
 std::atomic<bool> holdingObject{false};
 std::mutex snapshotMutex;
-std::array<float,4> snapshot{0,1.7f,0,0};
+// Position, flight, stance and yaw are captured together on the render thread.
+// Status slots 14 and 15 expose stance (0/1/2) and yaw in radians.
+std::array<float,6> snapshot{0,1.7f,0,0,0,0};
 struct LoadGuard {bool complete=false;~LoadGuard(){if(!complete)loadStage=-1;}};
 city::SpawnConfig readSpawnConfig(android_app *app){
  city::SpawnConfig config;std::string text,error;
@@ -179,7 +181,7 @@ extern "C" JNIEXPORT void JNICALL Java_com_example_realms_MainActivity_nativeCom
 }
 
 extern "C" JNIEXPORT jfloatArray JNICALL Java_com_example_realms_MainActivity_nativeStatus(JNIEnv *env,jobject){
- std::array<float,14> values{};{std::lock_guard<std::mutex> lock(snapshotMutex);std::copy(snapshot.begin(),snapshot.end(),values.begin());}
+ std::array<float,16> values{};{std::lock_guard<std::mutex> lock(snapshotMutex);std::copy_n(snapshot.begin(),4,values.begin());values[14]=snapshot[4];values[15]=snapshot[5];}
  values[13]=float(droneMode.load());
  values[12]=float(freezeState.load());
  values[11]=float(interactionAction.load());
@@ -563,7 +565,7 @@ void Renderer::render(){
   glDisable(GL_SCISSOR_TEST);glViewport(0,0,width_,height_);
  }
  if(eglSwapBuffers(display_,surface_)==EGL_TRUE){
-  {std::lock_guard<std::mutex> lock(snapshotMutex);snapshot={world_.x,world_.y,world_.z,flying_?1.f:0.f};}
+  {std::lock_guard<std::mutex> lock(snapshotMutex);snapshot={world_.x,world_.y,world_.z,flying_?1.f:0.f,prone_?2.f:(crouched_?1.f:0.f),world_.yaw};}
   if(loadStage==5){loadStage=6;loadPercent=100;}
  }else loadStage=-1;
 }

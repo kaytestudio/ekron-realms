@@ -18,6 +18,15 @@ inline bool parseSpawnConfig(const std::string &text,SpawnConfig &config,std::st
         config=parsed;return true;
     }catch(const std::exception&e){error=e.what();return false;}
 }
+// Emit the same schema accepted by parseSpawnConfig for HUD clipboard actions.
+inline std::string formatSpawnConfig(const SpawnConfig &config){
+    nlohmann::json j;
+    j["enabled"]=config.enabled;
+    j["position"]={{"x",config.x},{"y",config.y},{"z",config.z}};
+    j["yawDegrees"]=config.yawDegrees;
+    j["startFlying"]=config.startFlying;
+    return j.dump(2);
+}
 inline void fly(sandbox::World &world,float right,float forward,float vertical,float dt){
     dt=std::clamp(dt,0.f,.05f);float length=std::max(1.f,std::sqrt(right*right+forward*forward+vertical*vertical));
     float speed=8.f*dt/length;

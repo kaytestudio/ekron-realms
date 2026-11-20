@@ -15,6 +15,7 @@
 #endif
 #include <cstddef>
 #include <cstdint>
+#include <type_traits>
 
 using GLenum     = unsigned int;
 using GLboolean  = unsigned char;

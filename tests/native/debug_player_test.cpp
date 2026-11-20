@@ -10,6 +10,13 @@ int main(){
  assert(!city::parseSpawnConfig("{bad",config,error));
  assert(!city::parseSpawnConfig(R"({"position":{"x":99999,"y":1.7,"z":0}})",config,error));
  assert(!city::parseSpawnConfig(R"({"position":{"x":"invalid","y":1.7,"z":0}})",config,error));
+ city::SpawnConfig copied;copied.enabled=true;copied.startFlying=true;copied.x=1.25f;copied.y=15.f;copied.z=-8.5f;copied.yawDegrees=90.f;
+ city::SpawnConfig restored;
+ assert(city::parseSpawnConfig(city::formatSpawnConfig(copied),restored,error));
+ assert(restored.enabled&&restored.startFlying&&restored.x==copied.x&&restored.y==copied.y&&restored.z==copied.z&&restored.yawDegrees==copied.yawDegrees);
+ copied.startFlying=false;copied.y=20.f;
+ assert(city::parseSpawnConfig(city::formatSpawnConfig(copied),restored,error));
+ assert(!restored.startFlying&&restored.y==20.f);
  sandbox::World world;world.walls={{0,1,0,4,2,4,0,0,0}};world.objects.clear();world.x=world.z=0;world.y=1.7f;
  assert(world.blocked({0,0,0,.6f,2,.6f,0,0,0}));
  for(int i=0;i<100;i++)city::fly(world,1,0,1,.016f);

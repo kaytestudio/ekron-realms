@@ -499,7 +499,8 @@ struct PreparedAssets {
     std::atomic<bool> holdingObject_;
 
     std::mutex snapshotMutex_;
-    std::array<float, 4> snapshot_;
+    // Position, flight, stance and yaw are captured together on the render thread.
+    std::array<float, 6> snapshot_;
 }
 
 - (nullable instancetype)initWithMetalKitView:(MTKView *)view {
@@ -545,7 +546,7 @@ struct PreparedAssets {
     seatedCar_ = -1;
     carParking_ = sandbox::Object{8, 0, 0, 0};
     carParkingValid_ = false;
-    snapshot_ = {0.0f, 1.7f, 0.0f, 0.0f};
+    snapshot_ = {0.0f, 1.7f, 0.0f, 0.0f, 0.0f, 0.0f};
     lastTime_ = std::chrono::steady_clock::now();
 
     world_.load(savePath_);
@@ -1854,7 +1855,8 @@ struct PreparedAssets {
 
     {
         std::lock_guard<std::mutex> lock(snapshotMutex_);
-        snapshot_ = {world_.x, world_.y, world_.z, flying_ ? 1.0f : 0.0f};
+        snapshot_ = {world_.x, world_.y, world_.z, flying_ ? 1.0f : 0.0f,
+                     prone_ ? 2.0f : (crouched_ ? 1.0f : 0.0f), world_.yaw};
     }
     if (loadStage_ == 5) {
         loadStage_ = 6;
@@ -1910,10 +1912,12 @@ struct PreparedAssets {
 
 - (NSInteger)pollStatus:(float *)outValues count:(NSInteger)count {
     if (!outValues || count <= 0) return 0;
-    std::array<float, 14> values{};
+    std::array<float, 16> values{};
     {
         std::lock_guard<std::mutex> lock(snapshotMutex_);
-        std::copy(snapshot_.begin(), snapshot_.end(), values.begin());
+        std::copy_n(snapshot_.begin(), 4, values.begin());
+        values[14] = snapshot_[4];
+        values[15] = snapshot_[5];
     }
     values[4] = float(loadStage_.load());
     values[5] = float(debugNotice_.load());

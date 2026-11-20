@@ -11,6 +11,7 @@ import kotlin.math.*
 /** Passive HUD layer: the switch button owns its pointer until release/cancel. */
 class ToolWheelView(context: Context, private val choose: (HandTool) -> Unit) : View(context) {
     private val density = resources.displayMetrics.density
+    private val drag = ToolWheelGesture(20f * density)
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val icons = ToolWheelSelection.tools.map { tool -> ToolArtView(context).apply { this.tool = tool } }
     private val names = listOf("Грави-пушка", "Пульт FPV", "Пустые руки")
@@ -38,25 +39,27 @@ class ToolWheelView(context: Context, private val choose: (HandTool) -> Unit) : 
         }
     }
     fun cancel() { pointer = -1; selected = null; fade(false) }
-    fun gesture(event: MotionEvent, tool: HandTool, open: () -> Unit): Boolean {
+    fun gesture(event: MotionEvent, tool: HandTool, open: () -> Unit, tap: () -> Unit): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 open(); current = tool; pointer = event.getPointerId(0)
-                originX = event.x; originY = event.y; selected = null; fade(true)
+                originX = event.x; originY = event.y; selected = null; drag.start(); fade(true)
             }
             MotionEvent.ACTION_MOVE -> {
                 val i = event.findPointerIndex(pointer)
                 if (i < 0) cancel() else {
-                    val next = ToolWheelSelection.sector(event.getX(i) - originX, event.getY(i) - originY, 20f * density)
+                    val next = drag.update(event.getX(i) - originX, event.getY(i) - originY)
                     if (next != selected) { selected = next; invalidate() }
                 }
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> {
                 if (event.getPointerId(event.actionIndex) == pointer) {
                     val i = event.actionIndex
-                    val index = ToolWheelSelection.sector(event.getX(i) - originX, event.getY(i) - originY, 20f * density)
+                    val index = drag.update(event.getX(i) - originX, event.getY(i) - originY)
+                    val isTap = drag.isTap()
                     cancel()
                     if (index != null) choose(ToolWheelSelection.tools[index])
+                    else if (isTap) tap()
                 }
             }
             MotionEvent.ACTION_CANCEL -> cancel()
