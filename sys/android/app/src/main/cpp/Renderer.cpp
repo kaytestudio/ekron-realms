@@ -2,6 +2,7 @@
 #include "ObjectMesh.h"
 #include "CityGraffiti.h"
 #include "GravityBeam.h"
+#include "OnlinePresence.h"
 #include <game-activity/native_app_glue/android_native_app_glue.h>
 #include <jni.h>
 #include <android/log.h>
@@ -35,9 +36,10 @@ std::atomic<int> droneMode{0};
 std::atomic<float> droneThrottle{0},droneYawInput{0},dronePitchInput{0},droneRollInput{0};
 std::atomic<bool> holdingObject{false};
 std::mutex snapshotMutex;
-// Position, flight, stance and yaw are captured together on the render thread.
-// Status slots 14 and 15 expose stance (0/1/2) and yaw in radians.
-std::array<float,6> snapshot{0,1.7f,0,0,0,0};
+// Position, flight, stance and camera angles are captured on the render thread.
+// Status slots 14, 15 and 16 expose stance, yaw and pitch respectively.
+std::array<float,7> snapshot{0,1.7f,0,0,0,0,0};
+sandbox::RemotePlayers remotePlayers;
 struct LoadGuard {bool complete=false;~LoadGuard(){if(!complete)loadStage=-1;}};
 city::SpawnConfig readSpawnConfig(android_app *app){
  city::SpawnConfig config;std::string text,error;
@@ -181,7 +183,7 @@ extern "C" JNIEXPORT void JNICALL Java_com_example_realms_MainActivity_nativeCom
 }
 
 extern "C" JNIEXPORT jfloatArray JNICALL Java_com_example_realms_MainActivity_nativeStatus(JNIEnv *env,jobject){
- std::array<float,16> values{};{std::lock_guard<std::mutex> lock(snapshotMutex);std::copy_n(snapshot.begin(),4,values.begin());values[14]=snapshot[4];values[15]=snapshot[5];}
+ std::array<float,17> values{};{std::lock_guard<std::mutex> lock(snapshotMutex);std::copy_n(snapshot.begin(),4,values.begin());values[14]=snapshot[4];values[15]=snapshot[5];values[16]=snapshot[6];}
  values[13]=float(droneMode.load());
  values[12]=float(freezeState.load());
  values[11]=float(interactionAction.load());
@@ -190,6 +192,14 @@ extern "C" JNIEXPORT jfloatArray JNICALL Java_com_example_realms_MainActivity_na
  values[6]=holdingObject?1.f:0.f;values[7]=float(currentTool.load());
  values[4]=float(loadStage.load());values[5]=float(debugNotice.load());
  auto result=env->NewFloatArray(values.size());if(result)env->SetFloatArrayRegion(result,0,values.size(),values.data());return result;
+}
+extern "C" JNIEXPORT void JNICALL Java_com_example_realms_MainActivity_nativeRemotePlayers(JNIEnv *env,jobject,jfloatArray array){
+ if(!array){remotePlayers.replace(nullptr,0);return;}
+ const auto length=env->GetArrayLength(array);
+ if(length<0||length>static_cast<jsize>(sandbox::RemotePlayers::maxPlayers*4)||length%4)return;
+ std::vector<float> values(static_cast<size_t>(length));
+ if(length)env->GetFloatArrayRegion(array,0,length,values.data());
+ if(!env->ExceptionCheck())remotePlayers.replace(values.data(),values.size());
 }
 extern "C" JNIEXPORT void JNICALL Java_com_example_realms_MainActivity_nativeVertical(JNIEnv*,jobject,jfloat value){
  verticalInput=std::isfinite(value)?std::clamp(value,-1.f,1.f):0.f;
@@ -450,6 +460,7 @@ void Renderer::render(){
  float cameraPitch=drone_.piloting()?drone_.viewPitch():world_.pitch;
  if(gameplayReady)tools_.pull(world_,dt,city_.scene().collision.get());
  std::vector<Vertex> vertices;vertices.reserve((world_.scenery.size()+world_.objects.size()*10+1)*36);
+ sandbox::appendRemotePlayers(vertices,remotePlayers.snapshot());
  if(city_.ready())sandbox::appendCityGraffiti(vertices,*city_.scene().collision);
  for(const auto &b:world_.scenery)cube(vertices,b);for(size_t i=0;i<world_.objects.size();i++){
   if(world_.objects[i].type==8)continue;
@@ -565,7 +576,7 @@ void Renderer::render(){
   glDisable(GL_SCISSOR_TEST);glViewport(0,0,width_,height_);
  }
  if(eglSwapBuffers(display_,surface_)==EGL_TRUE){
-  {std::lock_guard<std::mutex> lock(snapshotMutex);snapshot={world_.x,world_.y,world_.z,flying_?1.f:0.f,prone_?2.f:(crouched_?1.f:0.f),world_.yaw};}
+  {std::lock_guard<std::mutex> lock(snapshotMutex);snapshot={world_.x,world_.y,world_.z,flying_?1.f:0.f,prone_?2.f:(crouched_?1.f:0.f),world_.yaw,world_.pitch};}
   if(loadStage==5){loadStage=6;loadPercent=100;}
  }else loadStage=-1;
 }

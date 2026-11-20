@@ -15,6 +15,7 @@
 #include "DebugPlayer.h"
 #include "DesktopRenderer.h"
 #include "DesktopHudLayout.h"
+#include "DesktopOnlineClient.h"
 #include "FpvDrone.h"
 #include "GravityBeam.h"
 #include "Interaction.h"
@@ -396,6 +397,10 @@ void printHelp(const char *exe) {
         << "  --version           Print version and exit\n"
         << "  --headless-smoke    Verify assets, GLB models, textures, physics, and save/load without GUI\n"
         << "  --assets <dir>      Override path to Ekron assets directory\n"
+        << "  --online-host <name>  Connect to experimental TLS presence server\n"
+        << "  --online-port <port>  Server port (default 38475)\n"
+        << "  --online-name <name>  Player name (default Player)\n"
+        << "                      Set EKRON_JOIN_TOKEN in the environment; players only, no shared world\n"
         << "  --help              Show this help message\n\n"
         << "Desktop Controls:\n"
         << "  WASD                Move (or FPV drone throttle/yaw; Arrows/Mouse for pitch/roll)\n"
@@ -416,6 +421,8 @@ void printHelp(const char *exe) {
 
 int main(int argc, char **argv) {
     std::string cliAssets;
+    std::string onlineHost, onlineName = "Player";
+    int onlinePort = 38475;
     bool headlessSmoke = false;
 
     for (int i = 1; i < argc; ++i) {
@@ -433,6 +440,16 @@ int main(int argc, char **argv) {
             headlessSmoke = true;
         } else if (arg == "--assets" && i + 1 < argc) {
             cliAssets = argv[++i];
+        } else if (arg == "--online-host" && i + 1 < argc) {
+            onlineHost = argv[++i];
+        } else if (arg == "--online-name" && i + 1 < argc) {
+            onlineName = argv[++i];
+        } else if (arg == "--online-port" && i + 1 < argc) {
+            try {
+                std::string value = argv[++i]; size_t used = 0;
+                onlinePort = std::stoi(value, &used);
+                if (used != value.size() || onlinePort < 1 || onlinePort > 65535) throw std::invalid_argument("port");
+            } catch (const std::exception &) { std::cerr << "Invalid online port\n"; return 1; }
         }
     }
 
@@ -614,6 +631,11 @@ int main(int argc, char **argv) {
     };
     rebuildBuiltCollision();
 
+    ekron::desktop::DesktopOnlineClient online;
+    if (!onlineHost.empty()) {
+        const char *token = std::getenv("EKRON_JOIN_TOKEN");
+        online.connect(onlineHost, onlinePort, onlineName, token ? token : "");
+    }
     bool running = true;
     bool catalogOpen = false;
     bool pauseOpen = false;
@@ -1155,6 +1177,8 @@ int main(int argc, char **argv) {
         // Build world vertex stream
         std::vector<sandbox::MeshVertex> worldVertices;
         worldVertices.reserve((world.objects.size() * 10 + 4) * 36);
+        online.updatePose(world.x, world.y, world.z, world.yaw, world.pitch);
+        sandbox::appendRemotePlayers(worldVertices, online.players());
         sandbox::appendCityGraffiti(worldVertices, *cityModel.scene().collision);
         std::vector<std::array<float, 16>> carTransforms;
 
@@ -1426,7 +1450,8 @@ int main(int argc, char **argv) {
             const float py = (float(hudH) - ph) * 0.5f;
             renderer.drawRect(px, py, pw, ph, {0.08f, 0.11f, 0.15f, 0.97f});
             renderer.drawBorder(px, py, pw, ph, 2.0f, {0.20f, 0.72f, 0.62f, 0.95f});
-            renderer.drawCenteredText(px + pw * 0.5f, py + 32.0f, "ПАУЗА — ЭКРОН", 1.95f, {0.96f, 0.99f, 1.0f, 1.0f});
+            renderer.drawCenteredText(px + pw * 0.5f, py + 25.0f, "ПАУЗА — ЭКРОН", 1.95f, {0.96f, 0.99f, 1.0f, 1.0f});
+            if (!onlineHost.empty()) renderer.drawCenteredText(px + pw * 0.5f, py + 48.0f, online.status(), 1.0f, {0.68f, 0.80f, 0.84f, 1.0f});
 
             const std::array<std::string, 7> labels = {
                 "Продолжить игру",

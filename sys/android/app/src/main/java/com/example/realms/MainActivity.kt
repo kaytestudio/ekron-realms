@@ -39,6 +39,12 @@ class MainActivity : GameActivity() {
     private external fun nativeDroneInput(throttle:Float,yaw:Float,pitch:Float,roll:Float)
     private external fun nativeMove(right: Float, forward: Float)
     private external fun nativeLook(dx: Float, dy: Float)
+    private external fun nativeRemotePlayers(values: FloatArray)
+    private val online by lazy {
+        OnlinePresence({ nativeRemotePlayers(it) }, { message ->
+            if (active && !isFinishing) Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+        })
+    }
     private lateinit var lookArea: LookView
     private lateinit var fpvLayer: FrameLayout
     private lateinit var fpvControls: FpvControlView
@@ -95,6 +101,7 @@ class MainActivity : GameActivity() {
     private val poll = object : Runnable {
         override fun run() {
             val state = nativeStatus()
+            online.updatePose(state)
             if (state.size >= 6) {
                 if(state.size >= 8) {
                     val confirmed=HandTool.values().getOrElse(state[7].toInt()) { HandTool.HAND_EMPTY }
@@ -510,16 +517,62 @@ class MainActivity : GameActivity() {
     private fun showPauseMenu() {
         setPaused(true)
         val dialog=AlertDialog.Builder(this).setTitle("Пауза")
-            .setItems(arrayOf("Продолжить",if(flyingNow) "Выключить полёт" else "Включить полёт","На дорогу","Восстановить УАЗ","На спавн")) { _, which ->
+            .setItems(arrayOf("Продолжить",if(flyingNow) "Выключить полёт" else "Включить полёт","На дорогу","Восстановить УАЗ","На спавн","Онлайн: игроки (экспериментально)","Отключиться от сервера")) { _, which ->
                 setPaused(false)
                 if(which==1)nativeCommand(6)
                 if(which==2)nativeCommand(7)
                 if(which==3)nativeCommand(34)
                 if(which==4)nativeCommand(35)
+                if(which==5)handler.post { showOnlineDialog() }
+                if(which==6)online.disconnect()
             }.create()
         dialog.setOnDismissListener { setPaused(false);hideSystemUi() }
         dialog.show()
     }
+    private fun showOnlineDialog() {
+        if (!worldReady || !active) return
+        setPaused(true)
+        fun field(hintText: String, initial: String = ""): EditText = EditText(this).apply {
+            hint = hintText; setText(initial); setSingleLine(true)
+        }
+        val host = field("Имя сервера (сертификат TLS)")
+        val port = field("Порт", "38475").apply { inputType = android.text.InputType.TYPE_CLASS_NUMBER }
+        val name = field("Имя игрока", "Игрок")
+        val token = field("Ключ доступа").apply {
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+        }
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), 0)
+            addView(TextView(this@MainActivity).apply {
+                text = "Только видимость игроков. Постройки, физика, транспорт и дроны не синхронизируются. Используйте только доверенный сервер."
+            })
+            addView(host); addView(port); addView(name); addView(token)
+        }
+        val dialog = AlertDialog.Builder(this).setTitle("Онлайн (экспериментально)")
+            .setView(ScrollView(this).apply { addView(content) })
+            .setPositiveButton("Подключить", null)
+            .setNegativeButton("Отмена", null).create()
+        dialog.setOnDismissListener { setPaused(false); hideSystemUi() }
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val address = host.text.toString().trim()
+                val number = port.text.toString().toIntOrNull()
+                val playerName = name.text.toString().trim()
+                val key = token.text.toString()
+                if (address.isEmpty() || address.length > 253 || number == null || number !in 1..65535 ||
+                    playerName.isEmpty() || playerName.length > 32 || key.toByteArray(Charsets.UTF_8).size !in 32..256) {
+                    Toast.makeText(this, "Проверьте адрес, порт, имя и ключ (32–256 байт)", Toast.LENGTH_LONG).show()
+                } else {
+                    setPaused(false)
+                    online.connect(address, number, playerName, key)
+                    dialog.dismiss()
+                }
+            }
+        }
+        dialog.show()
+    }
+
     override fun onResume() {
         super.onResume()
         active = true
@@ -527,6 +580,7 @@ class MainActivity : GameActivity() {
         if (::coordinates.isInitialized) { handler.removeCallbacks(poll); handler.post(poll) }
     }
     override fun onPause() {
+        online.disconnect()
         if(::toolWheel.isInitialized)toolWheel.cancel()
         if(::fpvControls.isInitialized)fpvControls.reset()
         closePopup();weapon.running=false

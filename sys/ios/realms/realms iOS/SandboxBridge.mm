@@ -18,6 +18,7 @@
 #include "ObjectMesh.h"
 #include "CityGraffiti.h"
 #include "GravityBeam.h"
+#include "OnlinePresence.h"
 #include "LevelPlacement.h"
 #include "DebugPlayer.h"
 #include "GltfScene.h"
@@ -499,8 +500,9 @@ struct PreparedAssets {
     std::atomic<bool> holdingObject_;
 
     std::mutex snapshotMutex_;
-    // Position, flight, stance and yaw are captured together on the render thread.
-    std::array<float, 6> snapshot_;
+    // Position, flight, stance and camera angles are captured on the render thread.
+    std::array<float, 7> snapshot_;
+    sandbox::RemotePlayers remotePlayers_;
 }
 
 - (nullable instancetype)initWithMetalKitView:(MTKView *)view {
@@ -546,7 +548,7 @@ struct PreparedAssets {
     seatedCar_ = -1;
     carParking_ = sandbox::Object{8, 0, 0, 0};
     carParkingValid_ = false;
-    snapshot_ = {0.0f, 1.7f, 0.0f, 0.0f, 0.0f, 0.0f};
+    snapshot_ = {0.0f, 1.7f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
     lastTime_ = std::chrono::steady_clock::now();
 
     world_.load(savePath_);
@@ -1535,6 +1537,7 @@ struct PreparedAssets {
     // Build dynamic world vertex stream
     std::vector<sandbox::MeshVertex> vertices;
     vertices.reserve((world_.scenery.size() + world_.objects.size() * 10 + 1) * 36);
+    sandbox::appendRemotePlayers(vertices, remotePlayers_.snapshot());
     if (cityModel_.ready()) {
         sandbox::appendCityGraffiti(vertices, *cityModel_.scene().collision);
     }
@@ -1856,7 +1859,7 @@ struct PreparedAssets {
     {
         std::lock_guard<std::mutex> lock(snapshotMutex_);
         snapshot_ = {world_.x, world_.y, world_.z, flying_ ? 1.0f : 0.0f,
-                     prone_ ? 2.0f : (crouched_ ? 1.0f : 0.0f), world_.yaw};
+                     prone_ ? 2.0f : (crouched_ ? 1.0f : 0.0f), world_.yaw, world_.pitch};
     }
     if (loadStage_ == 5) {
         loadStage_ = 6;
@@ -1912,12 +1915,13 @@ struct PreparedAssets {
 
 - (NSInteger)pollStatus:(float *)outValues count:(NSInteger)count {
     if (!outValues || count <= 0) return 0;
-    std::array<float, 16> values{};
+    std::array<float, 17> values{};
     {
         std::lock_guard<std::mutex> lock(snapshotMutex_);
         std::copy_n(snapshot_.begin(), 4, values.begin());
         values[14] = snapshot_[4];
         values[15] = snapshot_[5];
+        values[16] = snapshot_[6];
     }
     values[4] = float(loadStage_.load());
     values[5] = float(debugNotice_.load());
@@ -1933,6 +1937,11 @@ struct PreparedAssets {
     const NSInteger n = std::min<NSInteger>(count, static_cast<NSInteger>(values.size()));
     std::memcpy(outValues, values.data(), static_cast<size_t>(n) * sizeof(float));
     return n;
+}
+
+- (void)setRemotePlayers:(const float *)values count:(NSInteger)count {
+    if (count < 0 || count > static_cast<NSInteger>(sandbox::RemotePlayers::maxPlayers * 4)) return;
+    remotePlayers_.replace(values, static_cast<size_t>(count));
 }
 
 - (void)resetInput {

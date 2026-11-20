@@ -350,6 +350,7 @@
 					"$(SRCROOT)/../../android/app/src/main/cpp",
 					"$(SRCROOT)/realms iOS",
 				);
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Connect to a sandbox server on your local network.";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
 				INFOPLIST_KEY_UIMainStoryboardFile = Main;
@@ -393,6 +394,7 @@
 					"$(SRCROOT)/../../android/app/src/main/cpp",
 					"$(SRCROOT)/realms iOS",
 				);
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Connect to a sandbox server on your local network.";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
 				INFOPLIST_KEY_UIMainStoryboardFile = Main;

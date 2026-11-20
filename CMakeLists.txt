@@ -73,6 +73,7 @@ if(ENABLE_DESKTOP_SANDBOX)
     set(DESKTOP_SOURCES
         "${DESKTOP_SRC_DIR}/main.cpp"
         "${DESKTOP_SRC_DIR}/DesktopRenderer.cpp"
+        "${DESKTOP_SRC_DIR}/DesktopOnlineClient.cpp"
         "${SHARED_CPP_DIR}/GltfScene.cpp"
         "${SHARED_CPP_DIR}/ImageDecode.cpp"
     )
@@ -121,6 +122,17 @@ if(ENABLE_DESKTOP_SANDBOX)
         Threads::Threads
         $<$<PLATFORM_ID:Linux>:${CMAKE_DL_LIBS}>
     )
+
+    # Presence remains optional when OpenSSL development files are unavailable.
+    if(UNIX)
+        find_package(OpenSSL 1.1.1 QUIET)
+        if(OpenSSL_FOUND)
+            target_compile_definitions(ekron-realms PRIVATE EKRON_TLS_ONLINE=1)
+            target_link_libraries(ekron-realms PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+        else()
+            message(STATUS "OpenSSL development files not found: experimental online presence disabled")
+        endif()
+    endif()
 
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         target_compile_options(ekron-realms PRIVATE -Wall -Wextra)

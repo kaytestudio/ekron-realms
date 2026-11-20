@@ -6,11 +6,17 @@ on:
     paths:
       - 'server/**'
       - 'tests/network/**'
+      - 'tests/native/*online*'
+      - 'sys/desktop/DesktopOnlineClient*'
+      - 'sys/android/app/src/main/cpp/OnlinePresence.h'
       - '.github/workflows/network-foundation.yml'
   pull_request:
     paths:
       - 'server/**'
       - 'tests/network/**'
+      - 'tests/native/*online*'
+      - 'sys/desktop/DesktopOnlineClient*'
+      - 'sys/android/app/src/main/cpp/OnlinePresence.h'
       - '.github/workflows/network-foundation.yml'
 
 permissions:
@@ -22,5 +28,13 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
-      - name: Run protocol and TLS tests
-        run: python3 -m unittest discover -s tests/network -v
+      - name: Build native presence tests
+        run: |
+          g++ -std=c++17 -Wall -Wextra -pthread tests/native/online_presence_test.cpp -o /tmp/online-presence-test
+          g++ -std=c++17 -Wall -Wextra -pthread -DEKRON_TLS_ONLINE=1 -Isys/desktop -Isys/android/app/src/main/cpp tests/native/desktop_online_client_test.cpp sys/desktop/DesktopOnlineClient.cpp -lssl -lcrypto -o /tmp/desktop-online-test
+      - name: Run geometry, protocol and live TLS tests
+        env:
+          EKRON_DESKTOP_PRESENCE_TEST: /tmp/desktop-online-test
+        run: |
+          /tmp/online-presence-test
+          python3 -m unittest discover -s tests/network -v

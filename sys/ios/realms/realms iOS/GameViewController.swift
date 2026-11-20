@@ -11,6 +11,7 @@ class GameViewController: UIViewController {
 
     private var mtkView: MTKView!
     private var bridge: SandboxBridge?
+    private let online = OnlinePresence()
 
     // Main HUD views
     private let hudOverlay = PassthroughContainerView()
@@ -117,6 +118,12 @@ class GameViewController: UIViewController {
             }
         }
 
+        online.onPlayers = { [weak self] values in
+            values.withUnsafeBufferPointer { buffer in
+                self?.bridge?.setRemotePlayers(buffer.baseAddress, count: buffer.count)
+            }
+        }
+        online.onStatus = { [weak self] message in self?.showToast(message) }
         setupHud()
         setupLoadingAndIntro()
         registerLifecycleNotifications()
@@ -153,6 +160,7 @@ class GameViewController: UIViewController {
     }
 
     @objc private func handleDidEnterBackground() {
+        online.disconnect()
         appActive = false
         resetTransientInputs()
         bridge?.setGameplayReady(false)
@@ -584,12 +592,13 @@ class GameViewController: UIViewController {
         weaponArt.tickAnimation()
         guard let bridge = bridge else { return }
 
-        var state = [Float](repeating: 0, count: 16)
+        var state = [Float](repeating: 0, count: 17)
         let count = state.withUnsafeMutableBufferPointer { buf -> Int in
             guard let base = buf.baseAddress else { return 0 }
-            return Int(bridge.pollStatus(base, count: 16))
+            return Int(bridge.pollStatus(base, count: 17))
         }
         guard count >= 14 else { return }
+        if count >= 17 { online.updatePose(state) }
         if count >= 15 { crouchButton.isSelected = Int(state[14]) == 1 }
         if count >= 16 { latestYawDegrees = state[15] * 180.0 / .pi }
 
@@ -851,6 +860,42 @@ class GameViewController: UIViewController {
         alert.addAction(UIAlertAction(title: "На спавн", style: .default) { [weak self] _ in
             self?.setMenuPaused(false)
             self?.bridge?.sendCommand(35)
+        })
+        alert.addAction(UIAlertAction(title: "Онлайн: игроки (экспериментально)", style: .default) { [weak self] _ in
+            self?.setMenuPaused(false)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { self?.showOnlineDialog() }
+        })
+        alert.addAction(UIAlertAction(title: "Отключиться от сервера", style: .default) { [weak self] _ in
+            self?.setMenuPaused(false)
+            self?.online.disconnect()
+        })
+        present(alert, animated: true)
+    }
+
+    private func showOnlineDialog() {
+        guard worldReady, appActive, presentedViewController == nil else { return }
+        setMenuPaused(true)
+        let alert = UIAlertController(title: "Онлайн (экспериментально)",
+            message: "Только видимость игроков. Постройки, физика, транспорт и дроны не синхронизируются. Используйте только доверенный сервер.",
+            preferredStyle: .alert)
+        alert.addTextField { $0.placeholder = "Имя сервера (сертификат TLS)"; $0.autocapitalizationType = .none; $0.autocorrectionType = .no }
+        alert.addTextField { $0.placeholder = "Порт"; $0.text = "38475"; $0.keyboardType = .numberPad }
+        alert.addTextField { $0.placeholder = "Имя игрока"; $0.text = "Игрок" }
+        alert.addTextField { $0.placeholder = "Ключ доступа"; $0.isSecureTextEntry = true; $0.autocapitalizationType = .none }
+        alert.addAction(UIAlertAction(title: "Отмена", style: .cancel) { [weak self] _ in self?.setMenuPaused(false) })
+        alert.addAction(UIAlertAction(title: "Подключить", style: .default) { [weak self, weak alert] _ in
+            guard let self = self, let fields = alert?.textFields, fields.count == 4 else { return }
+            self.setMenuPaused(false)
+            let host = (fields[0].text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let name = (fields[2].text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let token = fields[3].text ?? ""
+            guard !host.isEmpty, host.utf8.count <= 253,
+                  let port = UInt16(fields[1].text ?? ""), port > 0,
+                  !name.isEmpty, name.unicodeScalars.count <= 32, (32...256).contains(token.utf8.count) else {
+                self.showToast("Проверьте адрес, порт, имя и ключ (32–256 байт)")
+                return
+            }
+            self.online.connect(host: host, port: port, name: name, token: token)
         })
         present(alert, animated: true)
     }
