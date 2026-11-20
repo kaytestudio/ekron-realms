@@ -173,7 +173,7 @@ jobs:
             install_name_tool -id "@rpath/$DYLIB_NAME" "$APP_BUNDLE/Contents/Frameworks/$DYLIB_NAME"
             install_name_tool -change "$SDL2_REF" "@rpath/$DYLIB_NAME" "$APP_BUNDLE/Contents/MacOS/EkronRealms"
 
-            # Homebrew sdl2-compat dynamically links or dlopens libSDL3.0.dylib; bundle it too if present
+            # Homebrew sdl2-compat dlopens "@loader_path/libSDL3.dylib" inside Contents/Frameworks
             SDL3_REF="$(otool -L "$APP_BUNDLE/Contents/Frameworks/$DYLIB_NAME" | awk '/libSDL3/{print $1; exit}')"
             if [ -n "$SDL3_REF" ] && [ -f "$SDL3_REF" ]; then
               SDL3_NAME="$(basename "$SDL3_REF")"
@@ -181,12 +181,16 @@ jobs:
               chmod 755 "$APP_BUNDLE/Contents/Frameworks/$SDL3_NAME"
               install_name_tool -id "@rpath/$SDL3_NAME" "$APP_BUNDLE/Contents/Frameworks/$SDL3_NAME"
               install_name_tool -change "$SDL3_REF" "@rpath/$SDL3_NAME" "$APP_BUNDLE/Contents/Frameworks/$DYLIB_NAME"
+              if [ "$SDL3_NAME" != "libSDL3.dylib" ]; then
+                ln -sf "$SDL3_NAME" "$APP_BUNDLE/Contents/Frameworks/libSDL3.dylib"
+              fi
             elif brew --prefix sdl3 >/dev/null 2>&1; then
               SDL3_DIR="$(brew --prefix sdl3)/lib"
-              if [ -f "$SDL3_DIR/libSDL3.0.dylib" ]; then
-                cp -L "$SDL3_DIR/libSDL3.0.dylib" "$APP_BUNDLE/Contents/Frameworks/libSDL3.0.dylib"
-                chmod 755 "$APP_BUNDLE/Contents/Frameworks/libSDL3.0.dylib"
-                install_name_tool -id "@rpath/libSDL3.0.dylib" "$APP_BUNDLE/Contents/Frameworks/libSDL3.0.dylib"
+              if [ -f "$SDL3_DIR/libSDL3.dylib" ]; then
+                cp -L "$SDL3_DIR/libSDL3.dylib" "$APP_BUNDLE/Contents/Frameworks/libSDL3.dylib"
+                chmod 755 "$APP_BUNDLE/Contents/Frameworks/libSDL3.dylib"
+                install_name_tool -id "@rpath/libSDL3.dylib" "$APP_BUNDLE/Contents/Frameworks/libSDL3.dylib"
+                ln -sf "libSDL3.dylib" "$APP_BUNDLE/Contents/Frameworks/libSDL3.0.dylib"
               fi
             fi
           fi
