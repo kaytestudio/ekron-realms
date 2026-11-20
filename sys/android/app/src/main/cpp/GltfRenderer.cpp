@@ -42,9 +42,8 @@ bool GltfRenderer::uploadStep(std::string &log){
         for(const auto&v:batch.vertices){mesh.x+=v.x/mesh.count;mesh.z+=v.z/mesh.count;}
         glGenVertexArrays(1,&mesh.vao);glGenBuffers(1,&mesh.vbo);glBindVertexArray(mesh.vao);glBindBuffer(GL_ARRAY_BUFFER,mesh.vbo);
         glBufferData(GL_ARRAY_BUFFER,batch.vertices.size()*sizeof(Vertex),batch.vertices.data(),GL_STATIC_DRAW);
-        for(GLuint attr:{0u,1u,2u,3u})glEnableVertexAttribArray(attr);
+        for(GLuint attr:{0u,2u,3u})glEnableVertexAttribArray(attr);
         glVertexAttribPointer(0,3,GL_FLOAT,GL_FALSE,sizeof(Vertex),reinterpret_cast<void*>(offsetof(Vertex,x)));
-        glVertexAttribPointer(1,3,GL_FLOAT,GL_FALSE,sizeof(Vertex),reinterpret_cast<void*>(offsetof(Vertex,r)));
         glVertexAttribPointer(2,3,GL_FLOAT,GL_FALSE,sizeof(Vertex),reinterpret_cast<void*>(offsetof(Vertex,nx)));
         glVertexAttribPointer(3,2,GL_FLOAT,GL_FALSE,sizeof(Vertex),reinterpret_cast<void*>(offsetof(Vertex,u)));
         meshes_.push_back(mesh);

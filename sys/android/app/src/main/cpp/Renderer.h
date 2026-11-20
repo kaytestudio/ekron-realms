@@ -14,7 +14,6 @@
 #include <optional>
 #include "TextureLoader.h"
 #include "GltfRenderer.h"
-#include "MilitaryEffects.h"
 struct android_app;
 class Renderer {
 public:
@@ -30,7 +29,6 @@ private:
     EGLContext context_=EGL_NO_CONTEXT;
     GLuint program_=0,skyProgram_=0,buffer_=0,vao_=0;
     TextureLoader textures_;
-    military::Effects militaryEffects_;
     city::GltfRenderer city_;
     city::GltfRenderer car_;
     city::GltfRenderer remote_;

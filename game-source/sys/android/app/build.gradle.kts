@@ -7,13 +7,13 @@ android {
     namespace = "com.example.realms"
     compileSdk = 34
 
-    androidResources { noCompress += listOf("mp4", "glb") }
+    androidResources { noCompress += "mp4" }
     defaultConfig {
         applicationId = "com.example.realms"
         minSdk = 30
         targetSdk = 34
-        versionCode = 50
-        versionName = "0.50-military-city"
+        versionCode = 47
+        versionName = "0.47-drone-orbit-camera"
         externalNativeBuild {
             cmake { cppFlags += "-std=c++17" }
         }

@@ -9,7 +9,7 @@
 
 namespace city {
 using ReadFile=std::function<bool(const std::string&,std::vector<unsigned char>&)>;
-struct Vertex { float x,y,z,nx,ny,nz,u,v; float r=1,g=1,b=1; };
+struct Vertex { float x,y,z,nx,ny,nz,u,v; };
 struct Image { int width=0,height=0;std::vector<unsigned char> rgba; };
 struct Material {
     std::array<float,4> color{1,1,1,1};
@@ -23,12 +23,9 @@ struct Material {
 };
 struct Batch { std::vector<Vertex> vertices;int material=-1;bool decorativeWire=false; };
 struct LoadOptions {
-    // CPU loading milestones; optional, called on the loading worker.
-    std::function<void(int)> progress;
     bool level=true;
     bool buildPhysics=true;
     float targetExtent=80.f;
-    float preferredSpawnX=-3.4f,preferredSpawnZ=32.7f;
     float x=0,y=0,z=0,yaw=0;
 };
 struct Scene {
