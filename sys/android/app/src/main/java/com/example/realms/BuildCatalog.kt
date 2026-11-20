@@ -3,6 +3,8 @@ package com.example.realms
 data class CatalogItem(val nativeType: Int, val label: String, val asset: String, val defaultSurface: Int = 1)
 
 object BuildCatalog {
+    // -1 means the model owns its materials, never an array index.
+    fun <T> materialPreview(images: Array<T>, surface: Int): T? = images.getOrNull(surface)
     // Vehicle stays available under construction; no invented weapons/drones.
     fun indicesForCategory(category: Int): List<Int> = entries.indices.filter {
         when(category) {

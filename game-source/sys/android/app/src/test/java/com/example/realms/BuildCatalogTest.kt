@@ -2,6 +2,21 @@ package com.example.realms
 import org.junit.Assert.*
 import org.junit.Test
 class BuildCatalogTest {
+    @Test fun spawnPreviewsAllowModelOwnedMaterials() {
+        val images=arrayOfNulls<String>(7)
+        images[1]="concrete";images[3]="metal";images[5]="wood";images[6]="fabric"
+        for(category in 0..3)for(index in BuildCatalog.indicesForCategory(category)){
+            val item=BuildCatalog.entries[index]
+            val preview=BuildCatalog.materialPreview(images,item.defaultSurface)
+            if(item.defaultSurface==-1)assertNull(preview)
+            else assertEquals(images[item.defaultSurface],preview)
+        }
+        val barrel=BuildCatalog.entries.single { it.nativeType==29 }
+        assertEquals(-1,barrel.defaultSurface)
+        assertNull(BuildCatalog.materialPreview(images,barrel.defaultSurface))
+        assertNull(BuildCatalog.materialPreview(images,Int.MIN_VALUE))
+        assertNull(BuildCatalog.materialPreview(images,images.size))
+    }
     @Test fun picturesMatchNativeTypesWithoutDuplicateAssets() {
         val items=BuildCatalog.entries
         assertEquals(listOf(0,1,2,3,4,5,6,7,9,10,11,8,12)+(13..35).toList(),items.map { it.nativeType })
