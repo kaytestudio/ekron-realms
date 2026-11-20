@@ -19,6 +19,10 @@
 
 ## Сборка
 
+В GitHub Actions сборка разделена на два независимых workflow:
+- **`.github/workflows/desktop-debian.yml`** — сборка и проверка пакета Debian (`.deb`, артефакт `ekron-realms-linux-deb`);
+- **`.github/workflows/desktop-macos.yml`** — сборка и проверка бандла macOS (`EkronRealms.app`, артефакт `ekron-realms-macos-app`).
+
 ### Linux (Debian/Ubuntu `.deb`)
 ```sh
 cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr

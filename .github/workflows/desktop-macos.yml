@@ -1,4 +1,4 @@
-name: Desktop client
+name: Desktop client (macOS)
 
 on:
   workflow_dispatch:
@@ -6,109 +6,35 @@ on:
     paths:
       - 'CMakeLists.txt'
       - 'cmake/**'
+      - 'RINGSCE_v2.png'
       - 'Resources/**'
+      - '!Resources/ekron-realms.desktop'
       - 'Projects/**'
       - 'sys/desktop/**'
       - 'tests/native/desktop_hud_layout_test.cpp'
-      - 'sys/linux/**'
       - 'sys/mac/**'
       - 'sys/android/app/src/main/cpp/**'
       - 'sys/android/app/src/main/assets/**'
-      - '.github/workflows/desktop.yml'
+      - '.github/workflows/desktop-macos.yml'
   pull_request:
     paths:
       - 'CMakeLists.txt'
       - 'cmake/**'
+      - 'RINGSCE_v2.png'
       - 'Resources/**'
+      - '!Resources/ekron-realms.desktop'
       - 'Projects/**'
       - 'sys/desktop/**'
       - 'tests/native/desktop_hud_layout_test.cpp'
-      - 'sys/linux/**'
       - 'sys/mac/**'
       - 'sys/android/app/src/main/cpp/**'
       - 'sys/android/app/src/main/assets/**'
-      - '.github/workflows/desktop.yml'
+      - '.github/workflows/desktop-macos.yml'
 
 permissions:
   contents: read
 
 jobs:
-  linux-deb:
-    name: Linux Debian package (.deb)
-    runs-on: ubuntu-24.04
-    timeout-minutes: 25
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-        with:
-          clean: true
-          fetch-depth: 1
-          submodules: false
-
-      - name: Install build dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential \
-            cmake \
-            ninja-build \
-            pkg-config \
-            libsdl2-dev \
-            libgl1-mesa-dev \
-            fpc \
-            fp-units-fcl \
-            file \
-            dpkg-dev
-
-      - name: Configure and build Linux desktop client
-        shell: bash
-        run: |
-          set -o pipefail
-          {
-            cmake -S . -B build -G Ninja \
-              -DCMAKE_BUILD_TYPE=Release \
-              -DCMAKE_INSTALL_PREFIX=/usr \
-              -DENABLE_FPC_CLIENT=ON &&
-            cmake --build build -j"$(nproc)" &&
-            test -x build/ekron-realms &&
-            test -x build/realms-launcher
-          } 2>&1 | tee /tmp/linux-build.log || {
-            tail -n 8 /tmp/linux-build.log | while IFS= read -r line; do
-              [ -n "$line" ] && echo "::error::[linux-build] $line"
-            done
-            exit 1
-          }
-
-      - name: Run CTest smoke checks
-        shell: bash
-        run: |
-          set -euo pipefail
-          ctest --test-dir build --output-on-failure -V
-
-      - name: Build and verify Debian package
-        shell: bash
-        run: |
-          set -euo pipefail
-          (cd build && cpack -G DEB)
-          DEB_PKG="$(ls build/ekron-realms_*.deb | head -n 1)"
-          test -f "$DEB_PKG"
-          dpkg-deb --info "$DEB_PKG"
-
-          sudo apt-get install -y "./$DEB_PKG"
-          /usr/bin/ekron-realms --version
-          /usr/bin/ekron-realms --headless-smoke
-          /usr/bin/realms-launcher --version
-          /usr/bin/realms-launcher --headless-smoke
-
-      - name: Upload Debian package
-        uses: actions/upload-artifact@v7
-        with:
-          name: ekron-realms-linux-deb
-          path: build/ekron-realms_*.deb
-          if-no-files-found: error
-
   macos-app:
     name: macOS app bundle (.app)
     runs-on: macos-26
