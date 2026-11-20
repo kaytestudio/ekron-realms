@@ -89,6 +89,7 @@ void applyFallbackUV(Scene&s){
  }
 }
 void prepare(Scene &s,const LoadOptions &options){
+ if(options.progress)options.progress(55);
  Vec lo{1e20f,1e20f,1e20f},hi{-1e20f,-1e20f,-1e20f};size_t count=0;
  for(auto &b:s.batches)for(auto &v:b.vertices){Vec p{v.x,v.y,v.z};for(int i=0;i<3;i++){lo[i]=std::min(lo[i],p[i]);hi[i]=std::max(hi[i],p[i]);}count++;}
  if(!count)throw std::runtime_error("No triangle geometry");
@@ -131,18 +132,22 @@ void prepare(Scene &s,const LoadOptions &options){
               {maxX+.1f,1,(minZ+maxZ)/2,.2f,2,maxZ-minZ,0,0,0},
               {(minX+maxX)/2,1,minZ-.1f,maxX-minX,.2f,.2f,0,0,0},
               {(minX+maxX)/2,1,maxZ+.1f,maxX-minX,.2f,.2f,0,0,0}};
+ if(options.progress)options.progress(65);
  sandbox::World collisionWorld;collisionWorld.walls=s.colliders;collisionWorld.wallSegments=s.wallSegments;
  SpawnPoint spawn;
- if(!findRoadSpawn(collisionWorld,s.minimum,s.maximum,-3.4f,32.7f,spawn))throw std::runtime_error("No connected, supported free spawn in the collision grid");
+ if(!findRoadSpawn(collisionWorld,s.minimum,s.maximum,options.preferredSpawnX,options.preferredSpawnZ,spawn))throw std::runtime_error("No connected, supported free spawn in the collision grid");
  s.spawnX=spawn.x;s.spawnZ=spawn.z;
  applyFallbackUV(s);
+ if(options.progress)options.progress(80);
  buildSceneCollision(s);
+ if(options.progress)options.progress(100);
 }
 }
 
 bool Scene::load(const std::string &path,const ReadFile &read,std::string &diagnostics,const LoadOptions &options){
  try{
   Scene result;std::vector<unsigned char> bytes;if(!read(path,bytes)||bytes.empty()||bytes.size()>128*1024*1024)throw std::runtime_error("Model missing or exceeds 128 MiB");
+  if(options.progress)options.progress(5);
   DecodePolicy policy;
   try{
    size_t offset=0,length=bytes.size();
@@ -168,6 +173,7 @@ bool Scene::load(const std::string &path,const ReadFile &read,std::string &diagn
   tinygltf::Model model;std::string error,warn;const auto slash=path.find_last_of('/');const std::string base=slash==std::string::npos?"":path.substr(0,slash+1);
   bool binary=bytes.size()>=4&&std::memcmp(bytes.data(),"glTF",4)==0;
   bool ok=binary?parser.LoadBinaryFromMemory(&model,&error,&warn,bytes.data(),static_cast<unsigned>(bytes.size()),base):parser.LoadASCIIFromString(&model,&error,&warn,reinterpret_cast<const char*>(bytes.data()),static_cast<unsigned>(bytes.size()),base);
+  if(options.progress)options.progress(20);
   diagnostics=warn;if(!ok)throw std::runtime_error(error);
   if(!model.extensionsRequired.empty())throw std::runtime_error("Required glTF extensions are not supported by this static renderer");
   for(auto &image:model.images)result.images.push_back({image.width,image.height,std::move(image.image)});
@@ -189,7 +195,7 @@ bool Scene::load(const std::string &path,const ReadFile &read,std::string &diagn
    if(node.mesh>=0)for(const auto &p:model.meshes.at(node.mesh).primitives){
     if(p.mode!=-1&&p.mode!=TINYGLTF_MODE_TRIANGLES)throw std::runtime_error("Only triangle primitives are supported");
     Access positions(model,p.attributes.at("POSITION"));if(positions.channels!=3)throw std::runtime_error("POSITION must be VEC3");
-    std::optional<Access> normals,uv,indices;if(p.attributes.count("NORMAL"))normals.emplace(model,p.attributes.at("NORMAL"));if(p.attributes.count("TEXCOORD_0"))uv.emplace(model,p.attributes.at("TEXCOORD_0"));if(p.indices>=0)indices.emplace(model,p.indices);
+    std::optional<Access> normals,uv,indices,colors;if(p.attributes.count("COLOR_0"))colors.emplace(model,p.attributes.at("COLOR_0"));if(p.attributes.count("NORMAL"))normals.emplace(model,p.attributes.at("NORMAL"));if(p.attributes.count("TEXCOORD_0"))uv.emplace(model,p.attributes.at("TEXCOORD_0"));if(p.indices>=0)indices.emplace(model,p.indices);
     size_t count=indices?indices->a.count:positions.a.count;if(count%3||vertexCount+count>6000000)throw std::runtime_error("Invalid or excessive triangle count");vertexCount+=count;
     Batch batch;
     if(options.level)for(const char*wire:{"Plane.009_","Plane.010_","Plane.011_","Plane.012_","Plane.013_","Plane.014_","Plane.015_"})if(node.name.rfind(wire,0)==0)batch.decorativeWire=true;
@@ -210,7 +216,7 @@ bool Scene::load(const std::string &path,const ReadFile &read,std::string &diagn
      batch.material=int(result.materials.size());result.materials.push_back(original);
     }
 
-    for(size_t i=0;i<count;i++){size_t idx=indices?indices->index(i):i;Vec v=point(matrix,{positions.get(idx,0),positions.get(idx,1),positions.get(idx,2)}),n=normals?transformedNormal(matrix,{normals->get(idx,0),normals->get(idx,1),normals->get(idx,2)}):Vec{0,1,0};batch.vertices.push_back({v[0],v[1],v[2],n[0],n[1],n[2],uv?uv->get(idx,0):0,uv?uv->get(idx,1):0});}
+    for(size_t i=0;i<count;i++){size_t idx=indices?indices->index(i):i;Vec v=point(matrix,{positions.get(idx,0),positions.get(idx,1),positions.get(idx,2)}),n=normals?transformedNormal(matrix,{normals->get(idx,0),normals->get(idx,1),normals->get(idx,2)}):Vec{0,1,0};batch.vertices.push_back({v[0],v[1],v[2],n[0],n[1],n[2],uv?uv->get(idx,0):0,uv?uv->get(idx,1):0,colors?colors->get(idx,0):1,colors?colors->get(idx,1):1,colors?colors->get(idx,2):1});}
     if(!normals)for(size_t i=0;i<count;i+=3){auto &a=batch.vertices[i],&b=batch.vertices[i+1],&c=batch.vertices[i+2];auto n=normal(cross({b.x-a.x,b.y-a.y,b.z-a.z},{c.x-a.x,c.y-a.y,c.z-a.z}));for(size_t k=i;k<i+3;k++){batch.vertices[k].nx=n[0];batch.vertices[k].ny=n[1];batch.vertices[k].nz=n[2];}}
     const double det=matrix[0]*(matrix[5]*matrix[10]-matrix[9]*matrix[6])-matrix[4]*(matrix[1]*matrix[10]-matrix[9]*matrix[2])+matrix[8]*(matrix[1]*matrix[6]-matrix[5]*matrix[2]);
     if(det<0)for(size_t i=0;i<count;i+=3)std::swap(batch.vertices[i+1],batch.vertices[i+2]);
@@ -222,6 +228,7 @@ bool Scene::load(const std::string &path,const ReadFile &read,std::string &diagn
   if(model.scenes.empty())throw std::runtime_error("No glTF scene");
   int scene=model.defaultScene>=0?model.defaultScene:0;for(int node:model.scenes.at(scene).nodes)visit(node,identity());
   if(!std::isfinite(options.targetExtent)||options.targetExtent<=0||!std::isfinite(options.x)||!std::isfinite(options.z)||!std::isfinite(options.y)||!std::isfinite(options.yaw))throw std::runtime_error("Invalid scene placement options");
+  if(options.progress)options.progress(50);
   prepare(result,options);*this=std::move(result);diagnostics+="Loaded "+std::to_string(vertexCount/3)+" triangles, "+std::to_string(materials.size())+" materials, "+std::to_string(colliders.size())+" boxes, "+std::to_string(wallSegments.size())+" thin wall segments.\n";return true;
  }catch(const std::exception&e){diagnostics+="glTF load failed: "+std::string(e.what());return false;}
 }

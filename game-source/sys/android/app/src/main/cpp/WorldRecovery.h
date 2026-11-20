@@ -6,17 +6,17 @@ namespace sandbox {
 inline bool needsPlayerRecovery(const World&w,const std::array<float,3>&lo,const std::array<float,3>&hi){
  return !std::isfinite(w.x)||!std::isfinite(w.y)||!std::isfinite(w.z)||w.y<lo[1]-4||w.x<lo[0]-.5f||w.x>hi[0]+.5f||w.z<lo[2]-.5f||w.z>hi[2]+.5f;
 }
-inline std::optional<physics::Vec3> recoveryPoint(const World&w,const physics::CollisionMesh&city,const physics::CollisionMesh&built){
+inline std::optional<physics::Vec3> recoveryPoint(const World&w,const physics::CollisionMesh&city,const physics::CollisionMesh&built,float spawnX=-3.4f,float spawnZ=32.7f){
  physics::PlayerController capsule;
  for(int ring=0;ring<7;ring++)for(int i=0;i<(ring?12:1);i++){
-  float angle=i*6.2831853f/12;float x=-3.4f+ring*std::cos(angle),z=32.7f+ring*std::sin(angle);
+  float angle=i*6.2831853f/12;float x=spawnX+ring*std::cos(angle),z=spawnZ+ring*std::sin(angle);
   float floor=city.groundHeight(x,z,4,-10);if(!std::isfinite(floor))continue;
   float y=floor+1.701f;
   if(!capsule.overlaps(city,x,y,z)&&!capsule.overlaps(built,x,y,z))return physics::Vec3{x,y,z};
  }
  // If the road is completely built over, use the highest actual roof at the spawn instead of falling forever.
- float floor=std::max(city.groundHeight(-3.4f,32.7f,256,-10),built.groundHeight(-3.4f,32.7f,256,-10));
- if(std::isfinite(floor)&&!capsule.overlaps(city,-3.4f,floor+1.701f,32.7f)&&!capsule.overlaps(built,-3.4f,floor+1.701f,32.7f))return physics::Vec3{-3.4f,floor+1.701f,32.7f};
+ float floor=std::max(city.groundHeight(spawnX,spawnZ,256,-10),built.groundHeight(spawnX,spawnZ,256,-10));
+ if(std::isfinite(floor)&&!capsule.overlaps(city,spawnX,floor+1.701f,spawnZ)&&!capsule.overlaps(built,spawnX,floor+1.701f,spawnZ))return physics::Vec3{spawnX,floor+1.701f,spawnZ};
  (void)w;return {};
 }
 inline std::optional<Object> carRespawn(const World&w,Object parking,const physics::CollisionMesh&city,const std::array<float,3>&lo,const std::array<float,3>&hi){

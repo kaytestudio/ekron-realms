@@ -8,10 +8,11 @@ import tempfile
 root = Path(__file__).resolve().parents[1]
 source = (root / 'sys/android/app/src/main/cpp/Renderer.cpp').read_text()
 with tempfile.TemporaryDirectory(prefix='ekron-shaders-') as tmp:
-    for vs, fs in [('vertex', 'fragment'), ('skyVertex', 'skyFragment')]:
+    for vs, fs in [('vertex', 'fragment'), ('skyVertex', 'skyFragment'), ('particleVertex', 'particleFragment')]:
+        source = (root / ('sys/android/app/src/main/cpp/MilitaryEffects.cpp' if vs == 'particleVertex' else 'sys/android/app/src/main/cpp/Renderer.cpp')).read_text()
         paths = []
         for name, suffix in [(vs, '.vert'), (fs, '.frag')]:
-            match = re.search(r'const char \*' + name + r'=R"\((.*?)\)";', source, re.S)
+            match = re.search(r'const char\s*\*\s*' + name + r'=R"\((.*?)\)";', source, re.S)
             if match is None:
                 raise RuntimeError(f'Shader source not found: {name}')
             path = Path(tmp) / (name + suffix)
