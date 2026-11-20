@@ -1,0 +1,117 @@
+name: Native iOS sandbox
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'sys/ios/**'
+      - 'sys/android/app/src/main/cpp/**'
+      - 'tests/native/**'
+      - 'tools/*ios*'
+      - 'tools/*shader*'
+      - '.github/workflows/ios-sandbox.yml'
+  pull_request:
+    paths:
+      - 'sys/ios/**'
+      - 'sys/android/app/src/main/cpp/**'
+      - 'tests/native/**'
+      - 'tools/*ios*'
+      - 'tools/*shader*'
+      - '.github/workflows/ios-sandbox.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  ipa:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test native world logic
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          run_test() {
+            local out="$1"
+            local opt="$2"
+            shift 2
+            clang++ -std=c++17 "$opt" -Wall -Wextra -Werror -pedantic "$@" -o "/tmp/$out"
+            "/tmp/$out"
+          }
+
+          run_test ekron-contact-energy -O2 tests/native/contact_energy_test.cpp
+          run_test ekron-fpv-drone -O2 tests/native/fpv_drone_test.cpp
+          run_test ekron-fpv-assets -O2 tests/native/fpv_assets_test.cpp sys/android/app/src/main/cpp/GltfScene.cpp sys/android/app/src/main/cpp/ImageDecode.cpp
+          run_test ekron-oriented-grab -O2 tests/native/oriented_grab_test.cpp
+          run_test ekron-advanced-physics-test -O2 tests/native/advanced_physics_test.cpp
+          run_test ekron-multi-contact-test -O2 tests/native/multi_contact_test.cpp
+          run_test ekron-contact-test -O2 tests/native/contact_system_test.cpp
+          run_test ekron-city-contact-test -O1 tests/native/city_contact_test.cpp sys/android/app/src/main/cpp/GltfScene.cpp sys/android/app/src/main/cpp/ImageDecode.cpp
+          run_test ekron-pickup-settle-test -O2 tests/native/pickup_settle_delete_test.cpp
+          run_test ekron-fence-gravity-test -O2 tests/native/fence_gravity_test.cpp
+          run_test ekron-swept-floor-test -O2 tests/native/swept_floor_test.cpp
+          run_test ekron-rest-test -O2 tests/native/rest_stability_test.cpp
+          run_test ekron-cleanup-test -O2 tests/native/object_cleanup_test.cpp
+          run_test ekron-freeze-test -O2 tests/native/freeze_edge_test.cpp
+          run_test ekron-interaction-test -O2 tests/native/interaction_test.cpp
+          run_test ekron-recovery-test -O2 tests/native/world_recovery_test.cpp
+          run_test ekron-fence-jump-test -O2 tests/native/fence_jump_test.cpp
+          run_test ekron-indoor-test -O2 tests/native/indoor_placement_test.cpp
+          run_test ekron-dynamics-test -O2 tests/native/object_dynamics_test.cpp
+          run_test ekron-raycast-test -O2 tests/native/raycast_placement_test.cpp
+          run_test ekron-tools-test -O2 tests/native/tool_interaction_test.cpp
+          run_test ekron-fence-test -O2 tests/native/fence_collision_test.cpp
+          run_test ekron-physics-test -O2 tests/native/player_physics_test.cpp
+          run_test ekron-world-test -O2 tests/native/sandbox_world_test.cpp
+          run_test ekron-building-test -O2 tests/native/building_collision_test.cpp
+          run_test ekron-placement-test -O2 tests/native/level_placement_test.cpp
+          run_test ekron-debug-test -O2 tests/native/debug_player_test.cpp
+          run_test ekron-texture-test -O2 tests/native/texture_mesh_test.cpp
+          run_test ekron-gltf-test -O1 tests/native/gltf_scene_test.cpp sys/android/app/src/main/cpp/GltfScene.cpp sys/android/app/src/main/cpp/ImageDecode.cpp
+
+      - name: Validate shaders
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v glslangValidator >/dev/null 2>&1; then
+            brew install glslang
+          fi
+          if [ -f tools/validate_ios_shaders.py ]; then
+            python3 tools/validate_ios_shaders.py
+          elif [ -f tools/validate_android_shaders.py ]; then
+            python3 tools/validate_android_shaders.py
+          fi
+
+      - name: Build and archive unsigned iOS app
+        shell: bash
+        run: |
+          set -euo pipefail
+          IOS_DIR="sys/ios"
+          ARCHIVE_PATH="/tmp/ekron-ios-sandbox.xcarchive"
+          IPA_DIR="/tmp/ipa-out"
+          mkdir -p "$IPA_DIR"
+
+          # Replace YourApp.xcodeproj and YourScheme with your actual project and scheme names
+          xcodebuild archive \
+            -project "$IOS_DIR/YourApp.xcodeproj" \
+            -scheme "YourScheme" \
+            -configuration Debug \
+            -sdk iphoneos \
+            -archivePath "$ARCHIVE_PATH" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            | tee /tmp/ios-build.log
+
+          mkdir -p "$IPA_DIR/Payload"
+          cp -R "$ARCHIVE_PATH/Products/Applications/"*.app "$IPA_DIR/Payload/"
+          (cd "$IPA_DIR" && zip -qry /tmp/ekron-native-sandbox-debug.ipa Payload)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ekron-native-sandbox-debug-ipa
+          path: /tmp/ekron-native-sandbox-debug.ipa
+          if-no-files-found: error
