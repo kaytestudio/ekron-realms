@@ -6,6 +6,7 @@ on:
     paths:
       - 'sys/ios/**'
       - 'sys/android/app/src/main/cpp/**'
+      - 'sys/android/app/src/main/assets/**'
       - 'tests/native/**'
       - 'tools/*ios*'
       - 'tools/*shader*'
@@ -14,6 +15,7 @@ on:
     paths:
       - 'sys/ios/**'
       - 'sys/android/app/src/main/cpp/**'
+      - 'sys/android/app/src/main/assets/**'
       - 'tests/native/**'
       - 'tools/*ios*'
       - 'tools/*shader*'
@@ -32,17 +34,17 @@ jobs:
         with:
           clean: true
           fetch-depth: 1
-
-      - name: Ensure git safe directory
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config --global --add safe.directory '*'
+          submodules: false
 
       - name: Test native world logic
         shell: bash
         run: |
           set -euo pipefail
+
+          clang++ -std=c++17 -O1 -Wall -Wextra -Werror -pedantic \
+            -c sys/android/app/src/main/cpp/GltfScene.cpp -o /tmp/ekron-GltfScene.o
+          clang++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic \
+            -c sys/android/app/src/main/cpp/ImageDecode.cpp -o /tmp/ekron-ImageDecode.o
 
           run_test() {
             local out="$1"
@@ -54,12 +56,12 @@ jobs:
 
           run_test ekron-contact-energy -O2 tests/native/contact_energy_test.cpp
           run_test ekron-fpv-drone -O2 tests/native/fpv_drone_test.cpp
-          run_test ekron-fpv-assets -O2 tests/native/fpv_assets_test.cpp sys/android/app/src/main/cpp/GltfScene.cpp sys/android/app/src/main/cpp/ImageDecode.cpp
+          run_test ekron-fpv-assets -O2 tests/native/fpv_assets_test.cpp /tmp/ekron-GltfScene.o /tmp/ekron-ImageDecode.o
           run_test ekron-oriented-grab -O2 tests/native/oriented_grab_test.cpp
           run_test ekron-advanced-physics-test -O2 tests/native/advanced_physics_test.cpp
           run_test ekron-multi-contact-test -O2 tests/native/multi_contact_test.cpp
           run_test ekron-contact-test -O2 tests/native/contact_system_test.cpp
-          run_test ekron-city-contact-test -O1 tests/native/city_contact_test.cpp sys/android/app/src/main/cpp/GltfScene.cpp sys/android/app/src/main/cpp/ImageDecode.cpp
+          run_test ekron-city-contact-test -O1 tests/native/city_contact_test.cpp /tmp/ekron-GltfScene.o /tmp/ekron-ImageDecode.o
           run_test ekron-pickup-settle-test -O2 tests/native/pickup_settle_delete_test.cpp
           run_test ekron-fence-gravity-test -O2 tests/native/fence_gravity_test.cpp
           run_test ekron-swept-floor-test -O2 tests/native/swept_floor_test.cpp
@@ -80,47 +82,52 @@ jobs:
           run_test ekron-placement-test -O2 tests/native/level_placement_test.cpp
           run_test ekron-debug-test -O2 tests/native/debug_player_test.cpp
           run_test ekron-texture-test -O2 tests/native/texture_mesh_test.cpp
-          run_test ekron-gltf-test -O1 tests/native/gltf_scene_test.cpp sys/android/app/src/main/cpp/GltfScene.cpp sys/android/app/src/main/cpp/ImageDecode.cpp
+          run_test ekron-gltf-test -O1 tests/native/gltf_scene_test.cpp /tmp/ekron-GltfScene.o /tmp/ekron-ImageDecode.o
 
       - name: Validate shaders
         shell: bash
         run: |
           set -euo pipefail
-          if ! command -v glslangValidator >/dev/null 2>&1; then
-            brew install glslang
-          fi
-          if [ -f tools/validate_ios_shaders.py ]; then
-            python3 tools/validate_ios_shaders.py
-          elif [ -f tools/validate_android_shaders.py ]; then
-            python3 tools/validate_android_shaders.py
-          fi
+          python3 tools/validate_ios_shaders.py
 
       - name: Build and archive unsigned iOS app
         shell: bash
         run: |
           set -euo pipefail
-          IOS_DIR="sys/ios"
+          IOS_PROJECT="sys/ios/realms/realms.xcodeproj"
+          IOS_SCHEME="realms iOS"
           ARCHIVE_PATH="/tmp/ekron-ios-sandbox.xcarchive"
           IPA_DIR="/tmp/ipa-out"
-          mkdir -p "$IPA_DIR"
+          rm -rf "$ARCHIVE_PATH" "$IPA_DIR" /tmp/ekron-native-sandbox-debug.ipa
+          mkdir -p "$IPA_DIR/Payload"
 
-          # Replace YourApp.xcodeproj and YourScheme with your actual project and scheme names
           xcodebuild archive \
-            -project "$IOS_DIR/YourApp.xcodeproj" \
-            -scheme "YourScheme" \
+            -project "$IOS_PROJECT" \
+            -scheme "$IOS_SCHEME" \
             -configuration Debug \
+            -destination "generic/platform=iOS" \
             -sdk iphoneos \
             -archivePath "$ARCHIVE_PATH" \
+            DEVELOPMENT_TEAM="" \
+            CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
+            AD_HOC_CODE_SIGNING_ALLOWED=YES \
             | tee /tmp/ios-build.log
 
-          mkdir -p "$IPA_DIR/Payload"
-          cp -R "$ARCHIVE_PATH/Products/Applications/"*.app "$IPA_DIR/Payload/"
+          APP_BUNDLE="$ARCHIVE_PATH/Products/Applications/realms.app"
+          if [ ! -d "$APP_BUNDLE" ]; then
+            echo "::error::Archived app bundle not found at $APP_BUNDLE"
+            exit 1
+          fi
+          test -f "$APP_BUNDLE/models/abandoned_city_street_for_games.glb"
+          test -f "$APP_BUNDLE/default.metallib"
+
+          cp -R "$APP_BUNDLE" "$IPA_DIR/Payload/"
           (cd "$IPA_DIR" && zip -qry /tmp/ekron-native-sandbox-debug.ipa Payload)
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ekron-native-sandbox-debug-ipa
           path: /tmp/ekron-native-sandbox-debug.ipa

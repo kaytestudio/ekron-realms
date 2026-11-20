@@ -33,6 +33,7 @@ inline std::optional<Object> carRespawn(const World&w,Object parking,const physi
   if(city.intersectsBox({b.x,b.y,b.z},{b.w/2-.01f,b.h/2-.02f,b.d/2-.01f}))continue;
   bool blocked=false;for(const auto&o:w.objects){if(o.frozen)continue;auto other=World::bounds(o);if(World::overlap(b,other)&&std::abs(b.y-other.y)<(b.h+other.h)/2)blocked=true;}
   if(!blocked)return car;
- }return {};
+ }
+ return {};
 }
 }

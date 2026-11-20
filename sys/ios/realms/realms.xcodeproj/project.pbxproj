@@ -6,10 +6,23 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		EB4DC3112DB8FBCA00B0DE7E /* models in Resources */ = {isa = PBXBuildFile; fileRef = EB4DC3012DB8FBCA00B0DE7E /* models */; };
+		EB4DC3122DB8FBCA00B0DE7E /* textures in Resources */ = {isa = PBXBuildFile; fileRef = EB4DC3022DB8FBCA00B0DE7E /* textures */; };
+		EB4DC3132DB8FBCA00B0DE7E /* catalog in Resources */ = {isa = PBXBuildFile; fileRef = EB4DC3032DB8FBCA00B0DE7E /* catalog */; };
+		EB4DC3142DB8FBCA00B0DE7E /* config in Resources */ = {isa = PBXBuildFile; fileRef = EB4DC3042DB8FBCA00B0DE7E /* config */; };
+		EB4DC3152DB8FBCA00B0DE7E /* intro.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = EB4DC3052DB8FBCA00B0DE7E /* intro.mp4 */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		EB4DC2122DB8FBCA00B0DE7E /* realms.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = realms.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		EB4DC2232DB8FBCA00B0DE7E /* realms.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = realms.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		EB4DC2332DB8FBCA00B0DE7E /* realms.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = realms.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		EB4DC3012DB8FBCA00B0DE7E /* models */ = {isa = PBXFileReference; lastKnownFileType = folder; name = models; path = ../../android/app/src/main/assets/models; sourceTree = "<group>"; };
+		EB4DC3022DB8FBCA00B0DE7E /* textures */ = {isa = PBXFileReference; lastKnownFileType = folder; name = textures; path = ../../android/app/src/main/assets/textures; sourceTree = "<group>"; };
+		EB4DC3032DB8FBCA00B0DE7E /* catalog */ = {isa = PBXFileReference; lastKnownFileType = folder; name = catalog; path = ../../android/app/src/main/assets/catalog; sourceTree = "<group>"; };
+		EB4DC3042DB8FBCA00B0DE7E /* config */ = {isa = PBXFileReference; lastKnownFileType = folder; name = config; path = ../../android/app/src/main/assets/config; sourceTree = "<group>"; };
+		EB4DC3052DB8FBCA00B0DE7E /* intro.mp4 */ = {isa = PBXFileReference; lastKnownFileType = file; name = intro.mp4; path = ../../android/app/src/main/assets/intro.mp4; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -129,8 +142,21 @@
 				EB4DC2142DB8FBCA00B0DE7E /* realms iOS */,
 				EB4DC2242DB8FBCA00B0DE7E /* realms tvOS */,
 				EB4DC2342DB8FBCA00B0DE7E /* realms macOS */,
+				EB4DC3002DB8FBCA00B0DE7E /* Shared Assets */,
 				EB4DC2132DB8FBCA00B0DE7E /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		EB4DC3002DB8FBCA00B0DE7E /* Shared Assets */ = {
+			isa = PBXGroup;
+			children = (
+				EB4DC3012DB8FBCA00B0DE7E /* models */,
+				EB4DC3022DB8FBCA00B0DE7E /* textures */,
+				EB4DC3032DB8FBCA00B0DE7E /* catalog */,
+				EB4DC3042DB8FBCA00B0DE7E /* config */,
+				EB4DC3052DB8FBCA00B0DE7E /* intro.mp4 */,
+			);
+			name = "Shared Assets";
 			sourceTree = "<group>";
 		};
 		EB4DC2132DB8FBCA00B0DE7E /* Products */ = {
@@ -259,6 +285,11 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				EB4DC3112DB8FBCA00B0DE7E /* models in Resources */,
+				EB4DC3122DB8FBCA00B0DE7E /* textures in Resources */,
+				EB4DC3132DB8FBCA00B0DE7E /* catalog in Resources */,
+				EB4DC3142DB8FBCA00B0DE7E /* config in Resources */,
+				EB4DC3152DB8FBCA00B0DE7E /* intro.mp4 in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -308,22 +339,34 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++17";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = XJX8PUCD89;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/../../android/app/src/main/cpp",
+					"$(SRCROOT)/realms iOS",
+				);
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
 				INFOPLIST_KEY_UIMainStoryboardFile = Main;
+				INFOPLIST_KEY_UIRequiresFullScreen = YES;
 				INFOPLIST_KEY_UIStatusBarHidden = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = 18.4;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lc++",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.kreatyvedesigns.realms;
 				PRODUCT_NAME = realms;
 				SDKROOT = iphoneos;
@@ -339,22 +382,34 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++17";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = XJX8PUCD89;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/../../android/app/src/main/cpp",
+					"$(SRCROOT)/realms iOS",
+				);
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
 				INFOPLIST_KEY_UIMainStoryboardFile = Main;
+				INFOPLIST_KEY_UIRequiresFullScreen = YES;
 				INFOPLIST_KEY_UIStatusBarHidden = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = 18.4;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lc++",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.kreatyvedesigns.realms;
 				PRODUCT_NAME = realms;
 				SDKROOT = iphoneos;
