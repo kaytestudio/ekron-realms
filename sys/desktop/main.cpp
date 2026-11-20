@@ -14,6 +14,7 @@
 #include "CityGraffiti.h"
 #include "DebugPlayer.h"
 #include "DesktopRenderer.h"
+#include "DesktopHudLayout.h"
 #include "FpvDrone.h"
 #include "GravityBeam.h"
 #include "Interaction.h"
@@ -581,8 +582,7 @@ int main(int argc, char **argv) {
     float spawnYaw = 0.0f;
     float spawnPitch = 0.0f;
     if (spawnCfg.enabled) {
-        const float gy = cityModel.scene().collision->groundHeight(spawnCfg.x, spawnCfg.z, spawnCfg.y + 5.0f, -20.0f);
-        spawnPos = physics::Vec3{spawnCfg.x, std::isfinite(gy) ? (gy + 1.7f) : spawnCfg.y, spawnCfg.z};
+        spawnPos = physics::Vec3{spawnCfg.x, spawnCfg.y, spawnCfg.z};
         spawnYaw = spawnCfg.yawDegrees * 0.01745329252f;
         spawnPitch = 0.0f;
     } else if (hasRoadAnchor) {
@@ -617,7 +617,7 @@ int main(int argc, char **argv) {
     bool running = true;
     bool catalogOpen = false;
     bool pauseOpen = false;
-    bool flying = false;
+    bool flying = spawnCfg.enabled && spawnCfg.startFlying;
     bool crouched = false;
     bool prone = false;
     bool building = false;
@@ -646,7 +646,7 @@ int main(int argc, char **argv) {
 
     auto respawnPlayer = [&]() {
         seatedCar = -1;
-        flying = false;
+        flying = spawnCfg.enabled && spawnCfg.startFlying;
         crouched = false;
         prone = false;
         world.x = spawnPos.x;
@@ -703,17 +703,18 @@ int main(int argc, char **argv) {
     };
 
     auto copySpawnJson = [&]() {
-        std::ostringstream ss;
-        ss.setf(std::ios::fixed);
-        ss.precision(3);
-        ss << "{\n  \"playerSpawn\": {\n    \"enabled\": true,\n"
-           << "    \"x\": " << world.x << ",\n"
-           << "    \"y\": " << world.y << ",\n"
-           << "    \"z\": " << world.z << ",\n"
-           << "    \"yaw\": " << world.yaw << ",\n"
-           << "    \"pitch\": " << world.pitch << "\n  }\n}\n";
-        SDL_SetClipboardText(ss.str().c_str());
-        showToast("Координаты spawn.json скопированы в буфер обмена");
+        city::SpawnConfig config;
+        config.enabled = true;
+        config.x = world.x;
+        config.y = world.y;
+        config.z = world.z;
+        config.yawDegrees = world.yaw * (180.0f / 3.14159265358979323846f);
+        config.startFlying = flying;
+        const std::string json = city::formatSpawnConfig(config);
+        if (SDL_SetClipboardText(json.c_str()) == 0)
+            showToast("Координаты spawn.json скопированы в буфер обмена");
+        else
+            showToast("Не удалось скопировать координаты в буфер обмена");
     };
 
     auto selectBuildItem = [&](int itemType) {
@@ -805,6 +806,8 @@ int main(int argc, char **argv) {
         int drawW = 1280, drawH = 720;
         SDL_GetWindowSize(window, &winW, &winH);
         SDL_GL_GetDrawableSize(window, &drawW, &drawH);
+        const auto hudLayout = ekron::desktop::HudLayout::forWindow(winW, winH);
+        const int hudW = hudLayout.width, hudH = hudLayout.height;
 
         float mousePitchInput = 0.0f;
         float mouseRollInput = 0.0f;
@@ -876,7 +879,12 @@ int main(int argc, char **argv) {
                             tools.rotate(world, cityModel.scene().collision.get());
                         }
                     } else if (key == SDLK_f) {
-                        if (tools.tool == sandbox::HandTool::GRAVITY_GUN) {
+                        if (building) {
+                            tools.select(world, spawnReturnTool);
+                            building = false;
+                            placementPreview.reset();
+                            showToast("Строительство отменено");
+                        } else if (tools.tool == sandbox::HandTool::GRAVITY_GUN) {
                             if (tools.freeze(world, cityModel.scene().collision.get())) {
                                 rebuildBuiltCollision();
                                 saveDirty = true;
@@ -908,13 +916,13 @@ int main(int argc, char **argv) {
                     }
                 }
             } else if (ev.type == SDL_MOUSEBUTTONDOWN) {
-                const float mx = float(ev.button.x);
-                const float my = float(ev.button.y);
+                const float mx = float(ev.button.x) * hudLayout.mouseScaleX;
+                const float my = float(ev.button.y) * hudLayout.mouseScaleY;
 
                 if (pauseOpen && ev.button.button == SDL_BUTTON_LEFT) {
                     const float pw = 380.0f, ph = 370.0f;
-                    const float px = (float(winW) - pw) * 0.5f;
-                    const float py = (float(winH) - ph) * 0.5f;
+                    const float px = (float(hudW) - pw) * 0.5f;
+                    const float py = (float(hudH) - ph) * 0.5f;
                     for (int idx = 0; idx < 7; ++idx) {
                         Rect btn{px + 28.0f, py + 62.0f + float(idx) * 42.0f, pw - 56.0f, 34.0f};
                         if (btn.contains(mx, my)) {
@@ -928,10 +936,10 @@ int main(int argc, char **argv) {
                         }
                     }
                 } else if (catalogOpen && ev.button.button == SDL_BUTTON_LEFT) {
-                    const float cw = std::min(760.0f, float(winW) - 60.0f);
-                    const float ch = std::min(470.0f, float(winH) - 60.0f);
-                    const float cx = (float(winW) - cw) * 0.5f;
-                    const float cy = (float(winH) - ch) * 0.5f;
+                    const float cw = std::min(760.0f, float(hudW) - 60.0f);
+                    const float ch = std::min(470.0f, float(hudH) - 60.0f);
+                    const float cx = (float(hudW) - cw) * 0.5f;
+                    const float cy = (float(hudH) - ch) * 0.5f;
                     const auto &cats = catalogCategories();
 
                     // Close button
@@ -1041,7 +1049,7 @@ int main(int argc, char **argv) {
                 if (keys[SDL_SCANCODE_W]) moveForward += 1.0f;
                 if (keys[SDL_SCANCODE_S]) moveForward -= 1.0f;
                 if (keys[SDL_SCANCODE_SPACE]) verticalMove += 1.0f;
-                if (keys[SDL_SCANCODE_LCTRL] || keys[SDL_SCANCODE_RCTRL]) verticalMove -= 1.0f;
+                if (keys[SDL_SCANCODE_LCTRL] || keys[SDL_SCANCODE_RCTRL] || (flying && keys[SDL_SCANCODE_C])) verticalMove -= 1.0f;
                 const float len = std::hypot(moveRight, moveForward);
                 if (len > 1.0f) {
                     moveRight /= len;
@@ -1251,12 +1259,12 @@ int main(int argc, char **argv) {
         );
 
         // 2D Desktop HUD
-        renderer.beginUi(winW, winH);
+        renderer.beginUi(hudW, hudH);
 
         // Center crosshair
         if (!catalogOpen && !pauseOpen) {
-            const float cx = float(winW) * 0.5f;
-            const float cy = float(winH) * 0.5f;
+            const float cx = float(hudW) * 0.5f;
+            const float cy = float(hudH) * 0.5f;
             renderer.drawRect(cx - 8.0f, cy - 1.0f, 16.0f, 2.0f, {0.92f, 0.98f, 0.95f, 0.85f});
             renderer.drawRect(cx - 1.0f, cy - 8.0f, 2.0f, 16.0f, {0.92f, 0.98f, 0.95f, 0.85f});
         }
@@ -1270,20 +1278,19 @@ int main(int argc, char **argv) {
         renderer.drawText(26.0f, 23.0f, std::string("ЭКРОН  •  ") + toolLabel, 1.75f, {0.95f, 0.97f, 1.0f, 1.0f});
         char coordBuf[128]{};
         std::snprintf(coordBuf, sizeof(coordBuf), "X: %.1f  Y: %.1f  Z: %.1f  %s",
-                      world.x, world.y, world.z, flying ? "[NOCLIP]" : (crouched ? "[ПРИСЕД]" : ""));
+                      world.x, world.y, world.z, flying ? "[NOCLIP]" : (prone ? "[ЛЁЖА]" : (crouched ? "[ПРИСЕД]" : "")));
         renderer.drawText(26.0f, 46.0f, coordBuf, 1.35f, {0.68f, 0.86f, 0.82f, 0.95f});
 
         // Bottom controls bar
-        renderer.drawRect(14.0f, float(winH) - 42.0f, float(winW) - 28.0f, 28.0f, {0.05f, 0.08f, 0.11f, 0.72f});
-        if (drone.piloting()) {
-            renderer.drawCenteredText(float(winW) * 0.5f, float(winH) - 28.0f,
-                "[W/S] Тяга  [A/D] Курс  [Мышь / Стрелки] Крен и тангаж  [V] Смена камеры  [H] Домой  [E / ПКМ] Выйти",
-                1.35f, {0.82f, 0.95f, 0.90f, 1.0f});
-        } else {
-            renderer.drawCenteredText(float(winW) * 0.5f, float(winH) - 28.0f,
-                "[WASD] Ходьба  [Пробел] Прыжок  [1-3] Инструмент  [Q] Каталог  [ЛКМ] Действие  [R] Поворот  [E] Взаимодействие  [Esc] Меню",
-                1.30f, {0.82f, 0.90f, 0.94f, 0.95f});
-        }
+        renderer.drawRect(14.0f, float(hudH) - 42.0f, float(hudW) - 28.0f, 28.0f, {0.05f, 0.08f, 0.11f, 0.72f});
+        const std::string controlsText = drone.piloting()
+            ? "[W/S] Тяга  [A/D] Курс  [Мышь / Стрелки] Крен и тангаж  [V] Смена камеры  [H] Домой  [E / ПКМ] Выйти"
+            : "[WASD] Ходьба  [Пробел] Прыжок  [1-3] Инструмент  [Q] Каталог  [ЛКМ] Действие  [R] Поворот  [E] Взаимодействие  [Esc] Меню";
+        const float preferredControlsScale = drone.piloting() ? 1.35f : 1.30f;
+        const float controlsScale = ekron::desktop::fitHudTextScale(
+            preferredControlsScale, ekron::font::measureTextWidth(controlsText, preferredControlsScale), float(hudW) - 48.0f);
+        renderer.drawCenteredText(float(hudW) * 0.5f, float(hudH) - 28.0f, controlsText, controlsScale,
+                                  {0.82f, 0.95f, 0.90f, 1.0f});
 
         // Contextual interaction prompt
         std::string prompt;
@@ -1306,28 +1313,28 @@ int main(int argc, char **argv) {
         }
         if (!prompt.empty() && !catalogOpen && !pauseOpen) {
             const float pw = ekron::font::measureTextWidth(prompt, 1.65f) + 28.0f;
-            renderer.drawRect((float(winW) - pw) * 0.5f, float(winH) * 0.62f, pw, 32.0f, {0.06f, 0.14f, 0.14f, 0.85f});
-            renderer.drawBorder((float(winW) - pw) * 0.5f, float(winH) * 0.62f, pw, 32.0f, 1.5f, {0.22f, 0.78f, 0.66f, 0.9f});
-            renderer.drawCenteredText(float(winW) * 0.5f, float(winH) * 0.62f + 16.0f, prompt, 1.65f, {0.95f, 1.0f, 0.97f, 1.0f});
+            renderer.drawRect((float(hudW) - pw) * 0.5f, float(hudH) * 0.62f, pw, 32.0f, {0.06f, 0.14f, 0.14f, 0.85f});
+            renderer.drawBorder((float(hudW) - pw) * 0.5f, float(hudH) * 0.62f, pw, 32.0f, 1.5f, {0.22f, 0.78f, 0.66f, 0.9f});
+            renderer.drawCenteredText(float(hudW) * 0.5f, float(hudH) * 0.62f + 16.0f, prompt, 1.65f, {0.95f, 1.0f, 0.97f, 1.0f});
         }
 
         // Toast banner
         if (toastTimer > 0.0f && !toastText.empty()) {
             const float alpha = std::min(1.0f, toastTimer * 1.5f);
             const float tw = ekron::font::measureTextWidth(toastText, 1.5f) + 32.0f;
-            const float tx = (float(winW) - tw) * 0.5f;
+            const float tx = (float(hudW) - tw) * 0.5f;
             renderer.drawRect(tx, 78.0f, tw, 30.0f, {0.08f, 0.13f, 0.16f, 0.84f * alpha});
             renderer.drawBorder(tx, 78.0f, tw, 30.0f, 1.0f, {0.25f, 0.75f, 0.65f, 0.85f * alpha});
-            renderer.drawCenteredText(float(winW) * 0.5f, 93.0f, toastText, 1.5f, {0.95f, 0.98f, 1.0f, alpha});
+            renderer.drawCenteredText(float(hudW) * 0.5f, 93.0f, toastText, 1.5f, {0.95f, 0.98f, 1.0f, alpha});
         }
 
         // Build & Equipment Catalog modal
         if (catalogOpen) {
-            renderer.drawRect(0.0f, 0.0f, float(winW), float(winH), {0.02f, 0.03f, 0.05f, 0.62f});
-            const float cw = std::min(760.0f, float(winW) - 60.0f);
-            const float ch = std::min(470.0f, float(winH) - 60.0f);
-            const float cx = (float(winW) - cw) * 0.5f;
-            const float cy = (float(winH) - ch) * 0.5f;
+            renderer.drawRect(0.0f, 0.0f, float(hudW), float(hudH), {0.02f, 0.03f, 0.05f, 0.62f});
+            const float cw = std::min(760.0f, float(hudW) - 60.0f);
+            const float ch = std::min(470.0f, float(hudH) - 60.0f);
+            const float cx = (float(hudW) - cw) * 0.5f;
+            const float cy = (float(hudH) - ch) * 0.5f;
 
             renderer.drawRect(cx, cy, cw, ch, {0.08f, 0.11f, 0.14f, 0.96f});
             renderer.drawBorder(cx, cy, cw, ch, 2.0f, {0.20f, 0.72f, 0.62f, 0.95f});
@@ -1413,10 +1420,10 @@ int main(int argc, char **argv) {
 
         // Pause menu modal
         if (pauseOpen) {
-            renderer.drawRect(0.0f, 0.0f, float(winW), float(winH), {0.02f, 0.03f, 0.05f, 0.68f});
+            renderer.drawRect(0.0f, 0.0f, float(hudW), float(hudH), {0.02f, 0.03f, 0.05f, 0.68f});
             const float pw = 380.0f, ph = 370.0f;
-            const float px = (float(winW) - pw) * 0.5f;
-            const float py = (float(winH) - ph) * 0.5f;
+            const float px = (float(hudW) - pw) * 0.5f;
+            const float py = (float(hudH) - ph) * 0.5f;
             renderer.drawRect(px, py, pw, ph, {0.08f, 0.11f, 0.15f, 0.97f});
             renderer.drawBorder(px, py, pw, ph, 2.0f, {0.20f, 0.72f, 0.62f, 0.95f});
             renderer.drawCenteredText(px + pw * 0.5f, py + 32.0f, "ПАУЗА — ЭКРОН", 1.95f, {0.96f, 0.99f, 1.0f, 1.0f});

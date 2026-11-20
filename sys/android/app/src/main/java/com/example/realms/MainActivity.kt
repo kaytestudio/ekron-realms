@@ -91,6 +91,7 @@ class MainActivity : GameActivity() {
     private lateinit var spinner: ProgressBar
     private lateinit var notice: TextView
     private var latest = floatArrayOf(0f, 1.7f, 0f)
+    private var latestYawDegrees = 0f
     private val poll = object : Runnable {
         override fun run() {
             val state = nativeStatus()
@@ -113,9 +114,11 @@ class MainActivity : GameActivity() {
                         interactionControl.contentDescription=interactionControl.caption;interactionControl.invalidate()
                     }
                     if(state.size>=13){freezeControl.caption=if(state[12]>.5f) "Разморозить" else "Заморозить";freezeControl.contentDescription=freezeControl.caption;freezeControl.invalidate()}
+                    if(state.size>=15){crouchControl.isSelected=state[14].toInt()==1;proneControl.isSelected=state[14].toInt()==2}
                     renderTools()
                 }
                 latest = state.copyOfRange(0, 3)
+                if(state.size>=16) latestYawDegrees = Math.toDegrees(state[15].toDouble()).toFloat()
                 coordinates.text = String.format(Locale.US, "X: %.1f   Y: %.1f   Z: %.1f", state[0], state[1], state[2])
                 val flying = state[3] > 0.5f
                 flyingNow = flying
@@ -202,7 +205,7 @@ class MainActivity : GameActivity() {
         coordinates = label("X: —   Y: —   Z: —", 13f).apply {
             contentDescription = "Координаты игрока. Нажмите, чтобы скопировать для конфига"
             setOnClickListener {
-                val json = String.format(Locale.US, "{\"enabled\":true,\"position\":{\"x\":%.4f,\"y\":%.4f,\"z\":%.4f},\"yawDegrees\":0,\"startFlying\":%s}", latest[0], latest[1], latest[2], latest[1].let { kotlin.math.abs(it - 1.7f) > .01f }.toString())
+                val json = String.format(Locale.US, "{\"enabled\":true,\"position\":{\"x\":%.4f,\"y\":%.4f,\"z\":%.4f},\"yawDegrees\":%.4f,\"startFlying\":%s}", latest[0], latest[1], latest[2], latestYawDegrees, flyingNow.toString())
                 (getSystemService(CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("spawn.json", json))
                 Toast.makeText(this@MainActivity, "Координаты для spawn.json скопированы", Toast.LENGTH_SHORT).show()
             }
@@ -250,20 +253,26 @@ class MainActivity : GameActivity() {
         overlay.addView(toolWheel,FrameLayout.LayoutParams(-1,-1))
         // Click action is retained for accessibility; touch uses hold/drag/release.
         val switchWeapon=action("", "switch") {
-            if(worldReady && active && !paused) AlertDialog.Builder(this)
-                .setTitle("Выбор инструмента")
-                .setItems(arrayOf("Грави-пушка", "Пульт FPV", "Пустые руки")) { _, index ->
-                    selectTool(ToolWheelSelection.tools[index])
-                }.show()
+            if(worldReady && active && !paused) {
+                setPaused(true)
+                val dialog = AlertDialog.Builder(this)
+                    .setTitle("Выбор инструмента")
+                    .setItems(arrayOf("Грави-пушка", "Пульт FPV", "Пустые руки")) { _, index ->
+                        setPaused(false)
+                        selectTool(ToolWheelSelection.tools[index])
+                    }.create()
+                dialog.setOnDismissListener { setPaused(false); hideSystemUi() }
+                dialog.show()
+            }
         }.apply { visualScale=.73f }
         switchWeapon.contentDescription="Выбор инструмента: удерживайте, проведите и отпустите"
         switchWeapon.setOnTouchListener { view, event ->
             if(!worldReady || !active || paused) { toolWheel.cancel(); true }
             else {
                 if(event.actionMasked==MotionEvent.ACTION_DOWN) view.parent.requestDisallowInterceptTouchEvent(true)
-                toolWheel.gesture(event,toolsState.tool) {
+                toolWheel.gesture(event, toolsState.tool, open = {
                     closePopup();lookArea.reset();toolWheel.bringToFront()
-                }
+                }, tap = { view.performClick() })
             }
         }
         overlay.addView(switchWeapon,FrameLayout.LayoutParams(dp(60),dp(60),Gravity.TOP or Gravity.END).apply { topMargin=dp(66);rightMargin=dp(8) })

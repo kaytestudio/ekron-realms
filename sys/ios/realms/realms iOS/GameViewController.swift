@@ -88,6 +88,7 @@ class GameViewController: UIViewController {
     private var isPausedMenu = false
     private var flyingNow = false
     private var latestPosition: [Float] = [0.0, 1.7, 0.0]
+    private var latestYawDegrees: Float = 0
 
     private var pollTimer: Timer?
     private var toastHideWorkItem: DispatchWorkItem?
@@ -583,12 +584,14 @@ class GameViewController: UIViewController {
         weaponArt.tickAnimation()
         guard let bridge = bridge else { return }
 
-        var state = [Float](repeating: 0, count: 14)
+        var state = [Float](repeating: 0, count: 16)
         let count = state.withUnsafeMutableBufferPointer { buf -> Int in
             guard let base = buf.baseAddress else { return 0 }
-            return Int(bridge.pollStatus(base, count: 14))
+            return Int(bridge.pollStatus(base, count: 16))
         }
         guard count >= 14 else { return }
+        if count >= 15 { crouchButton.isSelected = Int(state[14]) == 1 }
+        if count >= 16 { latestYawDegrees = state[15] * 180.0 / .pi }
 
         let confirmedTool = SandboxHandTool(rawValue: Int(state[7])) ?? .handEmpty
         if requestedTool == confirmedTool {
@@ -761,13 +764,17 @@ class GameViewController: UIViewController {
 
     private func showToolActionSheet() {
         guard worldReady, appActive, !isPausedMenu else { return }
+        setMenuPaused(true)
         let alert = UIAlertController(title: "Выбор инструмента", message: nil, preferredStyle: .alert)
         for (idx, title) in SandboxToolWheelMath.names.enumerated() {
             alert.addAction(UIAlertAction(title: title, style: .default) { [weak self] _ in
+                self?.setMenuPaused(false)
                 self?.selectTool(SandboxToolWheelMath.tools[idx])
             })
         }
-        alert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Отмена", style: .cancel) { [weak self] _ in
+            self?.setMenuPaused(false)
+        })
         present(alert, animated: true)
     }
 
@@ -849,9 +856,9 @@ class GameViewController: UIViewController {
     }
 
     @objc private func copyCoordinatesToClipboard() {
-        let startFly = abs(latestPosition[1] - 1.7) > 0.01
-        let json = String(format: "{\"enabled\":true,\"position\":{\"x\":%.4f,\"y\":%.4f,\"z\":%.4f},\"yawDegrees\":0,\"startFlying\":%@}",
-                          latestPosition[0], latestPosition[1], latestPosition[2], startFly ? "true" : "false")
+        let json = String(format: "{\"enabled\":true,\"position\":{\"x\":%.4f,\"y\":%.4f,\"z\":%.4f},\"yawDegrees\":%.4f,\"startFlying\":%@}",
+                          locale: Locale(identifier: "en_US_POSIX"),
+                          latestPosition[0], latestPosition[1], latestPosition[2], latestYawDegrees, flyingNow ? "true" : "false")
         UIPasteboard.general.string = json
         showToast("Координаты для spawn.json скопированы")
     }

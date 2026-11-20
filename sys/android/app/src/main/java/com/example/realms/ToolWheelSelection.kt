@@ -12,3 +12,16 @@ object ToolWheelSelection {
         return (angle / 120).toInt()
     }
 }
+
+/** A tap opens the accessible picker; a drag returning to center is a cancel. */
+class ToolWheelGesture(private val deadZone: Float) {
+    private var dragged = false
+
+    fun start() { dragged = false }
+    fun update(dx: Float, dy: Float): Int? {
+        val sector = ToolWheelSelection.sector(dx, dy, deadZone)
+        if (sector != null) dragged = true
+        return sector
+    }
+    fun isTap(): Boolean = !dragged
+}

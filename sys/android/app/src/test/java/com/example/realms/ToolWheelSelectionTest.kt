@@ -19,6 +19,22 @@ class ToolWheelSelectionTest {
         assertNull(ToolWheelSelection.sector(20f, 0f, 20f))
         assertNull(ToolWheelSelection.sector(Float.NaN, 0f, 20f))
     }
+    @Test fun tapDragAndReturnToCenterAreDistinct() {
+        val gesture = ToolWheelGesture(20f)
+        gesture.start()
+        assertNull(gesture.update(2f, 3f))
+        assertTrue(gesture.isTap())
+        gesture.start()
+        assertEquals(0, gesture.update(0f, -30f))
+        assertFalse(gesture.isTap())
+        assertNull(gesture.update(0f, 0f))
+        assertFalse(gesture.isTap()) // returning to center cancels, not a tap
+        gesture.start()
+        assertTrue(gesture.isTap())
+        // A release position can be the first reported drag position.
+        assertEquals(1, gesture.update(87f, 50f))
+        assertFalse(gesture.isTap())
+    }
     @Test fun catalogCategoriesPartitionExistingItems() {
         val building=BuildCatalog.indicesForCategory(0)
         val furniture=BuildCatalog.indicesForCategory(1)

@@ -752,6 +752,12 @@ final class ToolSwitchButton: UIControl {
         iconButton.frame = bounds
     }
 
+    override func accessibilityActivate() -> Bool {
+        guard let onQuickTap = onQuickTap else { return false }
+        onQuickTap()
+        return true
+    }
+
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard activeTouch == nil, let touch = touches.first else { return }
         activeTouch = touch
@@ -766,7 +772,7 @@ final class ToolSwitchButton: UIControl {
         let p = touch.location(in: self)
         let dx = p.x - startPoint.x
         let dy = p.y - startPoint.y
-        if hypot(dx, dy) > 18 {
+        if hypot(dx, dy) > 20 {
             draggedOut = true
         }
         onWheelDrag?(dx, dy)
@@ -774,6 +780,12 @@ final class ToolSwitchButton: UIControl {
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let touch = activeTouch, touches.contains(touch) else { return }
+        let point = touch.location(in: self)
+        let dx = point.x - startPoint.x
+        let dy = point.y - startPoint.y
+        if hypot(dx, dy) > 20 { draggedOut = true }
+        // UIKit can deliver a final position without a preceding move event.
+        onWheelDrag?(dx, dy)
         activeTouch = nil
         iconButton.isHighlighted = false
         let selectedViaWheel = onWheelEnd?() ?? false
