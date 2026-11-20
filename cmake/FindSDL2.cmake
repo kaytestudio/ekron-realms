@@ -28,7 +28,7 @@ message(STATUS "Looking for SDL2 Pascal bindings...")
 # =============================================================================
 # Fetch SDL2-for-Pascal if not already present
 # =============================================================================
-if(NOT EXISTS "${SDL2_DOWNLOAD_DIR}")
+if(NOT EXISTS "${SDL2_UNITS_DIR}/sdl2.pas" AND ENABLE_PASCAL_SDL_FETCH)
     message(STATUS "SDL2 Pascal bindings not found, fetching from GitHub...")
     
     FetchContent_Declare(

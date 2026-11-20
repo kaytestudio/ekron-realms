@@ -13,7 +13,7 @@ include(FetchContent)
 # =============================================================================
 # Configuration
 # =============================================================================
-set(KCC_REPO "https://github.com/ringsce/kcc.git")
+set(KCC_REPO "https://github.com/kaytestudio/kcc.git")
 set(TOOLS_DIR "${CMAKE_SOURCE_DIR}/tools")
 set(KCC_DOWNLOAD_DIR "${TOOLS_DIR}/kcc")
 

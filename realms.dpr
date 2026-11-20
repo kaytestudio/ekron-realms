@@ -115,8 +115,10 @@ var
   i: Integer;
 begin
   { Save the current FPU state and then disable FPU exceptions }
+  {$IF DEFINED(CPUI386) or DEFINED(CPUX86_64)}
   Saved8087CW := Default8087CW;
   Set8087CW($133f); { Disable all fpu exceptions }
+  {$ENDIF}
 
   { Build the command line }
   CommandLine := '';
@@ -134,5 +136,7 @@ begin
   InitVulkan;
 
   { Reset the FPU to the previous state }
+  {$IF DEFINED(CPUI386) or DEFINED(CPUX86_64)}
   Set8087CW(Saved8087CW);
+  {$ENDIF}
 end.

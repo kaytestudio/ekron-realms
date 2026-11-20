@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Ekron Realms
+GenericName=Urban Sandbox
+Comment=Ekron — Native 3D Urban Sandbox
+Comment[ru]=ЭКРОН — городская 3D-песочница
+Exec=ekron-realms
+TryExec=ekron-realms
+Icon=ekron-realms
+Terminal=false
+Categories=Game;Simulation;ActionGame;
+Keywords=ekron;realms;sandbox;3d;fpv;
+StartupWMClass=ekron-realms
