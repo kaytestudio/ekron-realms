@@ -41,6 +41,8 @@ Thumbs.db
 # Ignore logs and caches
 *.log
 *.cache
+__pycache__/
+*.py[cod]
 *.dcu
 *.dcp
 *.tds
