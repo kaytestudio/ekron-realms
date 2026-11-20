@@ -21,11 +21,10 @@ struct Material {
     float roughness=.9f;
     bool worldSpaceUV=false;
 };
-struct Batch { std::vector<Vertex> vertices;int material=-1;bool decorativeWire=false;bool rotor=false; };
+struct Batch { std::vector<Vertex> vertices;int material=-1;bool decorativeWire=false; };
 struct LoadOptions {
     // CPU loading milestones; optional, called on the loading worker.
     std::function<void(int)> progress;
-    bool animateRotors=false;
     bool level=true;
     bool buildPhysics=true;
     float targetExtent=80.f;
