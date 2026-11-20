@@ -19,9 +19,11 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)setVerticalInput:(float)vertical NS_SWIFT_NAME(setVerticalInput(_:));
 - (void)setDroneThrottle:(float)throttle yaw:(float)yaw pitch:(float)pitch roll:(float)roll NS_SWIFT_NAME(setDroneThrottle(_:yaw:pitch:roll:));
 - (void)sendCommand:(int32_t)command NS_SWIFT_NAME(sendCommand(_:));
-// Status slots 0...13 retain their original meaning; 14 is stance
-// (standing/crouching/prone = 0/1/2), and 15 is player yaw in radians.
+// Status slots 0...13 retain their original meaning; 14 is stance,
+// 15 and 16 are player yaw and pitch in radians.
 - (NSInteger)pollStatus:(float *)outValues count:(NSInteger)count NS_SWIFT_NAME(pollStatus(_:count:));
+// Packed x, y, z, yaw tuples for render-only remote players.
+- (void)setRemotePlayers:(const float * _Nullable)values count:(NSInteger)count NS_SWIFT_NAME(setRemotePlayers(_:count:));
 - (void)resetInput NS_SWIFT_NAME(resetInput());
 - (void)flushSave NS_SWIFT_NAME(flushSave());
 

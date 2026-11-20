@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Experimental TLS presence relay; not yet connected to the sandbox clients.
+"""Experimental TLS presence relay for render-only sandbox player markers.
 
 This deliberately handles presence and player transforms only. It is not an
 authoritative sandbox simulation or a production-ready public game server.
