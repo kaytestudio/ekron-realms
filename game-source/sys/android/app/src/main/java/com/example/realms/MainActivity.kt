@@ -17,7 +17,6 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.graphics.Color
 import android.view.Gravity
-import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -480,7 +479,7 @@ class MainActivity : GameActivity() {
                 layoutParams=AbsListView.LayoutParams(-1,dp(84))
                 background=GradientDrawable().apply {setColor(if(position==selected)0xaa477264.toInt() else 0x443b4652);cornerRadius=dp(6).toFloat();if(position==selected)setStroke(dp(1),0xff92d9ac.toInt())}
                 val item=BuildCatalog.entries[position]
-                val illustration: View=if(item.nativeType==0||item.nativeType==9||item.nativeType==10||item.nativeType==11||item.nativeType==12||item.nativeType>=13)MaterialBlockView(this@MainActivity,item.defaultSurface).apply { texture=materialImages[item.defaultSurface] }
+                val illustration: View=if(item.nativeType==0||item.nativeType==9||item.nativeType==10||item.nativeType==11||item.nativeType==12)MaterialBlockView(this@MainActivity,item.defaultSurface).apply { texture=materialImages[item.defaultSurface] }
                 else ImageView(this@MainActivity).apply {
                     scaleType=ImageView.ScaleType.FIT_CENTER
                     val image=catalogImages[position]
@@ -508,20 +507,15 @@ class MainActivity : GameActivity() {
     private fun showPauseMenu() {
         setPaused(true)
         val dialog=AlertDialog.Builder(this).setTitle("Пауза")
-            .setItems(arrayOf("Продолжить",if(flyingNow) "Выключить полёт" else "Включить полёт","На дорогу","Восстановить УАЗ","На спавн","Камера: 1-е / 3-е лицо")) { _, which ->
+            .setItems(arrayOf("Продолжить",if(flyingNow) "Выключить полёт" else "Включить полёт","На дорогу","Восстановить УАЗ","На спавн")) { _, which ->
                 setPaused(false)
                 if(which==1)nativeCommand(6)
                 if(which==2)nativeCommand(7)
                 if(which==3)nativeCommand(34)
                 if(which==4)nativeCommand(35)
-                if(which==5)nativeCommand(46)
             }.create()
         dialog.setOnDismissListener { setPaused(false);hideSystemUi() }
         dialog.show()
-    }
-    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
-        if(keyCode==KeyEvent.KEYCODE_V && worldReady && !paused){nativeCommand(46);return true}
-        return super.onKeyUp(keyCode,event)
     }
     override fun onResume() {
         super.onResume()

@@ -4,7 +4,6 @@ namespace sandbox {
 // A single recoverable drone; separate from furniture IDs/save format.
 struct FpvDrone {
  enum Mode {Absent=0,InHands=1,Ground=2,Entering=3,Flying=4,Leaving=5,Hover=6,Returning=7};
- bool crashPending=false;physics::Vec3 crashPoint{};
  Mode mode=Absent;physics::Vec3 position{},velocity{},bodyEye{},cameraStart{};
  bool linked=false;physics::Vec3 home{};int returnStage=0,returnClimbs=0;float returnBlocked=0,returnCruise=0;
  bool thirdPerson=false;physics::Vec3 chaseEye{};float exitRoll=0;
@@ -130,13 +129,7 @@ struct FpvDrone {
   auto before=position;auto delta=velocity*dt;int steps=std::max(1,int(std::ceil(physics::length(delta)/.025f)));
   for(int i=0;i<steps;i++)for(int axis=0;axis<3;axis++){
    auto p=position;if(axis==0)p.x+=delta.x/steps;if(axis==1)p.y+=delta.y/steps;if(axis==2)p.z+=delta.z/steps;
-   if(!blocked(p,city,built))position=p;else {
-    float impact=axis==0?std::abs(velocity.x):axis==1?std::abs(velocity.y):std::abs(velocity.z);
-    if((mode==Flying||mode==Returning||mode==Hover)&&impact>=2.8f){crashPoint=position;crashPending=true;mode=Absent;linked=false;velocity={};thirdPerson=false;viewMix=0;return;}
-    if(axis==0)velocity.x=0;
-    if(axis==1){velocity.y=0;fallSpeed=0;}
-    if(axis==2)velocity.z=0;
-   }
+   if(!blocked(p,city,built))position=p;else {if(axis==0)velocity.x=0;if(axis==1){velocity.y=0;fallSpeed=0;}if(axis==2)velocity.z=0;}
   }
   if(mode==Returning){
    if(physics::length(position-before)<.002f)returnBlocked+=dt;else returnBlocked=0;
