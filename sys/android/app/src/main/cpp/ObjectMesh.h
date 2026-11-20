@@ -44,8 +44,45 @@ inline void appendObject(std::vector<MeshVertex>&v,const sandbox::Object&o,bool 
   for(float y:{.96f,1.33f,1.69f})part(0,y,0,1.2f,.055f,.73f,1,1,1,Wood);
  }else if(o.type==2){
   for(int side:{-1,1}){part(side*.96f,1.2f,0,.08f,2.4f,.22f,.68f,.69f,.63f,sandbox::Wood);part(0,1.2f+side*1.16f,0,2,.08f,.22f,.68f,.69f,.63f,sandbox::Wood);}part(0,1.2f,0,.06f,2.4f,.2f,.68f,.69f,.63f,sandbox::Wood);part(0,1.2f,0,1.84f,2.24f,.05f,1,1,1,sandbox::Glass);
- }else if(o.type==7){part(0,.32f,0,2.3f,.6f,.95f,.33f,.4f,.36f);part(0,.78f,-.38f,2.3f,.44f,.2f,.33f,.4f,.36f);for(int a:{-1,1})part(a*1.04f,.65f,0,.22f,.4f,.95f,.33f,.4f,.36f);
- }else appendCube(v,body);
+  }else if(o.type==7){part(0,.32f,0,2.3f,.6f,.95f,.33f,.4f,.36f);part(0,.78f,-.38f,2.3f,.44f,.2f,.33f,.4f,.36f);for(int a:{-1,1})part(a*1.04f,.65f,0,.22f,.4f,.95f,.33f,.4f,.36f);
+  }else if(o.type==13){ // wooden shipping crate with visible slats
+   part(0,.5f,0,.92f,.92f,.92f,.52f,.31f,.14f,sandbox::Wood);for(float p:{-.28f,0.f,.28f}){part(p,.5f,-.466f,.055f,.82f,.025f,.22f,.12f,.06f,sandbox::Plain);part(-.466f,.5f,p,.025f,.82f,.055f,.22f,.12f,.06f,sandbox::Plain);}
+  }else if(o.type==14){ // metal barrel, represented by three strapped sections
+   part(0,.18f,0,.62f,.12f,.62f,.2f,.25f,.27f,sandbox::Rust);part(0,.6f,0,.72f,.72f,.72f,.27f,.32f,.34f,sandbox::Rust);part(0,1.02f,0,.62f,.12f,.62f,.2f,.25f,.27f,sandbox::Rust);
+  }else if(o.type==15){ // wooden pallet
+   for(float x:{-.48f,0.f,.48f})part(x,.12f,0,.16f,.22f,1.05f,.48f,.28f,.12f,sandbox::Wood);
+   for(float z:{-.48f,0.f,.48f})part(0,.28f,z,1.08f,.14f,.14f,.58f,.36f,.16f,sandbox::Wood);
+  }else if(o.type==16){ // steel pipe bundle
+   for(float y:{.06f,.16f,.26f})part(0,y,0,1.85f,.07f,.07f,.22f,.25f,.27f,sandbox::Rust);
+  }else if(o.type==17){ // timber plank stack
+   for(int i=0;i<3;i++)part(0,.08f+i*.12f,0,1.85f,.1f,.34f,.48f,.28f,.12f,sandbox::Wood);
+  }else if(o.type==18){ // cement bag
+   part(0,.35f,0,1.42f,.58f,.34f,.78f,.78f,.7f,sandbox::Concrete);part(0,.66f,0,1.28f,.08f,.3f,.68f,.68f,.6f,sandbox::Plain);
+  }else if(o.type==19){ // scaffold frame
+   for(float x:{-.72f,.72f})for(float z:{-.16f,.16f})part(x,.42f,z,.08f,.76f,.08f,.35f,.37f,.38f,sandbox::Rust);
+   for(float y:{.08f,.76f})part(0,y,0,1.55f,.08f,.42f,.35f,.37f,.38f,sandbox::Rust);
+  }else if(o.type==20){ // traffic cone
+   part(0,.06f,0,.7f,.1f,.7f,.9f,.25f,.04f,sandbox::Rust);part(0,.55f,0,.38f,.9f,.38f,1.f,.3f,.05f,sandbox::Rust);
+  }else if(o.type==21){ // public waste bin
+   part(0,.72f,0,.62f,1.35f,.62f,.12f,.2f,.16f,sandbox::Rust);part(0,1.43f,0,.7f,.12f,.7f,.08f,.12f,.1f,sandbox::Plain);
+  }else if(o.type==22){ // street bench
+   part(0,.72f,0,1.65f,.14f,.45f,.42f,.25f,.1f,sandbox::Wood);part(0,1.12f,-.18f,1.65f,.65f,.12f,.42f,.25f,.1f,sandbox::Wood);for(float x:{-.62f,.62f})part(x,.35f,0,.12f,.7f,.35f,.25f,.27f,.28f,sandbox::Rust);
+  }else if(o.type==23){ // manhole cover
+   part(0,.08f,0,.68f,.16f,.68f,.22f,.25f,.27f,sandbox::Rust);part(0,.17f,0,.58f,.04f,.58f,.3f,.33f,.34f,sandbox::Plain);
+  }else if(o.type==24){ // concrete road barrier
+   part(0,.75f,0,1.72f,1.45f,.4f,.55f,.56f,.53f,sandbox::Concrete);part(0,1.05f,-.21f,1.45f,.12f,.025f,.9f,.75f,.15f,sandbox::Plain);
+  }else if(o.type==25){ // loose tire
+   part(0,.18f,0,.68f,.32f,.68f,.08f,.09f,.1f,sandbox::Rust);part(0,.35f,0,.58f,.18f,.58f,.06f,.07f,.08f,sandbox::Plain);
+  }else if(o.type==26){ // fence post
+   part(0,1.2f,0,.14f,2.3f,.14f,.3f,.32f,.33f,sandbox::Rust);
+  }else if(o.type==27){ // steel beam
+   part(0,.15f,0,1.9f,.25f,.25f,.25f,.28f,.3f,sandbox::Rust);part(0,.15f,-.13f,1.9f,.12f,.04f,.45f,.47f,.48f,sandbox::Plain);
+  }else if(o.type==28){ // outdoor dumpster
+   part(0,.35f,0,1.05f,.7f,.7f,.16f,.25f,.2f,sandbox::Rust);part(0,.76f,0,1.15f,.12f,.78f,.1f,.16f,.12f,sandbox::Plain);
+  }else if(o.type==29){
+   part(0,.57f,0,.68f,1.08f,.68f,.8f,.025f,.015f,sandbox::Plain);
+   for(float y:{.2f,.9f})part(0,y,0,.72f,.065f,.72f,.15f,.15f,.14f,sandbox::Plain);
+  }else appendCube(v,body);
  int surface=World::fixedSurface(o.type);
  if(surface>=0)for(size_t i=begin;i<v.size();i++){if(v[i].layer!=Plain||(o.type!=3&&o.type!=6)){v[i].layer=float(surface);v[i].r=v[i].g=v[i].b=1;}}
 }
