@@ -26,8 +26,8 @@ struct PlayerView {
   auto d=eye-previous;float distance=std::hypot(d.x,d.z);float target=distance>.001f&&distance<1?std::atan2(-d.x,-d.z):yaw;
   bodyYaw+=std::remainder(target-bodyYaw,6.2831853f)*std::min(1.f,dt*12);walk+=std::min(distance,.25f)*7;previous=eye;
  }
- void append(std::vector<MeshVertex>&out,physics::Vec3 eye,bool crouch,bool prone)const{
-  size_t begin=out.size();float height=prone?.55f:crouch?1.15f:1.7f;float floor=eye.y-height;
+ void append(std::vector<MeshVertex>&out,physics::Vec3 eye,bool crouch,bool prone,float actualEyeHeight=0)const{
+  size_t begin=out.size();float height=actualEyeHeight>0?actualEyeHeight:prone?.4f:crouch?.9f:1.7f;float floor=eye.y-height;
   // Colored ellipsoids: head, torso and articulated limbs; no model asset required.
   ellipsoid(out,{0,floor+height*.94f,0},{.16f,.19f,.16f},{.67f,.48f,.34f});
   ellipsoid(out,{0,floor+height*.62f,0},{.24f,height*.22f,.15f},{.19f,.26f,.18f});

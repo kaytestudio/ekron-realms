@@ -541,7 +541,7 @@ void Renderer::render(){
  glUniform1f(glGetUniformLocation(program_,"cameraRoll"),viewRoll);
  glUniform3f(glGetUniformLocation(program_,"eye"),cameraEye.x,cameraEye.y,cameraEye.z);glUniform2f(glGetUniformLocation(program_,"angles"),cameraYaw,cameraPitch);glUniform1f(glGetUniformLocation(program_,"aspect"),float(viewWidth)/viewHeight);
  size_t worldVertexCount=vertices.size();
- if(seatedCar_<0&&physics::length(cameraEye-physics::Vec3{world_.x,world_.y,world_.z})>.65f)playerView_.append(vertices,{world_.x,world_.y,world_.z},crouched_,prone_);
+ if(seatedCar_<0&&physics::length(cameraEye-physics::Vec3{world_.x,world_.y,world_.z})>.65f)playerView_.append(vertices,{world_.x,world_.y,world_.z},crouched_,prone_,flying_?0:player_.eyeHeight());
  glBindVertexArray(vao_);glBindBuffer(GL_ARRAY_BUFFER,buffer_);glBufferData(GL_ARRAY_BUFFER,vertices.size()*sizeof(Vertex),vertices.data(),GL_STREAM_DRAW);glDrawArrays(GL_TRIANGLES,0,static_cast<GLsizei>(vertices.size()));
  vertices.resize(worldVertexCount);
  city_.draw(program_,cameraEye.x,cameraEye.z);
