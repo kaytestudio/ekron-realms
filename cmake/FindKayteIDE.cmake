@@ -13,7 +13,7 @@ include(FetchContent)
 # =============================================================================
 # Configuration
 # =============================================================================
-set(KAYTEIDE_REPO "https://github.com/ringsce/kayteide.git")
+set(KAYTEIDE_REPO "https://github.com/kaytestudio/kayteide.git")
 # Target directory is 'ide' in the root project directory (${CMAKE_SOURCE_DIR})
 set(KAYTEIDE_DOWNLOAD_DIR "${CMAKE_SOURCE_DIR}/ide")
 

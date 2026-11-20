@@ -1,0 +1,183 @@
+name: Desktop client
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'CMakeLists.txt'
+      - 'cmake/**'
+      - 'Resources/**'
+      - 'Projects/**'
+      - 'sys/desktop/**'
+      - 'sys/linux/**'
+      - 'sys/mac/**'
+      - 'sys/android/app/src/main/cpp/**'
+      - 'sys/android/app/src/main/assets/**'
+      - '.github/workflows/desktop.yml'
+  pull_request:
+    paths:
+      - 'CMakeLists.txt'
+      - 'cmake/**'
+      - 'Resources/**'
+      - 'Projects/**'
+      - 'sys/desktop/**'
+      - 'sys/linux/**'
+      - 'sys/mac/**'
+      - 'sys/android/app/src/main/cpp/**'
+      - 'sys/android/app/src/main/assets/**'
+      - '.github/workflows/desktop.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  linux-deb:
+    name: Linux Debian package (.deb)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          clean: true
+          fetch-depth: 1
+          submodules: false
+
+      - name: Install build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            cmake \
+            ninja-build \
+            pkg-config \
+            libsdl2-dev \
+            libgl1-mesa-dev \
+            fpc \
+            file \
+            dpkg-dev
+
+      - name: Configure and build Linux desktop client
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/usr \
+            -DENABLE_FPC_CLIENT=ON
+          cmake --build build -j"$(nproc)"
+          test -x build/ekron-realms
+          test -x build/realms-launcher
+
+      - name: Run CTest smoke checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          ctest --test-dir build --output-on-failure -V
+
+      - name: Build and verify Debian package
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd build && cpack -G DEB)
+          DEB_PKG="$(ls build/ekron-realms_*.deb | head -n 1)"
+          test -f "$DEB_PKG"
+          dpkg-deb --info "$DEB_PKG"
+
+          sudo apt-get install -y "./$DEB_PKG"
+          /usr/bin/ekron-realms --version
+          /usr/bin/ekron-realms --headless-smoke
+          /usr/bin/realms-launcher --version
+          /usr/bin/realms-launcher --headless-smoke
+
+      - name: Upload Debian package
+        uses: actions/upload-artifact@v7
+        with:
+          name: ekron-realms-linux-deb
+          path: build/ekron-realms_*.deb
+          if-no-files-found: error
+
+  macos-app:
+    name: macOS app bundle (.app)
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          clean: true
+          fetch-depth: 1
+          submodules: false
+
+      - name: Install build dependencies
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
+        shell: bash
+        run: |
+          set -euo pipefail
+          for pkg in cmake ninja sdl2 fpc; do
+            brew list "$pkg" >/dev/null 2>&1 || brew install "$pkg"
+          done
+
+      - name: Configure and build macOS .app bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DENABLE_FPC_CLIENT=ON
+          cmake --build build -j"$(sysctl -n hw.ncpu)"
+
+      - name: Bundle SDL2 framework library and ad-hoc sign .app
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_BUNDLE="build/EkronRealms.app"
+          test -d "$APP_BUNDLE/Contents/MacOS"
+          test -f "$APP_BUNDLE/Contents/Info.plist"
+          test -f "$APP_BUNDLE/Contents/Resources/models/abandoned_city_street_for_games.glb"
+          test -x "$APP_BUNDLE/Contents/MacOS/EkronRealms"
+          test -x "$APP_BUNDLE/Contents/MacOS/realms-launcher"
+
+          mkdir -p "$APP_BUNDLE/Contents/Frameworks"
+          SDL2_REF="$(otool -L "$APP_BUNDLE/Contents/MacOS/EkronRealms" | awk '/libSDL2/{print $1; exit}')"
+          SDL2_SRC="$SDL2_REF"
+          if [ -n "$SDL2_REF" ] && [ ! -f "$SDL2_SRC" ]; then
+            BREW_SDL2_LIB="$(brew --prefix sdl2)/lib/$(basename "$SDL2_REF")"
+            if [ -f "$BREW_SDL2_LIB" ]; then
+              SDL2_SRC="$BREW_SDL2_LIB"
+            fi
+          fi
+          if [ -n "$SDL2_REF" ] && [ -f "$SDL2_SRC" ]; then
+            DYLIB_NAME="$(basename "$SDL2_SRC")"
+            cp -L "$SDL2_SRC" "$APP_BUNDLE/Contents/Frameworks/$DYLIB_NAME"
+            chmod 755 "$APP_BUNDLE/Contents/Frameworks/$DYLIB_NAME"
+            install_name_tool -id "@rpath/$DYLIB_NAME" "$APP_BUNDLE/Contents/Frameworks/$DYLIB_NAME"
+            install_name_tool -change "$SDL2_REF" "@rpath/$DYLIB_NAME" "$APP_BUNDLE/Contents/MacOS/EkronRealms"
+          fi
+
+          codesign --force --deep --sign - "$APP_BUNDLE"
+
+      - name: Verify standalone EkronRealms.app
+        shell: bash
+        run: |
+          set -euo pipefail
+          ctest --test-dir build --output-on-failure -V
+          APP_BUNDLE="build/EkronRealms.app"
+          "$APP_BUNDLE/Contents/MacOS/EkronRealms" --version
+          "$APP_BUNDLE/Contents/MacOS/EkronRealms" --headless-smoke
+          "$APP_BUNDLE/Contents/MacOS/realms-launcher" --version
+          "$APP_BUNDLE/Contents/MacOS/realms-launcher" --headless-smoke
+
+          ditto -c -k --keepParent "$APP_BUNDLE" build/EkronRealms-macos.app.zip
+          test -f build/EkronRealms-macos.app.zip
+
+      - name: Upload macOS .app bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: ekron-realms-macos-app
+          path: build/EkronRealms-macos.app.zip
+          if-no-files-found: error
