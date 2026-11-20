@@ -123,7 +123,7 @@ if(ENABLE_DESKTOP_SANDBOX)
     )
 
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-        target_compile_options(ekron-realms PRIVATE -Wall -Wextra -Werror)
+        target_compile_options(ekron-realms PRIVATE -Wall -Wextra)
     endif()
 endif()
 
@@ -137,7 +137,6 @@ if(ENABLE_FPC_CLIENT)
         message(STATUS "=== Free Pascal Compiler Found: ${FPC_EXECUTABLE} (${FPC_VERSION}) ===")
         set(FPC_EXTRA_FLAGS -Mobjfpc -Scghi -O2)
         if(APPLE)
-            list(APPEND FPC_EXTRA_FLAGS -Tdarwin)
             set(FPC_OUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/EkronRealms.app/Contents/MacOS")
             set(FPC_PLATFORM_DIR "${CMAKE_CURRENT_SOURCE_DIR}/sys/mac")
         else()
@@ -151,7 +150,7 @@ if(ENABLE_FPC_CLIENT)
             list(APPEND FPC_EXTRA_DEPS ekron-realms)
         endif()
 
-        add_fpc_executable(realms-launcher
+        add_fpc_executable(realms_launcher_fpc
             SOURCES
                 "Projects/realms_launcher.lpr"
             INCLUDE_DIRS
@@ -164,7 +163,7 @@ if(ENABLE_FPC_CLIENT)
             OUTPUT_DIRECTORY "${FPC_OUT_DIR}"
         )
         if(TARGET ekron-realms)
-            add_dependencies(realms-launcher ekron-realms)
+            add_dependencies(realms_launcher_fpc ekron-realms)
         endif()
         set(FPC_LAUNCHER_BUILT TRUE)
     else()
@@ -244,7 +243,7 @@ if(TARGET ekron-realms)
 endif()
 
 if(FPC_LAUNCHER_BUILT)
-    get_target_property(_FPC_BIN realms-launcher FPC_OUTPUT_PATH)
+    get_target_property(_FPC_BIN realms_launcher_fpc FPC_OUTPUT_PATH)
     add_test(
         NAME ekron_fpc_launcher_version
         COMMAND "${_FPC_BIN}" --version

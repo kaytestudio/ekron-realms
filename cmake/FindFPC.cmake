@@ -71,7 +71,7 @@ if(FPC_EXECUTABLE)
             )
         endif()
         if(_FPC_SDK AND EXISTS "${_FPC_SDK}")
-            list(APPEND FPC_DARWIN_SDK_FLAGS "-XR${_FPC_SDK}" "-Fl${_FPC_SDK}/usr/lib" "-WM12.0")
+            list(APPEND FPC_DARWIN_SDK_FLAGS "-XR${_FPC_SDK}")
         endif()
     endif()
 endif()
@@ -104,7 +104,7 @@ function(add_fpc_executable target)
     file(MAKE_DIRECTORY "${UNIT_OUT_DIR}")
     file(MAKE_DIRECTORY "${FPC_OUTPUT_DIRECTORY}")
 
-    set(INCLUDE_FLAGS "-FU${UNIT_OUT_DIR}")
+    set(INCLUDE_FLAGS "-FE${FPC_OUTPUT_DIRECTORY}" "-FU${UNIT_OUT_DIR}")
     foreach(dir ${FPC_INCLUDE_DIRS})
         list(APPEND INCLUDE_FLAGS "-Fu${dir}" "-Fi${dir}")
     endforeach()
@@ -128,7 +128,8 @@ function(add_fpc_executable target)
         endif()
     endforeach()
 
-    set(OUTPUT_PATH "${FPC_OUTPUT_DIRECTORY}/${FPC_OUTPUT_NAME}${CMAKE_EXECUTABLE_SUFFIX}")
+    set(OUTPUT_FILENAME "${FPC_OUTPUT_NAME}${CMAKE_EXECUTABLE_SUFFIX}")
+    set(OUTPUT_PATH "${FPC_OUTPUT_DIRECTORY}/${OUTPUT_FILENAME}")
 
     add_custom_command(
         OUTPUT "${OUTPUT_PATH}"
@@ -136,7 +137,7 @@ function(add_fpc_executable target)
             ${INCLUDE_FLAGS}
             ${FPC_DARWIN_SDK_FLAGS}
             ${FPC_COMPILE_FLAGS}
-            "-o${OUTPUT_PATH}"
+            "-o${OUTPUT_FILENAME}"
             "${MAIN_SOURCE_ABS}"
         DEPENDS ${ABS_DEPS} ${FPC_DEPENDS}
         WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"

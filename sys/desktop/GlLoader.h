@@ -2,7 +2,17 @@
 // Self-contained OpenGL 3.3 Core loader backed by SDL_GL_GetProcAddress.
 // Avoids platform-specific OpenGL header differences and deprecation warnings on macOS & Linux.
 
+#if defined(__has_include)
+#if __has_include(<SDL.h>)
 #include <SDL.h>
+#elif __has_include(<SDL2/SDL.h>)
+#include <SDL2/SDL.h>
+#else
+#include <SDL.h>
+#endif
+#else
+#include <SDL.h>
+#endif
 #include <cstddef>
 #include <cstdint>
 

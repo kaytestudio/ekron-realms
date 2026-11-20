@@ -1,5 +1,15 @@
 #define SDL_MAIN_HANDLED
+#if defined(__has_include)
+#if __has_include(<SDL.h>)
 #include <SDL.h>
+#elif __has_include(<SDL2/SDL.h>)
+#include <SDL2/SDL.h>
+#else
+#include <SDL.h>
+#endif
+#else
+#include <SDL.h>
+#endif
 
 #include "CityGraffiti.h"
 #include "DebugPlayer.h"
