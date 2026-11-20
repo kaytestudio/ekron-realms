@@ -15,9 +15,11 @@ class ObjectDynamics {
  BodyBroadphase broadphase_;
  BodyBroadphase pairBroadphase_;
 public:
+ std::vector<physics::Vec3> barrelImpacts;
  PairSolverStats pairStats{};
  size_t neighbourMeshBuilds=0;
  bool update(World&w,const physics::CollisionMesh&mesh,float dt,int held,const std::array<float,3>&lo,const std::array<float,3>&hi,int*heldIndex=nullptr,int*seatIndex=nullptr){
+  barrelImpacts.clear();
   accumulator_+=std::clamp(dt,0.f,.05f);bool changed=false;constexpr float step=1.f/120;
   while(accumulator_>=step){accumulator_-=step;
    for(auto&o:w.objects)if(!std::isfinite(o.x)||!std::isfinite(o.y)||!std::isfinite(o.z))o.destroyed=true;
@@ -204,6 +206,10 @@ public:
    neighbourMeshBuilds=broadphase_.meshBuilds;
    pairStats=solveBodyPairs(w,mesh,pairBroadphase_,beforeBodies,held,step);
    if(pairStats.contacts||pairStats.sweeps)changed=true;
+   for(size_t i=0;i<w.objects.size();i++){auto&o=w.objects[i];if(o.type!=29||o.destroyed||int(i)==held)continue;
+    const auto&old=beforeBodies[i];float impact=physics::length({o.vx-old.vx,o.vy-old.vy,o.vz-old.vz});
+    if(impact>=5.5f){auto b=World::bounds(o);barrelImpacts.push_back({b.x,b.y,b.z});o.destroyed=true;changed=true;}
+   }
   }
   // Reverse erasure preserves surviving state and repairs live grab/seat indices.
   for(size_t i=w.objects.size();i-->0;)if(w.objects[i].destroyed){

@@ -15,6 +15,8 @@
 #include "TextureLoader.h"
 #include "GltfRenderer.h"
 #include "MilitaryEffects.h"
+#include "PlayerView.h"
+#include "BlastEffects.h"
 struct android_app;
 class Renderer {
 public:
@@ -31,6 +33,9 @@ private:
     GLuint program_=0,skyProgram_=0,buffer_=0,vao_=0;
     TextureLoader textures_;
     military::Effects militaryEffects_;
+    sandbox::PlayerView playerView_;
+    sandbox::BlastEffects blasts_;
+    float rotorPhase_=0;
     city::GltfRenderer city_;
     city::GltfRenderer car_;
     city::GltfRenderer remote_;
