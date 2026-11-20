@@ -2,12 +2,7 @@
 //  ShaderTypes.h
 //  realms Shared
 //
-//  Created by Pedro Dias Vicente on 23/04/2025.
-//
 
-//
-//  Header containing types and enum constants shared between Metal shaders and Swift/ObjC source
-//
 #ifndef ShaderTypes_h
 #define ShaderTypes_h
 
@@ -45,5 +40,40 @@ typedef struct
     matrix_float4x4 modelViewMatrix;
 } Uniforms;
 
-#endif /* ShaderTypes_h */
+typedef struct
+{
+    simd_float4 eyeAspect;      // xyz = camera eye, w = viewport aspect
+    simd_float4 anglesRoll;     // x = yaw, y = pitch, z = roll, w = unused
+    simd_float4 lightDirection; // xyz = directional light vector
+    simd_float4 lightColor;     // xyz = directional light linear RGB
+    simd_float4 ambientColor;   // xyz = sky hemisphere linear RGB
+    simd_int4   flags;          // x = texturesReady (0/1)
+} SandboxSceneUniforms;
 
+typedef struct
+{
+    matrix_float4x4 objectTransform;
+    simd_float4     baseColorFactor;
+    simd_float4     materialParams; // x = roughness, y = alphaCutoff
+    simd_int4       drawFlags;      // x = modelPass, y = previewPass, z = modelTextured, w = alphaMode
+} SandboxDrawUniforms;
+
+typedef struct
+{
+    simd_float4 anglesRollAspect; // x = yaw, y = pitch, z = roll, w = aspect
+} SandboxSkyUniforms;
+
+typedef struct
+{
+    simd_float4 rectNdc;    // x = centerX, y = centerY, z = halfWidth, w = halfHeight
+    simd_float4 borderSize; // x = borderU, y = borderV
+} SandboxPipUniforms;
+
+#ifndef __METAL_VERSION__
+#include <TargetConditionals.h>
+#if defined(__OBJC__) && TARGET_OS_IOS
+#import "SandboxBridge.h"
+#endif
+#endif
+
+#endif /* ShaderTypes_h */

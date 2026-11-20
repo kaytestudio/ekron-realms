@@ -2,44 +2,869 @@
 //  GameViewController.swift
 //  realms iOS
 //
-//  Created by Pedro Dias Vicente on 23/04/2025.
-//
 
 import UIKit
 import MetalKit
+import AVFoundation
 
-// Our iOS specific view controller
 class GameViewController: UIViewController {
 
-    var renderer: Renderer!
-    var mtkView: MTKView!
+    private var mtkView: MTKView!
+    private var bridge: SandboxBridge?
+
+    // Main HUD views
+    private let hudOverlay = PassthroughContainerView()
+    private let lookControl = LookControlView(startFraction: 0.42)
+    private let weaponArt = ToolArtControlView(firstPerson: true)
+
+    private let headingBox = UIControl()
+    private let titleLabel = UILabel()
+    private let coordinatesLabel = UILabel()
+    private let noticeLabel = UILabel()
+    private let crosshairLabel = UILabel()
+    private let toastLabel = UILabel()
+
+    private let joystick = StickControlView()
+    private let pauseButton = HudActionButton(caption: "", symbol: "pause")
+    private let jumpButton = HudActionButton(caption: "Прыжок", symbol: "jump")
+    private let crouchButton = HudActionButton(caption: "Присесть", symbol: "crouch")
+
+    private let switchWeaponButton = ToolSwitchButton()
+    private let catalogButton = HudActionButton(caption: "", symbol: "cube")
+    private let removeButton = HudActionButton(caption: "", symbol: "remove")
+    private let toolWheel = ToolWheelOverlayView()
+
+    // Bottom tool action strips
+    private let spawnStrip = PassthroughContainerView()
+    private let buildPlaceButton = HudActionButton(caption: "", symbol: "build")
+    private let turnLeftButton = HudActionButton(caption: "", symbol: "left")
+    private let turnRightButton = HudActionButton(caption: "", symbol: "right")
+
+    private let gravityStrip = PassthroughContainerView()
+    private let grabButton = HudActionButton(caption: "", symbol: "grab")
+    private let freezeButton = HudActionButton(caption: "Заморозить", symbol: "freeze")
+    private let rotateHeldButton = HudActionButton(caption: "Вращать", symbol: "rotate")
+
+    private let remoteStrip = PassthroughContainerView()
+    private let returnDroneButton = HudActionButton(caption: "Вернуть", symbol: "home")
+    private let putAwayRemoteButton = HudActionButton(caption: "Убрать пульт", symbol: "remove")
+
+    private let interactionButton = HudActionButton(caption: "Открыть", symbol: "grab")
+    private let dronePlaceButton = HudActionButton(caption: "Поставить дрон", symbol: "build")
+
+    // Flight altitude controls
+    private let altitudeContainer = PassthroughContainerView()
+    private let flyUpButton = UIButton(type: .system)
+    private let flyDownButton = UIButton(type: .system)
+
+    // Catalog popup & FPV overlay
+    private var catalogPopup: BuildCatalogPopupView?
+    private let fpvOverlay = FpvFlightOverlayView()
+
+    // Loading & Intro video overlay
+    private let loadingOverlay = UIView()
+    private let loadingTitleLabel = UILabel()
+    private let loadingSubtitleLabel = UILabel()
+    private let loadingProgressView = UIProgressView(progressViewStyle: .default)
+    private let loadingStatusLabel = UILabel()
+
+    private let introVideoContainer = UIView()
+    private var introPlayer: AVPlayer?
+    private var introPlayerLayer: AVPlayerLayer?
+    private let skipIntroButton = UIButton(type: .system)
+    private var introFinished = false
+
+    // Gameplay UI state
+    private let toolsState = SandboxToolState()
+    private var requestedTool: SandboxHandTool?
+    private var pendingSelection: Int?
+    private var selectedCatalogIndex: Int = 0
+    private var selectedSurface: Int = 1
+    private var interactionCode: Int = 0
+    private var droneState: Int = 0
+    private var wasInFpvMode = false
+    private var worldReady = false
+    private var appActive = true
+    private var isPausedMenu = false
+    private var flyingNow = false
+    private var latestPosition: [Float] = [0.0, 1.7, 0.0]
+
+    private var pollTimer: Timer?
+    private var toastHideWorkItem: DispatchWorkItem?
+
+    override var prefersStatusBarHidden: Bool { true }
+    override var prefersHomeIndicatorAutoHidden: Bool { true }
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask { .landscape }
+    override var preferredInterfaceOrientationForPresentation: UIInterfaceOrientation { .landscapeRight }
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        UIApplication.shared.isIdleTimerDisabled = true
 
-        guard let mtkView = self.view as? MTKView else {
-            print("View of Gameview controller is not an MTKView")
+        guard let metalView = self.view as? MTKView else {
             return
         }
+        mtkView = metalView
+        mtkView.isMultipleTouchEnabled = true
+        mtkView.backgroundColor = .black
 
-        // Select the device to render with.  We choose the default device
-        guard let defaultDevice = MTLCreateSystemDefaultDevice() else {
-            print("Metal is not supported")
-            return
+        if let defaultDevice = MTLCreateSystemDefaultDevice() {
+            mtkView.device = defaultDevice
+            if let sandboxBridge = SandboxBridge(metalKitView: mtkView) {
+                bridge = sandboxBridge
+                mtkView.delegate = sandboxBridge
+            }
         }
 
-        mtkView.device = defaultDevice
-        mtkView.backgroundColor = UIColor.black
+        setupHud()
+        setupLoadingAndIntro()
+        registerLifecycleNotifications()
 
-        guard let newRenderer = Renderer(metalKitView: mtkView) else {
-            print("Renderer cannot be initialized")
-            return
+        if bridge == nil {
+            finishIntroImmediately()
+            loadingProgressView.isHidden = true
+            loadingStatusLabel.text = "Metal недоступен на этом устройстве."
         }
 
-        renderer = newRenderer
+        pollTimer = Timer.scheduledTimer(withTimeInterval: 0.08, repeats: true) { [weak self] _ in
+            self?.pollNativeState()
+        }
+    }
 
-        renderer.mtkView(mtkView, drawableSizeWillChange: mtkView.drawableSize)
+    deinit {
+        pollTimer?.invalidate()
+        NotificationCenter.default.removeObserver(self)
+    }
 
-        mtkView.delegate = renderer
+    private func registerLifecycleNotifications() {
+        let nc = NotificationCenter.default
+        nc.addObserver(self, selector: #selector(handleWillResignActive), name: UIApplication.willResignActiveNotification, object: nil)
+        nc.addObserver(self, selector: #selector(handleDidEnterBackground), name: UIApplication.didEnterBackgroundNotification, object: nil)
+        nc.addObserver(self, selector: #selector(handleDidBecomeActive), name: UIApplication.didBecomeActiveNotification, object: nil)
+        nc.addObserver(self, selector: #selector(handleWillTerminate), name: UIApplication.willTerminateNotification, object: nil)
+    }
+
+    @objc private func handleWillResignActive() {
+        appActive = false
+        resetTransientInputs()
+        bridge?.setGameplayReady(false)
+        introPlayer?.pause()
+    }
+
+    @objc private func handleDidEnterBackground() {
+        appActive = false
+        resetTransientInputs()
+        bridge?.setGameplayReady(false)
+        bridge?.flushSave()
+        mtkView?.isPaused = true
+    }
+
+    @objc private func handleDidBecomeActive() {
+        appActive = true
+        mtkView?.isPaused = false
+        if !introFinished {
+            introPlayer?.play()
+        }
+        pollNativeState()
+    }
+
+    @objc private func handleWillTerminate() {
+        bridge?.flushSave()
+    }
+
+    private func resetTransientInputs() {
+        toolWheel.cancel()
+        fpvOverlay.reset()
+        joystick.reset()
+        lookControl.reset()
+        bridge?.setVerticalInput(0)
+        bridge?.resetInput()
+    }
+
+    // MARK: - HUD Setup
+
+    private func setupHud() {
+        hudOverlay.frame = view.bounds
+        hudOverlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        hudOverlay.isMultipleTouchEnabled = true
+        view.addSubview(hudOverlay)
+
+        lookControl.onLook = { [weak self] dx, dy in
+            self?.bridge?.addLookDeltaX(dx, deltaY: dy)
+        }
+        hudOverlay.addSubview(lookControl)
+
+        weaponArt.isHidden = true
+        hudOverlay.addSubview(weaponArt)
+
+        // Top-left heading card
+        headingBox.backgroundColor = UIColor(red: 0.15, green: 0.19, blue: 0.22, alpha: 0.68)
+        headingBox.layer.cornerRadius = 6
+        headingBox.addTarget(self, action: #selector(copyCoordinatesToClipboard), for: .touchUpInside)
+        hudOverlay.addSubview(headingBox)
+
+        titleLabel.text = "ЭКРОН • ПЕСОЧНИЦА"
+        titleLabel.font = UIFont.systemFont(ofSize: 13, weight: .bold)
+        titleLabel.textColor = .white
+        titleLabel.isUserInteractionEnabled = false
+        headingBox.addSubview(titleLabel)
+
+        coordinatesLabel.text = "X: —   Y: —   Z: —"
+        coordinatesLabel.font = UIFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)
+        coordinatesLabel.textColor = .white
+        coordinatesLabel.isUserInteractionEnabled = false
+        headingBox.addSubview(coordinatesLabel)
+
+        noticeLabel.text = "Свободный режим"
+        noticeLabel.font = UIFont.systemFont(ofSize: 10.5, weight: .regular)
+        noticeLabel.textColor = UIColor(white: 0.9, alpha: 0.95)
+        noticeLabel.numberOfLines = 2
+        noticeLabel.isUserInteractionEnabled = false
+        headingBox.addSubview(noticeLabel)
+
+        crosshairLabel.text = "+"
+        crosshairLabel.font = UIFont.systemFont(ofSize: 24, weight: .light)
+        crosshairLabel.textColor = .white
+        crosshairLabel.textAlignment = .center
+        crosshairLabel.isUserInteractionEnabled = false
+        hudOverlay.addSubview(crosshairLabel)
+
+        // Movement joystick
+        joystick.onMove = { [weak self] right, forward in
+            guard let self = self else { return }
+            self.weaponArt.moving = hypot(right, forward) > 0.1
+            self.bridge?.setMoveRight(right, forward: forward)
+        }
+        hudOverlay.addSubview(joystick)
+
+        // Top-right controls
+        pauseButton.visualScale = 0.73
+        pauseButton.accessibilityLabel = "Пауза"
+        pauseButton.onTap = { [weak self] in
+            self?.showPauseMenu()
+        }
+        hudOverlay.addSubview(pauseButton)
+
+        switchWeaponButton.onWheelBegin = { [weak self] in
+            guard let self = self, self.worldReady, self.appActive, !self.isPausedMenu else { return }
+            self.closeCatalogPopup()
+            self.lookControl.reset()
+            self.hudOverlay.bringSubviewToFront(self.toolWheel)
+            self.toolWheel.beginSelection(current: self.toolsState.tool)
+        }
+        switchWeaponButton.onWheelDrag = { [weak self] dx, dy in
+            self?.toolWheel.updateDrag(dx: dx, dy: dy)
+        }
+        switchWeaponButton.onWheelEnd = { [weak self] in
+            self?.toolWheel.finishSelection() ?? false
+        }
+        switchWeaponButton.onWheelCancel = { [weak self] in
+            self?.toolWheel.cancel()
+        }
+        switchWeaponButton.onQuickTap = { [weak self] in
+            self?.showToolActionSheet()
+        }
+        hudOverlay.addSubview(switchWeaponButton)
+
+        catalogButton.visualScale = 0.73
+        catalogButton.accessibilityLabel = "Спавн: открыть каталог"
+        catalogButton.onTap = { [weak self] in
+            self?.toggleCatalogPopup()
+        }
+        hudOverlay.addSubview(catalogButton)
+
+        removeButton.visualScale = 0.73
+        removeButton.danger = true
+        removeButton.accessibilityLabel = "Удалить"
+        removeButton.onTap = { [weak self] in
+            self?.bridge?.sendCommand(4)
+        }
+        hudOverlay.addSubview(removeButton)
+
+        // Right-bottom jump & crouch
+        jumpButton.fireOnPress = true
+        jumpButton.onTap = { [weak self] in
+            self?.bridge?.sendCommand(8)
+        }
+        hudOverlay.addSubview(jumpButton)
+
+        crouchButton.onTap = { [weak self] in
+            guard let self = self else { return }
+            self.crouchButton.isSelected.toggle()
+            self.bridge?.sendCommand(9)
+        }
+        hudOverlay.addSubview(crouchButton)
+
+        // Spawn strip
+        buildPlaceButton.accessibilityLabel = "Установить выбранный предмет"
+        buildPlaceButton.onTap = { [weak self] in
+            guard let self = self, self.requestedTool == nil else { return }
+            let nativeType = SandboxBuildCatalog.entries[self.selectedCatalogIndex].nativeType
+            self.bridge?.sendCommand(200 + nativeType)
+        }
+        turnLeftButton.accessibilityLabel = "Повернуть влево"
+        turnLeftButton.onTap = { [weak self] in self?.bridge?.sendCommand(31) }
+        turnRightButton.accessibilityLabel = "Повернуть вправо"
+        turnRightButton.onTap = { [weak self] in self?.bridge?.sendCommand(2) }
+        spawnStrip.addSubview(buildPlaceButton)
+        spawnStrip.addSubview(turnLeftButton)
+        spawnStrip.addSubview(turnRightButton)
+        hudOverlay.addSubview(spawnStrip)
+
+        // Gravity strip
+        grabButton.onTap = { [weak self] in self?.bridge?.sendCommand(32) }
+        freezeButton.onTap = { [weak self] in self?.bridge?.sendCommand(38) }
+        rotateHeldButton.onTap = { [weak self] in self?.bridge?.sendCommand(33) }
+        gravityStrip.addSubview(grabButton)
+        gravityStrip.addSubview(freezeButton)
+        gravityStrip.addSubview(rotateHeldButton)
+        hudOverlay.addSubview(gravityStrip)
+
+        // Remote strip
+        returnDroneButton.onTap = { [weak self] in self?.bridge?.sendCommand(44) }
+        putAwayRemoteButton.onTap = { [weak self] in self?.bridge?.sendCommand(42) }
+        remoteStrip.addSubview(returnDroneButton)
+        remoteStrip.addSubview(putAwayRemoteButton)
+        hudOverlay.addSubview(remoteStrip)
+
+        // Contextual interaction & drone placement
+        interactionButton.isHidden = true
+        interactionButton.onTap = { [weak self] in
+            guard let self = self else { return }
+            self.bridge?.sendCommand(self.interactionCode == 6 ? 43 : 36)
+        }
+        hudOverlay.addSubview(interactionButton)
+
+        dronePlaceButton.isHidden = true
+        dronePlaceButton.onTap = { [weak self] in
+            self?.bridge?.sendCommand(41)
+        }
+        hudOverlay.addSubview(dronePlaceButton)
+
+        // Noclip altitude controls
+        configureAltitudeButton(flyUpButton, title: "↑ Вверх", upAction: #selector(handleFlyUpDown), releaseAction: #selector(handleFlyRelease))
+        configureAltitudeButton(flyDownButton, title: "↓ Вниз", upAction: #selector(handleFlyDownDown), releaseAction: #selector(handleFlyRelease))
+        altitudeContainer.addSubview(flyUpButton)
+        altitudeContainer.addSubview(flyDownButton)
+        altitudeContainer.isHidden = true
+        hudOverlay.addSubview(altitudeContainer)
+
+        // Tool wheel
+        toolWheel.onChoose = { [weak self] chosen in
+            self?.selectTool(chosen)
+        }
+        hudOverlay.addSubview(toolWheel)
+
+        // FPV overlay
+        fpvOverlay.isHidden = true
+        fpvOverlay.onDroneInput = { [weak self] throttle, yaw, pitch, roll in
+            self?.bridge?.setDroneThrottle(throttle, yaw: yaw, pitch: pitch, roll: roll)
+        }
+        fpvOverlay.onLook = { [weak self] dx, dy in
+            self?.bridge?.addLookDeltaX(dx, deltaY: dy)
+        }
+        fpvOverlay.onToggleView = { [weak self] in
+            self?.bridge?.sendCommand(45)
+        }
+        fpvOverlay.onExitFpv = { [weak self] in
+            self?.bridge?.sendCommand(42)
+        }
+        hudOverlay.addSubview(fpvOverlay)
+
+        // Toast label
+        toastLabel.backgroundColor = UIColor(white: 0.08, alpha: 0.82)
+        toastLabel.textColor = .white
+        toastLabel.font = UIFont.systemFont(ofSize: 12.5, weight: .medium)
+        toastLabel.textAlignment = .center
+        toastLabel.layer.cornerRadius = 8
+        toastLabel.clipsToBounds = true
+        toastLabel.isHidden = true
+        toastLabel.isUserInteractionEnabled = false
+        hudOverlay.addSubview(toastLabel)
+
+        renderToolControls()
+    }
+
+    private func configureAltitudeButton(_ btn: UIButton, title: String, upAction: Selector, releaseAction: Selector) {
+        btn.setTitle(title, for: .normal)
+        btn.setTitleColor(.white, for: .normal)
+        btn.titleLabel?.font = UIFont.systemFont(ofSize: 12, weight: .semibold)
+        btn.backgroundColor = UIColor(red: 0.16, green: 0.22, blue: 0.26, alpha: 0.78)
+        btn.layer.cornerRadius = 8
+        btn.layer.borderWidth = 1
+        btn.layer.borderColor = UIColor(white: 1.0, alpha: 0.35).cgColor
+        btn.addTarget(self, action: upAction, for: .touchDown)
+        btn.addTarget(self, action: releaseAction, for: [.touchUpInside, .touchUpOutside, .touchCancel])
+    }
+
+    @objc private func handleFlyUpDown() { bridge?.setVerticalInput(1.0) }
+    @objc private func handleFlyDownDown() { bridge?.setVerticalInput(-1.0) }
+    @objc private func handleFlyRelease() { bridge?.setVerticalInput(0.0) }
+
+    // MARK: - Loading & Intro Video
+
+    private func setupLoadingAndIntro() {
+        loadingOverlay.frame = view.bounds
+        loadingOverlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        loadingOverlay.backgroundColor = UIColor(red: 24 / 255, green: 35 / 255, blue: 42 / 255, alpha: 1.0)
+        view.addSubview(loadingOverlay)
+
+        loadingTitleLabel.text = "ЭКРОН"
+        loadingTitleLabel.font = UIFont.systemFont(ofSize: 32, weight: .bold)
+        loadingTitleLabel.textColor = .white
+        loadingTitleLabel.textAlignment = .center
+        loadingOverlay.addSubview(loadingTitleLabel)
+
+        loadingSubtitleLabel.text = "Нативная городская песочница"
+        loadingSubtitleLabel.font = UIFont.systemFont(ofSize: 14, weight: .regular)
+        loadingSubtitleLabel.textColor = UIColor(white: 0.85, alpha: 1.0)
+        loadingSubtitleLabel.textAlignment = .center
+        loadingOverlay.addSubview(loadingSubtitleLabel)
+
+        loadingProgressView.progressTintColor = UIColor(red: 0.35, green: 0.86, blue: 0.70, alpha: 1.0)
+        loadingProgressView.trackTintColor = UIColor(white: 1.0, alpha: 0.18)
+        loadingOverlay.addSubview(loadingProgressView)
+
+        loadingStatusLabel.text = "Подготовка мира…"
+        loadingStatusLabel.font = UIFont.systemFont(ofSize: 14, weight: .medium)
+        loadingStatusLabel.textColor = .white
+        loadingStatusLabel.textAlignment = .center
+        loadingStatusLabel.numberOfLines = 3
+        loadingOverlay.addSubview(loadingStatusLabel)
+
+        if let root = Bundle.main.resourcePath {
+            let videoPath = (root as NSString).appendingPathComponent("intro.mp4")
+            if FileManager.default.fileExists(atPath: videoPath) {
+                let url = URL(fileURLWithPath: videoPath)
+                let item = AVPlayerItem(url: url)
+                let player = AVPlayer(playerItem: item)
+                introPlayer = player
+
+                introVideoContainer.frame = view.bounds
+                introVideoContainer.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+                introVideoContainer.backgroundColor = .black
+                view.addSubview(introVideoContainer)
+
+                let layer = AVPlayerLayer(player: player)
+                layer.videoGravity = .resizeAspectFill
+                layer.frame = introVideoContainer.bounds
+                introVideoContainer.layer.addSublayer(layer)
+                introPlayerLayer = layer
+
+                skipIntroButton.setTitle("Пропустить ›", for: .normal)
+                skipIntroButton.setTitleColor(.white, for: .normal)
+                skipIntroButton.titleLabel?.font = UIFont.systemFont(ofSize: 13, weight: .semibold)
+                skipIntroButton.backgroundColor = UIColor(white: 0.1, alpha: 0.65)
+                skipIntroButton.layer.cornerRadius = 8
+                skipIntroButton.addTarget(self, action: #selector(finishIntroImmediately), for: .touchUpInside)
+                introVideoContainer.addSubview(skipIntroButton)
+
+                NotificationCenter.default.addObserver(self,
+                                                       selector: #selector(finishIntroImmediately),
+                                                       name: .AVPlayerItemDidPlayToEndTime,
+                                                       object: item)
+                NotificationCenter.default.addObserver(self,
+                                                       selector: #selector(finishIntroImmediately),
+                                                       name: .AVPlayerItemFailedToPlayToEndTime,
+                                                       object: item)
+                player.play()
+                return
+            }
+        }
+        introFinished = true
+    }
+
+    @objc private func finishIntroImmediately() {
+        guard !introFinished else { return }
+        introFinished = true
+        introPlayer?.pause()
+        introPlayer = nil
+        introPlayerLayer?.removeFromSuperlayer()
+        introPlayerLayer = nil
+        introVideoContainer.removeFromSuperview()
+    }
+
+    // MARK: - Layout
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        let b = view.bounds
+        let safe = view.safeAreaInsets
+
+        lookControl.frame = b
+        toolWheel.frame = b
+        fpvOverlay.frame = b
+        introPlayerLayer?.frame = introVideoContainer.bounds
+        skipIntroButton.frame = CGRect(x: b.width - max(16, safe.right + 12) - 122,
+                                       y: max(14, safe.top + 10),
+                                       width: 122,
+                                       height: 36)
+
+        // Loading screen layout
+        loadingTitleLabel.frame = CGRect(x: 20, y: b.midY - 76, width: b.width - 40, height: 40)
+        loadingSubtitleLabel.frame = CGRect(x: 20, y: b.midY - 32, width: b.width - 40, height: 22)
+        loadingProgressView.frame = CGRect(x: b.midX - 130, y: b.midY + 6, width: 260, height: 8)
+        loadingStatusLabel.frame = CGRect(x: 30, y: b.midY + 24, width: b.width - 60, height: 64)
+
+        let leftMargin = max(14.0, safe.left + 8.0)
+        let rightMargin = max(10.0, safe.right + 8.0)
+        let topMargin = max(8.0, safe.top + 6.0)
+        let bottomMargin = max(10.0, safe.bottom + 6.0)
+
+        headingBox.frame = CGRect(x: leftMargin, y: topMargin, width: 248, height: 68)
+        titleLabel.frame = CGRect(x: 10, y: 6, width: 228, height: 18)
+        coordinatesLabel.frame = CGRect(x: 10, y: 25, width: 228, height: 17)
+        noticeLabel.frame = CGRect(x: 10, y: 42, width: 228, height: 22)
+
+        crosshairLabel.frame = CGRect(x: b.midX - 16, y: b.midY - 16, width: 32, height: 32)
+
+        let stickSize = min(176.0, max(120.0, b.height * 0.34))
+        joystick.frame = CGRect(x: leftMargin,
+                                y: b.height - stickSize - max(18.0, bottomMargin + 8.0),
+                                width: stickSize,
+                                height: stickSize)
+
+        let actionSize = min(64.0, max(56.0, b.height * 0.145))
+        let rightX = b.width - rightMargin - 60.0
+        pauseButton.frame = CGRect(x: rightX, y: topMargin, width: 60, height: 60)
+        switchWeaponButton.frame = CGRect(x: rightX, y: topMargin + 60, width: 60, height: 60)
+        catalogButton.frame = CGRect(x: rightX - 64, y: topMargin + 60, width: 60, height: 60)
+        removeButton.frame = CGRect(x: rightX - 64, y: topMargin + 120, width: 60, height: 60)
+
+        let moveX = b.width - rightMargin - actionSize
+        crouchButton.frame = CGRect(x: moveX, y: b.height - bottomMargin - actionSize, width: actionSize, height: actionSize)
+        jumpButton.frame = CGRect(x: moveX, y: crouchButton.frame.minY - actionSize - 4, width: actionSize, height: actionSize)
+
+        weaponArt.frame = CGRect(x: b.width - rightMargin - 315, y: b.height - bottomMargin - 195, width: 200, height: 125)
+
+        // Bottom center strips
+        let btnW: CGFloat = 72
+        let btnH: CGFloat = 62
+        let stripY = b.height - bottomMargin - btnH
+
+        let spawnW = btnW * 3 + 8
+        spawnStrip.frame = CGRect(x: b.midX - spawnW * 0.5, y: stripY, width: spawnW, height: btnH)
+        buildPlaceButton.frame = CGRect(x: 0, y: 0, width: btnW, height: btnH)
+        turnLeftButton.frame = CGRect(x: btnW + 4, y: 0, width: btnW, height: btnH)
+        turnRightButton.frame = CGRect(x: (btnW + 4) * 2, y: 0, width: btnW, height: btnH)
+
+        let gravCount: CGFloat = toolsState.rotateHeldVisible ? 3 : 2
+        let gravW = btnW * gravCount + (gravCount - 1) * 4
+        gravityStrip.frame = CGRect(x: b.midX - gravW * 0.5, y: stripY, width: gravW, height: btnH)
+        grabButton.frame = CGRect(x: 0, y: 0, width: btnW, height: btnH)
+        freezeButton.frame = CGRect(x: btnW + 4, y: 0, width: btnW, height: btnH)
+        rotateHeldButton.frame = CGRect(x: (btnW + 4) * 2, y: 0, width: btnW, height: btnH)
+
+        let remW: CGFloat = 84 * 2 + 6
+        remoteStrip.frame = CGRect(x: b.midX - remW * 0.5, y: stripY, width: remW, height: btnH)
+        returnDroneButton.frame = CGRect(x: 0, y: 0, width: 84, height: btnH)
+        putAwayRemoteButton.frame = CGRect(x: 90, y: 0, width: 84, height: btnH)
+
+        interactionButton.frame = CGRect(x: moveX - 88, y: b.height - bottomMargin - 60, width: 82, height: 60)
+        dronePlaceButton.frame = CGRect(x: b.midX - 48, y: b.height - bottomMargin - 70, width: 96, height: 68)
+
+        altitudeContainer.frame = CGRect(x: moveX - 94, y: b.midY - 52, width: 84, height: 104)
+        flyUpButton.frame = CGRect(x: 0, y: 0, width: 84, height: 48)
+        flyDownButton.frame = CGRect(x: 0, y: 56, width: 84, height: 48)
+
+        if let popup = catalogPopup {
+            let popLeft = leftMargin + stickSize + 18
+            let popWidth = max(280, b.width - popLeft - rightMargin - 134)
+            let popHeight = max(180, b.height - topMargin - bottomMargin - 76)
+            popup.frame = CGRect(x: popLeft, y: topMargin + 54, width: popWidth, height: popHeight)
+        }
+
+        toastLabel.frame = CGRect(x: b.midX - 180, y: topMargin + 8, width: 360, height: 34)
+    }
+
+    // MARK: - Polling & State Sync
+
+    private func pollNativeState() {
+        weaponArt.tickAnimation()
+        guard let bridge = bridge else { return }
+
+        var state = [Float](repeating: 0, count: 14)
+        let count = state.withUnsafeMutableBufferPointer { buf -> Int in
+            guard let base = buf.baseAddress else { return 0 }
+            return Int(bridge.pollStatus(base, count: 14))
+        }
+        guard count >= 14 else { return }
+
+        let confirmedTool = SandboxHandTool(rawValue: Int(state[7])) ?? .handEmpty
+        if requestedTool == confirmedTool {
+            requestedTool = nil
+        }
+        if requestedTool == nil && confirmedTool != toolsState.tool {
+            toolsState.select(confirmedTool)
+        }
+        if confirmedTool == toolsState.tool {
+            toolsState.confirmHolding(state[6] > 0.5)
+        }
+
+        let stage = Int(state[4])
+        if stage == 6 {
+            let nativeType = Int32(state[9])
+            let nativeSurf = Int(state[10])
+            if let idx = SandboxBuildCatalog.entries.firstIndex(where: { $0.nativeType == nativeType }) {
+                if pendingSelection == idx {
+                    pendingSelection = nil
+                }
+                if pendingSelection == nil {
+                    selectedCatalogIndex = idx
+                    selectedSurface = SandboxBuildCatalog.entries[idx].defaultSurface
+                }
+            }
+            if [1, 2, 3, 5, 6].contains(nativeSurf) {
+                selectedSurface = nativeSurf
+            }
+        }
+
+        interactionCode = Int(state[11])
+        interactionButton.isHidden = (interactionCode <= 0) || wasInFpvMode
+        switch interactionCode {
+        case 6: interactionButton.caption = "Подключиться"
+        case 1: interactionButton.caption = "Открыть"
+        case 2: interactionButton.caption = "Закрыть"
+        case 3: interactionButton.caption = "Сесть"
+        case 4: interactionButton.caption = "Выйти"
+        default: interactionButton.caption = ""
+        }
+
+        freezeButton.caption = state[12] > 0.5 ? "Разморозить" : "Заморозить"
+
+        latestPosition = [state[0], state[1], state[2]]
+        coordinatesLabel.text = String(format: "X: %.1f   Y: %.1f   Z: %.1f", state[0], state[1], state[2])
+
+        flyingNow = state[3] > 0.5
+        altitudeContainer.isHidden = !flyingNow || wasInFpvMode
+
+        worldReady = (stage == 6) && introFinished
+        let unlocked = worldReady && appActive && !isPausedMenu
+        bridge.setGameplayReady(unlocked)
+        weaponArt.running = unlocked
+
+        loadingOverlay.isHidden = (worldReady && appActive)
+        loadingProgressView.isHidden = stage < 0
+        let pct = max(0, min(100, Int(state[8])))
+        loadingProgressView.progress = Float(pct) / 100.0
+
+        let stageText: String
+        switch stage {
+        case 0: stageText = "Подготовка графики…"
+        case 1: stageText = "Загрузка текстур…"
+        case 2: stageText = "Загрузка города и материалов…"
+        case 3: stageText = "Подготовка УАЗа и парковки…"
+        case 4: stageText = "Загрузка моделей на GPU…"
+        case 5: stageText = "Подготовка первого кадра…"
+        case 6: stageText = "Мир готов"
+        default: stageText = "Не удалось загрузить ресурсы мира.\nПерезапустите приложение."
+        }
+        loadingStatusLabel.text = (0...5).contains(stage) ? "\(stageText) \(pct)%" : stageText
+
+        let noticeCode = Int(state[5])
+        switch noticeCode {
+        case 1: noticeLabel.text = "Точка из конфига небезопасна — спавн перенесён."
+        case 2: noticeLabel.text = "Безопасная точка недоступна — освободите спавн."
+        case 3: noticeLabel.text = "Нет свободного места для УАЗа."
+        case 4: noticeLabel.text = "Игрок возвращён на безопасный спавн."
+        case 5: noticeLabel.text = "Нет безопасного места рядом для выхода."
+        default:
+            if flyingNow {
+                noticeLabel.text = "Сквозь стены · ↑ / ↓ — высота"
+            } else {
+                switch toolsState.tool {
+                case .handEmpty:
+                    noticeLabel.text = "Пустые руки"
+                case .spawnGun:
+                    noticeLabel.text = "Спавн-пушка: \(SandboxBuildCatalog.entries[selectedCatalogIndex].label)"
+                case .gravityGun:
+                    noticeLabel.text = toolsState.holding ? "Предмет захвачен" : "Грави-пушка: наведите на постройку"
+                case .deleteTool:
+                    noticeLabel.text = "Удаление своих построек"
+                case .droneRemote:
+                    noticeLabel.text = "Пульт FPV · подключение к дрону"
+                }
+            }
+        }
+
+        droneState = Int(state[13])
+        let inFpv = (3...5).contains(droneState)
+        if inFpv != wasInFpvMode {
+            wasInFpvMode = inFpv
+            if inFpv {
+                closeCatalogPopup()
+                toolWheel.cancel()
+                joystick.reset()
+                lookControl.reset()
+                showToast("Слева — высота и рыскание. Справа — наклоны. × — к пульту.")
+            } else {
+                fpvOverlay.reset()
+            }
+        }
+        fpvOverlay.isHidden = !inFpv
+        setNormalHudHidden(inFpv)
+        if !inFpv {
+            renderToolControls()
+            dronePlaceButton.isHidden = (droneState != 1)
+        }
+    }
+
+    private func setNormalHudHidden(_ hidden: Bool) {
+        let normalViews: [UIView] = [
+            lookControl, weaponArt, headingBox, crosshairLabel, joystick,
+            pauseButton, switchWeaponButton, catalogButton, removeButton,
+            jumpButton, crouchButton, spawnStrip, gravityStrip, remoteStrip,
+            interactionButton, dronePlaceButton, altitudeContainer
+        ]
+        if hidden {
+            for v in normalViews { v.isHidden = true }
+        } else {
+            lookControl.isHidden = false
+            headingBox.isHidden = false
+            crosshairLabel.isHidden = false
+            joystick.isHidden = false
+            pauseButton.isHidden = false
+            switchWeaponButton.isHidden = false
+            jumpButton.isHidden = false
+            crouchButton.isHidden = false
+            altitudeContainer.isHidden = !flyingNow
+        }
+    }
+
+    private func renderToolControls() {
+        guard !wasInFpvMode else { return }
+        let seated = (interactionCode == 4)
+        weaponArt.tool = toolsState.tool
+        weaponArt.isHidden = !(toolsState.viewmodelVisible && !seated)
+
+        catalogButton.isHidden = seated
+        spawnStrip.isHidden = !(toolsState.spawnVisible && !seated)
+        gravityStrip.isHidden = !(toolsState.gravityVisible && !seated)
+        remoteStrip.isHidden = !(toolsState.tool == .droneRemote && !seated)
+        removeButton.isHidden = !(toolsState.deleteVisible && !seated)
+        rotateHeldButton.isHidden = !(toolsState.rotateHeldVisible && !seated)
+
+        grabButton.symbol = toolsState.holding ? "release" : "grab"
+        grabButton.accessibilityLabel = toolsState.grabCaption
+        view.setNeedsLayout()
+    }
+
+    // MARK: - User Actions
+
+    private func selectTool(_ tool: SandboxHandTool) {
+        closeCatalogPopup()
+        requestedTool = tool
+        toolsState.select(tool)
+        bridge?.sendCommand(Int32(20 + tool.rawValue))
+        renderToolControls()
+    }
+
+    private func showToolActionSheet() {
+        guard worldReady, appActive, !isPausedMenu else { return }
+        let alert = UIAlertController(title: "Выбор инструмента", message: nil, preferredStyle: .alert)
+        for (idx, title) in SandboxToolWheelMath.names.enumerated() {
+            alert.addAction(UIAlertAction(title: title, style: .default) { [weak self] _ in
+                self?.selectTool(SandboxToolWheelMath.tools[idx])
+            })
+        }
+        alert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
+        present(alert, animated: true)
+    }
+
+    private func toggleCatalogPopup() {
+        if catalogPopup != nil {
+            closeCatalogPopup()
+            return
+        }
+        guard worldReady, appActive, !isPausedMenu, interactionCode != 4 else { return }
+        let popup = BuildCatalogPopupView()
+        popup.selectedCatalogIndex = selectedCatalogIndex
+        popup.onClose = { [weak self] in
+            self?.closeCatalogPopup()
+        }
+        popup.onSelectCatalogItem = { [weak self] index in
+            guard let self = self else { return }
+            self.requestedTool = .spawnGun
+            self.toolsState.select(.spawnGun)
+            let entry = SandboxBuildCatalog.entries[index]
+            self.bridge?.sendCommand(300 + entry.nativeType)
+            self.pendingSelection = index
+            self.selectedCatalogIndex = index
+            self.selectedSurface = entry.defaultSurface
+            self.closeCatalogPopup()
+            self.renderToolControls()
+        }
+        popup.onTakeFpvRemote = { [weak self] in
+            self?.selectTool(.droneRemote)
+        }
+        popup.onTakeFpvDrone = { [weak self] in
+            self?.bridge?.sendCommand(40)
+            self?.closeCatalogPopup()
+        }
+        hudOverlay.addSubview(popup)
+        catalogPopup = popup
+        view.setNeedsLayout()
+    }
+
+    private func closeCatalogPopup() {
+        catalogPopup?.removeFromSuperview()
+        catalogPopup = nil
+    }
+
+    private func setMenuPaused(_ value: Bool) {
+        toolWheel.cancel()
+        closeCatalogPopup()
+        isPausedMenu = value
+        joystick.reset()
+        lookControl.reset()
+        bridge?.setVerticalInput(0)
+        bridge?.setGameplayReady(worldReady && appActive && !isPausedMenu)
+    }
+
+    private func showPauseMenu() {
+        guard worldReady else { return }
+        setMenuPaused(true)
+        let flyTitle = flyingNow ? "Выключить полёт" : "Включить полёт"
+        let alert = UIAlertController(title: "Пауза", message: nil, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "Продолжить", style: .cancel) { [weak self] _ in
+            self?.setMenuPaused(false)
+        })
+        alert.addAction(UIAlertAction(title: flyTitle, style: .default) { [weak self] _ in
+            self?.setMenuPaused(false)
+            self?.bridge?.sendCommand(6)
+        })
+        alert.addAction(UIAlertAction(title: "На дорогу", style: .default) { [weak self] _ in
+            self?.setMenuPaused(false)
+            self?.bridge?.sendCommand(7)
+        })
+        alert.addAction(UIAlertAction(title: "Восстановить УАЗ", style: .default) { [weak self] _ in
+            self?.setMenuPaused(false)
+            self?.bridge?.sendCommand(34)
+        })
+        alert.addAction(UIAlertAction(title: "На спавн", style: .default) { [weak self] _ in
+            self?.setMenuPaused(false)
+            self?.bridge?.sendCommand(35)
+        })
+        present(alert, animated: true)
+    }
+
+    @objc private func copyCoordinatesToClipboard() {
+        let startFly = abs(latestPosition[1] - 1.7) > 0.01
+        let json = String(format: "{\"enabled\":true,\"position\":{\"x\":%.4f,\"y\":%.4f,\"z\":%.4f},\"yawDegrees\":0,\"startFlying\":%@}",
+                          latestPosition[0], latestPosition[1], latestPosition[2], startFly ? "true" : "false")
+        UIPasteboard.general.string = json
+        showToast("Координаты для spawn.json скопированы")
+    }
+
+    private func showToast(_ message: String) {
+        toastHideWorkItem?.cancel()
+        toastLabel.text = "  \(message)  "
+        toastLabel.isHidden = false
+        hudOverlay.bringSubviewToFront(toastLabel)
+        let work = DispatchWorkItem { [weak self] in
+            self?.toastLabel.isHidden = true
+        }
+        toastHideWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.8, execute: work)
     }
 }

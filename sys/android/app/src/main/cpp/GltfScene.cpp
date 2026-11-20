@@ -148,7 +148,8 @@ bool Scene::load(const std::string &path,const ReadFile &read,std::string &diagn
    size_t offset=0,length=bytes.size();
    if(bytes.size()>20&&std::memcmp(bytes.data(),"glTF",4)==0){uint32_t n=0;std::memcpy(&n,bytes.data()+12,4);offset=20;length=n;}
    if(offset+length<=bytes.size()){
-    auto j=nlohmann::json::parse(bytes.begin()+offset,bytes.begin()+offset+length);
+    const char* jsonBegin=reinterpret_cast<const char*>(bytes.data()+offset);
+    auto j=nlohmann::json::parse(jsonBegin,jsonBegin+length);
     if(j.contains("materials")&&j.contains("textures")){
      for(const auto&m:j["materials"])if(m.contains("pbrMetallicRoughness")&&m["pbrMetallicRoughness"].contains("baseColorTexture")){
       int texture=m["pbrMetallicRoughness"]["baseColorTexture"]["index"].get<int>();

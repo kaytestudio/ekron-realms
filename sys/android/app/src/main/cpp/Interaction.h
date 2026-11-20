@@ -38,6 +38,7 @@ inline std::optional<physics::Vec3> carExit(const World&w,int index,const physic
   float x=b.x+offset.x,z=b.z+offset.z;if(x<lo[0]+.4f||x>hi[0]-.4f||z<lo[2]+.4f||z>hi[2]-.4f)continue;
   float floor=std::max(city.groundHeight(x,z,b.y+2,lo[1]-1),built.groundHeight(x,z,b.y+2,lo[1]-1));float y=floor+1.701f;
   if(std::isfinite(y)&&!player.overlaps(city,x,y,z)&&!player.overlaps(built,x,y,z))return physics::Vec3{x,y,z};
- }return {};
+ }
+ return {};
 }
 }
