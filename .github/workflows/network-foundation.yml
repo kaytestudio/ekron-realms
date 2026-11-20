@@ -1,0 +1,26 @@
+name: Networking foundation
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'server/**'
+      - 'tests/network/**'
+      - '.github/workflows/network-foundation.yml'
+  pull_request:
+    paths:
+      - 'server/**'
+      - 'tests/network/**'
+      - '.github/workflows/network-foundation.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  tls-relay-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Run protocol and TLS tests
+        run: python3 -m unittest discover -s tests/network -v
