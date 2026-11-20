@@ -6,8 +6,8 @@ object BuildCatalog {
     // Vehicle stays available under construction; no invented weapons/drones.
     fun indicesForCategory(category: Int): List<Int> = entries.indices.filter {
         when(category) {
-            0 -> entries[it].nativeType !in 4..7
-            1 -> entries[it].nativeType in 4..7
+            0 -> entries[it].nativeType !in setOf(4,5,6,7,13,18,22,25,28)
+            1 -> entries[it].nativeType in setOf(4,5,6,7,13,18,22,25,28)
             else -> false
         }
     }
@@ -25,6 +25,22 @@ object BuildCatalog {
         CatalogItem(10, "Кирпичный блок", "textures/brick.png",2),
         CatalogItem(11, "Металлический блок", "textures/rust.png",3),
         CatalogItem(8, "УАЗ-469", "catalog/rendered/uaz.webp",-1),
-        CatalogItem(12, "Куб 1×1×1", "textures/concrete.png",1)
+        CatalogItem(12, "Куб 1×1×1", "textures/concrete.png",1),
+        CatalogItem(13, "Деревянный ящик", "textures/wood.png",5),
+        CatalogItem(14, "Металлическая бочка", "textures/rust.png",3),
+        CatalogItem(15, "Деревянный поддон", "textures/wood.png",5),
+        CatalogItem(16, "Связка стальных труб", "textures/rust.png",3),
+        CatalogItem(17, "Строительный брус", "textures/wood.png",5),
+        CatalogItem(18, "Мешок цемента", "textures/concrete.png",1),
+        CatalogItem(19, "Строительные леса", "textures/rust.png",3),
+        CatalogItem(20, "Дорожный конус", "textures/rust.png",3),
+        CatalogItem(21, "Уличная урна", "textures/rust.png",3),
+        CatalogItem(22, "Уличная скамейка", "textures/wood.png",5),
+        CatalogItem(23, "Люк", "textures/rust.png",3),
+        CatalogItem(24, "Бетонный барьер", "textures/concrete.png",1),
+        CatalogItem(25, "Шина", "textures/rust.png",3),
+        CatalogItem(26, "Столб ограждения", "textures/rust.png",3),
+        CatalogItem(27, "Стальная балка", "textures/rust.png",3),
+        CatalogItem(28, "Мусорный контейнер", "textures/rust.png",3)
     )
 }

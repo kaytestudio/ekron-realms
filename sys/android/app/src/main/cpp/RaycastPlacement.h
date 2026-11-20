@@ -10,7 +10,7 @@ public:
   return shown; // Preserve the displayed transform, do not raycast a new one on tap.
  }
  static bool valid(const World&w,const Object&o,const physics::CollisionMesh&city,const physics::CollisionMesh&built,const std::array<float,3>&lo,const std::array<float,3>&hi){
-  if(o.type<0||o.type>12||!std::isfinite(o.y)||!std::isfinite(o.x)||!std::isfinite(o.z))return false;
+   if(o.type<0||o.type>=kObjectTypeCount||!std::isfinite(o.y)||!std::isfinite(o.x)||!std::isfinite(o.z))return false;
   auto b=World::bounds(o);physics::Vec3 center{b.x,b.y,b.z},half{b.w/2,b.h/2,b.d/2};
   if(b.x-half.x<lo[0]||b.x+half.x>hi[0]||b.z-half.z<lo[2]||b.z+half.z>hi[2]||o.y<lo[1]-.1f||o.y+b.h>hi[1]+5)return false;
   // Indoor placement uses actual capsule clearance, not the old blanket two-metre exclusion.
