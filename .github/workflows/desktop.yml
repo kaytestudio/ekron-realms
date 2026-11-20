@@ -73,7 +73,7 @@ jobs:
             test -x build/ekron-realms &&
             test -x build/realms-launcher
           } 2>&1 | tee /tmp/linux-build.log || {
-            tail -n 30 /tmp/linux-build.log | while IFS= read -r line; do
+            tail -n 8 /tmp/linux-build.log | while IFS= read -r line; do
               [ -n "$line" ] && echo "::error::[linux-build] $line"
             done
             exit 1
@@ -140,7 +140,7 @@ jobs:
               -DENABLE_FPC_CLIENT=ON &&
             cmake --build build -j"$(sysctl -n hw.ncpu)"
           } 2>&1 | tee /tmp/macos-build.log || {
-            tail -n 30 /tmp/macos-build.log | while IFS= read -r line; do
+            tail -n 8 /tmp/macos-build.log | while IFS= read -r line; do
               [ -n "$line" ] && echo "::error::[macos-build] $line"
             done
             exit 1
@@ -172,6 +172,23 @@ jobs:
             chmod 755 "$APP_BUNDLE/Contents/Frameworks/$DYLIB_NAME"
             install_name_tool -id "@rpath/$DYLIB_NAME" "$APP_BUNDLE/Contents/Frameworks/$DYLIB_NAME"
             install_name_tool -change "$SDL2_REF" "@rpath/$DYLIB_NAME" "$APP_BUNDLE/Contents/MacOS/EkronRealms"
+
+            # Homebrew sdl2-compat dynamically links or dlopens libSDL3.0.dylib; bundle it too if present
+            SDL3_REF="$(otool -L "$APP_BUNDLE/Contents/Frameworks/$DYLIB_NAME" | awk '/libSDL3/{print $1; exit}')"
+            if [ -n "$SDL3_REF" ] && [ -f "$SDL3_REF" ]; then
+              SDL3_NAME="$(basename "$SDL3_REF")"
+              cp -L "$SDL3_REF" "$APP_BUNDLE/Contents/Frameworks/$SDL3_NAME"
+              chmod 755 "$APP_BUNDLE/Contents/Frameworks/$SDL3_NAME"
+              install_name_tool -id "@rpath/$SDL3_NAME" "$APP_BUNDLE/Contents/Frameworks/$SDL3_NAME"
+              install_name_tool -change "$SDL3_REF" "@rpath/$SDL3_NAME" "$APP_BUNDLE/Contents/Frameworks/$DYLIB_NAME"
+            elif brew --prefix sdl3 >/dev/null 2>&1; then
+              SDL3_DIR="$(brew --prefix sdl3)/lib"
+              if [ -f "$SDL3_DIR/libSDL3.0.dylib" ]; then
+                cp -L "$SDL3_DIR/libSDL3.0.dylib" "$APP_BUNDLE/Contents/Frameworks/libSDL3.0.dylib"
+                chmod 755 "$APP_BUNDLE/Contents/Frameworks/libSDL3.0.dylib"
+                install_name_tool -id "@rpath/libSDL3.0.dylib" "$APP_BUNDLE/Contents/Frameworks/libSDL3.0.dylib"
+              fi
+            fi
           fi
 
           codesign --force --deep --sign - "$APP_BUNDLE"
