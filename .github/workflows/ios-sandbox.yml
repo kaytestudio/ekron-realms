@@ -98,6 +98,7 @@ jobs:
           run_test ekron-indoor-test -O2 tests/native/indoor_placement_test.cpp
           run_test ekron-dynamics-test -O2 tests/native/object_dynamics_test.cpp
           run_test ekron-raycast-test -O2 tests/native/raycast_placement_test.cpp
+          run_test ekron-raycast-watertight-test -O2 tests/native/raycast_watertight_test.cpp
           run_test ekron-tools-test -O2 tests/native/tool_interaction_test.cpp
           run_test ekron-fence-test -O2 tests/native/fence_collision_test.cpp
           run_test ekron-physics-test -O2 tests/native/player_physics_test.cpp
