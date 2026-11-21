@@ -37,7 +37,8 @@ struct BootOptions {
     MapChangedFn onMapChanged;
 };
 
-// Cvars shared by every platform (sensitivity, m_invert, name...).
+// Cvars shared by every platform (sensitivity, m_invert, name, s_volume,
+// s_musicvolume...).
 void registerSharedCvars(Engine &engine, const std::string &platform);
 
 // Quake 2 style map commands shared by every host:

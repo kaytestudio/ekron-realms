@@ -21,6 +21,9 @@ void registerSharedCvars(Engine &engine, const std::string &platform) {
     engine.registerCvar("sensitivity", "3", REALMS_CVAR_ARCHIVE);
     engine.registerCvar("m_invert", "0", REALMS_CVAR_ARCHIVE);
     engine.registerCvar("name", "Player", REALMS_CVAR_ARCHIVE | REALMS_CVAR_USERINFO);
+    // Game sound (sys/android/app/src/main/cpp/SoundSystem): master and music volume, 0..1.
+    engine.registerCvar("s_volume", "0.8", REALMS_CVAR_ARCHIVE);
+    engine.registerCvar("s_musicvolume", "0.4", REALMS_CVAR_ARCHIVE);
     engine.registerCvar("realms_platform", platform.empty() ? "unknown" : platform, REALMS_CVAR_NOSET);
     engine.forceSetCvar("realms_platform", platform.empty() ? "unknown" : platform);
 }

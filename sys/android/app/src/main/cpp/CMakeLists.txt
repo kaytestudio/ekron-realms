@@ -8,7 +8,8 @@ project(realms LANGUAGES C CXX)
 # jniLibs at runtime when present; otherwise the C++ reference core runs.
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../realms ${CMAKE_CURRENT_BINARY_DIR}/realms-engine)
 
-add_library(realms SHARED main.cpp AndroidOut.cpp Renderer.cpp RealmsAndroid.cpp TextureLoader.cpp ImageDecode.cpp GltfScene.cpp GltfRenderer.cpp MapSession.cpp AndroidMapMode.cpp)
+add_library(realms SHARED main.cpp AndroidOut.cpp Renderer.cpp RealmsAndroid.cpp TextureLoader.cpp ImageDecode.cpp GltfScene.cpp GltfRenderer.cpp MapSession.cpp AndroidMapMode.cpp
+    SoundDecode.cpp SoundMixer.cpp SoundDirector.cpp SoundSystem.cpp AndroidSound.cpp)
 target_compile_features(realms PRIVATE cxx_std_17)
 find_package(game-activity REQUIRED CONFIG)
-target_link_libraries(realms realms_engine game-activity::game-activity EGL GLESv3 android log)
+target_link_libraries(realms realms_engine game-activity::game-activity EGL GLESv3 android log aaudio)

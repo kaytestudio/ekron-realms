@@ -20,6 +20,7 @@
   - **Gravity Gun**: Grab, carry, orient, throw, and freeze/unfreeze dynamic objects in place.
   - **FPV Quadcopter & Live Controller Monitor**: Deployable FPV drone (`fpv_drone.glb`) with Mode-2 flight physics, return-to-home, FPV/chase camera switching, and an offscreen `480×270` live video feed rendered onto the handheld 3D controller (`chasing_m2_rc_underwater_drone_remote.glb`).
   - **Contextual World Interactions**: Enter and recover the **UAZ-469** (`uaz_469_1973_classic.glb`), sit on furniture, interact with doors, toggle `noclip` flight, teleport back to road/spawn, and export player coordinates as `config/spawn.json`.
+- **Sound & Music (`.ogg`, CC0)**: Footsteps that follow the surface (concrete, wood, grass, carpet, snow), jump and landing, gravity-gun grab/throw/freeze, spawn and delete, doors, the UAZ engine (pitch follows speed) and its doors, FPV drone propellers (positional, pitch follows throttle), city street ambience, menu clicks and a quiet music track between silences. One shared C++ mixer (`stb_vorbis` decoding) plays through SDL2 on desktop, AAudio on Android and AVAudioEngine on iOS. Volume is `s_volume` / `s_musicvolume` (saved to `config/realms.cfg`); the console has `play <sound>`, `soundlist`, `stopsound` and `music`. All sounds are CC0 (Kenney, domasx2, FreePD, Freesound); see [`sounds/LICENSE.md`](sys/android/app/src/main/assets/sounds/LICENSE.md), rebuilt by `tools/build_sounds.py`.
 - **In-Game Store (Online Play)**: An in-game shop opened with **`G`** where players spend **gold coins** earned while playing on **weapon skins** (cosmetic gravity-gun beam tints) and **unlocks** (double coins, coin bonus, golden/neon crosshair, camo HUD, start-with-flight). The economy is server-authoritative when connected to the presence relay (`DesktopOnlineClient` + `sandbox_relay.py`) and falls back to a persisted local wallet (`store.json`) offline.
 - **Three UI Languages**: English, Russian (Русский), and European Portuguese (Português (Portugal)) on Desktop, Android, and iOS. Desktop follows `--lang` / `EKRON_LANG`, then the language saved from the pause menu, then the system locale; switch live with **`L`** or the pause menu's *Language* button. Android and iOS follow the system or per-app language setting (also reachable from the in-game pause menu).
 - **Experimental Online Player Presence**: Optional self-hosted TLS 1.2+ relay (`server/sandbox_relay.py`) with strict certificate/hostname verification and shared-token authentication (`EKRON_JOIN_TOKEN`) that renders live remote player markers on Android, iOS, and Desktop *(player presence only; building, physics, and vehicles are not yet synchronized)*.
@@ -146,7 +147,7 @@ xcodebuild archive \
 | `V` / `H` | Toggle FPV/chase drone camera / Return FPV drone home |
 | `N` / `P` / `F11` / `Esc` | Toggle `noclip` flight / Copy `spawn.json` / Fullscreen / Pause menu |
 | `G` / `L` | Open the in-game store / Cycle UI language (English → Русский → Português) |
-| `` ` `` | Realms console (Quake 2 style: `set`, `seta`, `alias`, `exec`, `cvarlist`, `cmdlist`, `noclip`, `respawn`, `quit`…) |
+| `` ` `` | Realms console (Quake 2 style: `set`, `seta`, `alias`, `exec`, `cvarlist`, `cmdlist`, `noclip`, `respawn`, `play`, `soundlist`, `s_volume`, `quit`…) |
 
 ### Command-Line Flags
 
@@ -171,7 +172,8 @@ The `REALMS_CORE=pascal|native|auto` environment variable selects the Realms cor
 
 ```bash
 # Run desktop CTest suite (HUD layout, shop, localization, Realms bridge conformance
-# for the C++ and Free Pascal cores, console, --engine-info, --version, --headless-smoke)
+# for the C++ and Free Pascal cores, console, sound decoding/mixing, --engine-info,
+# --version, --headless-smoke)
 ctest --test-dir build --output-on-failure -V
 
 # Validate Android and iOS translations (English, Russian, Portuguese (Portugal))
@@ -185,7 +187,7 @@ python3 tools/validate_ios_shaders.py
 python3 -m unittest discover -s tests/network -v
 ```
 
-Standalone native C++17 unit tests covering rigid-body physics, swept floor/CCD collisions, indoor/raycast placement, glTF loading, FPV drone simulation, HUD scaling, and online presence live under [`tests/native/`](tests/native) and run automatically in CI.
+Standalone native C++17 unit tests covering rigid-body physics, swept floor/CCD collisions, indoor/raycast placement, glTF loading, FPV drone simulation, sound (every shipped `.ogg` decodes and is credited; mixer and game-event director), HUD scaling, and online presence live under [`tests/native/`](tests/native) and run automatically in CI.
 
 ---
 
@@ -206,7 +208,7 @@ ekron-realms/
 ├── server/                     # Experimental Python TLS 1.2+ online presence relay
 ├── Projects/                   # Free Pascal launcher (realms_launcher.lpr) and Lazarus / Delphi projects
 ├── tests/                      # C++17 simulation/physics tests (tests/native), Realms bridge tests (tests/realms) & TLS relay tests (tests/network)
-├── tools/                      # Procedural texture generator, catalog icon renderer, and shader validators
+├── tools/                      # Procedural texture generator, catalog icon renderer, sound pack builder, and shader validators
 └── docs/                       # Sandbox design notes and cross-platform HUD verification guide
 ```
 
@@ -237,4 +239,4 @@ Please review [`CONTRIBUTING.md`](CONTRIBUTING.md) and our [`CODE_OF_CONDUCT.md`
 
 ## License
 
-Ekron Realms is free and open-source software licensed under the **GNU Affero General Public License v3.0 (`AGPL-3.0`)** (with individual vendored third-party libraries such as `stb_image` and `tinygltf` under their respective permissive licenses). See [`LICENSE`](LICENSE) for the full license text.
+Ekron Realms is free and open-source software licensed under the **GNU Affero General Public License v3.0 (`AGPL-3.0`)** (with individual vendored third-party libraries such as `stb_image`, `stb_vorbis` and `tinygltf` under their respective permissive licenses). See [`LICENSE`](LICENSE) for the full license text.

@@ -13,6 +13,7 @@
 
 #include "CityGraffiti.h"
 #include "DebugPlayer.h"
+#include "DesktopAudio.h"
 #include "DesktopConsole.h"
 #include "DesktopMapMode.h"
 #include "DesktopRenderer.h"
@@ -20,6 +21,8 @@
 #include "DesktopOnlineClient.h"
 #include "FpvDrone.h"
 #include "ShopCatalog.h"
+#include "SoundSnapshot.h"
+#include "SoundSystem.h"
 #include "GravityBeam.h"
 #include "Interaction.h"
 #include "LevelPlacement.h"
@@ -45,6 +48,7 @@
 #include <fstream>
 #include <future>
 #include <iostream>
+#include <iterator>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -726,6 +730,24 @@ int main(int argc, char **argv) {
     if (onlineNameSet) engine.setCvar("name", onlineName);
     ekron::desktop::DesktopConsole console;
     ekron::desktop::DesktopMapMode mapMode;
+
+    // Game sound: assets/sounds (CC0, credited in LICENSE.md there), decoded
+    // on a worker thread while the rest loads. No audio device = silence.
+    ekron::audio::SoundSystem sound;
+    sound.registerCommands(engine);
+    sound.loadAsync([assetRoot](const std::string &path, std::vector<uint8_t> &out) {
+        std::ifstream f(fs::path(assetRoot) / path, std::ios::binary);
+        if (!f) return false;
+        out.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+        return true;
+    });
+    ekron::desktop::DesktopAudio audio;
+    {
+        std::string audioInfo;
+        audio.open(sound.mixer(), audioInfo);
+        engine.print(audioInfo);
+    }
+    bool lastPauseOpen = false, lastCatalogOpen = false, lastShopOpen = false;
     float sandboxYaw = 0.0f, sandboxPitch = 0.0f; // camera to restore after killserver
 
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
@@ -1179,6 +1201,9 @@ int main(int argc, char **argv) {
         while (SDL_PollEvent(&ev)) {
             if (ev.type == SDL_QUIT) {
                 running = false;
+            } else if (ev.type == SDL_WINDOWEVENT && (ev.window.event == SDL_WINDOWEVENT_MINIMIZED ||
+                                                      ev.window.event == SDL_WINDOWEVENT_RESTORED)) {
+                sound.mixer().setPaused(ev.window.event == SDL_WINDOWEVENT_MINIMIZED);
             } else if (console.handleEvent(ev, engine)) {
                 syncMouseCapture();
             } else if (ev.type == SDL_KEYDOWN && !ev.key.repeat) {
@@ -1308,6 +1333,7 @@ int main(int argc, char **argv) {
                     for (int idx = 0; idx < kPauseMenuButtons; ++idx) {
                         Rect btn{px + 28.0f, py + 62.0f + float(idx) * 42.0f, pw - 56.0f, 34.0f};
                         if (btn.contains(mx, my)) {
+                            sound.ui("ui_click");
                             if (idx == 0) { pauseOpen = false; syncMouseCapture(); }
                             else if (idx == 1) {
                                 if (mapMode.active()) toggleNoclip();
@@ -1338,6 +1364,7 @@ int main(int argc, char **argv) {
                     const float tabW = (cw - 32.0f - 3.0f * 8.0f) / 4.0f;
                     for (size_t t = 0; t < cats.size(); ++t) {
                         if (Rect{cx + 16.0f + float(t) * (tabW + 8.0f), cy + 52.0f, tabW, 34.0f}.contains(mx, my)) {
+                            sound.ui("ui_click");
                             selectedCategory = int(t);
                         }
                     }
@@ -1348,6 +1375,7 @@ int main(int argc, char **argv) {
                     for (size_t k = 0; k < items.size(); ++k) {
                         Rect card{cx + 16.0f + float(k) * (cardW + 12.0f), cy + 100.0f, cardW, cardH};
                         if (card.contains(mx, my)) {
+                            sound.ui("ui_click");
                             selectBuildItem(items[k].itemType);
                             break;
                         }
@@ -1368,6 +1396,7 @@ int main(int argc, char **argv) {
                     const float stabW = (sw - 32.0f - 8.0f) / 2.0f;
                     for (size_t t = 0; t < scats.size(); ++t) {
                         if (Rect{sx + 16.0f + float(t) * (stabW + 8.0f), sy + 60.0f, stabW, 32.0f}.contains(mx, my)) {
+                            sound.ui("ui_click");
                             selectedShopCategory = int(t);
                         }
                     }
@@ -1383,6 +1412,7 @@ int main(int argc, char **argv) {
                         const int id = sitems[k].id;
                         if (shop.owns(id)) {
                             if (sitems[k].kind == ekron::desktop::ShopKind::Skin && shop.equipSkin(id)) {
+                                sound.ui("ui_confirm");
                                 shopDirty = true;
                                 shop.save(storePath);
                                 showToast(i18n::format(Str::ToastSkinApplied, {ekron::desktop::shopItemName(sitems[k])}));
@@ -1393,12 +1423,14 @@ int main(int argc, char **argv) {
                         } else {
                             std::string reason;
                             if (shop.tryBuy(id, reason)) {
+                                sound.ui("ui_confirm");
                                 grantStartWithFlight();
                                 shopDirty = true;
                                 pendingShopToastReq = id; // local echo for the toast
                                 shop.save(storePath);
                                 showToast(i18n::format(Str::ToastPurchased, {ekron::desktop::shopItemName(sitems[k])}));
                             } else {
+                                sound.ui("ui_error");
                                 showToast(i18n::localizeShopError(reason));
                             }
                         }
@@ -1470,6 +1502,7 @@ int main(int argc, char **argv) {
             const std::string target = *pendingMapChange;
             pendingMapChange.reset();
             const bool wasActive = mapMode.active();
+            sound.director().reset();
             if (target.empty()) {
                 if (wasActive) {
                     mapMode.close(gl, renderer);
@@ -1628,6 +1661,29 @@ int main(int argc, char **argv) {
 
             tools.pull(world, dt, cityModel.scene().collision.get());
         }
+
+        // Sound: the listener is the camera (the drone while piloting it).
+        sound.syncCvars(engine);
+        if (mapMode.active()) {
+            sound.director().map(ekron::audio::mapFrame(!pauseOpen, engine, mapMode.walker(), world.yaw), dt, sound);
+        } else {
+            ekron::audio::Listener ear;
+            const physics::Vec3 earAt = drone.piloting() ? drone.camera() : physics::Vec3{world.x, world.y, world.z};
+            ear.x = earAt.x;
+            ear.y = earAt.y;
+            ear.z = earAt.z;
+            ear.yaw = drone.piloting() ? drone.viewYaw() : world.yaw;
+            sound.director().sandbox(ekron::audio::sandboxFrame(!pauseOpen, ear, world, tools, drone, player, seatedCar,
+                                                                flying, droneThrottle),
+                                     dt, sound);
+        }
+        if ((pauseOpen && !lastPauseOpen) || (catalogOpen && !lastCatalogOpen) || (shopOpen && !lastShopOpen))
+            sound.ui("ui_open");
+        else if ((!pauseOpen && lastPauseOpen) || (!catalogOpen && lastCatalogOpen) || (!shopOpen && lastShopOpen))
+            sound.ui("ui_close");
+        lastPauseOpen = pauseOpen;
+        lastCatalogOpen = catalogOpen;
+        lastShopOpen = shopOpen;
 
         // Autosave debounce
         if (saveDirty) {
@@ -2148,6 +2204,8 @@ int main(int argc, char **argv) {
         saved.save(savePath);
     }
 
+    audio.close();
+    sound.unregisterCommands(engine);
     droneModel.release(gl);
     remoteModel.release(gl);
     carModel.release(gl);

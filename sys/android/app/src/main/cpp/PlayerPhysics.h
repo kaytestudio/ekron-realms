@@ -61,6 +61,7 @@ public:
     void reset(float x,float eyeY,float z){feet_={x,eyeY-eye_,z};velocity_=accumulator_=0;camera_=eyeY;grounded_=false;initialized_=true;jump_=false;}
     void jump(){jump_=true;}
     bool grounded()const{return grounded_;}
+    float verticalVelocity()const{return velocity_;}
     Vec3 feet()const{return feet_;}
     float eyeHeight()const{return eye_;}
     bool overlaps(const CollisionMesh&mesh,float x,float eyeY,float z)const{return contacts(mesh,{x,eyeY-1.7f,z},1.8f);}
