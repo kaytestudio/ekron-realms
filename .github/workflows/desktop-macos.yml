@@ -85,7 +85,7 @@ jobs:
               -DENABLE_PASCAL_CORE=ON &&
             cmake --build build -j"$(sysctl -n hw.ncpu)"
           } 2>&1 | tee /tmp/macos-build.log || {
-            tail -n 8 /tmp/macos-build.log | while IFS= read -r line; do
+            { grep -B2 -A6 -E 'Undefined symbols|error:|Error:' /tmp/macos-build.log | head -n 40; tail -n 8 /tmp/macos-build.log; } | while IFS= read -r line; do
               [ -n "$line" ] && echo "::error::[macos-build] $line"
             done
             exit 1
