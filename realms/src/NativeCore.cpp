@@ -5,9 +5,12 @@
 // packaged for a platform yet, and so both implementations can be checked
 // against one conformance suite (tests/realms). Behaviour mirrors Quake 2
 // qcommon/cvar.c, cmd.c and files.c; keep it in lock-step with rlm_cvar.pas,
-// rlm_cmd.pas and rlm_files.pas.
+// rlm_cmd.pas and rlm_files.pas; the collision model (cmodel.c) lives in
+// NativeCModel.cpp next to rlm_cmodel.pas.
 
 #include "realms/realms_bridge.h"
+
+#include "NativeCModel.h"
 
 #include <algorithm>
 #include <cctype>
@@ -658,6 +661,7 @@ void resetState() {
     s.aliasCount = 0;
     s.argv.clear();
     s.args.clear();
+    realms_native::cmUnloadMap();
 }
 
 // ---------------------------------------------------------- ABI shims ---
@@ -756,6 +760,48 @@ int32_t coreFsLoad(const char *path, void **outData, int32_t *outSize) {
 void coreFsFree(void *data) { std::free(data); }
 int32_t coreFsPakCount() { return int32_t(S().packs.size()); }
 
+int32_t coreMapLoad(const char *path) {
+    const std::string name = normalizePath(str(path));
+    if (name.empty()) {
+        realms_native::cmUnloadMap();
+        return 1;
+    }
+    realms_native::cmUnloadMap();
+    void *data = nullptr;
+    int32_t size = 0;
+    if (!fsLoadFile(name, &data, &size)) {
+        comWarning("map_load: couldn't load " + name);
+        return 0;
+    }
+    std::string error;
+    const bool ok = realms_native::cmLoadMap(name, static_cast<const unsigned char *>(data), size_t(size), error);
+    std::free(data);
+    if (!ok) {
+        comWarning("map_load: " + name + ": " + error);
+        return 0;
+    }
+    return 1;
+}
+int32_t coreMapInfo(RealmsMapInfo *out) { return realms_native::cmMapInfo(out); }
+int32_t coreMapEntities(char *buffer, int32_t size) { return realms_native::cmEntities(buffer, size); }
+int32_t coreMapModel(int32_t index, float *mins, float *maxs, float *origin, int32_t *headnode) {
+    return realms_native::cmModel(index, mins, maxs, origin, headnode);
+}
+int32_t coreMapHeadnodeForBox(const float *mins, const float *maxs) {
+    return realms_native::cmHeadnodeForBox(mins, maxs);
+}
+int32_t coreMapPointContents(const float *p, int32_t headnode, const float *origin, const float *angles) {
+    return realms_native::cmPointContents(p, headnode, origin, angles);
+}
+void coreMapBoxTrace(const float *start, const float *end, const float *mins, const float *maxs, int32_t headnode,
+                     int32_t brushmask, const float *origin, const float *angles, RealmsTrace *out) {
+    realms_native::cmBoxTrace(start, end, mins, maxs, headnode, brushmask, origin, angles, out);
+}
+int32_t coreMapPointLeaf(const float *p) { return realms_native::cmPointLeaf(p); }
+int32_t coreMapLeafInfo(int32_t leaf, int32_t *contents, int32_t *cluster, int32_t *area) {
+    return realms_native::cmLeafInfo(leaf, contents, cluster, area);
+}
+
 const RealmsCoreApi kNativeApi = {
     sizeof(RealmsCoreApi),
     REALMS_BRIDGE_VERSION,
@@ -782,6 +828,15 @@ const RealmsCoreApi kNativeApi = {
     coreFsLoad,
     coreFsFree,
     coreFsPakCount,
+    coreMapLoad,
+    coreMapInfo,
+    coreMapEntities,
+    coreMapModel,
+    coreMapHeadnodeForBox,
+    coreMapPointContents,
+    coreMapBoxTrace,
+    coreMapPointLeaf,
+    coreMapLeafInfo,
 };
 
 } // namespace

@@ -13,6 +13,7 @@ endif()
 add_library(realms_engine STATIC
     "${CMAKE_CURRENT_LIST_DIR}/src/Engine.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/src/NativeCore.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/src/NativeCModel.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/src/SandboxBoot.cpp"
 )
 target_include_directories(realms_engine PUBLIC "${CMAKE_CURRENT_LIST_DIR}/include")

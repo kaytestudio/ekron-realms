@@ -12,11 +12,12 @@ Android and iOS**.
                  │ realms::Engine  (realms/include/realms/Engine.h)
                  │ realms::sandbox (SandboxBoot.h: shared cvars + boot order)
  ┌───────────────┴──────────── C ABI ──────────────────────┐
- │ realms_bridge.h: RealmsHostApi  ⇄  RealmsCoreApi (v1)   │
+ │ realms_bridge.h: RealmsHostApi  ⇄  RealmsCoreApi (v2)   │
  └───────┬──────────────────────────────────┬──────────────┘
          │ dlopen / static link             │ built in
  ┌───────┴───────────────┐        ┌─────────┴────────────┐
  │ librealms_core         │        │ NativeCore.cpp        │
+ │ (rlm_*.pas)            │        │ NativeCModel.cpp      │
  │ Free Pascal            │        │ C++ reference core    │
  │ "pascal-quake2"        │        │ "native-cpp"          │
  └────────────────────────┘        └───────────────────────┘
@@ -32,8 +33,32 @@ These subsystems are ported from Quake 2 `qcommon` in both cores, and both cores
 | Console variables: ARCHIVE, USERINFO, SERVERINFO, NOSET, LATCH, plus Realms' CHEAT flag | `cvar.c` | `rlm_cvar.pas` |
 | Command buffer, tokenizer, `$macro` expansion, aliases, `wait`, `exec`, `set`/`seta`/`toggle`/`reset`, `cvarlist`, `cmdlist`, `writeconfig` | `cmd.c`, `cvar.c` | `rlm_cmd.pas` |
 | Virtual filesystem: `pak0..9.pak` mounted over loose files, read with range reads on mobile | `files.c` | `rlm_files.pas` |
+| Collision model: Quake 2 IBSP v38 maps loaded through the VFS, point contents, box/point traces, inline models (`*1`…), temporary box hulls, origin/angle transformed queries, leafs | `cmodel.c` | `rlm_cmodel.pas` |
 
-BSP maps, the renderer, sound, the server and the game DLL are **not** part of this step.
+The renderer, PVS/area portals, sound, the server and the game DLL are **not** part of the engine yet.
+
+## Maps and collision (bridge v2)
+
+`map_load("maps/base1.bsp")` reads the map through the VFS, so it can come from a mounted PAK or a loose file. The loader checks every lump and index before it uses them:
+
+- header, lump ranges and record sizes;
+- the Quake 2 `MAX_MAP_*` limits;
+- plane, brush side, texinfo, leaf brush, node child and model headnode indices;
+- leaf 0 must be solid and the map needs an empty leaf;
+- node graphs with cycles, or deeper than 1024 levels, are rejected.
+
+A map that fails a check is rejected with a console warning (`map_load: maps/x.bsp: bad node child`) and leaves no map loaded, so a bad download can't crash the core. The traces are Quake 2's `CM_BoxTrace` / `CM_TransformedBoxTrace`, including `DIST_EPSILON` and the start == end position test, so game code ported from Quake 2 gets the same answers.
+
+```cpp
+engine.loadMap("maps/base1.bsp");
+realms::TraceResult tr = engine.boxTrace(start, end, {-16, -16, -24}, {16, 16, 32}, 0, REALMS_MASK_PLAYERSOLID);
+if (tr.hit()) { /* tr.endpos, tr.normal, tr.surface, tr.contents */ }
+realms::MapModel door;
+engine.mapModel(1, door); // "*1": trace it with transformedBoxTrace(..., door.headnode, mask, origin, angles)
+int32_t water = engine.pointContents(eye) & REALMS_MASK_WATER;
+```
+
+`map_info` reports the CRC-32 of the `.bsp` (for client/server map checks), the lump counts and the world bounds. The legacy `game/qcommon/CModel.pas` is kept as the reference; `rlm_cmodel.pas` follows it with dynamic arrays and 64-bit-safe indices instead of `Integer(pointer)` casts, and with `Com_Error` exits replaced by the rejection path above.
 
 ## Backend selection
 
@@ -72,7 +97,9 @@ Mouse and touch look use `sensitivity` and `m_invert` on all three platforms.
 
 ## Tests
 
-`tests/realms/realms_bridge_test.cpp` is the ABI conformance suite. It covers cvar semantics, the command buffer, aliases and macros, PAK mounting, `writeconfig`, error paths, and the Engine facade. It runs against:
+`tests/realms/realms_bridge_test.cpp` is the ABI conformance suite. It covers cvar semantics, the command buffer, aliases and macros, PAK mounting, `writeconfig`, error paths, the collision model and the Engine facade.
+
+The map checks (`tests/realms/realms_map_suite.h`) need real BSP files, and no id Software map can ship with the repository. `tests/realms/bsp_builder.h` therefore compiles a test level from boxes into a genuine IBSP v38 file: BSP tree, solid leaf 0, clusters, areas, brush sides and texinfo. The level has a floor, a wall, a water pool, a player-clip brush and a door (`*1`). The suite checks exact trace fractions and end positions, surfaces, masks, transforms, box hulls and leafs. It also checks that 18 kinds of corrupt map are rejected and survives 400 randomly corrupted copies. It runs against:
 
 - the C++ core (CTest `realms_bridge_native`; Android/iOS CI);
 - the Pascal core (CTest `realms_bridge_pascal`, i.e. `realms_bridge_test --pascal <lib>`, when `fpc` is available);
@@ -85,7 +112,7 @@ On Linux and macOS, CI also starts the packaged sandbox with `REALMS_CORE=pascal
 ```bash
 g++ -std=c++17 -Wall -Wextra -Werror -pedantic -Irealms/include \
   tests/realms/realms_bridge_test.cpp realms/src/Engine.cpp \
-  realms/src/NativeCore.cpp realms/src/SandboxBoot.cpp -ldl -o /tmp/realms-test
+  realms/src/NativeCore.cpp realms/src/NativeCModel.cpp realms/src/SandboxBoot.cpp -ldl -o /tmp/realms-test
 /tmp/realms-test                                  # C++ reference core
 /tmp/realms-test --pascal build/librealms_core.so # Free Pascal core
 ```

@@ -1,6 +1,7 @@
 // Realms Engine bridge conformance suite.
 //
-// Runs the same Quake 2 cvar / command buffer / alias / PAK filesystem checks
+// Runs the same Quake 2 cvar / command buffer / alias / PAK filesystem / BSP
+// collision model (realms_map_suite.h) checks
 // against a RealmsCoreApi implementation:
 //   realms_bridge_test                      -> C++ reference core
 //   realms_bridge_test --pascal <library>   -> Free Pascal core (dlopen)
@@ -138,6 +139,12 @@ std::string makePak(const std::vector<std::pair<std::string, std::string>> &entr
     }
     return pak;
 }
+
+} // namespace
+
+#include "realms_map_suite.h"
+
+namespace {
 
 // ------------------------------------------------------------ ABI suite ---
 
@@ -395,6 +402,44 @@ void runEngineSuite(const std::string &pascalLibrary) {
 
     std::vector<unsigned char> bytes;
     CHECK(engine.loadFile("config/realms.cfg", bytes) && !bytes.empty());
+
+    // Collision model through the facade: a map inside a PAK on disk.
+    {
+        std::ofstream(tmp / "assets" / "maps.pak", std::ios::binary)
+            << makePak({{"maps/test.bsp", bsp_builder::build(map_suite::testMap())}});
+        CHECK(engine.addPak("maps.pak") == 1);
+        CHECK(!engine.mapLoaded());
+        CHECK(!engine.loadMap("maps/nothere.bsp"));
+        CHECK(engine.loadMap("maps/test.bsp"));
+        CHECK(engine.mapLoaded());
+        RealmsMapInfo info{};
+        CHECK(engine.mapInfo(info) && info.num_models == 2 && std::string(info.name) == "maps/test.bsp");
+        CHECK(engine.mapEntities() == map_suite::entities());
+        CHECK(engine.pointContents({0, 0, -32}) == REALMS_CONTENTS_SOLID);
+        CHECK(engine.pointContents({0, 0, 32}) == 0);
+        const realms::TraceResult t =
+            engine.boxTrace({0, 0, 128}, {0, 0, -128}, {-16, -16, -24}, {16, 16, 32}, 0, REALMS_MASK_PLAYERSOLID);
+        CHECK(t.hit() && !t.startsolid && t.endpos[2] == 24.03125f && t.normal[2] == 1.0f);
+        CHECK(t.surface == "e1u1/floor1_3" && t.contents == REALMS_CONTENTS_SOLID);
+        CHECK(!engine.boxTrace({0, 0, 64}, {0, 100, 64}, {}, {}).hit());
+        realms::MapModel door;
+        CHECK(engine.mapModel(1, door) && door.mins[0] == 99.0f);
+        realms::MapModel none;
+        CHECK(!engine.mapModel(5, none) && none.headnode == 0);
+        CHECK(engine.transformedPointContents({0, 108, 64}, door.headnode, {0, 0, 0}, {0, 90, 0}) ==
+              REALMS_CONTENTS_SOLID);
+        const realms::TraceResult d = engine.transformedBoxTrace({0, 100, 64}, {256, 100, 64}, {}, {}, door.headnode,
+                                                                 REALMS_MASK_SOLID, {0, 100, 0}, {0, 0, 0});
+        CHECK(d.hit() && d.surface == "e1u1/door" && d.surfaceValue == 7);
+        const int32_t box = engine.headnodeForBox({-8, -8, -8}, {8, 8, 8});
+        CHECK(engine.pointContents({0, 0, 0}, box) == REALMS_CONTENTS_MONSTER);
+        int32_t contents = -1, cluster = -1, area = -1;
+        CHECK(engine.leafInfo(engine.pointLeaf({0, 0, 32}), contents, cluster, area));
+        CHECK(contents == 0 && cluster >= 0 && area == 1);
+        engine.unloadMap();
+        CHECK(!engine.mapLoaded() && engine.mapEntities().empty());
+        CHECK(engine.loadMap("maps/test.bsp"));
+    }
     CHECK(engine.console().size() <= 64);
 
     // Frame clock runs deferred commands.
@@ -455,6 +500,7 @@ int main(int argc, char **argv) {
     std::printf("[realms] conformance: backend=%s\n", backend.c_str());
     runAbiSuite(api, true);
     runAbiSuite(api, false);
+    runMapSuite(api);
     runEngineSuite(pascalLibrary);
 
     std::printf("[realms] %d checks, %d failures (%s)\n", gChecks, gFailures, backend.c_str());

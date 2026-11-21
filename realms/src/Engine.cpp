@@ -362,6 +362,112 @@ int32_t Engine::pakCount() const {
     return core_ ? core_->fs_pak_count() : 0;
 }
 
+// -------------------------------------------------------- collision model
+
+namespace {
+
+TraceResult toTraceResult(const RealmsTrace &t) {
+    TraceResult r;
+    r.allsolid = t.allsolid != 0;
+    r.startsolid = t.startsolid != 0;
+    r.fraction = t.fraction;
+    for (int i = 0; i < 3; ++i) {
+        r.endpos[size_t(i)] = t.endpos[i];
+        r.normal[size_t(i)] = t.plane_normal[i];
+    }
+    r.planeDist = t.plane_dist;
+    r.contents = t.contents;
+    r.surfaceFlags = t.surface_flags;
+    r.surfaceValue = t.surface_value;
+    const char *nameEnd = std::find(t.surface_name, t.surface_name + sizeof(t.surface_name), '\0');
+    r.surface.assign(t.surface_name, nameEnd);
+    return r;
+}
+
+} // namespace
+
+bool Engine::loadMap(const std::string &path) {
+    return core_ && !path.empty() && core_->map_load(path.c_str()) == 1;
+}
+
+void Engine::unloadMap() {
+    if (core_) core_->map_load("");
+}
+
+bool Engine::mapLoaded() const {
+    RealmsMapInfo info{};
+    return mapInfo(info);
+}
+
+bool Engine::mapInfo(RealmsMapInfo &out) const {
+    out = RealmsMapInfo{};
+    out.struct_size = sizeof(RealmsMapInfo);
+    return core_ && core_->map_info(&out) == 1;
+}
+
+std::string Engine::mapEntities() const {
+    if (!core_) return {};
+    const int32_t len = core_->map_entities(nullptr, 0);
+    if (len <= 0) return {};
+    std::string text(size_t(len) + 1, '\0');
+    core_->map_entities(&text[0], int32_t(text.size()));
+    text.resize(size_t(len));
+    return text;
+}
+
+bool Engine::mapModel(int32_t index, MapModel &out) const {
+    out = MapModel{};
+    return core_ && core_->map_model(index, out.mins.data(), out.maxs.data(), out.origin.data(), &out.headnode) == 1;
+}
+
+int32_t Engine::headnodeForBox(const Vec3 &mins, const Vec3 &maxs) {
+    return core_ ? core_->map_headnode_for_box(mins.data(), maxs.data()) : 0;
+}
+
+int32_t Engine::pointContents(const Vec3 &point, int32_t headnode) const {
+    return core_ ? core_->map_point_contents(point.data(), headnode, nullptr, nullptr) : 0;
+}
+
+int32_t Engine::transformedPointContents(const Vec3 &point, int32_t headnode, const Vec3 &origin,
+                                         const Vec3 &angles) const {
+    return core_ ? core_->map_point_contents(point.data(), headnode, origin.data(), angles.data()) : 0;
+}
+
+TraceResult Engine::boxTrace(const Vec3 &start, const Vec3 &end, const Vec3 &mins, const Vec3 &maxs,
+                             int32_t headnode, int32_t brushmask) const {
+    if (!core_) {
+        TraceResult r;
+        r.endpos = end;
+        return r;
+    }
+    RealmsTrace t{};
+    core_->map_box_trace(start.data(), end.data(), mins.data(), maxs.data(), headnode, brushmask, nullptr, nullptr, &t);
+    return toTraceResult(t);
+}
+
+TraceResult Engine::transformedBoxTrace(const Vec3 &start, const Vec3 &end, const Vec3 &mins, const Vec3 &maxs,
+                                        int32_t headnode, int32_t brushmask, const Vec3 &origin,
+                                        const Vec3 &angles) const {
+    if (!core_) {
+        TraceResult r;
+        r.endpos = end;
+        return r;
+    }
+    RealmsTrace t{};
+    core_->map_box_trace(start.data(), end.data(), mins.data(), maxs.data(), headnode, brushmask, origin.data(),
+                         angles.data(), &t);
+    return toTraceResult(t);
+}
+
+int32_t Engine::pointLeaf(const Vec3 &point) const {
+    return core_ ? core_->map_point_leaf(point.data()) : 0;
+}
+
+bool Engine::leafInfo(int32_t leaf, int32_t &contents, int32_t &cluster, int32_t &area) const {
+    contents = cluster = area = 0;
+    return core_ && core_->map_leaf_info(leaf, &contents, &cluster, &area) == 1;
+}
+
 // ------------------------------------------------------------------ frame
 
 void Engine::frame(double seconds) {

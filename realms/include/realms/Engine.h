@@ -3,7 +3,8 @@
 // realms::Engine owns the bridge to a Realms core (Free Pascal Quake 2 stack
 // or the C++ reference core), installs the host services (console output,
 // platform file access, host commands) and exposes an idiomatic C++ API for
-// cvars, the command buffer, the PAK virtual filesystem and the frame clock.
+// cvars, the command buffer, the PAK virtual filesystem, the BSP collision
+// model and the frame clock.
 //
 // Cores keep Quake 2 style global state, therefore only one Engine may be
 // initialised per process at a time, and it must be driven from one thread.
@@ -11,6 +12,7 @@
 
 #include "realms/realms_bridge.h"
 
+#include <array>
 #include <cstdint>
 #include <deque>
 #include <functional>
@@ -32,6 +34,28 @@ enum class BackendPreference {
 struct ConsoleLine {
     int level = REALMS_PRINT_INFO;
     std::string text;
+};
+
+using Vec3 = std::array<float, 3>;
+
+// trace_t (see RealmsTrace).
+struct TraceResult {
+    bool allsolid = false;   // the whole move was inside a solid
+    bool startsolid = false; // the start position was inside a solid
+    float fraction = 1.0f;   // 1 = moved the whole way
+    Vec3 endpos{};
+    Vec3 normal{};
+    float planeDist = 0.0f;
+    int32_t contents = 0;
+    int32_t surfaceFlags = 0;
+    int32_t surfaceValue = 0;
+    std::string surface; // texture name of the face that was hit
+    bool hit() const { return fraction < 1.0f; }
+};
+
+struct MapModel {
+    Vec3 mins{}, maxs{}, origin{};
+    int32_t headnode = 0;
 };
 
 using CommandArgs = std::vector<std::string>;
@@ -111,6 +135,28 @@ public:
     int32_t addPak(const std::string &path);
     bool loadFile(const std::string &path, std::vector<unsigned char> &out) const;
     int32_t pakCount() const;
+
+    // Collision model (Quake 2 cmodel.c) --------------------------------------
+    // Loads an IBSP v38 map through the VFS. Malformed maps are rejected
+    // (the reason is printed to the console) and leave no map loaded.
+    // Headnode 0 is the world model, as in Quake 2's CM_PointContents(p, 0).
+    bool loadMap(const std::string &path);
+    void unloadMap();
+    bool mapLoaded() const;
+    bool mapInfo(RealmsMapInfo &out) const;
+    std::string mapEntities() const;
+    bool mapModel(int32_t index, MapModel &out) const; // 0 = world, n = "*n"
+    int32_t headnodeForBox(const Vec3 &mins, const Vec3 &maxs);
+    int32_t pointContents(const Vec3 &point, int32_t headnode = 0) const;
+    int32_t transformedPointContents(const Vec3 &point, int32_t headnode, const Vec3 &origin,
+                                     const Vec3 &angles) const;
+    TraceResult boxTrace(const Vec3 &start, const Vec3 &end, const Vec3 &mins, const Vec3 &maxs,
+                         int32_t headnode = 0, int32_t brushmask = REALMS_MASK_ALL) const;
+    TraceResult transformedBoxTrace(const Vec3 &start, const Vec3 &end, const Vec3 &mins, const Vec3 &maxs,
+                                    int32_t headnode, int32_t brushmask, const Vec3 &origin,
+                                    const Vec3 &angles) const;
+    int32_t pointLeaf(const Vec3 &point) const;
+    bool leafInfo(int32_t leaf, int32_t &contents, int32_t &cluster, int32_t &area) const;
 
     // Frame clock: accumulates real time and advances the core in whole
     // milliseconds, running the command buffer (Qcommon_Frame).

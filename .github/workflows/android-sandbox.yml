@@ -152,7 +152,7 @@ jobs:
           CLANG="$SDK_ROOT/ndk/26.1.10909125/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++"
           "$CLANG" --target=x86_64-linux-android30 -std=c++17 -O2 -Wall -Wextra -Werror -static-libstdc++ \
             -Irealms/include tests/realms/realms_bridge_test.cpp \
-            realms/src/Engine.cpp realms/src/NativeCore.cpp realms/src/SandboxBoot.cpp \
+            realms/src/Engine.cpp realms/src/NativeCore.cpp realms/src/NativeCModel.cpp realms/src/SandboxBoot.cpp \
             -o out/realms_bridge_test
           file out/realms_bridge_test
 
@@ -230,7 +230,7 @@ jobs:
           run_test ekron-debug-test -O2 tests/native/debug_player_test.cpp
           run_test ekron-texture-test -O2 tests/native/texture_mesh_test.cpp
           run_test ekron-gltf-test -O1 tests/native/gltf_scene_test.cpp sys/android/app/src/main/cpp/GltfScene.cpp sys/android/app/src/main/cpp/ImageDecode.cpp
-          run_test realms-bridge-test -O2 -Irealms/include tests/realms/realms_bridge_test.cpp realms/src/Engine.cpp realms/src/NativeCore.cpp realms/src/SandboxBoot.cpp -ldl
+          run_test realms-bridge-test -O2 -Irealms/include tests/realms/realms_bridge_test.cpp realms/src/Engine.cpp realms/src/NativeCore.cpp realms/src/NativeCModel.cpp realms/src/SandboxBoot.cpp -ldl
 
       - name: Validate translations (English, Russian, Portuguese (Portugal))
         run: python3 tools/validate_i18n.py

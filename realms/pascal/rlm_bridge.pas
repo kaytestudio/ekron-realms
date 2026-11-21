@@ -15,7 +15,7 @@ uses
   ctypes;
 
 const
-  REALMS_BRIDGE_VERSION = 1;
+  REALMS_BRIDGE_VERSION = 2;
 
   REALMS_PRINT_INFO = 0;
   REALMS_PRINT_WARNING = 1;
@@ -36,7 +36,80 @@ const
   REALMS_CVAR_SET_LATCHED = -2;
   REALMS_CVAR_SET_CHEAT = -3;
 
+  { Quake 2 q_shared.h CONTENTS_* / MASK_* (bridge version 2). }
+  REALMS_CONTENTS_SOLID = $1;
+  REALMS_CONTENTS_WINDOW = $2;
+  REALMS_CONTENTS_AUX = $4;
+  REALMS_CONTENTS_LAVA = $8;
+  REALMS_CONTENTS_SLIME = $10;
+  REALMS_CONTENTS_WATER = $20;
+  REALMS_CONTENTS_MIST = $40;
+  REALMS_CONTENTS_AREAPORTAL = $8000;
+  REALMS_CONTENTS_PLAYERCLIP = $10000;
+  REALMS_CONTENTS_MONSTERCLIP = $20000;
+  REALMS_CONTENTS_ORIGIN = $1000000;
+  REALMS_CONTENTS_MONSTER = $2000000;
+  REALMS_CONTENTS_DEADMONSTER = $4000000;
+  REALMS_CONTENTS_DETAIL = $8000000;
+  REALMS_CONTENTS_TRANSLUCENT = $10000000;
+  REALMS_CONTENTS_LADDER = $20000000;
+
+  REALMS_MASK_ALL = -1;
+  REALMS_MASK_SOLID = REALMS_CONTENTS_SOLID or REALMS_CONTENTS_WINDOW;
+  REALMS_MASK_PLAYERSOLID = REALMS_CONTENTS_SOLID or REALMS_CONTENTS_PLAYERCLIP or
+    REALMS_CONTENTS_WINDOW or REALMS_CONTENTS_MONSTER;
+  REALMS_MASK_WATER = REALMS_CONTENTS_WATER or REALMS_CONTENTS_LAVA or REALMS_CONTENTS_SLIME;
+
+  { Quake 2 surface flags (SURF_*). }
+  REALMS_SURF_LIGHT = $1;
+  REALMS_SURF_SLICK = $2;
+  REALMS_SURF_SKY = $4;
+  REALMS_SURF_WARP = $8;
+  REALMS_SURF_TRANS33 = $10;
+  REALMS_SURF_TRANS66 = $20;
+  REALMS_SURF_FLOWING = $40;
+  REALMS_SURF_NODRAW = $80;
+
 type
+  TRealmsVec3 = array[0..2] of cfloat;
+
+  { trace_t (RealmsTrace, 84 bytes). }
+  PRealmsTrace = ^TRealmsTrace;
+  TRealmsTrace = record
+    allsolid: cint32;
+    startsolid: cint32;
+    fraction: cfloat;
+    endpos: TRealmsVec3;
+    plane_normal: TRealmsVec3;
+    plane_dist: cfloat;
+    contents: cint32;
+    surface_flags: cint32;
+    surface_value: cint32;
+    surface_name: array[0..31] of AnsiChar;
+  end;
+
+  { RealmsMapInfo (144 bytes). }
+  PRealmsMapInfo = ^TRealmsMapInfo;
+  TRealmsMapInfo = record
+    struct_size: cuint32;
+    checksum: cuint32;
+    num_planes: cint32;
+    num_nodes: cint32;
+    num_leafs: cint32;
+    num_leaf_brushes: cint32;
+    num_brushes: cint32;
+    num_brush_sides: cint32;
+    num_texinfo: cint32;
+    num_models: cint32;
+    num_clusters: cint32;
+    num_areas: cint32;
+    num_area_portals: cint32;
+    entity_length: cint32;
+    mins: TRealmsVec3;
+    maxs: TRealmsVec3;
+    name: array[0..63] of AnsiChar;
+  end;
+
   THostPrint = procedure(user: Pointer; level: cint32; text: PChar); cdecl;
   THostReadFile = function(user: Pointer; path: PChar; out_data: PPointer;
     out_size: pcint32): cint32; cdecl;
@@ -84,6 +157,19 @@ type
   TCoreFsLoad = function(path: PChar; out_data: PPointer; out_size: pcint32): cint32; cdecl;
   TCoreFsFree = procedure(data: Pointer); cdecl;
   TCoreCount = function: cint32; cdecl;
+  TCoreMapLoad = function(path: PChar): cint32; cdecl;
+  TCoreMapInfo = function(out_info: PRealmsMapInfo): cint32; cdecl;
+  TCoreMapEntities = function(buffer: PChar; buffer_size: cint32): cint32; cdecl;
+  TCoreMapModel = function(index: cint32; mins, maxs, origin: pcfloat;
+    headnode: pcint32): cint32; cdecl;
+  TCoreMapHeadnodeForBox = function(mins, maxs: pcfloat): cint32; cdecl;
+  TCoreMapPointContents = function(point: pcfloat; headnode: cint32;
+    origin, angles: pcfloat): cint32; cdecl;
+  TCoreMapBoxTrace = procedure(start, end_, mins, maxs: pcfloat;
+    headnode, brushmask: cint32; origin, angles: pcfloat;
+    out_trace: PRealmsTrace); cdecl;
+  TCoreMapPointLeaf = function(point: pcfloat): cint32; cdecl;
+  TCoreMapLeafInfo = function(leaf: cint32; contents, cluster, area: pcint32): cint32; cdecl;
 
   PRealmsCoreApi = ^TRealmsCoreApi;
   TRealmsCoreApi = record
@@ -117,6 +203,17 @@ type
     fs_load: TCoreFsLoad;
     fs_free: TCoreFsFree;
     fs_pak_count: TCoreCount;
+
+    { Collision model, bridge version 2. }
+    map_load: TCoreMapLoad;
+    map_info: TCoreMapInfo;
+    map_entities: TCoreMapEntities;
+    map_model: TCoreMapModel;
+    map_headnode_for_box: TCoreMapHeadnodeForBox;
+    map_point_contents: TCoreMapPointContents;
+    map_box_trace: TCoreMapBoxTrace;
+    map_point_leaf: TCoreMapPointLeaf;
+    map_leaf_info: TCoreMapLeafInfo;
   end;
 
 implementation
