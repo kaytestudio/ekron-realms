@@ -288,3 +288,33 @@ jobs:
           name: ekron-native-sandbox-debug
           path: sys/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+  # Launch the real debug APK and require it to start on the Free Pascal core
+  # it ships (logcat: "Realms engine ready: core=pascal-quake2").
+  realms-apk-smoke:
+    needs: apk
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ekron-native-sandbox-debug
+          path: out/apk
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Launch the APK on the emulator and check the Realms core
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          arch: x86_64
+          target: default
+          force-avd-creation: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: bash realms/pascal/android_app_smoke.sh out/apk/app-debug.apk pascal-quake2
