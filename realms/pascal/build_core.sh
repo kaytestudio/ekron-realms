@@ -100,9 +100,10 @@ build_darwin_static() {
     rm -f "$out/librealms_core.a"
     xcrun --sdk "$sdk" libtool -static -o "$out/librealms_core.a" "$objs/realms_core_prelinked.o"
     # The archive must export the entry point and carry the RTL init entry.
-    nm -gU "$out/librealms_core.a" | grep -q ' _realms_pascal_get_api$' || {
+    # (grep without -q: an early exit would SIGPIPE the producer under pipefail)
+    nm -gU "$out/librealms_core.a" | grep ' _realms_pascal_get_api$' >/dev/null || {
         echo "error: _realms_pascal_get_api is not exported by $out/librealms_core.a" >&2; exit 1; }
-    otool -l "$objs/realms_core_prelinked.o" | grep -q __mod_init_func || {
+    otool -l "$objs/realms_core_prelinked.o" | grep __mod_init_func >/dev/null || {
         echo "error: no __mod_init_func (FPC_LIBMAIN) in the prelinked core" >&2; exit 1; }
     rm -rf "$objs"
     ls -l "$out/librealms_core.a"

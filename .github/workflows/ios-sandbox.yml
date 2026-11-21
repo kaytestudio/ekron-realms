@@ -235,7 +235,7 @@ jobs:
             echo "::error title=Pascal core (iOS)::librealms_core.a was not on the app link line"
             exit 1
           fi
-          if ! strings -a "$APP_BUNDLE/realms" | grep -q 'pascal-quake2'; then
+          if ! strings -a "$APP_BUNDLE/realms" | grep 'pascal-quake2' >/dev/null; then
             echo "::error title=Pascal core (iOS)::the app binary does not contain the Pascal core"
             exit 1
           fi
