@@ -22,7 +22,7 @@ Visual reference: `concepts/ekron-war-city-ru.png`. This is concept art, not an 
 
 **Controls and Language**
 
-* UI, item names, and tooltips in Russian.
+* UI, item names, and tooltips in three languages: English, Russian, and European Portuguese. The language follows the system setting (on desktop also `--lang`, `EKRON_LANG`, the `L` key, and the pause menu).
 * Phone in landscape orientation.
 * Left side — movement joystick; right side — look area and buttons for interact, jump, and build.
 * In build mode — item selection, rotation, placement, and cancellation.

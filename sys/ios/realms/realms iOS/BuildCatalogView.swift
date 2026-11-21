@@ -14,19 +14,19 @@ struct SandboxCatalogEntry {
 
 enum SandboxBuildCatalog {
     static let entries: [SandboxCatalogEntry] = [
-        SandboxCatalogEntry(nativeType: 0,  label: "Бетонный блок",     asset: "catalog/rendered/wall.webp",    defaultSurface: 1),
-        SandboxCatalogEntry(nativeType: 1,  label: "Плита (пол)",       asset: "catalog/rendered/floor.webp",   defaultSurface: 1),
-        SandboxCatalogEntry(nativeType: 2,  label: "Окно",              asset: "catalog/rendered/window.webp",  defaultSurface: 1),
-        SandboxCatalogEntry(nativeType: 3,  label: "Дверь",             asset: "catalog/rendered/door.webp",    defaultSurface: 5),
-        SandboxCatalogEntry(nativeType: 4,  label: "Стол",              asset: "catalog/rendered/table.webp",   defaultSurface: 5),
-        SandboxCatalogEntry(nativeType: 5,  label: "Стул",              asset: "catalog/rendered/chair.webp",   defaultSurface: 5),
-        SandboxCatalogEntry(nativeType: 6,  label: "Шкаф",              asset: "catalog/rendered/cabinet.webp", defaultSurface: 5),
-        SandboxCatalogEntry(nativeType: 7,  label: "Диван",             asset: "catalog/rendered/sofa.webp",    defaultSurface: 6),
-        SandboxCatalogEntry(nativeType: 9,  label: "Деревянный блок",   asset: "textures/wood.png",             defaultSurface: 5),
-        SandboxCatalogEntry(nativeType: 10, label: "Кирпичный блок",    asset: "textures/brick.png",            defaultSurface: 2),
-        SandboxCatalogEntry(nativeType: 11, label: "Металлический блок", asset: "textures/rust.png",            defaultSurface: 3),
-        SandboxCatalogEntry(nativeType: 8,  label: "УАЗ-469",           asset: "catalog/rendered/uaz.webp",     defaultSurface: -1),
-        SandboxCatalogEntry(nativeType: 12, label: "Куб 1×1×1",         asset: "textures/concrete.png",         defaultSurface: 1)
+        SandboxCatalogEntry(nativeType: 0,  label: loc("item_concrete_block"),     asset: "catalog/rendered/wall.webp",    defaultSurface: 1),
+        SandboxCatalogEntry(nativeType: 1,  label: loc("item_floor_slab"),       asset: "catalog/rendered/floor.webp",   defaultSurface: 1),
+        SandboxCatalogEntry(nativeType: 2,  label: loc("item_window"),              asset: "catalog/rendered/window.webp",  defaultSurface: 1),
+        SandboxCatalogEntry(nativeType: 3,  label: loc("item_door"),             asset: "catalog/rendered/door.webp",    defaultSurface: 5),
+        SandboxCatalogEntry(nativeType: 4,  label: loc("item_table"),              asset: "catalog/rendered/table.webp",   defaultSurface: 5),
+        SandboxCatalogEntry(nativeType: 5,  label: loc("item_chair"),              asset: "catalog/rendered/chair.webp",   defaultSurface: 5),
+        SandboxCatalogEntry(nativeType: 6,  label: loc("item_cabinet"),              asset: "catalog/rendered/cabinet.webp", defaultSurface: 5),
+        SandboxCatalogEntry(nativeType: 7,  label: loc("item_sofa"),             asset: "catalog/rendered/sofa.webp",    defaultSurface: 6),
+        SandboxCatalogEntry(nativeType: 9,  label: loc("item_wood_block"),   asset: "textures/wood.png",             defaultSurface: 5),
+        SandboxCatalogEntry(nativeType: 10, label: loc("item_brick_block"),    asset: "textures/brick.png",            defaultSurface: 2),
+        SandboxCatalogEntry(nativeType: 11, label: loc("item_metal_block"), asset: "textures/rust.png",            defaultSurface: 3),
+        SandboxCatalogEntry(nativeType: 8,  label: loc("item_uaz"),           asset: "catalog/rendered/uaz.webp",     defaultSurface: -1),
+        SandboxCatalogEntry(nativeType: 12, label: loc("item_cube"),         asset: "textures/concrete.png",         defaultSurface: 1)
     ]
 
     static func indices(forCategory category: Int) -> [Int] {
@@ -197,7 +197,7 @@ final class BuildCatalogPopupView: UIView {
     }
 
     private func setupChrome() {
-        headerLabel.text = "Спавн"
+        headerLabel.text = loc("catalog_title")
         headerLabel.font = UIFont.systemFont(ofSize: 14, weight: .bold)
         headerLabel.textColor = .white
         addSubview(headerLabel)
@@ -205,14 +205,14 @@ final class BuildCatalogPopupView: UIView {
         closeButton.setTitle("×", for: .normal)
         closeButton.titleLabel?.font = UIFont.systemFont(ofSize: 24, weight: .semibold)
         closeButton.setTitleColor(.white, for: .normal)
-        closeButton.accessibilityLabel = "Закрыть каталог"
+        closeButton.accessibilityLabel = loc("catalog_close")
         closeButton.addTarget(self, action: #selector(handleClose), for: .touchUpInside)
         addSubview(closeButton)
 
         tabStack.axis = .horizontal
         tabStack.distribution = .fillEqually
         tabStack.spacing = 4
-        let titles = ["Строительство", "Мебель", "Оружие", "FPV Дроны"]
+        let titles = [loc("catalog_tab_construction"), loc("catalog_tab_furniture"), loc("catalog_tab_weapons"), loc("catalog_tab_fpv")]
         for (idx, title) in titles.enumerated() {
             let btn = UIButton(type: .system)
             btn.tag = idx
@@ -278,10 +278,10 @@ final class BuildCatalogPopupView: UIView {
             stack.distribution = .fillEqually
             stack.spacing = 8
 
-            stack.addArrangedSubview(makeFpvCard(title: "Пульт FPV · взять",
+            stack.addArrangedSubview(makeFpvCard(title: loc("catalog_card_remote"),
                                                  asset: "catalog/rendered/fpv_remote.webp",
                                                  action: #selector(handleTakeRemote)))
-            stack.addArrangedSubview(makeFpvCard(title: "FPV-дрон · достать",
+            stack.addArrangedSubview(makeFpvCard(title: loc("catalog_card_drone"),
                                                  asset: "catalog/rendered/fpv_drone.webp",
                                                  action: #selector(handleTakeDrone)))
             contentArea.addSubview(stack)
@@ -293,7 +293,7 @@ final class BuildCatalogPopupView: UIView {
         let visibleIndices = SandboxBuildCatalog.indices(forCategory: currentCategory)
         if visibleIndices.isEmpty {
             let empty = UILabel()
-            empty.text = "В этом разделе пока нет предметов"
+            empty.text = loc("catalog_empty")
             empty.textColor = UIColor(white: 0.88, alpha: 1.0)
             empty.font = UIFont.systemFont(ofSize: 14, weight: .medium)
             empty.textAlignment = .center

@@ -20,6 +20,7 @@
   - **FPV Quadcopter & Live Controller Monitor**: Deployable FPV drone (`fpv_drone.glb`) with Mode-2 flight physics, return-to-home, FPV/chase camera switching, and an offscreen `480×270` live video feed rendered onto the handheld 3D controller (`chasing_m2_rc_underwater_drone_remote.glb`).
   - **Contextual World Interactions**: Enter and recover the **UAZ-469** (`uaz_469_1973_classic.glb`), sit on furniture, interact with doors, toggle `noclip` flight, teleport back to road/spawn, and export player coordinates as `config/spawn.json`.
 - **In-Game Store (Online Play)**: An in-game shop opened with **`G`** where players spend **gold coins** earned while playing on **weapon skins** (cosmetic gravity-gun beam tints) and **unlocks** (double coins, coin bonus, golden/neon crosshair, camo HUD, start-with-flight). The economy is server-authoritative when connected to the presence relay (`DesktopOnlineClient` + `sandbox_relay.py`) and falls back to a persisted local wallet (`store.json`) offline.
+- **Three UI Languages**: English, Russian (Русский), and European Portuguese (Português (Portugal)) on Desktop, Android, and iOS. Desktop follows `--lang` / `EKRON_LANG`, then the language saved from the pause menu, then the system locale; switch live with **`L`** or the pause menu's *Language* button. Android and iOS follow the system or per-app language setting (also reachable from the in-game pause menu).
 - **Experimental Online Player Presence**: Optional self-hosted TLS 1.2+ relay (`server/sandbox_relay.py`) with strict certificate/hostname verification and shared-token authentication (`EKRON_JOIN_TOKEN`) that renders live remote player markers on Android, iOS, and Desktop *(player presence only; building, physics, and vehicles are not yet synchronized)*.
 
 ---
@@ -143,6 +144,7 @@ xcodebuild archive \
 | `E` | Contextual interaction (doors, UAZ-469, sofa, FPV drone) |
 | `V` / `H` | Toggle FPV/chase drone camera / Return FPV drone home |
 | `N` / `P` / `F11` / `Esc` | Toggle `noclip` flight / Copy `spawn.json` / Fullscreen / Pause menu |
+| `G` / `L` | Open the in-game store / Cycle UI language (English → Русский → Português) |
 
 ### Command-Line Flags
 
@@ -153,6 +155,7 @@ xcodebuild archive \
 --online-host <host>   Connect to an experimental TLS presence relay (requires EKRON_JOIN_TOKEN env var)
 --online-port <port>   Presence relay port (default: 38475)
 --online-name <name>   Player display name (default: Player)
+--lang <code>          UI language: en, ru or pt-PT (also EKRON_LANG; default: saved choice, then system locale)
 --help                 Show CLI usage and controls
 ```
 
@@ -161,8 +164,11 @@ xcodebuild archive \
 ## Testing & Verification
 
 ```bash
-# Run desktop CTest suite (HUD layout, --version, and --headless-smoke)
+# Run desktop CTest suite (HUD layout, shop, localization, --version, and --headless-smoke)
 ctest --test-dir build --output-on-failure -V
+
+# Validate Android and iOS translations (English, Russian, Portuguese (Portugal))
+python3 tools/validate_i18n.py
 
 # Validate Android GLSL ES 3.0 and iOS Metal shaders
 python3 tools/validate_android_shaders.py

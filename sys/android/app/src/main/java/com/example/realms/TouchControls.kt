@@ -16,7 +16,7 @@ class StickView(context: Context, private val move: (Float, Float) -> Unit) : Vi
     private var pointer = -1
     private var dx = 0f
     private var dy = 0f
-    init { contentDescription = "Джойстик движения"; isClickable = true }
+    init { contentDescription = context.getString(R.string.joystick_move); isClickable = true }
     fun reset() { pointer = -1; dx = 0f; dy = 0f; move(0f, 0f); invalidate() }
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.actionMasked) {
@@ -103,7 +103,7 @@ class HudButton(context: Context, var caption: String, var symbol: String) : Vie
 /** Shares the SAME Android touch dispatcher as the stick. No hand-off to a second surface. */
 class LookView(context: Context, private val startFraction: Float = .42f, private val look: (Float, Float) -> Unit) : View(context) {
     private val drag = PointerDrag()
-    init { contentDescription = "Обзор: проведите пальцем справа" }
+    init { contentDescription = context.getString(R.string.look_area) }
     fun reset() { drag.reset() }
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when(event.actionMasked) {

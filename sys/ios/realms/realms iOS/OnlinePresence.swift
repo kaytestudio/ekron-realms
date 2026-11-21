@@ -34,7 +34,7 @@ final class OnlinePresence {
     func connect(host: String, port: UInt16, name: String, token: String) {
         disconnect()
         let current = epoch
-        onStatus?("Подключение к серверу…")
+        onStatus?(loc("online_status_connecting"))
         let parameters = NWParameters(tls: NWProtocolTLS.Options(), tcp: NWProtocolTCP.Options())
         let conn = NWConnection(host: NWEndpoint.Host(host), port: NWEndpoint.Port(rawValue: port)!, using: parameters)
         connection = conn
@@ -54,17 +54,17 @@ final class OnlinePresence {
                 self.timer = timer; timer.resume()
                 DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
                     guard let self = self, self.epoch == current, !self.welcomed else { return }
-                    self.fail("Сервер не ответил")
+                    self.fail(loc("online_error_no_response"))
                 }
             case .failed, .cancelled:
-                self.fail("Соединение закрыто: проверьте адрес, сертификат и ключ")
+                self.fail(loc("online_error_closed_check"))
             default: break
             }
         }
         conn.start(queue: .main)
         DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
             guard let self = self, self.epoch == current, !self.welcomed else { return }
-            self.fail("Не удалось подключиться к серверу")
+            self.fail(loc("online_error_connect"))
         }
     }
 
@@ -77,12 +77,12 @@ final class OnlinePresence {
         guard current == epoch, let conn = connection, !sending,
               var data = try? JSONSerialization.data(withJSONObject: value) else { return }
         data.append(0x0a)
-        guard data.count <= 4096 else { fail("Сообщение слишком велико"); return }
+        guard data.count <= 4096 else { fail(loc("online_error_message_too_large")); return }
         sending = true
         conn.send(content: data, completion: .contentProcessed { [weak self] error in
             guard let self = self, self.epoch == current else { return }
             self.sending = false
-            if error != nil { self.fail("Ошибка соединения") }
+            if error != nil { self.fail(loc("online_error_connection")) }
         })
     }
 
@@ -106,12 +106,12 @@ final class OnlinePresence {
                 self.buffer.append(data)
                 while let newline = self.buffer.firstIndex(of: 0x0a) {
                     let line = self.buffer.prefix(upTo: newline)
-                    guard line.count < 16384, self.process(Data(line)) else { self.fail("Недопустимый ответ сервера"); return }
+                    guard line.count < 16384, self.process(Data(line)) else { self.fail(loc("online_error_invalid_response")); return }
                     self.buffer.removeSubrange(...newline)
                 }
-                guard self.buffer.count < 16384 else { self.fail("Слишком большой ответ сервера"); return }
+                guard self.buffer.count < 16384 else { self.fail(loc("online_error_response_too_large")); return }
             }
-            if error != nil || complete { self.fail("Соединение с сервером закрыто"); return }
+            if error != nil || complete { self.fail(loc("online_status_closed")); return }
             self.receive(conn, epoch: current)
         }
     }
@@ -165,7 +165,7 @@ final class OnlinePresence {
                 peers[id] = peer
             }
             welcomed = true; publish()
-            onStatus?("Подключено: видны только игроки; постройки не синхронизируются")
+            onStatus?(loc("online_status_connected"))
         case "joined":
             guard welcomed, let id = message["id"] as? String, validID(id), peers[id] == nil, peers.count < 15 else { return false }
             peers[id] = Peer(); publish()

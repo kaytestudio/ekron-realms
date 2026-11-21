@@ -35,12 +35,12 @@ final class SandboxToolState {
     var gravityVisible: Bool { tool == .gravityGun }
     var rotateHeldVisible: Bool { gravityVisible && holding }
     var deleteVisible: Bool { tool == .spawnGun }
-    var grabCaption: String { holding ? "Бросить" : "Захват" }
+    var grabCaption: String { holding ? loc("action_throw") : loc("action_grab") }
 }
 
 enum SandboxToolWheelMath {
     static let tools: [SandboxHandTool] = [.gravityGun, .droneRemote, .handEmpty]
-    static let names: [String] = ["Грави-пушка", "Пульт FPV", "Пустые руки"]
+    static let names: [String] = [loc("tool_gravity_gun"), loc("tool_fpv_remote"), loc("tool_empty_hands")]
 
     static func sector(dx: CGFloat, dy: CGFloat, deadZone: CGFloat) -> Int? {
         guard dx.isFinite, dy.isFinite, hypot(dx, dy) > deadZone else { return nil }
@@ -71,7 +71,7 @@ final class StickControlView: UIView {
         backgroundColor = .clear
         isOpaque = false
         isMultipleTouchEnabled = true
-        accessibilityLabel = "Джойстик движения"
+        accessibilityLabel = loc("joystick_move")
     }
 
     required init?(coder: NSCoder) {
@@ -182,7 +182,7 @@ final class LookControlView: UIView {
         backgroundColor = .clear
         isOpaque = false
         isMultipleTouchEnabled = true
-        accessibilityLabel = "Обзор: проведите пальцем справа"
+        accessibilityLabel = loc("look_area")
     }
 
     required init?(coder: NSCoder) {
@@ -704,8 +704,8 @@ final class ToolWheelOverlayView: UIView {
             }
         }
 
-        let centerTitle = selectedSector.map { SandboxToolWheelMath.names[$0] } ?? "Выбор"
-        let centerSub = selectedSector == nil ? "Проведите пальцем" : "Отпустите"
+        let centerTitle = selectedSector.map { SandboxToolWheelMath.names[$0] } ?? loc("tool_wheel_choose")
+        let centerSub = selectedSector == nil ? loc("tool_wheel_swipe") : loc("tool_wheel_release")
         let titleAttrs: [NSAttributedString.Key: Any] = [
             .font: UIFont.systemFont(ofSize: min(11.5, radius * 0.08), weight: .bold),
             .foregroundColor: UIColor.white
@@ -740,7 +740,7 @@ final class ToolSwitchButton: UIControl {
         iconButton.visualScale = 0.73
         iconButton.isUserInteractionEnabled = false
         addSubview(iconButton)
-        accessibilityLabel = "Выбор инструмента: удерживайте, проведите и отпустите"
+        accessibilityLabel = loc("tool_switch_description")
     }
 
     required init?(coder: NSCoder) {
@@ -812,7 +812,7 @@ final class FpvFlightOverlayView: UIView {
     private let cameraLook = LookControlView(startFraction: 0.0)
     private let leftStick = StickControlView()
     private let rightStick = StickControlView()
-    private let viewSwitchButton = HudActionButton(caption: "Смена вида", symbol: "switch")
+    private let viewSwitchButton = HudActionButton(caption: loc("fpv_switch_view"), symbol: "switch")
     private let exitButton = HudActionButton(caption: "", symbol: "remove")
 
     private var throttle: Float = 0
@@ -831,7 +831,7 @@ final class FpvFlightOverlayView: UIView {
         }
         addSubview(cameraLook)
 
-        leftStick.accessibilityLabel = "FPV левый джойстик: высота и рыскание"
+        leftStick.accessibilityLabel = loc("fpv_left_stick_short")
         leftStick.onMove = { [weak self] x, y in
             guard let self = self else { return }
             self.yaw = x
@@ -840,7 +840,7 @@ final class FpvFlightOverlayView: UIView {
         }
         addSubview(leftStick)
 
-        rightStick.accessibilityLabel = "FPV правый джойстик: продольный и боковой наклон"
+        rightStick.accessibilityLabel = loc("fpv_right_stick_short")
         rightStick.onMove = { [weak self] x, y in
             guard let self = self else { return }
             self.roll = x
@@ -855,7 +855,7 @@ final class FpvFlightOverlayView: UIView {
         addSubview(viewSwitchButton)
 
         exitButton.danger = true
-        exitButton.accessibilityLabel = "Выйти из FPV"
+        exitButton.accessibilityLabel = loc("fpv_exit")
         exitButton.onTap = { [weak self] in
             self?.reset()
             self?.onExitFpv?()

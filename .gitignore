@@ -70,6 +70,13 @@ doc/generated/
 !sys/android/app/src/main/AndroidManifest.xml
 !sys/android/app/src/main/res/values/
 !sys/android/app/src/main/res/values/*.xml
+# Localized Android strings (Russian, Portuguese (Portugal)) and per-app locale config
+!sys/android/app/src/main/res/values-ru/
+!sys/android/app/src/main/res/values-ru/*.xml
+!sys/android/app/src/main/res/values-pt-rPT/
+!sys/android/app/src/main/res/values-pt-rPT/*.xml
+!sys/android/app/src/main/res/xml/
+!sys/android/app/src/main/res/xml/*.xml
 
 # Native test binaries
 tests/native/.bin/

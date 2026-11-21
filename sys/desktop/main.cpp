@@ -21,6 +21,7 @@
 #include "GravityBeam.h"
 #include "Interaction.h"
 #include "LevelPlacement.h"
+#include "Localization.h"
 #include "ObjectDynamics.h"
 #include "ObjectMesh.h"
 #include "PlayerPhysics.h"
@@ -46,6 +47,8 @@
 #include <vector>
 
 namespace fs = std::filesystem;
+namespace i18n = ekron::i18n;
+using i18n::Str;
 
 namespace {
 
@@ -154,6 +157,64 @@ std::string resolveStorePath() {
         return (dir / "store.json").string();
     }
     return (fs::temp_directory_path() / "ekron-store.json").string();
+}
+
+// Desktop preferences (currently the UI language chosen in the pause menu).
+std::string resolveSettingsPath() {
+    if (char *pref = SDL_GetPrefPath("KayteStudio", "EkronRealms")) {
+        fs::path dir(pref);
+        SDL_free(pref);
+        std::error_code ec;
+        fs::create_directories(dir, ec);
+        return (dir / "settings.json").string();
+    }
+    if (const char *home = std::getenv("HOME"); home && home[0] != '\0') {
+        fs::path dir = fs::path(home) / ".local" / "share" / "ekron-realms";
+        std::error_code ec;
+        fs::create_directories(dir, ec);
+        return (dir / "settings.json").string();
+    }
+    return (fs::temp_directory_path() / "ekron-settings.json").string();
+}
+
+std::optional<i18n::Language> loadSavedLanguage(const std::string &path) {
+    std::ifstream in(path, std::ios::binary | std::ios::ate);
+    if (!in || in.tellg() <= 0 || in.tellg() > 65536) return std::nullopt;
+    in.seekg(0, std::ios::beg);
+    const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    const auto j = nlohmann::json::parse(text, nullptr, false);
+    if (j.is_discarded() || !j.is_object() || !j.contains("language") || !j["language"].is_string()) return std::nullopt;
+    return i18n::parseLanguageTag(j["language"].get<std::string>());
+}
+
+void saveLanguage(const std::string &path, i18n::Language language) {
+    nlohmann::json j = nlohmann::json::object();
+    {
+        // Preserve unrelated keys written by newer versions.
+        std::ifstream in(path);
+        if (in) {
+            auto existing = nlohmann::json::parse(in, nullptr, false);
+            if (!existing.is_discarded() && existing.is_object()) j = std::move(existing);
+        }
+    }
+    j["language"] = i18n::languageCode(language);
+    std::ofstream out(path, std::ios::trunc);
+    if (out) out << j.dump(2) << '\n';
+}
+
+// First supported language in the OS preferred-locale list.
+std::optional<i18n::Language> systemLanguage() {
+#if SDL_VERSION_ATLEAST(2, 0, 14)
+    if (SDL_Locale *locales = SDL_GetPreferredLocales()) {
+        std::optional<i18n::Language> found;
+        for (const SDL_Locale *l = locales; l->language != nullptr; ++l) {
+            if ((found = i18n::parseLanguageTag(l->language))) break;
+        }
+        SDL_free(locales);
+        if (found) return found;
+    }
+#endif
+    return i18n::languageFromEnvironment();
 }
 
 city::SpawnConfig loadSpawnConfig(const std::string &assetRoot) {
@@ -355,39 +416,39 @@ int runHeadlessSmoke(const std::string &assetRoot) {
 
 struct CatalogEntry {
     int itemType; // -1 for FPV drone action
-    const char *title;
-    const char *subtitle;
+    Str title;
+    Str subtitle;
     const char *iconFile;
 };
 
 struct CatalogCategory {
-    const char *name;
+    Str name;
     std::vector<CatalogEntry> items;
 };
 
 const std::vector<CatalogCategory> &catalogCategories() {
     static const std::vector<CatalogCategory> kCats = {
-        {"Материалы", {
-            {9,  "Доски",       "Древесина",      "boards.png"},
-            {10, "Кирпич",      "Поддон кирпича", "brick_pack.png"},
-            {11, "Бетон",       "Бетонный блок",  "concrete_block.png"},
-            {12, "Пеноблок",    "Стеновой блок",  "foam_block.png"},
+        {Str::CatalogMaterials, {
+            {9,  Str::ItemBoards,    Str::ItemBoardsSub,    "boards.png"},
+            {10, Str::ItemBrick,     Str::ItemBrickSub,     "brick_pack.png"},
+            {11, Str::ItemConcrete,  Str::ItemConcreteSub,  "concrete_block.png"},
+            {12, Str::ItemFoamBlock, Str::ItemFoamBlockSub, "foam_block.png"},
         }},
-        {"Строительство", {
-            {0,  "Стена",       "Перегородка",    "wall.png"},
-            {1,  "Пол",         "Перекрытие",     "floor.png"},
-            {2,  "Окно",        "Оконная рама",   "window.png"},
-            {3,  "Дверь",       "Межкомнатная",   "door.png"},
+        {Str::CatalogConstruction, {
+            {0,  Str::ItemWall,      Str::ItemWallSub,      "wall.png"},
+            {1,  Str::ItemFloor,     Str::ItemFloorSub,     "floor.png"},
+            {2,  Str::ItemWindow,    Str::ItemWindowSub,    "window.png"},
+            {3,  Str::ItemDoor,      Str::ItemDoorSub,      "door.png"},
         }},
-        {"Мебель", {
-            {4,  "Стол",        "Деревянный",     "table.png"},
-            {5,  "Стул",        "Табурет / стул", "chair.png"},
-            {6,  "Шкаф",        "Стеллаж",        "cabinet.png"},
-            {7,  "Диван",       "Мягкий диван",   "sofa.png"},
+        {Str::CatalogFurniture, {
+            {4,  Str::ItemTable,     Str::ItemTableSub,     "table.png"},
+            {5,  Str::ItemChair,     Str::ItemChairSub,     "chair.png"},
+            {6,  Str::ItemCabinet,   Str::ItemCabinetSub,   "cabinet.png"},
+            {7,  Str::ItemSofa,      Str::ItemSofaSub,      "sofa.png"},
         }},
-        {"Техника", {
-            {8,  "УАЗ-469",     "Внедорожник",    "uaz.png"},
-            {-1, "FPV-дрон",    "Взять в руки",   "fpv_drone.png"},
+        {Str::CatalogEquipment, {
+            {8,  Str::ItemUaz,       Str::ItemUazSub,       "uaz.png"},
+            {-1, Str::ItemFpvDrone,  Str::ItemFpvDroneSub,  "fpv_drone.png"},
         }}
     };
     return kCats;
@@ -396,10 +457,21 @@ const std::vector<CatalogCategory> &catalogCategories() {
 const char *itemTitleForId(int id) {
     for (const auto &cat : catalogCategories()) {
         for (const auto &it : cat.items) {
-            if (it.itemType == id) return it.title;
+            if (it.itemType == id) return i18n::tr(it.title);
         }
     }
-    return "Объект";
+    return i18n::tr(Str::ItemObject);
+}
+
+// Pause menu geometry, shared by rendering and hit-testing.
+constexpr int kPauseMenuButtons = 8;
+constexpr float kPauseMenuWidth = 380.0f;
+constexpr float kPauseMenuHeight = 62.0f + float(kPauseMenuButtons) * 42.0f; // 398
+
+// Shrink a label's scale so translated text never overflows its box.
+float fitText(std::string_view text, float preferredScale, float availableWidth) {
+    return ekron::desktop::fitHudTextScale(preferredScale, ekron::font::measureTextWidth(text, preferredScale),
+                                           availableWidth);
 }
 
 struct Rect {
@@ -421,6 +493,8 @@ void printHelp(const char *exe) {
         << "  --online-port <port>  Server port (default 38475)\n"
         << "  --online-name <name>  Player name (default Player)\n"
         << "                      Set EKRON_JOIN_TOKEN in the environment; players only, no shared world\n"
+        << "  --lang <code>       UI language: en, ru or pt-PT (default: saved choice, then system locale)\n"
+        << "                      The EKRON_LANG environment variable is honoured too\n"
         << "  --help              Show this help message\n\n"
         << "Desktop Controls:\n"
         << "  WASD                Move (or FPV drone throttle/yaw; Arrows/Mouse for pitch/roll)\n"
@@ -435,7 +509,8 @@ void printHelp(const char *exe) {
         << "  X or Delete         Remove aimed placed object\n"
         << "  E                   Interact (door, UAZ-469, sofa, FPV drone)\n"
         << "  V / H               Toggle FPV/Chase camera / Return drone home\n"
-        << "  N / P / F11 / Esc   Noclip flight / Copy spawn.json / Fullscreen / Pause menu\n";
+        << "  N / P / F11 / Esc   Noclip flight / Copy spawn.json / Fullscreen / Pause menu\n"
+        << "  L                   Cycle UI language (English / Русский / Português)\n";
 }
 
 } // namespace
@@ -445,6 +520,7 @@ int main(int argc, char **argv) {
     std::string onlineHost, onlineName = "Player";
     int onlinePort = 38475;
     bool headlessSmoke = false;
+    std::optional<i18n::Language> cliLanguage;
 
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
@@ -465,6 +541,13 @@ int main(int argc, char **argv) {
             onlineHost = argv[++i];
         } else if (arg == "--online-name" && i + 1 < argc) {
             onlineName = argv[++i];
+        } else if (arg == "--lang" && i + 1 < argc) {
+            const std::string value = argv[++i];
+            cliLanguage = i18n::parseLanguageTag(value);
+            if (!cliLanguage) {
+                std::cerr << "Unsupported language '" << value << "' (expected en, ru or pt-PT)\n";
+                return 1;
+            }
         } else if (arg == "--online-port" && i + 1 < argc) {
             try {
                 std::string value = argv[++i]; size_t used = 0;
@@ -491,6 +574,18 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    // UI language: --lang > EKRON_LANG > saved pause-menu choice > OS locale > English.
+    const std::string settingsPath = resolveSettingsPath();
+    {
+        std::optional<i18n::Language> lang = cliLanguage;
+        if (!lang) {
+            if (const char *env = std::getenv("EKRON_LANG"); env && env[0] != '\0') lang = i18n::parseLanguageTag(env);
+        }
+        if (!lang) lang = loadSavedLanguage(settingsPath);
+        if (!lang) lang = systemLanguage();
+        i18n::setLanguage(lang.value_or(i18n::Language::English));
+    }
+
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
@@ -501,7 +596,7 @@ int main(int argc, char **argv) {
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
 
     SDL_Window *window = SDL_CreateWindow(
-        "ЭКРОН — Городская песочница (Ekron Realms)",
+        i18n::tr(Str::WindowTitle),
         SDL_WINDOWPOS_CENTERED,
         SDL_WINDOWPOS_CENTERED,
         1280,
@@ -686,7 +781,7 @@ int main(int argc, char **argv) {
     bool shopDirty = false;
     float shopSaveTimer = 0.0f;
     long long pendingShopToastReq = -1;
-    std::string toastText = "Добро пожаловать в ЭКРОН! [Q] Каталог  [G] Магазин  [1-3] Инструменты  [Esc] Меню";
+    std::string toastText = i18n::tr(Str::ToastWelcome);
     float toastTimer = 5.5f;
 
     auto showToast = [&](std::string msg, float secs = 2.6f) {
@@ -700,7 +795,7 @@ int main(int argc, char **argv) {
     auto grantStartWithFlight = [&]() {
         if (shop.hasExtra(106) && !flying) {
             flying = true;
-            showToast("Улучшение «Старт с полётом» активировано");
+            showToast(i18n::tr(Str::ToastStartFlightActivated));
         }
     };
 
@@ -721,7 +816,7 @@ int main(int argc, char **argv) {
         world.yaw = spawnYaw;
         world.pitch = spawnPitch;
         player.reset(world.x, world.y, world.z);
-        showToast("Игрок возвращён на точку спавна");
+        showToast(i18n::tr(Str::ToastPlayerRespawned));
     };
 
     auto teleportToRoad = [&]() {
@@ -739,7 +834,7 @@ int main(int argc, char **argv) {
             world.z = p.z;
             world.yaw = 0.0f;
             player.reset(world.x, world.y, world.z);
-            showToast("Перемещение на ближайшую дорогу");
+            showToast(i18n::tr(Str::ToastTeleportRoad));
         }
     };
 
@@ -762,9 +857,9 @@ int main(int argc, char **argv) {
             }
             rebuildBuiltCollision();
             saveDirty = true;
-            showToast("УАЗ-469 восстановлен на стоянке");
+            showToast(i18n::tr(Str::ToastCarRestored));
         } else {
-            showToast("Место стоянки УАЗ-469 занято");
+            showToast(i18n::tr(Str::ToastCarParkingBlocked));
         }
     };
 
@@ -778,9 +873,9 @@ int main(int argc, char **argv) {
         config.startFlying = flying;
         const std::string json = city::formatSpawnConfig(config);
         if (SDL_SetClipboardText(json.c_str()) == 0)
-            showToast("Координаты spawn.json скопированы в буфер обмена");
+            showToast(i18n::tr(Str::ToastSpawnCopied));
         else
-            showToast("Не удалось скопировать координаты в буфер обмена");
+            showToast(i18n::tr(Str::ToastSpawnCopyFailed));
     };
 
     auto selectBuildItem = [&](int itemType) {
@@ -792,7 +887,7 @@ int main(int argc, char **argv) {
             rebuildBuiltCollision();
             catalogOpen = false;
             syncMouseCapture();
-            showToast("FPV-дрон в руках: [ЛКМ / E] поставить на землю");
+            showToast(i18n::tr(Str::ToastDroneInHands));
             return;
         }
         if (!building) {
@@ -808,23 +903,32 @@ int main(int argc, char **argv) {
         rebuildBuiltCollision();
         catalogOpen = false;
         syncMouseCapture();
-        showToast(std::string("Выбрано: ") + itemTitleForId(itemType) + " ([ЛКМ] поставить, [R] повернуть, [ПКМ] отмена)");
+        showToast(i18n::format(Str::ToastItemSelected, {itemTitleForId(itemType)}));
+    };
+
+    // Cycle the UI language and persist the choice for the next launch.
+    auto cycleLanguage = [&]() {
+        const i18n::Language next = i18n::nextLanguage(i18n::currentLanguage());
+        i18n::setLanguage(next);
+        saveLanguage(settingsPath, next);
+        SDL_SetWindowTitle(window, i18n::tr(Str::WindowTitle));
+        showToast(i18n::format(Str::ToastLanguageChanged, {i18n::languageNativeName(next)}));
     };
 
     auto triggerInteract = [&]() {
         if (drone.piloting()) {
             drone.leave();
-            showToast("Выход из пилотирования FPV-дрона");
+            showToast(i18n::tr(Str::ToastDroneLeft));
             return;
         }
         if (drone.mode == sandbox::FpvDrone::InHands) {
             drone.place(*cityModel.scene().collision, builtCollision);
-            showToast("FPV-дрон установлен. Нажмите [2] для пульта FPV");
+            showToast(i18n::tr(Str::ToastDronePlaced));
             return;
         }
         if (tools.tool == sandbox::HandTool::DRONE_REMOTE) {
             if (drone.connect({world.x, world.y, world.z}, world.yaw, world.pitch, *cityModel.scene().collision, builtCollision)) {
-                showToast("Подключено к FPV-дрону! [W/S] тяга, [A/D] курс, [Мышь] крен/тангаж, [V] вид");
+                showToast(i18n::tr(Str::ToastDroneConnected));
                 return;
             }
         }
@@ -839,7 +943,7 @@ int main(int argc, char **argv) {
                 seatedCar = -1;
                 player.reset(world.x, world.y, world.z);
             } else {
-                showToast("Выход заблокирован препятствием");
+                showToast(i18n::tr(Str::ToastExitBlocked));
             }
             return;
         }
@@ -913,17 +1017,17 @@ int main(int argc, char **argv) {
                         tools.select(world, sandbox::HandTool::GRAVITY_GUN);
                         building = false;
                         rebuildBuiltCollision();
-                        showToast("Инструмент: Грави-пушка");
+                        showToast(i18n::format(Str::ToastTool, {i18n::tr(Str::ToolGravityGun)}));
                     } else if (key == SDLK_2) {
                         tools.select(world, sandbox::HandTool::DRONE_REMOTE);
                         building = false;
                         rebuildBuiltCollision();
-                        showToast("Инструмент: Пульт FPV");
+                        showToast(i18n::format(Str::ToastTool, {i18n::tr(Str::ToolFpvRemote)}));
                     } else if (key == SDLK_3) {
                         tools.select(world, sandbox::HandTool::HAND_EMPTY);
                         building = false;
                         rebuildBuiltCollision();
-                        showToast("Инструмент: Пустые руки");
+                        showToast(i18n::format(Str::ToastTool, {i18n::tr(Str::ToolEmptyHands)}));
                     } else if (key == SDLK_SPACE && !flying && !drone.piloting() && seatedCar < 0) {
                         player.jump();
                     } else if (key == SDLK_c && !flying && !drone.piloting()) {
@@ -935,16 +1039,18 @@ int main(int argc, char **argv) {
                     } else if (key == SDLK_n && !drone.piloting() && seatedCar < 0) {
                         flying = !flying;
                         player.reset(world.x, world.y, world.z);
-                        showToast(flying ? "Режим полёта (Noclip): ВКЛ" : "Режим полёта (Noclip): ВЫКЛ");
+                        showToast(i18n::tr(flying ? Str::FlightOn : Str::FlightOff));
                     } else if (key == SDLK_p) {
                         copySpawnJson();
+                    } else if (key == SDLK_l) {
+                        cycleLanguage();
                     } else if (key == SDLK_e) {
                         triggerInteract();
                     } else if (key == SDLK_v && drone.piloting()) {
                         drone.toggleView(*cityModel.scene().collision, builtCollision);
                     } else if (key == SDLK_h && (drone.piloting() || tools.tool == sandbox::HandTool::DRONE_REMOTE)) {
                         drone.returnHome({world.x, world.y, world.z}, world.yaw, *cityModel.scene().collision, builtCollision);
-                        showToast("FPV-дрон возвращается домой");
+                        showToast(i18n::tr(Str::ToastDroneReturning));
                     } else if (key == SDLK_r) {
                         if (building) {
                             world.rotation = (world.rotation + 1) % 4;
@@ -956,7 +1062,7 @@ int main(int argc, char **argv) {
                             tools.select(world, spawnReturnTool);
                             building = false;
                             placementPreview.reset();
-                            showToast("Строительство отменено");
+                            showToast(i18n::tr(Str::ToastBuildCancelled));
                         } else if (tools.tool == sandbox::HandTool::GRAVITY_GUN) {
                             if (tools.freeze(world, cityModel.scene().collision.get())) {
                                 rebuildBuiltCollision();
@@ -967,7 +1073,7 @@ int main(int argc, char **argv) {
                         if (world.remove()) {
                             rebuildBuiltCollision();
                             saveDirty = true;
-                            showToast("Объект удалён");
+                            showToast(i18n::tr(Str::ToastObjectRemoved));
                         }
                     }
                 }
@@ -993,10 +1099,10 @@ int main(int argc, char **argv) {
                 const float my = float(ev.button.y) * hudLayout.mouseScaleY;
 
                 if (pauseOpen && ev.button.button == SDL_BUTTON_LEFT) {
-                    const float pw = 380.0f, ph = 370.0f;
+                    const float pw = kPauseMenuWidth, ph = kPauseMenuHeight;
                     const float px = (float(hudW) - pw) * 0.5f;
                     const float py = (float(hudH) - ph) * 0.5f;
-                    for (int idx = 0; idx < 7; ++idx) {
+                    for (int idx = 0; idx < kPauseMenuButtons; ++idx) {
                         Rect btn{px + 28.0f, py + 62.0f + float(idx) * 42.0f, pw - 56.0f, 34.0f};
                         if (btn.contains(mx, my)) {
                             if (idx == 0) { pauseOpen = false; syncMouseCapture(); }
@@ -1005,7 +1111,8 @@ int main(int argc, char **argv) {
                             else if (idx == 3) { respawnCar(); pauseOpen = false; syncMouseCapture(); }
                             else if (idx == 4) { respawnPlayer(); pauseOpen = false; syncMouseCapture(); }
                             else if (idx == 5) { copySpawnJson(); pauseOpen = false; syncMouseCapture(); }
-                            else if (idx == 6) { running = false; }
+                            else if (idx == 6) { cycleLanguage(); } // keep the menu open to show the new language
+                            else if (idx == 7) { running = false; }
                         }
                     }
                 } else if (catalogOpen && ev.button.button == SDL_BUTTON_LEFT) {
@@ -1071,11 +1178,11 @@ int main(int argc, char **argv) {
                             if (sitems[k].kind == ekron::desktop::ShopKind::Skin && shop.equipSkin(id)) {
                                 shopDirty = true;
                                 shop.save(storePath);
-                                showToast(std::string("Скин применён: ") + sitems[k].name);
+                                showToast(i18n::format(Str::ToastSkinApplied, {ekron::desktop::shopItemName(sitems[k])}));
                             }
                         } else if (online.shopSynced()) {
                             pendingShopToastReq = online.requestPurchase(id);
-                            showToast("Запрос покупки у сервера…");
+                            showToast(i18n::tr(Str::ToastPurchaseRequesting));
                         } else {
                             std::string reason;
                             if (shop.tryBuy(id, reason)) {
@@ -1083,9 +1190,9 @@ int main(int argc, char **argv) {
                                 shopDirty = true;
                                 pendingShopToastReq = id; // local echo for the toast
                                 shop.save(storePath);
-                                showToast(std::string("Куплено: ") + sitems[k].name);
+                                showToast(i18n::format(Str::ToastPurchased, {ekron::desktop::shopItemName(sitems[k])}));
                             } else {
-                                showToast(reason);
+                                showToast(i18n::localizeShopError(reason));
                             }
                         }
                         break;
@@ -1094,11 +1201,11 @@ int main(int argc, char **argv) {
                     if (ev.button.button == SDL_BUTTON_LEFT) {
                         if (drone.mode == sandbox::FpvDrone::InHands) {
                             drone.place(*cityModel.scene().collision, builtCollision);
-                            showToast("FPV-дрон установлен. Нажмите [2] для пульта FPV");
+                            showToast(i18n::tr(Str::ToastDronePlaced));
                         } else if (tools.tool == sandbox::HandTool::DRONE_REMOTE && !drone.piloting()) {
                             if (drone.connect({world.x, world.y, world.z}, world.yaw, world.pitch,
                                               *cityModel.scene().collision, builtCollision)) {
-                                showToast("Пилотирование FPV-дрона активно");
+                                showToast(i18n::tr(Str::ToastDronePilotingActive));
                             }
                         } else if (building && seatedCar < 0) {
                             auto committed = sandbox::RaycastPlacement::commitPreview(
@@ -1125,7 +1232,7 @@ int main(int argc, char **argv) {
                             tools.select(world, spawnReturnTool);
                             building = false;
                             placementPreview.reset();
-                            showToast("Строительство отменено");
+                            showToast(i18n::tr(Str::ToastBuildCancelled));
                         } else if (tools.tool == sandbox::HandTool::GRAVITY_GUN) {
                             if (tools.freeze(world, cityModel.scene().collision.get())) {
                                 rebuildBuiltCollision();
@@ -1287,10 +1394,10 @@ int main(int argc, char **argv) {
                 if (pendingShopToastReq >= 0 && online.lastPurchaseReq() == pendingShopToastReq) {
                     if (online.lastPurchaseOk()) {
                         grantStartWithFlight();
-                        showToast("Куплено у сервера");
+                        showToast(i18n::tr(Str::ToastPurchasedFromServer));
                     } else {
-                        const std::string reason = online.lastPurchaseReason();
-                        showToast(reason.empty() ? "Покупка отклонена сервером" : reason);
+                        const std::string reason = i18n::localizeShopError(online.lastPurchaseReason());
+                        showToast(reason.empty() ? std::string(i18n::tr(Str::ToastPurchaseRejected)) : reason);
                     }
                     pendingShopToastReq = -1;
                 }
@@ -1427,8 +1534,8 @@ int main(int argc, char **argv) {
 
         // Center crosshair (cosmetic skins from the store)
         ekron::desktop::Color crossColor{0.92f, 0.98f, 0.95f, 0.85f};
-        if (shop.hasExtra(103)) crossColor = {1.00f, 0.84f, 0.20f, 0.95f};      // Золотой прицел
-        else if (shop.hasExtra(105)) crossColor = {0.40f, 1.00f, 0.95f, 0.95f}; // Неоновый прицел
+        if (shop.hasExtra(103)) crossColor = {1.00f, 0.84f, 0.20f, 0.95f};      // Golden Crosshair
+        else if (shop.hasExtra(105)) crossColor = {0.40f, 1.00f, 0.95f, 0.95f}; // Neon Sight
         if (!catalogOpen && !pauseOpen && !shopOpen) {
             const float cx = float(hudW) * 0.5f;
             const float cy = float(hudH) * 0.5f;
@@ -1438,23 +1545,26 @@ int main(int argc, char **argv) {
 
         // Top-left status bar
         ekron::desktop::Color hudAccent{0.18f, 0.68f, 0.58f, 0.85f};
-        if (shop.hasExtra(104)) hudAccent = {0.38f, 0.62f, 0.32f, 0.85f}; // Камуфляж HUD
+        if (shop.hasExtra(104)) hudAccent = {0.38f, 0.62f, 0.32f, 0.85f}; // Camo HUD
         renderer.drawRect(14.0f, 14.0f, 430.0f, 54.0f, {0.06f, 0.09f, 0.12f, 0.78f});
         renderer.drawBorder(14.0f, 14.0f, 430.0f, 54.0f, 1.5f, hudAccent);
-        const char *toolLabel = building ? "Строительство"
-            : (tools.tool == sandbox::HandTool::GRAVITY_GUN ? "1: Грави-пушка"
-            : (tools.tool == sandbox::HandTool::DRONE_REMOTE ? "2: Пульт FPV" : "3: Пустые руки"));
-        renderer.drawText(26.0f, 23.0f, std::string("ЭКРОН  •  ") + toolLabel, 1.75f, {0.95f, 0.97f, 1.0f, 1.0f});
-        char coordBuf[128]{};
+        const std::string toolLabel = building ? std::string(i18n::tr(Str::ToolBuilding))
+            : (tools.tool == sandbox::HandTool::GRAVITY_GUN ? std::string("1: ") + i18n::tr(Str::ToolGravityGun)
+            : (tools.tool == sandbox::HandTool::DRONE_REMOTE ? std::string("2: ") + i18n::tr(Str::ToolFpvRemote)
+                                                              : std::string("3: ") + i18n::tr(Str::ToolEmptyHands)));
+        const std::string statusTitle = std::string(i18n::tr(Str::BrandName)) + "  •  " + toolLabel;
+        renderer.drawText(26.0f, 23.0f, statusTitle,
+                          ekron::desktop::fitHudTextScale(1.75f, ekron::font::measureTextWidth(statusTitle, 1.75f), 406.0f),
+                          {0.95f, 0.97f, 1.0f, 1.0f});
+        char coordBuf[160]{};
         std::snprintf(coordBuf, sizeof(coordBuf), "X: %.1f  Y: %.1f  Z: %.1f  %s",
-                      world.x, world.y, world.z, flying ? "[NOCLIP]" : (prone ? "[ЛЁЖА]" : (crouched ? "[ПРИСЕД]" : "")));
+                      world.x, world.y, world.z,
+                      flying ? "[NOCLIP]" : (prone ? i18n::tr(Str::StatusProne) : (crouched ? i18n::tr(Str::StatusCrouched) : "")));
         renderer.drawText(26.0f, 46.0f, coordBuf, 1.35f, {0.68f, 0.86f, 0.82f, 0.95f});
 
         // Bottom controls bar
         renderer.drawRect(14.0f, float(hudH) - 42.0f, float(hudW) - 28.0f, 28.0f, {0.05f, 0.08f, 0.11f, 0.72f});
-        const std::string controlsText = drone.piloting()
-            ? "[W/S] Тяга  [A/D] Курс  [Мышь / Стрелки] Крен и тангаж  [V] Смена камеры  [H] Домой  [E / ПКМ] Выйти"
-            : "[WASD] Ходьба  [Пробел] Прыжок  [1-3] Инструмент  [Q] Каталог  [ЛКМ] Действие  [R] Поворот  [E] Взаимодействие  [Esc] Меню";
+        const std::string controlsText = i18n::tr(drone.piloting() ? Str::ControlsDrone : Str::ControlsWalk);
         const float preferredControlsScale = drone.piloting() ? 1.35f : 1.30f;
         const float controlsScale = ekron::desktop::fitHudTextScale(
             preferredControlsScale, ekron::font::measureTextWidth(controlsText, preferredControlsScale), float(hudW) - 48.0f);
@@ -1464,37 +1574,41 @@ int main(int argc, char **argv) {
         // Contextual interaction prompt
         std::string prompt;
         if (seatedCar >= 0) {
-            prompt = "[E] Выйти";
+            prompt = i18n::tr(Str::PromptExit);
         } else if (drone.mode == sandbox::FpvDrone::InHands) {
-            prompt = "[ЛКМ / E] Поставить FPV-дрон на землю";
+            prompt = i18n::tr(Str::PromptPlaceDrone);
         } else if (tools.tool == sandbox::HandTool::DRONE_REMOTE && !drone.piloting() &&
                    (drone.linked || drone.aimed({world.x, world.y, world.z}, world.yaw, world.pitch,
                                                 *cityModel.scene().collision, builtCollision))) {
-            prompt = "[ЛКМ / E] Подключиться к FPV-дрону";
+            prompt = i18n::tr(Str::PromptConnectDrone);
         } else if (!tools.holding()) {
             const int target = sandbox::interactionTarget(world, *cityModel.scene().collision);
             if (target >= 0) {
                 const auto &o = world.objects[size_t(target)];
-                prompt = (o.type == 8) ? "[E] Сесть в УАЗ-469"
-                       : (o.type == 7 ? "[E] Присесть на диван"
-                       : (o.doorTarget > 0.5f ? "[E] Закрыть дверь" : "[E] Открыть дверь"));
+                prompt = i18n::tr((o.type == 8) ? Str::PromptEnterCar
+                       : (o.type == 7 ? Str::PromptSitSofa
+                       : (o.doorTarget > 0.5f ? Str::PromptCloseDoor : Str::PromptOpenDoor)));
             }
         }
         if (!prompt.empty() && !catalogOpen && !pauseOpen && !shopOpen) {
-            const float pw = ekron::font::measureTextWidth(prompt, 1.65f) + 28.0f;
+            const float promptScale = ekron::desktop::fitHudTextScale(
+                1.65f, ekron::font::measureTextWidth(prompt, 1.65f), float(hudW) - 64.0f);
+            const float pw = ekron::font::measureTextWidth(prompt, promptScale) + 28.0f;
             renderer.drawRect((float(hudW) - pw) * 0.5f, float(hudH) * 0.62f, pw, 32.0f, {0.06f, 0.14f, 0.14f, 0.85f});
             renderer.drawBorder((float(hudW) - pw) * 0.5f, float(hudH) * 0.62f, pw, 32.0f, 1.5f, {0.22f, 0.78f, 0.66f, 0.9f});
-            renderer.drawCenteredText(float(hudW) * 0.5f, float(hudH) * 0.62f + 16.0f, prompt, 1.65f, {0.95f, 1.0f, 0.97f, 1.0f});
+            renderer.drawCenteredText(float(hudW) * 0.5f, float(hudH) * 0.62f + 16.0f, prompt, promptScale, {0.95f, 1.0f, 0.97f, 1.0f});
         }
 
         // Toast banner
         if (toastTimer > 0.0f && !toastText.empty()) {
             const float alpha = std::min(1.0f, toastTimer * 1.5f);
-            const float tw = ekron::font::measureTextWidth(toastText, 1.5f) + 32.0f;
+            const float toastScale = ekron::desktop::fitHudTextScale(
+                1.5f, ekron::font::measureTextWidth(toastText, 1.5f), float(hudW) - 64.0f);
+            const float tw = ekron::font::measureTextWidth(toastText, toastScale) + 32.0f;
             const float tx = (float(hudW) - tw) * 0.5f;
             renderer.drawRect(tx, 78.0f, tw, 30.0f, {0.08f, 0.13f, 0.16f, 0.84f * alpha});
             renderer.drawBorder(tx, 78.0f, tw, 30.0f, 1.0f, {0.25f, 0.75f, 0.65f, 0.85f * alpha});
-            renderer.drawCenteredText(float(hudW) * 0.5f, 93.0f, toastText, 1.5f, {0.95f, 0.98f, 1.0f, alpha});
+            renderer.drawCenteredText(float(hudW) * 0.5f, 93.0f, toastText, toastScale, {0.95f, 0.98f, 1.0f, alpha});
         }
 
         // Build & Equipment Catalog modal
@@ -1507,7 +1621,8 @@ int main(int argc, char **argv) {
 
             renderer.drawRect(cx, cy, cw, ch, {0.08f, 0.11f, 0.14f, 0.96f});
             renderer.drawBorder(cx, cy, cw, ch, 2.0f, {0.20f, 0.72f, 0.62f, 0.95f});
-            renderer.drawText(cx + 18.0f, cy + 18.0f, "КАТАЛОГ СТРОИТЕЛЬСТВА И ТЕХНИКИ", 1.85f, {0.95f, 0.98f, 1.0f, 1.0f});
+            renderer.drawText(cx + 18.0f, cy + 18.0f, i18n::tr(Str::CatalogTitle),
+                              fitText(i18n::tr(Str::CatalogTitle), 1.85f, cw - 80.0f), {0.95f, 0.98f, 1.0f, 1.0f});
 
             // Close button
             renderer.drawRect(cx + cw - 44.0f, cy + 12.0f, 32.0f, 30.0f, {0.42f, 0.14f, 0.16f, 0.95f});
@@ -1524,7 +1639,9 @@ int main(int argc, char **argv) {
                 renderer.drawBorder(tx, cy + 52.0f, tabW, 34.0f, 1.0f,
                                     active ? ekron::desktop::Color{0.35f, 0.92f, 0.80f, 1.0f}
                                            : ekron::desktop::Color{0.25f, 0.32f, 0.38f, 0.8f});
-                renderer.drawCenteredText(tx + tabW * 0.5f, cy + 69.0f, cats[t].name, 1.5f, {0.96f, 0.98f, 1.0f, 1.0f});
+                const char *tabName = i18n::tr(cats[t].name);
+                renderer.drawCenteredText(tx + tabW * 0.5f, cy + 69.0f, tabName, fitText(tabName, 1.5f, tabW - 12.0f),
+                                          {0.96f, 0.98f, 1.0f, 1.0f});
             }
 
             const auto &items = cats[size_t(selectedCategory)].items;
@@ -1582,8 +1699,12 @@ int main(int argc, char **argv) {
                         renderer.drawRect(ix + iconSz - m - 10.0f, iy + iconSz * 0.58f, 6.0f, iconSz * 0.24f, {0.48f, 0.33f, 0.19f, 1.0f});
                     }
                 }
-                renderer.drawCenteredText(kx + cardW * 0.5f, ky + cardH - 44.0f, items[k].title, 1.65f, {0.96f, 0.99f, 1.0f, 1.0f});
-                renderer.drawCenteredText(kx + cardW * 0.5f, ky + cardH - 20.0f, items[k].subtitle, 1.25f, {0.68f, 0.80f, 0.84f, 0.95f});
+                const char *cardTitle = i18n::tr(items[k].title);
+                const char *cardSubtitle = i18n::tr(items[k].subtitle);
+                renderer.drawCenteredText(kx + cardW * 0.5f, ky + cardH - 44.0f, cardTitle,
+                                          fitText(cardTitle, 1.65f, cardW - 12.0f), {0.96f, 0.99f, 1.0f, 1.0f});
+                renderer.drawCenteredText(kx + cardW * 0.5f, ky + cardH - 20.0f, cardSubtitle,
+                                          fitText(cardSubtitle, 1.25f, cardW - 12.0f), {0.68f, 0.80f, 0.84f, 0.95f});
             }
         }
 
@@ -1597,14 +1718,15 @@ int main(int argc, char **argv) {
 
             renderer.drawRect(sx, sy, sw, sh, {0.08f, 0.11f, 0.15f, 0.97f});
             renderer.drawBorder(sx, sy, sw, sh, 2.0f, {0.72f, 0.58f, 0.16f, 0.98f});
-            renderer.drawText(sx + 18.0f, sy + 18.0f, "МАГАЗИН — ЭКРОН", 1.85f, {1.00f, 0.92f, 0.55f, 1.0f});
+            renderer.drawText(sx + 18.0f, sy + 18.0f, i18n::tr(Str::ShopTitle), 1.85f, {1.00f, 0.92f, 0.55f, 1.0f});
 
-            char balanceBuf[128]{};
-            std::snprintf(balanceBuf, sizeof(balanceBuf), "ЗОЛОТО: %lld", static_cast<long long>(shop.coins));
-            renderer.drawText(sx + 18.0f, sy + 44.0f, balanceBuf, 1.45f, {1.00f, 0.84f, 0.32f, 1.0f});
-            if (!onlineHost.empty())
-                renderer.drawText(sx + sw - 18.0f - ekron::font::measureTextWidth(online.status(), 1.05f),
-                                  sy + 44.0f, online.status(), 1.05f, {0.68f, 0.80f, 0.84f, 1.0f});
+            const std::string balanceText = i18n::format(Str::ShopGold, {std::to_string(static_cast<long long>(shop.coins))});
+            renderer.drawText(sx + 18.0f, sy + 44.0f, balanceText, 1.45f, {1.00f, 0.84f, 0.32f, 1.0f});
+            if (!onlineHost.empty()) {
+                const std::string onlineStatus = i18n::localizeOnlineStatus(online.status());
+                renderer.drawText(sx + sw - 18.0f - ekron::font::measureTextWidth(onlineStatus, 1.05f),
+                                  sy + 44.0f, onlineStatus, 1.05f, {0.68f, 0.80f, 0.84f, 1.0f});
+            }
 
             // Close button
             renderer.drawRect(sx + sw - 44.0f, sy + 12.0f, 32.0f, 30.0f, {0.42f, 0.14f, 0.16f, 0.95f});
@@ -1621,7 +1743,9 @@ int main(int argc, char **argv) {
                 renderer.drawBorder(tx, sy + 60.0f, stabW, 32.0f, 1.0f,
                                     active ? ekron::desktop::Color{1.00f, 0.86f, 0.40f, 1.0f}
                                            : ekron::desktop::Color{0.25f, 0.32f, 0.38f, 0.8f});
-                renderer.drawCenteredText(tx + stabW * 0.5f, sy + 77.0f, scats[t].name, 1.45f, {0.98f, 0.96f, 0.90f, 1.0f});
+                const char *shopTabName = ekron::desktop::shopCategoryName(scats[t]);
+                renderer.drawCenteredText(tx + stabW * 0.5f, sy + 77.0f, shopTabName,
+                                          fitText(shopTabName, 1.45f, stabW - 12.0f), {0.98f, 0.96f, 0.90f, 1.0f});
             }
 
             const auto &sitems = scats[size_t(selectedShopCategory)].items;
@@ -1649,8 +1773,12 @@ int main(int argc, char **argv) {
                                       : ekron::desktop::Color{0.70f, 0.56f, 0.20f, 1.0f});
                 renderer.drawBorder(ix, iy, iconSz, iconSz, 1.0f, {0.20f, 0.28f, 0.34f, 0.9f});
 
-                renderer.drawCenteredText(kx + scardW * 0.5f, ky + scardH - 66.0f, it.name, 1.45f, {0.98f, 0.99f, 1.0f, 1.0f});
-                renderer.drawCenteredText(kx + scardW * 0.5f, ky + scardH - 46.0f, it.description, 1.15f, {0.70f, 0.80f, 0.84f, 0.95f});
+                const char *itemName = ekron::desktop::shopItemName(it);
+                const char *itemDescription = ekron::desktop::shopItemDescription(it);
+                renderer.drawCenteredText(kx + scardW * 0.5f, ky + scardH - 66.0f, itemName,
+                                          fitText(itemName, 1.45f, scardW - 10.0f), {0.98f, 0.99f, 1.0f, 1.0f});
+                renderer.drawCenteredText(kx + scardW * 0.5f, ky + scardH - 46.0f, itemDescription,
+                                          fitText(itemDescription, 1.15f, scardW - 10.0f), {0.70f, 0.80f, 0.84f, 0.95f});
 
                 // Action button
                 const float bx = kx + 8.0f, by = ky + scardH - 40.0f, bw = scardW - 16.0f, bh = 30.0f;
@@ -1663,43 +1791,49 @@ int main(int argc, char **argv) {
                                     owned ? ekron::desktop::Color{0.55f, 0.85f, 0.65f, 1.0f}
                                           : ekron::desktop::Color{1.00f, 0.88f, 0.45f, 1.0f});
                 const std::string btnLabel = owned
-                    ? (equipped ? std::string("ПРИМЕНЕНО")
-                                : (it.kind == ekron::desktop::ShopKind::Skin ? std::string("НАДЕТЬ") : std::string("АКТИВНО")))
-                    : (std::string("КУПИТЬ ") + std::to_string(it.price));
-                renderer.drawCenteredText(bx + bw * 0.5f, by + 15.0f, btnLabel, 1.30f, {0.98f, 0.99f, 1.0f, 1.0f});
+                    ? std::string(i18n::tr(equipped ? Str::ShopButtonEquipped
+                                                    : (it.kind == ekron::desktop::ShopKind::Skin ? Str::ShopButtonEquip
+                                                                                                 : Str::ShopButtonActive)))
+                    : i18n::format(Str::ShopButtonBuy, {std::to_string(it.price)});
+                renderer.drawCenteredText(bx + bw * 0.5f, by + 15.0f, btnLabel, fitText(btnLabel, 1.30f, bw - 8.0f),
+                                          {0.98f, 0.99f, 1.0f, 1.0f});
             }
         }
 
         // Pause menu modal
         if (pauseOpen) {
             renderer.drawRect(0.0f, 0.0f, float(hudW), float(hudH), {0.02f, 0.03f, 0.05f, 0.68f});
-            const float pw = 380.0f, ph = 370.0f;
+            const float pw = kPauseMenuWidth, ph = kPauseMenuHeight;
             const float px = (float(hudW) - pw) * 0.5f;
             const float py = (float(hudH) - ph) * 0.5f;
             renderer.drawRect(px, py, pw, ph, {0.08f, 0.11f, 0.15f, 0.97f});
             renderer.drawBorder(px, py, pw, ph, 2.0f, {0.20f, 0.72f, 0.62f, 0.95f});
-            renderer.drawCenteredText(px + pw * 0.5f, py + 25.0f, "ПАУЗА — ЭКРОН", 1.95f, {0.96f, 0.99f, 1.0f, 1.0f});
-            if (!onlineHost.empty()) renderer.drawCenteredText(px + pw * 0.5f, py + 48.0f, online.status(), 1.0f, {0.68f, 0.80f, 0.84f, 1.0f});
+            renderer.drawCenteredText(px + pw * 0.5f, py + 25.0f, i18n::tr(Str::PauseTitle), 1.95f, {0.96f, 0.99f, 1.0f, 1.0f});
+            if (!onlineHost.empty())
+                renderer.drawCenteredText(px + pw * 0.5f, py + 48.0f, i18n::localizeOnlineStatus(online.status()), 1.0f,
+                                          {0.68f, 0.80f, 0.84f, 1.0f});
 
-            const std::array<std::string, 7> labels = {
-                "Продолжить игру",
-                flying ? "Режим полёта (Noclip): ВКЛ" : "Режим полёта (Noclip): ВЫКЛ",
-                "Переместиться на дорогу",
-                "Восстановить УАЗ-469",
-                "Вернуться на точку спавна",
-                "Скопировать spawn.json",
-                "Выйти на рабочий стол"
+            const std::array<std::string, kPauseMenuButtons> labels = {
+                i18n::tr(Str::PauseResume),
+                i18n::tr(flying ? Str::FlightOn : Str::FlightOff),
+                i18n::tr(Str::PauseGoToRoad),
+                i18n::tr(Str::PauseRestoreCar),
+                i18n::tr(Str::PauseRespawn),
+                i18n::tr(Str::PauseCopySpawn),
+                i18n::format(Str::PauseLanguage, {i18n::languageNativeName(i18n::currentLanguage())}),
+                i18n::tr(Str::PauseQuit)
             };
             for (size_t i = 0; i < labels.size(); ++i) {
                 const float by = py + 62.0f + float(i) * 42.0f;
-                const bool quitBtn = (i == 6);
+                const bool quitBtn = (i + 1 == labels.size());
                 renderer.drawRect(px + 28.0f, by, pw - 56.0f, 34.0f,
                                   quitBtn ? ekron::desktop::Color{0.40f, 0.13f, 0.15f, 0.95f}
                                           : ekron::desktop::Color{0.14f, 0.20f, 0.25f, 0.95f});
                 renderer.drawBorder(px + 28.0f, by, pw - 56.0f, 34.0f, 1.0f,
                                     quitBtn ? ekron::desktop::Color{0.78f, 0.30f, 0.32f, 0.95f}
                                             : ekron::desktop::Color{0.26f, 0.58f, 0.52f, 0.9f});
-                renderer.drawCenteredText(px + pw * 0.5f, by + 17.0f, labels[i], 1.45f, {0.96f, 0.98f, 1.0f, 1.0f});
+                renderer.drawCenteredText(px + pw * 0.5f, by + 17.0f, labels[i], fitText(labels[i], 1.45f, pw - 72.0f),
+                                          {0.96f, 0.98f, 1.0f, 1.0f});
             }
         }
 
