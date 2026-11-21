@@ -4,6 +4,8 @@
 // against a RealmsCoreApi implementation:
 //   realms_bridge_test                      -> C++ reference core
 //   realms_bridge_test --pascal <library>   -> Free Pascal core (dlopen)
+// Built with -DREALMS_PASCAL_STATIC and linked against librealms_core.a (the
+// iOS packaging), `--pascal static` uses the statically linked Pascal core.
 // and then drives the realms::Engine facade on top of the same backend.
 
 #include "realms/Engine.h"
@@ -19,7 +21,9 @@
 #include <string>
 #include <vector>
 
-#if !defined(_WIN32)
+#if defined(REALMS_PASCAL_STATIC)
+extern "C" const RealmsCoreApi *realms_pascal_get_api(uint32_t requested_version);
+#elif !defined(_WIN32)
 #include <dlfcn.h>
 #endif
 
@@ -421,7 +425,10 @@ int main(int argc, char **argv) {
     if (pascalLibrary.empty()) {
         api = realms_native_get_api(REALMS_BRIDGE_VERSION);
     } else {
-#if defined(_WIN32)
+#if defined(REALMS_PASCAL_STATIC)
+        api = realms_pascal_get_api(REALMS_BRIDGE_VERSION);
+        CHECK(realms_pascal_get_api(REALMS_BRIDGE_VERSION + 1) == nullptr);
+#elif defined(_WIN32)
         std::fprintf(stderr, "--pascal is not supported on Windows in this test\n");
         return 2;
 #else

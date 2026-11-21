@@ -1,0 +1,18 @@
+//
+//  RealmsPascal.xcconfig
+//  Base configuration of the "realms iOS" target.
+//
+//  Realms runs on the Free Pascal core (librealms_core.a) when it has been
+//  built, otherwise on the C++ reference core:
+//
+//    realms/pascal/fpc_ios_toolchain.sh <FPCSource> ~/fpc-ios     (once)
+//    FPC_IOS_PREFIX=~/fpc-ios realms/pascal/build_core.sh ios-arm64
+//
+//  build_core.sh writes build/realms-ios/RealmsPascal.generated.xcconfig,
+//  which sets the two settings below for device (iphoneos) builds.
+//
+
+REALMS_PASCAL_DEFINES =
+REALMS_PASCAL_LDFLAGS =
+
+#include? "../../../build/realms-ios/RealmsPascal.generated.xcconfig"

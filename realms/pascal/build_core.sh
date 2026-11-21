@@ -11,7 +11,9 @@
 #   android-aarch64   -> sys/android/app/src/main/jniLibs/arm64-v8a/
 #   android-armv7     -> sys/android/app/src/main/jniLibs/armeabi-v7a/
 #   android-x86_64    -> sys/android/app/src/main/jniLibs/x86_64/
-#   ios-arm64         -> build/realms-ios/librealms_core.a  (static)
+#   ios-arm64         -> build/realms-ios/librealms_core.a  (static, device)
+#   macos-arm64-static  -> build/realms-macos-static/librealms_core.a; the same
+#                     static pipeline as iOS for a CPU/OS that can run tests
 #
 # Android: needs a Free Pascal cross compiler + Android RTL for the CPU
 # (build one with realms/pascal/fpc_android_toolchain.sh and point
@@ -22,12 +24,19 @@
 # realms::Engine loads it automatically (REALMS_CORE=auto) - nothing else
 # changes in the APK build.
 #
-# iOS: apps cannot ship dynamic Pascal libraries, so the core is compiled to
-# objects and archived together with the FPC RTL units it uses. Link the
-# archive into the app and add REALMS_PASCAL_STATIC=1 to the preprocessor
-# definitions; realms::Engine then calls realms_pascal_get_api directly.
-# FPC registers unit initialisation in __mod_init_func on Darwin, so the RTL
-# starts up when the app image loads.
+# iOS: apps cannot load their own dynamic libraries, so the core is linked
+# statically. FPC compiles it with -Cn (no link step) and records every object
+# the library needs, RTL included, in linkfiles*.res; those are prelinked with
+# `ld -r` into ONE object and archived. That matters: on Darwin FPC starts the
+# RTL from a __mod_init_func entry (FPC_LIBMAIN) in the library's main object,
+# which also defines realms_pascal_get_api - referencing the entry point pulls
+# the whole core, init entry included, into the app. (A plain archive of the
+# unit objects would let the linker drop the init and crash on first use.)
+# Needs the aarch64-ios RTL from realms/pascal/fpc_ios_toolchain.sh
+# (FPC_IOS_PREFIX=<prefix>, or FPC_IOS_UNITS=<units dir>). The script also
+# writes RealmsPascal.generated.xcconfig next to the archive; the Xcode
+# project includes it, so device builds then link the Pascal core and define
+# REALMS_PASCAL_STATIC=1 automatically. Without it iOS uses the C++ core.
 # -----------------------------------------------------------------------------
 set -euo pipefail
 
@@ -76,6 +85,29 @@ build_android() {
     echo "built $out/librealms_core.so"
 }
 
+# build_darwin_static <out> <xcrun-sdk> <fpc target flags...>
+build_darwin_static() {
+    local out="$1" sdk="$2"; shift 2
+    local objs; objs="$(mktemp -d)"
+    mkdir -p "$out"
+    # -Cn: compile and assemble only; FPC still writes the link inputs.
+    "$FPC" "$@" -Cn "${COMMON[@]}" "-FU$objs" "-FE$objs" "$HERE/realms_core.lpr"
+    local filelist; filelist="$(ls "$objs"/linkfiles*.res 2>/dev/null | head -n 1)"
+    [ -f "$filelist" ] || { echo "error: FPC wrote no linkfiles*.res in $objs" >&2; exit 1; }
+    echo "prelinking $(wc -l < "$filelist" | tr -d ' ') objects:"
+    sed 's/^/  /' "$filelist"
+    (cd "$objs" && xcrun --sdk "$sdk" ld -r -arch arm64 -o realms_core_prelinked.o -filelist "$filelist")
+    rm -f "$out/librealms_core.a"
+    xcrun --sdk "$sdk" libtool -static -o "$out/librealms_core.a" "$objs/realms_core_prelinked.o"
+    # The archive must export the entry point and carry the RTL init entry.
+    nm -gU "$out/librealms_core.a" | grep -q ' _realms_pascal_get_api$' || {
+        echo "error: _realms_pascal_get_api is not exported by $out/librealms_core.a" >&2; exit 1; }
+    otool -l "$objs/realms_core_prelinked.o" | grep -q __mod_init_func || {
+        echo "error: no __mod_init_func (FPC_LIBMAIN) in the prelinked core" >&2; exit 1; }
+    rm -rf "$objs"
+    ls -l "$out/librealms_core.a"
+}
+
 case "$TARGET" in
     host)
         out="${2:-$ROOT/build}"
@@ -97,29 +129,31 @@ case "$TARGET" in
         OUT_DIR="${2:-}" build_android x86_64 x86_64 x86_64-linux-android x86_64-linux-gnu- ppcrossx64
         ;;
     ios-arm64)
-        out="${2:-$ROOT/build/realms-ios}"
-        mkdir -p "$out"
-        objs="$(mktemp -d)"
         SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
-        # -Cn: compile + assemble only; the app's Xcode link step does the rest.
-        "$FPC" -Tios -Paarch64 -Cn -XX -CX "-XR$SDK" -WP16.0 \
-            "${COMMON[@]}" "-FU$objs" "-FE$objs" "$HERE/realms_core.lpr"
-        # Archive the core objects plus the RTL/FCL units they reference.
-        # RTL units for aarch64-ios (override with FPC_IOS_UNITS).
-        RTL_DIR="${FPC_IOS_UNITS:-$(dirname "$(command -v "$FPC")")/../lib/fpc/$("$FPC" -iV)/units/aarch64-ios}"
-        [ -d "$RTL_DIR" ] || { echo "error: aarch64-ios RTL not found at $RTL_DIR (set FPC_IOS_UNITS)" >&2; exit 1; }
-        rtl_objs=()
-        for u in system objpas sysutils math ctypes unixtype baseunix unix sysconst \
-                 errors cthreads initc dl unixutil syscall rtlconsts typinfo; do
-            while IFS= read -r f; do rtl_objs+=("$f"); done < <(find "$RTL_DIR" -name "$u.o" 2>/dev/null)
-        done
-        xcrun libtool -static -o "$out/librealms_core.a" "$objs"/*.o "${rtl_objs[@]}"
-        rm -rf "$objs"
-        echo "built $out/librealms_core.a"
-        echo "Xcode: link it and add REALMS_PASCAL_STATIC=1 to GCC_PREPROCESSOR_DEFINITIONS."
+        IOS_UNITS="${FPC_IOS_UNITS:-}"
+        if [ -z "$IOS_UNITS" ] && [ -n "${FPC_IOS_PREFIX:-}" ]; then
+            IOS_UNITS="$FPC_IOS_PREFIX/lib/fpc/$("$FPC" -iV)/units/aarch64-ios/rtl"
+        fi
+        [ -n "$IOS_UNITS" ] && [ -f "$IOS_UNITS/system.ppu" ] || {
+            echo "error: aarch64-ios RTL not found (build it with fpc_ios_toolchain.sh, set FPC_IOS_PREFIX)" >&2; exit 1; }
+        out="${2:-$ROOT/build/realms-ios}"
+        build_darwin_static "$out" iphoneos -n "-Fu$IOS_UNITS" -Tios -Paarch64 "-XR$SDK" \
+            "-WP${IOS_DEPLOYMENT_TARGET:-16.0}"
+        cat > "$out/RealmsPascal.generated.xcconfig" <<XCCONFIG
+// Generated by realms/pascal/build_core.sh ios-arm64 - do not edit.
+// Device builds link the Free Pascal core; simulator builds keep the C++ core
+// (FPC 3.2 has no arm64 simulator target).
+REALMS_PASCAL_DEFINES[sdk=iphoneos*] = REALMS_PASCAL_STATIC=1
+REALMS_PASCAL_LDFLAGS[sdk=iphoneos*] = "$out/librealms_core.a"
+XCCONFIG
+        echo "wrote $out/RealmsPascal.generated.xcconfig"
+        ;;
+    macos-arm64-static)
+        out="${2:-$ROOT/build/realms-macos-static}"
+        build_darwin_static "$out" macosx -Tdarwin -Paarch64
         ;;
     *)
-        sed -n '2,30p' "$0"
+        sed -n '3,/^# -----/p' "$0"
         exit 2
         ;;
 esac
