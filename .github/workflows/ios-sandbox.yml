@@ -140,7 +140,7 @@ jobs:
 
       - name: Restore FPC iOS runtime library
         id: fpc-ios-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ~/fpc-ios
           key: fpc-ios-${{ runner.arch }}-${{ env.FPC_VERSION }}-xcode${{ env.XCODE_VERSION }}-${{ hashFiles('realms/pascal/fpc_ios_toolchain.sh') }}
@@ -158,6 +158,13 @@ jobs:
           }
           tail -n 3 /tmp/fpc-ios-rtl.log
 
+      - name: Save FPC iOS runtime library
+        if: steps.fpc-ios-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/fpc-ios
+          key: ${{ steps.fpc-ios-cache.outputs.cache-primary-key }}
+
       # iOS binaries cannot run on the runner, so the static packaging (one
       # prelinked object, RTL started from __mod_init_func) is proven on
       # macOS arm64 with the identical pipeline, then built for iOS devices.
@@ -171,9 +178,13 @@ jobs:
             exit 1
           }
           tail -n 2 /tmp/pascal-static.log
-          clang++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic -Irealms/include -DREALMS_PASCAL_STATIC \
+          if ! clang++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic -Irealms/include -DREALMS_PASCAL_STATIC \
             tests/realms/realms_bridge_test.cpp realms/src/Engine.cpp realms/src/NativeCore.cpp realms/src/SandboxBoot.cpp \
-            build/realms-macos-static/librealms_core.a -o /tmp/realms-bridge-static
+            build/realms-macos-static/librealms_core.a -o /tmp/realms-bridge-static > /tmp/realms-static-link.log 2>&1; then
+            cat /tmp/realms-static-link.log
+            echo "::error title=Pascal static core (link)::$(grep -E 'rror|ndefined|uplicate|\"_|referenced|warning' /tmp/realms-static-link.log | head -n 14 | tr '\n' ' ' | cut -c1-1500)"
+            exit 1
+          fi
           rc=0
           /tmp/realms-bridge-static --pascal static > /tmp/realms-static.log 2>&1 || rc=$?
           cat /tmp/realms-static.log
