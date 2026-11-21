@@ -100,15 +100,15 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build pkg-config \
             libsdl2-dev libgl1-mesa-dev fpc fp-units-fcl
-          # lazbuild ships in Ubuntu's versioned lazarus-ide-X.Y package.
-          for pkg in lazarus-ide lazarus-ide-3.0 lazarus-ide-2.2 lazarus; do
+          # Debian/Ubuntu ship lazbuild in lcl-utils(-X.Y).
+          for pkg in lcl-utils lcl-utils-3.0 lazarus; do
             if sudo apt-get install -y --no-install-recommends "$pkg" > "/tmp/apt-$pkg.log" 2>&1; then
               echo "installed $pkg"; break
             fi
             echo "::warning::apt-get install $pkg failed: $(tail -n 2 "/tmp/apt-$pkg.log" | tr '\n' ' ')"
           done
           if ! command -v lazbuild >/dev/null; then
-            LB="$(ls /usr/lib/lazarus/*/lazbuild /usr/lib/lazarus/lazbuild 2>/dev/null | head -n 1 || true)"
+            LB="$(dpkg -L $(dpkg -l | awk '/^ii +(lcl-utils|lazarus)/{print $2}') 2>/dev/null | grep -E '/lazbuild(-[0-9.]+)?$' | head -n 1 || true)"
             if [ -z "$LB" ]; then
               echo "::error::lazbuild not found; lazarus packages: $(dpkg -l | awk '/lazarus|lcl/{print $2}' | tr '\n' ' ')"
               exit 1
