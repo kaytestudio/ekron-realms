@@ -106,13 +106,13 @@ jobs:
             readelf -h "$lib" | grep "Machine:.*$machine" >/dev/null || { echo "::error::$abi: wrong machine"; exit 1; }
             readelf -d "$lib" | grep 'SONAME.*librealms_core.so' >/dev/null || { echo "::error::$abi: missing SONAME"; exit 1; }
             readelf --dyn-syms -W "$lib" | grep ' realms_pascal_get_api$' >/dev/null || { echo "::error::$abi: realms_pascal_get_api not exported"; exit 1; }
-            if readelf -d "$lib" | grep TEXTREL; >/dev/null then echo "::error::$abi: text relocations (rejected by Android)"; exit 1; fi
+            if readelf -d "$lib" | grep TEXTREL >/dev/null; then echo "::error::$abi: text relocations (rejected by Android)"; exit 1; fi
             local needed; needed="$(readelf -d "$lib" | sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p' | tr '\n' ' ')"
             echo "$abi NEEDED: $needed"
             for n in $needed; do
               case "$n" in libc.so|libdl.so|libm.so|liblog.so) ;; *) echo "::error::$abi: unexpected dependency $n"; exit 1 ;; esac
             done
-            if readelf -V "$lib" | grep GLIBC; >/dev/null then echo "::error::$abi: glibc symbol versions"; exit 1; fi
+            if readelf -V "$lib" | grep GLIBC >/dev/null; then echo "::error::$abi: glibc symbol versions"; exit 1; fi
             readelf -l -W "$lib" | awk '$1=="LOAD"{print $NF}' | while read -r align; do
               [ $((align)) -ge 16384 ] || { echo "::error::$abi: LOAD alignment $align < 16 KB"; exit 1; }
             done
