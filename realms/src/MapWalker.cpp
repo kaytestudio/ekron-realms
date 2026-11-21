@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <vector>
 
 // Bit-exact with the Free Pascal core: no fused multiply-add contraction
 // (clang contracts a*b+c by default on arm64 / FMA targets).
@@ -98,25 +99,181 @@ bool MapWalker::spawn(const Engine &engine) {
             spawnYaw = float(std::atof(angle.c_str()));
         if (!std::isfinite(spawnYaw)) spawnYaw = 0.0f;
     } else {
-        // No spawn entity (typical for glTF maps): drop from the centre of
-        // the map, or onto its top when the centre is solid.
-        RealmsMapInfo info{};
-        engine.mapInfo(info);
-        const Vec3 centre{(info.mins[0] + info.maxs[0]) * 0.5f, (info.mins[1] + info.maxs[1]) * 0.5f,
-                          (info.mins[2] + info.maxs[2]) * 0.5f};
-        if (!stuck(engine, centre)) {
-            const TraceResult down = trace(engine, centre, {centre[0], centre[1], info.mins[2] - 64.0f});
-            origin = down.endpos;
-            spawnSource = "map centre";
+        // No spawn entity (typical for glTF maps): the most open walkable
+        // floor, else the map's centre / top as a last resort.
+        Vec3 open;
+        if (findOpenFloor(engine, open)) {
+            origin = open;
+            spawnSource = "open floor";
         } else {
+            RealmsMapInfo info{};
+            engine.mapInfo(info);
+            const Vec3 centre{(info.mins[0] + info.maxs[0]) * 0.5f, (info.mins[1] + info.maxs[1]) * 0.5f,
+                              (info.mins[2] + info.maxs[2]) * 0.5f};
             const Vec3 top{centre[0], centre[1], info.maxs[2] + 64.0f};
-            const TraceResult down = trace(engine, top, {centre[0], centre[1], info.mins[2] - 64.0f});
-            origin = down.endpos;
-            spawnSource = "map top";
+            const Vec3 start = stuck(engine, centre) ? top : centre;
+            origin = trace(engine, start, {centre[0], centre[1], info.mins[2] - 64.0f}).endpos;
+            spawnSource = stuck(engine, centre) ? "map top" : "map centre";
         }
     }
     for (int i = 0; i < 16 && stuck(engine, origin); ++i) origin[2] += 8.0f;
     categorize(engine);
+    return true;
+}
+
+bool MapWalker::findOpenFloor(const Engine &engine, Vec3 &out) const {
+    // A map without spawn entities (typically a glTF scene) gets a spawn
+    // on its ground level -- the lowest floor height common to a tenth of
+    // the map's columns, so streets beat rooftops and a room's floor beats
+    // its roof -- at the spot with the longest walkable runs. Runs are
+    // walked in steps and end at a wall or a drop, so the void past a map's
+    // rim never counts as open. Deterministic: fixed grid, stable orders,
+    // nothing but box traces, identical on both cores.
+    RealmsMapInfo info{};
+    if (!engine.mapInfo(info)) return false;
+    constexpr int kGrid = 24;             // columns per axis
+    constexpr int kMaxTracesPerColumn = 96;
+    constexpr int kMaxFloorsPerColumn = 6;
+    constexpr float kBand = 24.0f;        // ground level +- this (above a step)
+    constexpr int kOpenShortlist = 48;    // candidates whose runs get walked
+    constexpr int kRunSteps = 8;          // per direction
+    const float bottom = info.mins[2] - 64.0f;
+    float lo[2], hi[2];
+    for (int k = 0; k < 2; ++k) {
+        lo[k] = info.mins[k] + kHalfWidth;
+        hi[k] = info.maxs[k] - kHalfWidth;
+        if (hi[k] < lo[k]) lo[k] = hi[k] = (info.mins[k] + info.maxs[k]) * 0.5f;
+    }
+    const float cx = (info.mins[0] + info.maxs[0]) * 0.5f, cy = (info.mins[1] + info.maxs[1]) * 0.5f;
+    const float hullHeight = kStandMaxsZ - kMinsZ;
+    // Fine enough not to skip the free window between a floor and what
+    // overhangs it (the hull is 56 tall; floors under roofs can be tight).
+    const float colStep = std::max(8.0f, (info.maxs[2] - info.mins[2]) / 256.0f);
+    // Probe lengths scale with the map: a fifth of its smaller side, kept
+    // within 128..256 units, walked in kRunSteps steps.
+    const float side = std::min(info.maxs[0] - info.mins[0], info.maxs[1] - info.mins[1]);
+    const float reach = std::min(256.0f, std::max(16.0f * kRunSteps, side * 0.2f));
+    const float runStep = reach / float(kRunSteps);
+    static const float kDirs[8][2] = {{1, 0}, {0.70710678f, 0.70710678f}, {0, 1}, {-0.70710678f, 0.70710678f},
+                                      {-1, 0}, {-0.70710678f, -0.70710678f}, {0, -1}, {0.70710678f, -0.70710678f}};
+
+    // Walkable floor under the player's centre (a point from the feet down
+    // `drop` units), not just somewhere under the hull: wall tops and ledges
+    // the box merely overlaps don't count. Returns the hull origin on it.
+    auto floorUnder = [&](const Vec3 &at, float drop, Vec3 &onFloor) {
+        const Vec3 feet{at[0], at[1], at[2] + kMinsZ + 1.0f};
+        const TraceResult down = engine.boxTrace(feet, {feet[0], feet[1], feet[2] - drop}, {0, 0, 0}, {0, 0, 0}, 0,
+                                                 REALMS_MASK_PLAYERSOLID);
+        if (down.startsolid || down.fraction >= 1.0f || down.normal[2] < kMinStepNormal) return false;
+        onFloor = {feet[0], feet[1], down.endpos[2] - kMinsZ};
+        return true;
+    };
+
+    struct Candidate {
+        Vec3 pos;
+        float open = 0.0f; // free hull distance summed over the 8 directions
+        float run = 0.0f;  // walkable distance summed over the 8 directions
+    };
+    std::vector<Candidate> found;
+    std::vector<float> lowest; // per column with a floor
+
+    // 1. Every walkable floor in every column, top to bottom.
+    for (int iy = 0; iy < kGrid; ++iy) {
+        for (int ix = 0; ix < kGrid; ++ix) {
+            const float x = lo[0] + (hi[0] - lo[0]) * (float(ix) + 0.5f) / float(kGrid);
+            const float y = lo[1] + (hi[1] - lo[1]) * (float(iy) + 0.5f) / float(kGrid);
+            float z = info.maxs[2] + 64.0f;
+            int floors = 0;
+            bool any = false;
+            float low = 0.0f;
+            for (int t = 0; t < kMaxTracesPerColumn && floors < kMaxFloorsPerColumn && z > bottom; ++t) {
+                const TraceResult tr = trace(engine, {x, y, z}, {x, y, bottom});
+                if (tr.startsolid) { // inside a slab or the BSP void: keep descending
+                    z -= colStep;
+                    continue;
+                }
+                if (tr.fraction >= 1.0f) break;
+                ++floors;
+                Vec3 onFloor;
+                if (tr.normal[2] >= kMinStepNormal && !stuck(engine, tr.endpos) &&
+                    floorUnder(tr.endpos, 4.0f, onFloor)) {
+                    Candidate c;
+                    c.pos = tr.endpos;
+                    found.push_back(c);
+                    any = true;
+                    low = tr.endpos[2];
+                }
+                z = tr.endpos[2] - hullHeight - 4.0f; // continue under this floor
+            }
+            if (any) lowest.push_back(low);
+        }
+    }
+    if (found.empty()) return false;
+
+    // 2. Ground level: the lowest kBand*2-wide window holding a tenth of
+    //    the columns' lowest floors. "Lowest floor" includes the tops of
+    //    solid props and buildings standing on the ground, which can cover
+    //    more columns than the open ground itself, so the densest window is
+    //    no good; a pit or ditch stays under the tenth.
+    std::sort(lowest.begin(), lowest.end());
+    const size_t need = std::max<size_t>(3, (lowest.size() + 9) / 10);
+    float ground = lowest.front() + kBand;
+    for (size_t i = 0, j = 0; i < lowest.size(); ++i) {
+        while (j < lowest.size() && lowest[j] <= lowest[i] + kBand * 2.0f) ++j;
+        if (j - i >= need || j - i == lowest.size()) {
+            ground = lowest[i] + kBand;
+            break;
+        }
+    }
+    std::vector<Candidate> level;
+    for (const Candidate &c : found)
+        if (std::fabs(c.pos[2] - ground) <= kBand) level.push_back(c);
+    if (level.empty()) return false;
+
+    // 3. Openness: free hull distance in 8 directions (one step up, so kerbs
+    //    and small steps don't count as walls).
+    auto probeStart = [&](const Vec3 &p) {
+        const Vec3 raised{p[0], p[1], p[2] + settings.stepSize};
+        return stuck(engine, raised) ? p : raised;
+    };
+    for (Candidate &c : level) {
+        const Vec3 start = probeStart(c.pos);
+        for (const auto &dir : kDirs) {
+            const TraceResult tr =
+                trace(engine, start, {start[0] + dir[0] * reach, start[1] + dir[1] * reach, start[2]});
+            if (!tr.startsolid) c.open += tr.fraction * reach;
+        }
+    }
+    std::stable_sort(level.begin(), level.end(),
+                     [](const Candidate &a, const Candidate &b) { return a.open > b.open; });
+    if (level.size() > size_t(kOpenShortlist)) level.resize(size_t(kOpenShortlist));
+
+    // 4. Walkable runs: step out in each direction, each step must be free
+    //    and have walkable floor under its centre within two steps' height.
+    for (Candidate &c : level) {
+        for (const auto &dir : kDirs) {
+            Vec3 at = c.pos;
+            for (int k = 0; k < kRunSteps; ++k) {
+                const Vec3 from = probeStart(at);
+                const TraceResult move =
+                    trace(engine, from, {from[0] + dir[0] * runStep, from[1] + dir[1] * runStep, from[2]});
+                if (move.startsolid || move.fraction < 1.0f) break;
+                if (!floorUnder(move.endpos, settings.stepSize * 2.0f + 2.0f, at)) break;
+                c.run += runStep;
+            }
+        }
+    }
+
+    // 5. The longest runs; near-ties (within one step overall) go to the
+    //    spot nearest the map's centre.
+    float bestRun = 0.0f;
+    for (const Candidate &c : level) bestRun = std::max(bestRun, c.run);
+    if (bestRun < reach) return false; // not even one direction's worth of floor
+    const Candidate *pick = nullptr;
+    auto centreDist = [&](const Candidate &c) { return std::hypot(c.pos[0] - cx, c.pos[1] - cy); };
+    for (const Candidate &c : level)
+        if (c.run >= bestRun - runStep && (!pick || centreDist(c) < centreDist(*pick))) pick = &c;
+    out = pick->pos;
     return true;
 }
 

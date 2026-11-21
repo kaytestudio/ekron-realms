@@ -202,7 +202,8 @@ inline void walk(const realms::Engine &engine, realms::MapWalker &w, const realm
     }
 }
 
-// Expects maps/walk.bsp (walkMap(true)) and maps/room.glb in the search path.
+// Expects maps/walk.bsp (walkMap(true)), maps/room.glb, maps/yard.glb and
+// maps/walls.glb in the search path.
 inline void runWalkerChecks(realms::Engine &engine) {
     CHECK(engine.loadMap("maps/walk.bsp"));
     realms::MapGeometry g;
@@ -305,6 +306,31 @@ inline void runWalkerChecks(realms::Engine &engine) {
     realms::WalkInput east = fwd;
     walk(engine, w, east, 0.3f);
     CHECK(w.onGround && w.origin[0] > 80.0f && near(w.origin[2], 24.03125f, 0.01f));
+
+    // No spawn entity: the most open spot on the ground, not the hut that
+    // encloses the map's centre (hut walls at |x|, |y| = 64, roof z = 96).
+    CHECK(engine.loadMap("maps/yard.glb"));
+    CHECK(engine.meshMap().indices.size() == 6 * 6 && engine.mapEntities().find("info_player") == std::string::npos);
+    CHECK(w.spawn(engine) && w.spawnSource == "open floor" && !w.stuck(engine, w.origin));
+    const realms::Vec3 yardSpawn = w.origin;
+    CHECK(near(yardSpawn[2], 24.03125f, 0.01f)); // standing on the ground
+    CHECK(std::fabs(yardSpawn[0]) > 80.0f || std::fabs(yardSpawn[1]) > 80.0f); // outside the hut
+    CHECK(std::fabs(yardSpawn[0]) < 512.0f - 16.0f && std::fabs(yardSpawn[1]) < 512.0f - 16.0f);
+    CHECK(w.spawn(engine) && w.origin == yardSpawn); // deterministic
+    walk(engine, w, idle, 0.3f);
+    CHECK(w.onGround && near(w.origin[2], 24.03125f, 0.01f));
+    {
+        // It can walk away: a quarter second straight away from the hut is
+        // unobstructed and stays on the ground.
+        realms::WalkInput away = fwd;
+        away.yaw = std::atan2(yardSpawn[1], yardSpawn[0]) * 180.0f / 3.14159265f;
+        const realms::Vec3 start = w.origin;
+        walk(engine, w, away, 0.25f);
+        CHECK(w.onGround && std::hypot(w.origin[0] - start[0], w.origin[1] - start[1]) > 40.0f);
+    }
+    // Nothing to stand on: falls back to the map's centre (or top).
+    CHECK(engine.loadMap("maps/walls.glb"));
+    CHECK(w.spawn(engine) && (w.spawnSource == "map centre" || w.spawnSource == "map top"));
 
     engine.unloadMap();
     CHECK(!w.spawn(engine) && !realms::loadMapGeometry(engine, g, error) && error == "no map loaded");

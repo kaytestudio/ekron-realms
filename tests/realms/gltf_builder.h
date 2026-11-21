@@ -92,4 +92,64 @@ inline std::string roomJson(const std::string &bufferUri = std::string()) {
 
 inline std::string roomGlb() { return glb(roomJson(), quadBin()); }
 
+// One node / one mesh / one material GLB from glTF-space (Y up, metres)
+// positions and u16 triangle indices. No spawn entity.
+inline std::string meshGlb(const std::vector<float> &positions, const std::vector<uint16_t> &indices,
+                           const std::string &name = "Mesh") {
+    std::string bin(reinterpret_cast<const char *>(positions.data()), positions.size() * sizeof(float));
+    const size_t posBytes = bin.size();
+    bin.append(reinterpret_cast<const char *>(indices.data()), indices.size() * sizeof(uint16_t));
+    float mn[3] = {1e30f, 1e30f, 1e30f}, mx[3] = {-1e30f, -1e30f, -1e30f};
+    for (size_t i = 0; i + 2 < positions.size(); i += 3)
+        for (size_t k = 0; k < 3; ++k) {
+            if (positions[i + k] < mn[k]) mn[k] = positions[i + k];
+            if (positions[i + k] > mx[k]) mx[k] = positions[i + k];
+        }
+    auto vec = [](const float *v) {
+        return "[" + std::to_string(v[0]) + "," + std::to_string(v[1]) + "," + std::to_string(v[2]) + "]";
+    };
+    const std::string json =
+        std::string("{\"asset\":{\"version\":\"2.0\"},\"scene\":0,\"scenes\":[{\"nodes\":[0]}],") +
+        "\"nodes\":[{\"name\":\"" + name + "\",\"mesh\":0}]," +
+        "\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0},\"indices\":1,\"material\":0}]}]," +
+        "\"materials\":[{\"name\":\"concrete\"}]," +
+        "\"accessors\":[{\"bufferView\":0,\"componentType\":5126,\"count\":" + std::to_string(positions.size() / 3) +
+        ",\"type\":\"VEC3\",\"min\":" + vec(mn) + ",\"max\":" + vec(mx) + "}," +
+        "{\"bufferView\":1,\"componentType\":5123,\"count\":" + std::to_string(indices.size()) +
+        ",\"type\":\"SCALAR\"}]," + "\"bufferViews\":[{\"buffer\":0,\"byteOffset\":0,\"byteLength\":" +
+        std::to_string(posBytes) + "},{\"buffer\":0,\"byteOffset\":" + std::to_string(posBytes) +
+        ",\"byteLength\":" + std::to_string(bin.size() - posBytes) + "}]," + "\"buffers\":[{\"byteLength\":" +
+        std::to_string(bin.size()) + "}]}";
+    return glb(json, bin);
+}
+
+// A yard: 32 x 32 m ground with a closed 4 x 4 x 3 m hut (four walls and a
+// roof) in the middle, no spawn entity. The bounds' centre is inside the
+// hut, so "drop from the centre" lands boxed in on the hut's floor.
+inline std::string yardGlb() {
+    std::vector<float> p = {-16, 0, -16, -16, 0, 16, 16, 0, 16, 16, 0, -16}; // ground 0..3
+    const float h = 2.0f, top = 3.0f;
+    const float corners[4][2] = {{-h, -h}, {-h, h}, {h, h}, {h, -h}}; // hut 4..7 bottom, 8..11 top
+    for (float y : {0.0f, top})
+        for (const auto &c : corners) {
+            p.push_back(c[0]);
+            p.push_back(y);
+            p.push_back(c[1]);
+        }
+    std::vector<uint16_t> idx = {0, 1, 2, 0, 2, 3};
+    for (uint16_t i = 0; i < 4; ++i) { // walls
+        const uint16_t a = uint16_t(4 + i), b = uint16_t(4 + (i + 1) % 4);
+        const uint16_t c = uint16_t(b + 4), d = uint16_t(a + 4);
+        idx.insert(idx.end(), {a, b, c, a, c, d});
+    }
+    idx.insert(idx.end(), {8, 9, 10, 8, 10, 11}); // roof
+    return meshGlb(p, idx, "Yard");
+}
+
+// Two crossed walls and nothing to stand on.
+inline std::string wallsGlb() {
+    const std::vector<float> p = {-4, 0, 0, 4, 0, 0, 4, 3, 0, -4, 3, 0, 0, 0, -4, 0, 0, 4, 0, 3, 4, 0, 3, -4};
+    return meshGlb(p, {0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7}, "Walls");
+}
+
 } // namespace gltf_builder

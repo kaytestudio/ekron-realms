@@ -55,11 +55,14 @@ public:
     bool noclip = false;
     int32_t waterLevel = 0; // 0 dry, 1 feet, 2 waist, 3 eyes (PM_CatagorizePosition)
     float spawnYaw = 0.0f;
-    std::string spawnSource; // "info_player_start", "map bounds", ...
+    std::string spawnSource; // "info_player_start", "open floor", "map centre", ...
 
     // Places the walker at info_player_start (falling back to
-    // info_player_deathmatch / coop, then the map's centre), nudged up out of
-    // solids like SelectSpawnPoint's +9. False without a map.
+    // info_player_deathmatch / coop), nudged up out of solids like
+    // SelectSpawnPoint's +9. Maps without a spawn entity get the spot with
+    // the longest walkable runs on the map's ground level (so a street beats
+    // a rooftop and the open yard beats the hut at the map's centre); the
+    // centre / top only when no such floor exists. False without a map.
     bool spawn(const Engine &engine);
     // Advances by dt seconds (split into steps of settings.maxStep).
     void move(const Engine &engine, const WalkInput &input, float dt);
@@ -72,6 +75,7 @@ public:
     bool stuck(const Engine &engine, const Vec3 &at) const;
 
 private:
+    bool findOpenFloor(const Engine &engine, Vec3 &out) const;
     void step(const Engine &engine, const WalkInput &input, float dt);
     void categorize(const Engine &engine);
     void checkDuck(const Engine &engine, bool wantDuck);

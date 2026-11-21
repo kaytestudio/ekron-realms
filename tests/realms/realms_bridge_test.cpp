@@ -537,7 +537,9 @@ void runEngineSuite(const std::string &pascalLibrary) {
     // Player movement and drawable geometry on a BSP and a glTF map.
     {
         std::ofstream(tmp / "assets" / "walk.pak", std::ios::binary)
-            << makePak({{"maps/walk.bsp", bsp_builder::build(walker_suite::walkMap(true))}});
+            << makePak({{"maps/walk.bsp", bsp_builder::build(walker_suite::walkMap(true))},
+                        {"maps/yard.glb", gltf_builder::yardGlb()},
+                        {"maps/walls.glb", gltf_builder::wallsGlb()}});
         CHECK(engine.addPak("walk.pak") > 0);
         walker_suite::runWalkerChecks(engine);
         CHECK(engine.loadMap("maps/test.bsp"));
