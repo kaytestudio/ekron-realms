@@ -100,9 +100,22 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build pkg-config \
             libsdl2-dev libgl1-mesa-dev fpc fp-units-fcl
-          sudo apt-get install -y --no-install-recommends lazarus-ide || sudo apt-get install -y lazarus
-          command -v lazbuild
-          lazbuild --version
+          # lazbuild ships in Ubuntu's versioned lazarus-ide-X.Y package.
+          for pkg in lazarus-ide lazarus-ide-3.0 lazarus-ide-2.2 lazarus; do
+            if sudo apt-get install -y --no-install-recommends "$pkg" > "/tmp/apt-$pkg.log" 2>&1; then
+              echo "installed $pkg"; break
+            fi
+            echo "::warning::apt-get install $pkg failed: $(tail -n 2 "/tmp/apt-$pkg.log" | tr '\n' ' ')"
+          done
+          if ! command -v lazbuild >/dev/null; then
+            LB="$(ls /usr/lib/lazarus/*/lazbuild /usr/lib/lazarus/lazbuild 2>/dev/null | head -n 1 || true)"
+            if [ -z "$LB" ]; then
+              echo "::error::lazbuild not found; lazarus packages: $(dpkg -l | awk '/lazarus|lcl/{print $2}' | tr '\n' ' ')"
+              exit 1
+            fi
+            sudo ln -sf "$LB" /usr/local/bin/lazbuild
+          fi
+          lazbuild --version || echo "::warning::lazbuild --version returned $?"
 
       - name: make && make test
         shell: bash
