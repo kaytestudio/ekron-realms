@@ -37,6 +37,10 @@
 # writes RealmsPascal.generated.xcconfig next to the archive; the Xcode
 # project includes it, so device builds then link the Pascal core and define
 # REALMS_PASCAL_STATIC=1 automatically. Without it iOS uses the C++ core.
+# Whatever links the archive must pass -Wl,-no_fixup_chains: FPC 3.2 emits
+# its unit/threadvar tables as a 32-bit count followed by pointers, and the
+# chained fixups Xcode 15+ uses for current deployment targets reject
+# pointers that are not 8-byte aligned (classic rebase info handles them).
 # -----------------------------------------------------------------------------
 set -euo pipefail
 
@@ -145,7 +149,7 @@ case "$TARGET" in
 // Device builds link the Free Pascal core; simulator builds keep the C++ core
 // (FPC 3.2 has no arm64 simulator target).
 REALMS_PASCAL_DEFINES[sdk=iphoneos*] = REALMS_PASCAL_STATIC=1
-REALMS_PASCAL_LDFLAGS[sdk=iphoneos*] = "$out/librealms_core.a"
+REALMS_PASCAL_LDFLAGS[sdk=iphoneos*] = "$out/librealms_core.a" -Wl,-no_fixup_chains
 XCCONFIG
         echo "wrote $out/RealmsPascal.generated.xcconfig"
         ;;

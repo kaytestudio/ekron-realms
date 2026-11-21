@@ -180,11 +180,12 @@ jobs:
           tail -n 2 /tmp/pascal-static.log
           if ! clang++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic -Irealms/include -DREALMS_PASCAL_STATIC \
             tests/realms/realms_bridge_test.cpp realms/src/Engine.cpp realms/src/NativeCore.cpp realms/src/SandboxBoot.cpp \
-            build/realms-macos-static/librealms_core.a -o /tmp/realms-bridge-static > /tmp/realms-static-link.log 2>&1; then
+            build/realms-macos-static/librealms_core.a -Wl,-no_fixup_chains -o /tmp/realms-bridge-static > /tmp/realms-static-link.log 2>&1; then
             cat /tmp/realms-static-link.log
             echo "::error title=Pascal static core (link)::$(grep -v '^ *$' /tmp/realms-static-link.log | head -n 24 | tr '\n' ' ' | cut -c1-2000)"
             exit 1
           fi
+          cat /tmp/realms-static-link.log
           rc=0
           /tmp/realms-bridge-static --pascal static > /tmp/realms-static.log 2>&1 || rc=$?
           cat /tmp/realms-static.log
