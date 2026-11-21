@@ -92,6 +92,12 @@ void prepare(Scene &s,const LoadOptions &options){
  Vec lo{1e20f,1e20f,1e20f},hi{-1e20f,-1e20f,-1e20f};size_t count=0;
  for(auto &b:s.batches)for(auto &v:b.vertices){Vec p{v.x,v.y,v.z};for(int i=0;i<3;i++){lo[i]=std::min(lo[i],p[i]);hi[i]=std::max(hi[i],p[i]);}count++;}
  if(!count)throw std::runtime_error("No triangle geometry");
+ if(options.keepSourceSpace){
+  s.minimum=lo;s.maximum=hi;
+  applyFallbackUV(s);
+  if(options.buildPhysics){buildSceneCollision(s);}
+  return;
+ }
  const float extent=std::max(hi[0]-lo[0],hi[2]-lo[2]);if(extent<.01f)throw std::runtime_error("Degenerate scene bounds");
  const float scale=options.targetExtent/extent,cx=(lo[0]+hi[0])/2,cz=(lo[2]+hi[2])/2;
  if(!options.level){

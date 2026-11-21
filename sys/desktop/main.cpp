@@ -14,6 +14,7 @@
 #include "CityGraffiti.h"
 #include "DebugPlayer.h"
 #include "DesktopConsole.h"
+#include "DesktopMapMode.h"
 #include "DesktopRenderer.h"
 #include "DesktopHudLayout.h"
 #include "DesktopOnlineClient.h"
@@ -271,8 +272,9 @@ realms::EngineConfig makeEngineConfig(const std::string &assetRoot, const std::s
 }
 
 realms::sandbox::BootOptions makeBootOptions(const realms::EngineConfig &cfg, std::string commandLine,
-                                             bool execUserConfig) {
+                                             bool execUserConfig, realms::sandbox::MapChangedFn onMapChanged = {}) {
     realms::sandbox::BootOptions boot;
+    boot.onMapChanged = std::move(onMapChanged);
     boot.platform = realmsPlatformTag();
     boot.commandLine = std::move(commandLine);
     boot.execUserConfig = execUserConfig;
@@ -711,12 +713,20 @@ int main(int argc, char **argv) {
         return 1;
     }
     engine.registerCvar("vid_fullscreen", "0", REALMS_CVAR_ARCHIVE);
+    // "map" / "killserver" may run before the GL context exists (+map on the
+    // command line, autoexec.cfg): the main loop applies the latest change.
+    std::optional<std::string> pendingMapChange;
     {
         std::vector<std::string> args(argv + (argc > 0 ? 1 : 0), argv + argc);
-        realms::sandbox::boot(engine, makeBootOptions(engineCfg, realms::Engine::commandLineScript(args), true));
+        realms::sandbox::boot(engine, makeBootOptions(engineCfg, realms::Engine::commandLineScript(args), true,
+                                                      [&pendingMapChange](const std::string &path) {
+                                                          pendingMapChange = path;
+                                                      }));
     }
     if (onlineNameSet) engine.setCvar("name", onlineName);
     ekron::desktop::DesktopConsole console;
+    ekron::desktop::DesktopMapMode mapMode;
+    float sandboxYaw = 0.0f, sandboxPitch = 0.0f; // camera to restore after killserver
 
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
@@ -1102,6 +1112,11 @@ int main(int argc, char **argv) {
     };
 
     auto toggleNoclip = [&]() {
+        if (mapMode.active()) {
+            mapMode.walker().noclip = !mapMode.walker().noclip;
+            showToast(i18n::tr(mapMode.walker().noclip ? Str::FlightOn : Str::FlightOff));
+            return;
+        }
         if (drone.piloting() || seatedCar >= 0) return;
         flying = !flying;
         player.reset(world.x, world.y, world.z);
@@ -1112,7 +1127,9 @@ int main(int argc, char **argv) {
     // config/realms.cfg aliases, autoexec.cfg and +command line arguments).
     engine.addCommand("quit", [&](const realms::CommandArgs &) { running = false; });
     engine.addCommand("noclip", [&](const realms::CommandArgs &) { toggleNoclip(); });
-    engine.addCommand("respawn", [&](const realms::CommandArgs &) { respawnPlayer(); });
+    engine.addCommand("respawn", [&](const realms::CommandArgs &) {
+        if (!mapMode.respawn(engine)) respawnPlayer();
+    });
     engine.addCommand("teleport_road", [&](const realms::CommandArgs &) { teleportToRoad(); });
     engine.addCommand("restore_car", [&](const realms::CommandArgs &) { respawnCar(); });
     engine.addCommand("copy_spawn", [&](const realms::CommandArgs &) { copySpawnJson(); });
@@ -1179,6 +1196,10 @@ int main(int argc, char **argv) {
                     syncMouseCapture();
                 } else if (key == SDLK_F11) {
                     engine.setCvar("vid_fullscreen", fullscreen ? "0" : "1");
+                } else if (mapMode.active()) {
+                    // Map mode: sandbox tools, catalog and shop are off.
+                    if (!pauseOpen && key == SDLK_n) toggleNoclip();
+                    else if (!pauseOpen && key == SDLK_r) mapMode.respawn(engine);
                 } else if (!pauseOpen && key == SDLK_g) {
                     if (!drone.piloting() && seatedCar < 0) {
                         shopOpen = !shopOpen;
@@ -1253,7 +1274,12 @@ int main(int argc, char **argv) {
                     }
                 }
             } else if (ev.type == SDL_MOUSEMOTION && !catalogOpen && !pauseOpen && !shopOpen) {
-                if (drone.mode == sandbox::FpvDrone::Flying) {
+                if (mapMode.active()) {
+                    const float look = 0.003f * realms::sandbox::lookScale(engine);
+                    world.yaw -= float(ev.motion.xrel) * look;
+                    world.pitch = std::clamp(world.pitch - realms::sandbox::pitchSign(engine) * float(ev.motion.yrel) * look,
+                                             -1.55f, 1.55f);
+                } else if (drone.mode == sandbox::FpvDrone::Flying) {
                     drone.look(float(ev.motion.xrel), float(ev.motion.yrel));
                     mouseRollInput = std::clamp(float(ev.motion.xrel) * 0.035f, -1.0f, 1.0f);
                     mousePitchInput = std::clamp(-float(ev.motion.yrel) * 0.035f, -1.0f, 1.0f);
@@ -1263,7 +1289,7 @@ int main(int argc, char **argv) {
                     world.pitch = std::clamp(world.pitch - realms::sandbox::pitchSign(engine) * float(ev.motion.yrel) * look,
                                              -1.3f, 1.3f);
                 }
-            } else if (ev.type == SDL_MOUSEWHEEL && !catalogOpen && !pauseOpen && !shopOpen) {
+            } else if (ev.type == SDL_MOUSEWHEEL && !catalogOpen && !pauseOpen && !shopOpen && !mapMode.active()) {
                 if (ev.wheel.y != 0) {
                     if (building) {
                         world.rotation = (world.rotation + (ev.wheel.y > 0 ? 1 : 3)) % 4;
@@ -1283,11 +1309,15 @@ int main(int argc, char **argv) {
                         Rect btn{px + 28.0f, py + 62.0f + float(idx) * 42.0f, pw - 56.0f, 34.0f};
                         if (btn.contains(mx, my)) {
                             if (idx == 0) { pauseOpen = false; syncMouseCapture(); }
-                            else if (idx == 1) { flying = !flying; player.reset(world.x, world.y, world.z); pauseOpen = false; syncMouseCapture(); }
-                            else if (idx == 2) { teleportToRoad(); pauseOpen = false; syncMouseCapture(); }
-                            else if (idx == 3) { respawnCar(); pauseOpen = false; syncMouseCapture(); }
-                            else if (idx == 4) { respawnPlayer(); pauseOpen = false; syncMouseCapture(); }
-                            else if (idx == 5) { copySpawnJson(); pauseOpen = false; syncMouseCapture(); }
+                            else if (idx == 1) {
+                                if (mapMode.active()) toggleNoclip();
+                                else { flying = !flying; player.reset(world.x, world.y, world.z); }
+                                pauseOpen = false; syncMouseCapture();
+                            }
+                            else if (idx == 2) { if (!mapMode.active()) teleportToRoad(); pauseOpen = false; syncMouseCapture(); }
+                            else if (idx == 3) { if (!mapMode.active()) respawnCar(); pauseOpen = false; syncMouseCapture(); }
+                            else if (idx == 4) { if (!mapMode.respawn(engine)) respawnPlayer(); pauseOpen = false; syncMouseCapture(); }
+                            else if (idx == 5) { if (!mapMode.active()) copySpawnJson(); pauseOpen = false; syncMouseCapture(); }
                             else if (idx == 6) { cycleLanguage(); } // keep the menu open to show the new language
                             else if (idx == 7) { running = false; }
                         }
@@ -1374,7 +1404,7 @@ int main(int argc, char **argv) {
                         }
                         break;
                     }
-                } else if (!catalogOpen && !pauseOpen && !shopOpen) {
+                } else if (!catalogOpen && !pauseOpen && !shopOpen && !mapMode.active()) {
                     if (ev.button.button == SDL_BUTTON_LEFT) {
                         if (drone.mode == sandbox::FpvDrone::InHands) {
                             drone.place(*cityModel.scene().collision, builtCollision);
@@ -1435,6 +1465,41 @@ int main(int argc, char **argv) {
         }
         if (!running) break;
 
+        // Apply map / killserver (deferred: may come from boot or the console).
+        if (pendingMapChange) {
+            const std::string target = *pendingMapChange;
+            pendingMapChange.reset();
+            const bool wasActive = mapMode.active();
+            if (target.empty()) {
+                if (wasActive) {
+                    mapMode.close(gl, renderer);
+                    world.yaw = sandboxYaw;
+                    world.pitch = sandboxPitch;
+                    showToast("Realms: back to the sandbox");
+                }
+            } else {
+                if (!wasActive) {
+                    sandboxYaw = world.yaw;
+                    sandboxPitch = world.pitch;
+                }
+                std::string mapError;
+                if (mapMode.open(engine, gl, renderer, mapError)) {
+                    world.yaw = mapMode.spawnRenderYaw();
+                    world.pitch = 0.0f;
+                    engine.print("map: walking " + mapMode.path() + " (" + mapMode.summary() + "), spawn: " +
+                                 mapMode.walker().spawnSource + ". killserver returns to the sandbox.\n");
+                    showToast("Realms: " + mapMode.path());
+                } else {
+                    engine.print("map: can't show " + target + ": " + mapError + "\n", REALMS_PRINT_WARNING);
+                    if (wasActive) {
+                        world.yaw = sandboxYaw;
+                        world.pitch = sandboxPitch;
+                    }
+                }
+            }
+            syncMouseCapture();
+        }
+
         if (toastTimer > 0.0f) {
             toastTimer = std::max(0.0f, toastTimer - dt);
         }
@@ -1475,7 +1540,20 @@ int main(int argc, char **argv) {
             }
         }
 
-        if (!pauseOpen) {
+        if (mapMode.active() && !pauseOpen) {
+            realms::WalkInput walkInput;
+            if (!catalogOpen && !shopOpen && !console.isOpen()) {
+                walkInput.forward = float(keys[SDL_SCANCODE_W]) - float(keys[SDL_SCANCODE_S]);
+                walkInput.right = float(keys[SDL_SCANCODE_D]) - float(keys[SDL_SCANCODE_A]);
+                const bool down = keys[SDL_SCANCODE_LCTRL] || keys[SDL_SCANCODE_RCTRL] || keys[SDL_SCANCODE_C];
+                walkInput.jump = keys[SDL_SCANCODE_SPACE] != 0;
+                walkInput.crouch = down;
+                walkInput.up = float(walkInput.jump) - float(down);
+            }
+            mapMode.update(engine, walkInput, world.yaw, world.pitch, dt);
+        }
+
+        if (!pauseOpen && !mapMode.active()) {
             const size_t beforeCount = world.objects.size();
             const bool moving = dynamics.update(world, *cityModel.scene().collision, dt, tools.held,
                                                 cityModel.scene().minimum, cityModel.scene().maximum,
@@ -1684,7 +1762,7 @@ int main(int argc, char **argv) {
                                        drone.mode != sandbox::FpvDrone::Absent &&
                                        drone.mode != sandbox::FpvDrone::InHands;
 
-        if (showRemoteMonitor) {
+        if (showRemoteMonitor && !mapMode.active()) {
             renderer.renderMonitorPass(gl, worldVertices, cityModel, carModel, carTransforms,
                                        drone.feedEye(), drone.feedYaw(), drone.feedPitch(), drone.roll);
         }
@@ -1702,7 +1780,9 @@ int main(int argc, char **argv) {
             droneMat = computeDroneMatrix(drone, droneModel);
         }
 
-        renderer.renderMainWorld(
+        if (mapMode.active()) {
+            renderer.renderMapWorld(gl, drawW, drawH, mapMode.model(), mapMode.eye(), world.yaw, world.pitch, 0.0f);
+        } else renderer.renderMainWorld(
             gl, drawW, drawH,
             worldVertices, ghostVertices,
             cityModel, carModel, carTransforms,
@@ -1728,6 +1808,29 @@ int main(int argc, char **argv) {
             renderer.drawRect(cx - 1.0f, cy - 8.0f, 2.0f, 16.0f, crossColor);
         }
 
+        if (mapMode.active()) {
+            // Realms map HUD: map, position (map units) and controls.
+            renderer.drawRect(14.0f, 14.0f, 520.0f, 54.0f, {0.06f, 0.09f, 0.12f, 0.78f});
+            renderer.drawBorder(14.0f, 14.0f, 520.0f, 54.0f, 1.5f, {0.62f, 0.48f, 0.20f, 0.85f});
+            const std::string mapTitle = "Realms map  •  " + mapMode.path();
+            renderer.drawText(26.0f, 23.0f, mapTitle,
+                              ekron::desktop::fitHudTextScale(1.75f, ekron::font::measureTextWidth(mapTitle, 1.75f), 496.0f),
+                              {0.95f, 0.97f, 1.0f, 1.0f});
+            const realms::MapWalker &walker = mapMode.walker();
+            char mapBuf[200]{};
+            std::snprintf(mapBuf, sizeof(mapBuf), "%.0f %.0f %.0f  %s  %s", walker.origin[0], walker.origin[1],
+                          walker.origin[2], mapMode.summary().c_str(),
+                          walker.noclip ? "[NOCLIP]" : (walker.waterLevel >= 2 ? "[SWIM]" : (walker.ducked ? "[DUCK]" : "")));
+            renderer.drawText(26.0f, 46.0f, mapBuf,
+                              ekron::desktop::fitHudTextScale(1.35f, ekron::font::measureTextWidth(mapBuf, 1.35f), 496.0f),
+                              {0.86f, 0.80f, 0.62f, 0.95f});
+            renderer.drawRect(14.0f, float(hudH) - 42.0f, float(hudW) - 28.0f, 28.0f, {0.05f, 0.08f, 0.11f, 0.72f});
+            const std::string mapControls = "WASD move  •  Space jump  •  Ctrl crouch  •  N noclip  •  R respawn  •  ` console: killserver";
+            renderer.drawCenteredText(float(hudW) * 0.5f, float(hudH) - 28.0f, mapControls,
+                                      ekron::desktop::fitHudTextScale(1.30f, ekron::font::measureTextWidth(mapControls, 1.30f),
+                                                                      float(hudW) - 48.0f),
+                                      {0.82f, 0.95f, 0.90f, 1.0f});
+        } else {
         // Top-left status bar
         ekron::desktop::Color hudAccent{0.18f, 0.68f, 0.58f, 0.85f};
         if (shop.hasExtra(104)) hudAccent = {0.38f, 0.62f, 0.32f, 0.85f}; // Camo HUD
@@ -1783,6 +1886,7 @@ int main(int argc, char **argv) {
             renderer.drawBorder((float(hudW) - pw) * 0.5f, float(hudH) * 0.62f, pw, 32.0f, 1.5f, {0.22f, 0.78f, 0.66f, 0.9f});
             renderer.drawCenteredText(float(hudW) * 0.5f, float(hudH) * 0.62f + 16.0f, prompt, promptScale, {0.95f, 1.0f, 0.97f, 1.0f});
         }
+        } // sandbox HUD
 
         // Toast banner
         if (toastTimer > 0.0f && !toastText.empty()) {
@@ -2047,6 +2151,7 @@ int main(int argc, char **argv) {
     droneModel.release(gl);
     remoteModel.release(gl);
     carModel.release(gl);
+    mapMode.close(gl, renderer);
     cityModel.release(gl);
     renderer.shutdown(gl);
     SDL_GL_DeleteContext(glCtx);

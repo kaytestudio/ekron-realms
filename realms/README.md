@@ -12,7 +12,7 @@ Android and iOS**.
                  │ realms::Engine  (realms/include/realms/Engine.h)
                  │ realms::sandbox (SandboxBoot.h: shared cvars + boot order)
  ┌───────────────┴──────────── C ABI ──────────────────────┐
- │ realms_bridge.h: RealmsHostApi  ⇄  RealmsCoreApi (v2)   │
+ │ realms_bridge.h: RealmsHostApi  ⇄  RealmsCoreApi (v3)   │
  └───────┬──────────────────────────────────┬──────────────┘
          │ dlopen / static link             │ built in
  ┌───────┴───────────────┐        ┌─────────┴────────────┐
@@ -34,8 +34,10 @@ These subsystems are ported from Quake 2 `qcommon` in both cores, and both cores
 | Command buffer, tokenizer, `$macro` expansion, aliases, `wait`, `exec`, `set`/`seta`/`toggle`/`reset`, `cvarlist`, `cmdlist`, `writeconfig` | `cmd.c`, `cvar.c` | `rlm_cmd.pas` |
 | Virtual filesystem: `pak0..9.pak` mounted over loose files, read with range reads on mobile | `files.c` | `rlm_files.pas` |
 | Collision model: Quake 2 IBSP v38 maps loaded through the VFS, point contents, box/point traces, inline models (`*1`…), temporary box hulls, origin/angle transformed queries, leafs | `cmodel.c` | `rlm_cmodel.pas` |
+| Visibility and areas: PVS/PHS rows, area portals and flood-filled area connectivity, `CM_BoxLeafnums`, `CM_HeadnodeVisible` | `cmodel.c` | `rlm_cmodel.pas` |
+| Triangle-mesh maps (Realms extension): glTF levels turned into brush collision with a kd tree | - | `rlm_cmodel.pas` |
 
-The renderer, PVS/area portals, sound, the server and the game DLL are **not** part of the engine yet.
+Shared C++ on top of the ABI (`realms/src`, used by every platform): the glTF map converter (`MeshMap`), drawable map geometry (`MapGeometry`), Quake 2 player movement (`MapWalker`) and the `map` / `mapinfo` / `killserver` commands (`SandboxBoot`). Sound, the server and the game DLL are **not** part of the engine yet.
 
 ## Maps and collision (bridge v2)
 
@@ -75,6 +77,49 @@ int32_t water = engine.pointContents(eye) & REALMS_MASK_WATER;
 You can override the choice with `REALMS_CORE=pascal|native|auto`. With `pascal`, startup fails if the library is missing.
 `ekron-realms --engine-info` shows which core is running.
 
+## Visibility, area portals and mesh maps (bridge v3)
+
+Bridge v3 adds nine functions to `RealmsCoreApi`, implemented in both cores:
+
+| Function | Quake 2 | Notes |
+| :--- | :--- | :--- |
+| `map_cluster_pvs`, `map_cluster_phs` | `CM_ClusterPVS/PHS` | Decompressed rows of `(numclusters + 7) / 8` bytes. A map without a visibility lump sees everything; a bad cluster gives an empty row. |
+| `map_set_area_portal`, `map_area_portal_open` | `CM_SetAreaPortalState` | Portals start closed when a map loads, as in Quake 2 (doors open them). |
+| `map_areas_connected`, `map_write_area_bits` | `CM_AreasConnected`, `CM_WriteAreabits` | Areas are re-flooded when a portal changes. |
+| `map_box_leafs`, `map_headnode_visible` | `CM_BoxLeafnums`, `CM_HeadnodeVisible` | Entity culling for a future server. |
+| `map_load_mesh` | - | Loads a triangle soup as the current map (below). |
+
+`Engine` wraps them as `clusterPVS`, `clusterPHS`, `setAreaPortal`, `areasConnected`, `areaBits`, `boxLeafs` and `headnodeVisible`. `Engine::parseEntities` / `entityValue` parse the entity lump with Quake 2's `ED_ParseEdict` syntax.
+
+### glTF maps
+
+`engine.loadMap("maps/street.glb")` (or `.gltf`) loads a glTF 2.0 level as a collision map:
+
+- `realms::gltfToMeshMap` (`MeshMap.h`) reads `.glb` and `.gltf` itself, with no third-party code. It handles external and `data:` buffers, the node hierarchy with matrix or TRS transforms, instancing and mirrored nodes. Hostile files hit size and count limits rather than reading out of bounds; it survives a 3000-iteration mutation fuzz.
+- Axes and units: glTF (x, y, z) metres become Quake 2 (x, -z, y) × `map_mesh_scale` (default 32 units per metre). That puts a 1.75 m player at Quake 2's 56 units.
+- Every triangle becomes a slab brush (`map_mesh_thickness`, default 2 units) with bevel planes. The core sorts the brushes into a kd tree, so traces use Quake 2's `CM_BoxTrace` unchanged and hit the same `DIST_EPSILON` contact points as on a BSP.
+- Materials become surfaces. A material name containing `nocollide`, `water`, `slime` or `lava` sets its contents, and material `extras` can set `realms_contents`, `realms_flags` and `realms_value` directly. A node whose name contains `nocollide` is drawn but has no collision.
+- Nodes named `info_player_start`, `info_player_deathmatch` and so on become entities. Their origin is the node's translation, and `realms_angle` in its extras sets the facing. `worldspawn` is generated.
+
+### Map commands (every platform)
+
+`realms::sandbox::boot()` registers these by default (`BootOptions::mapCommands`):
+
+| Command | Effect |
+| :--- | :--- |
+| `map <name>` | Loads `<name>`, `maps/<name>.bsp`, `.glb` or `.gltf`, or any VFS path with an extension (`map models/abandoned_city_street_for_games.glb`). Sets the read-only `mapname` cvar and calls `BootOptions::onMapChanged(path)`. |
+| `mapinfo` | Lump counts, bounds, checksum, mesh triangles and surfaces, and entity class counts. |
+| `killserver` | Unloads the map and calls `onMapChanged("")`. |
+
+### Desktop map mode
+
+On desktop, `map` swaps the sandbox for the loaded map (`sys/desktop/DesktopMapMode.*`):
+
+- **Movement:** you walk with `realms::MapWalker`, a port of Quake 2's pmove (`PM_StepSlideMove`, friction, acceleration, 18-unit steps, ducking, swimming, jumping). It runs on `Engine::boxTrace` against whichever core is active.
+- **Controls:** WASD, Space to jump, Ctrl to crouch, N for noclip and R to respawn. `killserver` returns to the sandbox where you left it.
+- **BSPs** are drawn from their face lump (sky and nodraw skipped). Maps without faces are drawn from their brush windings. Texture names pick the sandbox material layer (brick, metal, wood, glass, water…).
+- **glTF maps** are drawn with the textured model through the regular glTF pipeline, in the file's own space. `tests/realms/map_render_alignment_test.cpp` (CTest `realms_map_render_alignment`) checks that the drawn model and the collision coincide for every `.glb` shipped in `assets/models`.
+
 ## Shared boot (every platform)
 
 `realms::sandbox::boot()` runs the same steps on every platform:
@@ -82,7 +127,8 @@ You can override the choice with `REALMS_CORE=pascal|native|auto`. With `pascal`
 1. Registers `sensitivity`, `m_invert`, `name`, and `realms_platform`. `realms_platform` is read-only and holds `desktop-linux`, `desktop-macos`, `android` or `ios`.
 2. Mounts `pak0.pak` … `pak9.pak`.
 3. Executes `config/realms.cfg`, then `config.cfg` (archived cvars, saved with `writeconfig`), then `autoexec.cfg`.
-4. Runs `+command` arguments from the command line (desktop only).
+4. Registers the map commands (`map`, `mapinfo`, `killserver`) and the `map_mesh_scale` / `map_mesh_thickness` cvars.
+5. Runs `+command` arguments from the command line (desktop only; `+map base1` works).
 
 Mouse and touch look use `sensitivity` and `m_invert` on all three platforms.
 
@@ -99,7 +145,15 @@ Mouse and touch look use `sensitivity` and `m_invert` on all three platforms.
 
 `tests/realms/realms_bridge_test.cpp` is the ABI conformance suite. It covers cvar semantics, the command buffer, aliases and macros, PAK mounting, `writeconfig`, error paths, the collision model and the Engine facade.
 
-The map checks (`tests/realms/realms_map_suite.h`) need real BSP files, and no id Software map can ship with the repository. `tests/realms/bsp_builder.h` therefore compiles a test level from boxes into a genuine IBSP v38 file: BSP tree, solid leaf 0, clusters, areas, brush sides and texinfo. The level has a floor, a wall, a water pool, a player-clip brush and a door (`*1`). The suite checks exact trace fractions and end positions, surfaces, masks, transforms, box hulls and leafs. It also checks that 18 kinds of corrupt map are rejected and survives 400 randomly corrupted copies. It runs against:
+The map checks (`tests/realms/realms_map_suite.h`) need real BSP files, and no id Software map can ship with the repository. `tests/realms/bsp_builder.h` therefore compiles a test level from boxes into a genuine IBSP v38 file: BSP tree, solid leaf 0, clusters, areas, brush sides and texinfo. The level has a floor, a wall, a water pool, a player-clip brush and a door (`*1`). The suite checks exact trace fractions and end positions, surfaces, masks, transforms, box hulls and leafs. It also checks that 18 kinds of corrupt map are rejected and survives 400 randomly corrupted copies.
+
+The other suites:
+
+- `realms_vis_mesh_suite.h` covers PVS/PHS, area portals, box leafs and mesh maps in the core.
+- `realms_meshmap_suite.h` covers the glTF converter, using `gltf_builder.h` to write `.glb` / `.gltf` files in memory.
+- `realms_walker_suite.h` covers map geometry from the face lump and from brush windings, with error paths and a fuzz. It also walks a test level through the Engine on both cores: stepping up a 16-unit step, being stopped by a 40-unit block, sliding along walls, player clip, jump height, crouching under a low ceiling, swimming, noclip, and spawning on BSP and glTF maps.
+
+All of these run against:
 
 - the C++ core (CTest `realms_bridge_native`; Android/iOS CI);
 - the Pascal core (CTest `realms_bridge_pascal`, i.e. `realms_bridge_test --pascal <lib>`, when `fpc` is available);
@@ -111,8 +165,8 @@ On Linux and macOS, CI also starts the packaged sandbox with `REALMS_CORE=pascal
 
 ```bash
 g++ -std=c++17 -Wall -Wextra -Werror -pedantic -Irealms/include \
-  tests/realms/realms_bridge_test.cpp realms/src/Engine.cpp \
-  realms/src/NativeCore.cpp realms/src/NativeCModel.cpp realms/src/SandboxBoot.cpp -ldl -o /tmp/realms-test
+  tests/realms/realms_bridge_test.cpp realms/src/{Engine,NativeCore,NativeCModel,SandboxBoot,MeshMap,MapGeometry,MapWalker}.cpp \
+  -ldl -o /tmp/realms-test
 /tmp/realms-test                                  # C++ reference core
 /tmp/realms-test --pascal build/librealms_core.so # Free Pascal core
 ```
@@ -124,4 +178,5 @@ g++ -std=c++17 -Wall -Wextra -Werror -pedantic -Irealms/include \
   - core blobs with `core->fs_free`;
   - strings are copied into buffers the caller provides.
 - Every Pascal export is wrapped in `try/except`, so no exception crosses into C++. Floating-point exceptions are masked on entry.
+- The C++ core is compiled without fused multiply-add contraction (`#pragma clang fp contract(off)` in every `realms/src` file, plus `-ffp-contract=off` in CMake). FPC never fuses, so the C++ and Pascal cores give bit-identical trace results on arm64 and on FMA-capable x86 too.
 - `rlm_bridge.pas` mirrors `realms_bridge.h` field for field (`{$PACKRECORDS C}`, `cdecl`). If you change one, change the other and bump `REALMS_BRIDGE_VERSION`.

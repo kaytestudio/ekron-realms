@@ -320,6 +320,14 @@ bool DesktopGltfModel::loadFromDisk(const std::string &assetRoot,
     return loaded_;
 }
 
+bool DesktopGltfModel::loadWithReader(const std::string &path,
+                                      const city::ReadFile &read,
+                                      std::string &logOut,
+                                      city::LoadOptions options) {
+    loaded_ = scene_.load(path, read, logOut, options) && !scene_.batches.empty();
+    return loaded_;
+}
+
 void DesktopGltfModel::upload(ekron::gl::Api &gl) {
     if (!loaded_ || uploaded_) return;
 
@@ -564,6 +572,7 @@ bool DesktopRenderer::init(ekron::gl::Api &gl, const std::string &assetRoot, std
     };
     setupMeshVao(worldVao_, worldVbo_);
     setupMeshVao(ghostVao_, ghostVbo_);
+    setupMeshVao(mapVao_, mapVbo_);
 
     gl.GenVertexArrays(1, &uiVao_);
     gl.GenBuffers(1, &uiVbo_);
@@ -651,6 +660,9 @@ void DesktopRenderer::shutdown(ekron::gl::Api &gl) {
     if (ghostVao_) gl.DeleteVertexArrays(1, &ghostVao_);
     if (worldVbo_) gl.DeleteBuffers(1, &worldVbo_);
     if (worldVao_) gl.DeleteVertexArrays(1, &worldVao_);
+    if (mapVbo_) gl.DeleteBuffers(1, &mapVbo_);
+    if (mapVao_) gl.DeleteVertexArrays(1, &mapVao_);
+    mapCount_ = 0;
     if (emptyVao_) gl.DeleteVertexArrays(1, &emptyVao_);
     if (uiProg_) gl.DeleteProgram(uiProg_);
     if (pipProg_) gl.DeleteProgram(pipProg_);
@@ -816,6 +828,79 @@ void DesktopRenderer::drawWorldScene(ekron::gl::Api &gl,
             drawGltfModel(gl, carModel, carMat, eye.x, eye.z, false);
         }
     }
+}
+
+void DesktopRenderer::setMapGeometry(ekron::gl::Api &gl, const std::vector<sandbox::MeshVertex> &vertices) {
+    if (!mapVbo_) return;
+    gl.BindVertexArray(mapVao_);
+    gl.BindBuffer(GL_ARRAY_BUFFER, mapVbo_);
+    gl.BufferData(GL_ARRAY_BUFFER,
+                  static_cast<GLsizeiptr>(vertices.size() * sizeof(sandbox::MeshVertex)),
+                  vertices.empty() ? nullptr : vertices.data(),
+                  GL_STATIC_DRAW);
+    gl.BindVertexArray(0);
+    mapCount_ = static_cast<GLsizei>(vertices.size());
+}
+
+void DesktopRenderer::clearMapGeometry(ekron::gl::Api &gl) {
+    if (mapVbo_ && mapCount_) {
+        gl.BindBuffer(GL_ARRAY_BUFFER, mapVbo_);
+        gl.BufferData(GL_ARRAY_BUFFER, 0, nullptr, GL_STATIC_DRAW);
+    }
+    mapCount_ = 0;
+}
+
+void DesktopRenderer::renderMapWorld(ekron::gl::Api &gl,
+                                     int drawableW,
+                                     int drawableH,
+                                     const DesktopGltfModel *mapModel,
+                                     physics::Vec3 eye,
+                                     float yaw,
+                                     float pitch,
+                                     float roll) {
+    gl.BindFramebuffer(GL_FRAMEBUFFER, 0);
+    const float aspect = float(std::max(drawableW, 1)) / float(std::max(drawableH, 1));
+    gl.Viewport(0, 0, drawableW, drawableH);
+    gl.Disable(GL_CULL_FACE);
+    gl.Enable(GL_DEPTH_TEST);
+    gl.DepthFunc(GL_LEQUAL);
+    gl.DepthMask(GL_TRUE);
+    gl.Disable(GL_BLEND);
+    gl.ClearColor(0.56f, 0.61f, 0.63f, 1.0f);
+    gl.Clear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    gl.UseProgram(skyProg_);
+    gl.DepthMask(GL_FALSE);
+    gl.Uniform2f(gl.GetUniformLocation(skyProg_, "uAngles"), yaw, pitch);
+    gl.Uniform1f(gl.GetUniformLocation(skyProg_, "uRoll"), roll);
+    gl.Uniform1f(gl.GetUniformLocation(skyProg_, "uAspect"), aspect);
+    gl.BindVertexArray(emptyVao_);
+    gl.DrawArrays(GL_TRIANGLES, 0, 3);
+    gl.DepthMask(GL_TRUE);
+
+    if (mapCount_ > 0) {
+        gl.UseProgram(worldProg_);
+        applyCommonSceneUniforms(gl, worldProg_, eye, yaw, pitch, roll, aspect, texturesReady_);
+        gl.UniformMatrix4fv(gl.GetUniformLocation(worldProg_, "uObjectTransform"), 1, GL_FALSE, kIdentityMatrix.data());
+        gl.Uniform1i(gl.GetUniformLocation(worldProg_, "uModelPass"), 0);
+        gl.Uniform1i(gl.GetUniformLocation(worldProg_, "uPreviewPass"), 0);
+        gl.ActiveTexture(GL_TEXTURE0);
+        gl.BindTexture(GL_TEXTURE_2D_ARRAY, materialArrayTex_);
+        gl.ActiveTexture(GL_TEXTURE1);
+        gl.BindTexture(GL_TEXTURE_2D, whiteTex_);
+        gl.BindVertexArray(mapVao_);
+        gl.DrawArrays(GL_TRIANGLES, 0, mapCount_);
+    }
+
+    if (mapModel && mapModel->ready()) {
+        gl.UseProgram(modelProg_);
+        applyCommonSceneUniforms(gl, modelProg_, eye, yaw, pitch, roll, aspect, texturesReady_);
+        gl.ActiveTexture(GL_TEXTURE0);
+        gl.BindTexture(GL_TEXTURE_2D_ARRAY, materialArrayTex_);
+        drawGltfModel(gl, *mapModel, kIdentityMatrix, eye.x, eye.z, false);
+    }
+    gl.BindVertexArray(0);
+    gl.ActiveTexture(GL_TEXTURE0);
 }
 
 void DesktopRenderer::renderMonitorPass(ekron::gl::Api &gl,

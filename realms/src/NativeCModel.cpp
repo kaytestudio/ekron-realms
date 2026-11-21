@@ -9,6 +9,12 @@
 #include <utility>
 #include <vector>
 
+// Bit-exact with the Free Pascal core: no fused multiply-add contraction
+// (clang contracts a*b+c by default on arm64 / FMA targets).
+#if defined(__clang__)
+#pragma clang fp contract(off)
+#endif
+
 namespace realms_native {
 namespace {
 

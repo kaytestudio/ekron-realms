@@ -10,6 +10,7 @@
 // and then drives the realms::Engine facade on top of the same backend.
 
 #include "realms/Engine.h"
+#include "realms/SandboxBoot.h"
 #include "realms/realms_bridge.h"
 
 #include <cmath>
@@ -143,6 +144,8 @@ std::string makePak(const std::vector<std::pair<std::string, std::string>> &entr
 } // namespace
 
 #include "realms_map_suite.h"
+#include "realms_meshmap_suite.h"
+#include "realms_walker_suite.h"
 
 namespace {
 
@@ -440,6 +443,105 @@ void runEngineSuite(const std::string &pascalLibrary) {
         CHECK(!engine.mapLoaded() && engine.mapEntities().empty());
         CHECK(engine.loadMap("maps/test.bsp"));
     }
+
+    // Bridge v3 through the facade: visibility, areas, entities.
+    {
+        CHECK(engine.mapPath() == "maps/test.bsp" && engine.meshMap().indices.empty());
+        const std::vector<uint8_t> pvs = engine.clusterPVS(0); // no vis lump: all visible
+        CHECK(!pvs.empty() && pvs[0] == 0xff && realms::Engine::clusterVisible(pvs, 0));
+        CHECK(!realms::Engine::clusterVisible(pvs, -1) && !realms::Engine::clusterVisible(pvs, 8 * int32_t(pvs.size())));
+        CHECK(engine.clusterPHS(0) == pvs);
+        CHECK(engine.headnodeVisible(0, pvs) && !engine.headnodeVisible(0, {}));
+        int32_t top = -2;
+        CHECK(!engine.boxLeafs({-8, -8, -8}, {8, 8, 40}, 0, &top).empty());
+        CHECK(engine.boxLeafs({-8, -8, -8}, {8, 8, 40}, 0, nullptr, 0).empty());
+        CHECK(engine.areaPortalState(0) == 0 && engine.areaPortalState(5000) == -1);
+        engine.setAreaPortal(0, true);
+        CHECK(engine.areaPortalState(0) == 1);
+        engine.setAreaPortal(0, false);
+        CHECK(!engine.areaBits(0).empty() && engine.areasConnected(1, 1));
+        const auto ents = realms::Engine::parseEntities(engine.mapEntities());
+        CHECK(!ents.empty() && realms::Engine::entityValue(ents[0], "classname") == "worldspawn");
+        const auto parsed = realms::Engine::parseEntities(
+            "// comment\n{\n\"classname\" \"light\"\n\"origin\" \"1 2 3\" // trailing\n}\n{ \"a\" \"b\" }\n{ \"unterminated\" ");
+        CHECK(parsed.size() == 2 && realms::Engine::entityValue(parsed[0], "origin") == "1 2 3");
+        CHECK(realms::Engine::entityValue(parsed[1], "a") == "b" && realms::Engine::entityValue(parsed[1], "x").empty());
+    }
+
+    // Map console commands and .glb / .gltf maps.
+    {
+        std::vector<std::string> changes;
+        realms::sandbox::registerMapCommands(engine, [&](const std::string &p) { changes.push_back(p); });
+        const std::string room = gltf_builder::roomGlb();
+        std::ofstream(tmp / "assets" / "meshes.pak", std::ios::binary)
+            << makePak({{"maps/room.glb", room},
+                        {"maps/ext.gltf", gltf_builder::roomJson("ext.bin")},
+                        {"maps/ext.bin", gltf_builder::quadBin()},
+                        {"maps/broken.glb", room.substr(0, 100)}});
+        CHECK(engine.addPak("meshes.pak") > 0);
+        CHECK(engine.cvarFloat("map_mesh_scale") == 32.0f);
+
+        auto sawConsole = [&](const std::string &needle) {
+            for (const auto &line : engine.console())
+                if (line.text.find(needle) != std::string::npos) return true;
+            return false;
+        };
+        engine.exec("map test\n");
+        CHECK(changes.size() == 1 && changes.back() == "maps/test.bsp" && engine.cvarString("mapname") == "test");
+        engine.exec("map nothere\n");
+        CHECK(changes.size() == 1 && engine.mapLoaded() && sawConsole("map: can't find nothere"));
+        engine.exec("map room\n");
+        CHECK(changes.size() == 2 && changes.back() == "maps/room.glb" && engine.mapPath() == "maps/room.glb");
+        CHECK(engine.cvarString("mapname") == "room" && engine.meshMap().triangleCount() == 8);
+        RealmsMapInfo info{};
+        CHECK(engine.mapInfo(info) && std::string(info.name) == "maps/room.glb");
+        CHECK(info.num_brushes == 6); // floor, mirrored copy, pool; the nocollide ceiling has none
+        CHECK(info.checksum == realms::crc32(reinterpret_cast<const unsigned char *>(room.data()), room.size()));
+        const realms::TraceResult t = engine.boxTrace({0, 0, 32}, {0, 0, -32}, {}, {});
+        CHECK(t.hit() && t.endpos[2] == 0.03125f && t.normal[2] == 1.0f && t.surface == "concrete" && t.surfaceValue == 5);
+        CHECK(!engine.boxTrace({0, 0, 32}, {0, 0, 96}, {}, {}).hit()); // ceiling is render-only
+        const realms::TraceResult m = engine.boxTrace({0, 0, 192}, {0, 0, 64}, {}, {});
+        CHECK(m.hit() && m.endpos[2] == 128.03125f && m.normal[2] == 1.0f); // mirrored instance still faces up
+        CHECK(engine.pointContents({0, 0, -33}) == REALMS_CONTENTS_WATER);
+        CHECK(engine.pointContents({0, 0, 16}) == 0);
+        const realms::TraceResult hull =
+            engine.boxTrace({0, 0, 100}, {0, 0, -100}, {-16, -16, -24}, {16, 16, 32}, 0, REALMS_MASK_PLAYERSOLID);
+        CHECK(hull.hit() && hull.endpos[2] == 24.03125f);
+        const auto ents = realms::Engine::parseEntities(engine.mapEntities());
+        CHECK(ents.size() == 2 && realms::Engine::entityValue(ents[1], "classname") == "info_player_start");
+        CHECK(ents.size() == 2 && realms::Engine::entityValue(ents[1], "origin") == "32 -64 16");
+        CHECK(engine.clusterPVS(0) == std::vector<uint8_t>{0xff});
+        engine.exec("mapinfo\n");
+        CHECK(sawConsole("(triangle mesh)") && sawConsole("mesh: 8 triangles, 3 surfaces"));
+        CHECK(sawConsole("entities 2, info_player_start x1, worldspawn x1"));
+
+        engine.exec("set map_mesh_scale 64; map maps/ext.gltf\n");
+        CHECK(changes.size() == 3 && changes.back() == "maps/ext.gltf" && engine.meshMap().triangleCount() == 8);
+        CHECK(!engine.meshMap().vertices.empty() && engine.meshMap().vertices[0] == -256.0f);
+        engine.exec("set map_mesh_scale 32\n");
+
+        engine.exec("map broken.glb\n");
+        CHECK(changes.size() == 4 && changes.back().empty() && !engine.mapLoaded());
+        CHECK(engine.cvarString("mapname").empty() && sawConsole("map_load: maps/broken.glb:"));
+        CHECK(engine.meshMap().indices.empty() && engine.mapPath().empty());
+
+        engine.exec("map room; killserver\n");
+        CHECK(changes.size() == 6 && changes.back().empty() && !engine.mapLoaded());
+        engine.exec("killserver\n"); // nothing loaded: no change notification
+        CHECK(changes.size() == 6);
+        engine.exec("mapinfo\n");
+        CHECK(sawConsole("mapinfo: no map loaded"));
+        CHECK(engine.loadMap("maps/test.bsp"));
+    }
+
+    // Player movement and drawable geometry on a BSP and a glTF map.
+    {
+        std::ofstream(tmp / "assets" / "walk.pak", std::ios::binary)
+            << makePak({{"maps/walk.bsp", bsp_builder::build(walker_suite::walkMap(true))}});
+        CHECK(engine.addPak("walk.pak") > 0);
+        walker_suite::runWalkerChecks(engine);
+        CHECK(engine.loadMap("maps/test.bsp"));
+    }
     CHECK(engine.console().size() <= 64);
 
     // Frame clock runs deferred commands.
@@ -501,6 +603,8 @@ int main(int argc, char **argv) {
     runAbiSuite(api, true);
     runAbiSuite(api, false);
     runMapSuite(api);
+    meshmap_suite::runMeshMapChecks();
+    walker_suite::runGeometryChecks();
     runEngineSuite(pascalLibrary);
 
     std::printf("[realms] %d checks, %d failures (%s)\n", gChecks, gFailures, backend.c_str());

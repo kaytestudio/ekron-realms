@@ -15,6 +15,9 @@ add_library(realms_engine STATIC
     "${CMAKE_CURRENT_LIST_DIR}/src/NativeCore.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/src/NativeCModel.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/src/SandboxBoot.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/src/MeshMap.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/src/MapGeometry.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/src/MapWalker.cpp"
 )
 target_include_directories(realms_engine PUBLIC "${CMAKE_CURRENT_LIST_DIR}/include")
 target_compile_features(realms_engine PUBLIC cxx_std_17)
@@ -34,5 +37,6 @@ if(REALMS_PASCAL_STATIC_LIBRARY)
 endif()
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    target_compile_options(realms_engine PRIVATE -Wall -Wextra)
+    # -ffp-contract=off: collision maths stays bit-exact with the Pascal core.
+    target_compile_options(realms_engine PRIVATE -Wall -Wextra -ffp-contract=off)
 endif()

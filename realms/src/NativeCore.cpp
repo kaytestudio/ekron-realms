@@ -21,6 +21,12 @@
 #include <string>
 #include <vector>
 
+// Bit-exact with the Free Pascal core: no fused multiply-add contraction
+// (clang contracts a*b+c by default on arm64 / FMA targets).
+#if defined(__clang__)
+#pragma clang fp contract(off)
+#endif
+
 namespace {
 
 constexpr size_t kMaxCbufText = 65536;

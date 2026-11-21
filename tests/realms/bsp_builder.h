@@ -55,6 +55,9 @@ struct MapDef {
     // When set, a visibility lump is written: cluster a sees cluster b when
     // pvs(a mins, a maxs, b mins, b maxs). The PHS row is all ones.
     std::function<bool(const float *, const float *, const float *, const float *)> pvs;
+    // Write a face lump (vertexes / edges / surfedges / faces) with the six
+    // sides of every visible brush, like qbsp does for drawable surfaces.
+    bool emitFaces = false;
 };
 
 struct Stats {
@@ -67,11 +70,15 @@ struct Stats {
 enum {
     kEntities = 0,
     kPlanes = 1,
+    kVertexes = 2,
     kVisibility = 3,
     kNodes = 4,
     kTexinfo = 5,
+    kFaces = 6,
     kLeafs = 8,
     kLeafBrushes = 10,
+    kEdges = 11,
+    kSurfEdges = 12,
     kModels = 13,
     kBrushes = 14,
     kBrushSides = 15,
@@ -327,6 +334,7 @@ private:
             portalCount += num;
         }
         if (def_.pvs) lumps[kVisibility] = visibility();
+        if (def_.emitFaces) faces(lumps);
 
         std::string out = "IBSP";
         put32(out, 38);
@@ -344,6 +352,52 @@ private:
             put32(out, len[i]);
         }
         return out + body;
+    }
+
+    // Six quads per drawable brush. Edge 0 is the reserved dummy edge.
+    void faces(std::string *lumps) const {
+        constexpr int32_t kDrawable = 0x1 | 0x2 | 0x8 | 0x10 | 0x20;
+        put16(lumps[kEdges], 0);
+        put16(lumps[kEdges], 0);
+        int32_t vertexCount = 0, edgeCount = 1, surfEdgeCount = 0;
+        for (const Box &b : boxes_) {
+            if (!(b.contents & kDrawable)) continue;
+            for (int a = 0; a < 3; ++a) {
+                for (int side = 0; side < 2; ++side) {
+                    const float v = side ? b.maxs[a] : b.mins[a];
+                    const int u = (a + 1) % 3, w = (a + 2) % 3;
+                    const float cu[4] = {b.mins[u], b.maxs[u], b.maxs[u], b.mins[u]};
+                    const float cw[4] = {b.mins[w], b.mins[w], b.maxs[w], b.maxs[w]};
+                    for (int c = 0; c < 4; ++c) {
+                        float p[3];
+                        p[a] = v;
+                        p[u] = cu[c];
+                        p[w] = cw[c];
+                        for (float f : p) putf(lumps[kVertexes], f);
+                    }
+                    for (int c = 0; c < 4; ++c) {
+                        // Odd edges are stored reversed and referenced with a
+                        // negative surfedge (whose polygon vertex is v[1]).
+                        const int16_t from = int16_t(uint16_t(vertexCount + c));
+                        const int16_t to = int16_t(uint16_t(vertexCount + (c + 1) % 4));
+                        put16(lumps[kEdges], c % 2 ? to : from);
+                        put16(lumps[kEdges], c % 2 ? from : to);
+                        put32(lumps[kSurfEdges], c % 2 ? -(edgeCount + c) : edgeCount + c);
+                    }
+                    std::string &o = lumps[kFaces];
+                    put16(o, int16_t(uint16_t(planeIndex_.at(std::make_pair(a, v)))));
+                    put16(o, int16_t(side ? 0 : 1)); // min side faces -axis
+                    put32(o, surfEdgeCount);
+                    put16(o, 4);
+                    put16(o, int16_t(b.texinfo));
+                    put32(o, 0); // styles
+                    put32(o, -1); // lightofs
+                    vertexCount += 4;
+                    edgeCount += 4;
+                    surfEdgeCount += 4;
+                }
+            }
+        }
     }
 
     // dvis_t: numclusters, bitofs[numclusters][2], Quake 2 zero-run rows.

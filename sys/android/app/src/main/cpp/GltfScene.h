@@ -25,6 +25,10 @@ struct Batch { std::vector<Vertex> vertices;int material=-1;bool decorativeWire=
 struct LoadOptions {
     bool level=true;
     bool buildPhysics=true;
+    // Keep the file's own coordinates (node transforms applied, no
+    // recentring/scaling): used for Realms glTF maps, whose collision lives
+    // in the same space (realms::MeshMap).
+    bool keepSourceSpace=false;
     float targetExtent=80.f;
     float x=0,y=0,z=0,yaw=0;
 };
