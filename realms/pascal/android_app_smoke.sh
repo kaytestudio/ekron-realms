@@ -45,7 +45,7 @@ cat "$LOG"
 [ -n "$ready" ] || fail "no 'Realms engine ready' line within 90 s"
 
 case "$ready" in
-    *"core=$EXPECT "*) echo "OK: $ready" ;;
+    *"core=$EXPECT "*) echo "OK: $ready"; echo "::notice title=Realms app smoke::${ready#*Realms: }" ;;
     *) fail "expected core=$EXPECT, got: ${ready#*Realms engine ready: }" ;;
 esac
 
@@ -59,4 +59,5 @@ if [ -z "$pid" ]; then
     echo "::warning title=Realms app smoke::$PKG is no longer running (no crash recorded)"
 else
     echo "OK: $PKG still running (pid $pid)"
+    echo "::notice title=Realms app smoke::$PKG still running 8 s after the engine started"
 fi
