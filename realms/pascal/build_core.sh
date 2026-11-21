@@ -13,10 +13,14 @@
 #   android-x86_64    -> sys/android/app/src/main/jniLibs/x86_64/
 #   ios-arm64         -> build/realms-ios/librealms_core.a  (static)
 #
-# Android: needs an FPC cross compiler for the target (ppcrossa64/ppcrossarm/
-# ppcx64 + android RTL) and the NDK. Set ANDROID_NDK_HOME; the script puts the
-# NDK LLVM tools on PATH. Once the .so is in jniLibs, realms::Engine loads it
-# automatically (REALMS_CORE=auto) - nothing else changes in the APK build.
+# Android: needs a Free Pascal cross compiler + Android RTL for the CPU
+# (build one with realms/pascal/fpc_android_toolchain.sh and point
+# FPC_ANDROID_PREFIX at its install prefix), GNU binutils for the CPU
+# (aarch64-linux-gnu-* / x86_64-linux-gnu-*) and the NDK (ANDROID_NDK_HOME)
+# for bionic: the library links only against the NDK sysroot of
+# ANDROID_API (default 30 = the app's minSdk). Once the .so is in jniLibs,
+# realms::Engine loads it automatically (REALMS_CORE=auto) - nothing else
+# changes in the APK build.
 #
 # iOS: apps cannot ship dynamic Pascal libraries, so the core is compiled to
 # objects and archived together with the FPC RTL units it uses. Link the
@@ -35,7 +39,8 @@ COMMON=(-Mobjfpc -Sh -O2 -Xs "-Fu$HERE" "-Fi$HERE")
 
 command -v "$FPC" >/dev/null 2>&1 || { echo "error: fpc not found (set FPC=/path/to/fpc)" >&2; exit 1; }
 
-ndk_bin() {
+ndk_sysroot_lib() {
+    local triple="$1"
     local ndk="${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}"
     [ -n "$ndk" ] || { echo "error: set ANDROID_NDK_HOME" >&2; exit 1; }
     local host_tag
@@ -44,22 +49,28 @@ ndk_bin() {
         Darwin) host_tag=darwin-x86_64 ;;
         *) echo "error: unsupported build host" >&2; exit 1 ;;
     esac
-    echo "$ndk/toolchains/llvm/prebuilt/$host_tag/bin"
+    local dir="$ndk/toolchains/llvm/prebuilt/$host_tag/sysroot/usr/lib/$triple/${ANDROID_API:-30}"
+    [ -f "$dir/crtbegin_so.o" ] || { echo "error: NDK sysroot not found at $dir" >&2; exit 1; }
+    echo "$dir"
 }
 
 build_android() {
-    local cpu="$1" abi="$2" triple="$3"; shift 3
+    local cpu="$1" abi="$2" ndk_triple="$3" binutils="$4" ppc="$5"; shift 5
     local out="${OUT_DIR:-$ROOT/sys/android/app/src/main/jniLibs/$abi}"
     local units; units="$(mktemp -d)"
-    local bin; bin="$(ndk_bin)"
-    local prefix=()
-    mkdir -p "$out"
-    # Cross binutils: use <triple>-ld etc. when present (fpcupdeluxe installs
-    # them); otherwise rely on the cross settings in fpc.cfg.
-    if PATH="$bin:$PATH" command -v "$triple-ld" >/dev/null 2>&1; then
-        prefix=("-XP$triple-")
+    local sysroot_lib; sysroot_lib="$(ndk_sysroot_lib "$ndk_triple")"
+    local compiler="$FPC" rtl=()
+    if [ -n "${FPC_ANDROID_PREFIX:-}" ]; then
+        compiler="$(find "$FPC_ANDROID_PREFIX" -name "$ppc" -type f | head -n 1)"
+        [ -x "$compiler" ] || { echo "error: $ppc not found under $FPC_ANDROID_PREFIX" >&2; exit 1; }
+        local rtl_dir; rtl_dir="$(dirname "$compiler")/units/$cpu-android/rtl"
+        [ -d "$rtl_dir" ] || { echo "error: $cpu-android RTL not found at $rtl_dir" >&2; exit 1; }
+        # -n: ignore the host fpc.cfg; everything the core needs is explicit.
+        rtl=(-n "-Fu$rtl_dir")
     fi
-    PATH="$bin:$PATH" "$FPC" -Tandroid "-P$cpu" "$@" -Cg "${prefix[@]}" ${FPC_ANDROID_FLAGS:-} \
+    mkdir -p "$out"
+    "$compiler" "${rtl[@]}" -Tandroid "-P$cpu" "$@" -Cg "-XP$binutils" "-Fl$sysroot_lib" \
+        -k-z -kmax-page-size=16384 ${FPC_ANDROID_FLAGS:-} \
         "${COMMON[@]}" "-FU$units" "-FE$out" "$HERE/realms_core.lpr"
     rm -rf "$units"
     echo "built $out/librealms_core.so"
@@ -77,13 +88,13 @@ case "$TARGET" in
         ls -l "$out"/librealms_core.*
         ;;
     android-aarch64)
-        OUT_DIR="${2:-}" build_android aarch64 arm64-v8a aarch64-linux-android
+        OUT_DIR="${2:-}" build_android aarch64 arm64-v8a aarch64-linux-android aarch64-linux-gnu- ppcrossa64
         ;;
     android-armv7)
-        OUT_DIR="${2:-}" build_android arm armeabi-v7a arm-linux-androideabi -CpARMV7A -CfVFPV3
+        OUT_DIR="${2:-}" build_android arm armeabi-v7a arm-linux-androideabi arm-linux-gnueabihf- ppcrossarm -CpARMV7A -CfVFPV3
         ;;
     android-x86_64)
-        OUT_DIR="${2:-}" build_android x86_64 x86_64 x86_64-linux-android
+        OUT_DIR="${2:-}" build_android x86_64 x86_64 x86_64-linux-android x86_64-linux-gnu- ppcrossx64
         ;;
     ios-arm64)
         out="${2:-$ROOT/build/realms-ios}"
