@@ -351,6 +351,7 @@
 					"$(inherited)",
 					"$(SRCROOT)/../../android/app/src/main/cpp",
 					"$(SRCROOT)/realms iOS",
+					"$(SRCROOT)/../../../realms/include",
 				);
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Connect to a sandbox server on your local network.";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -395,6 +396,7 @@
 					"$(inherited)",
 					"$(SRCROOT)/../../android/app/src/main/cpp",
 					"$(SRCROOT)/realms iOS",
+					"$(SRCROOT)/../../../realms/include",
 				);
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Connect to a sandbox server on your local network.";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;

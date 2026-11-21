@@ -9,11 +9,44 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 option(ENABLE_DESKTOP_SANDBOX "Build the native C++17 SDL2/OpenGL desktop sandbox client" ON)
 option(ENABLE_FPC_CLIENT "Build the Free Pascal desktop launcher when fpc is installed" ON)
+option(ENABLE_PASCAL_CORE "Build the Free Pascal Realms core (librealms_core, Quake 2 stack) when fpc is installed" ON)
 option(ENABLE_EXTERNAL_TOOLS "Fetch and build external KayteIDE and KCC repositories" OFF)
 
 set(SHARED_CPP_DIR "${CMAKE_CURRENT_SOURCE_DIR}/sys/android/app/src/main/cpp")
 set(SHARED_ASSETS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/sys/android/app/src/main/assets")
 set(DESKTOP_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/sys/desktop")
+set(REALMS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/realms")
+
+# =============================================================================
+# Realms Engine: C++ bridge/facade (+ C++ reference core) and Free Pascal core
+# =============================================================================
+add_subdirectory("${REALMS_DIR}" realms)
+
+if(ENABLE_FPC_CLIENT OR ENABLE_PASCAL_CORE)
+    find_package(FPC QUIET)
+endif()
+
+set(REALMS_PASCAL_CORE_BUILT FALSE)
+if(ENABLE_PASCAL_CORE AND FPC_FOUND)
+    if(APPLE)
+        set(REALMS_PASCAL_CORE_DIR "${CMAKE_CURRENT_BINARY_DIR}/EkronRealms.app/Contents/Frameworks")
+        set(_realms_fpc_flags -Mobjfpc -Sh -O2)
+    else()
+        set(REALMS_PASCAL_CORE_DIR "${CMAKE_CURRENT_BINARY_DIR}")
+        set(_realms_fpc_flags -Mobjfpc -Sh -O2 -Xs)
+    endif()
+    add_fpc_library(realms_pascal_core
+        SOURCE "${REALMS_DIR}/pascal/realms_core.lpr"
+        NAME realms_core
+        OUTPUT_DIRECTORY "${REALMS_PASCAL_CORE_DIR}"
+        COMPILE_FLAGS ${_realms_fpc_flags}
+    )
+    get_target_property(REALMS_PASCAL_CORE_PATH realms_pascal_core FPC_OUTPUT_PATH)
+    set(REALMS_PASCAL_CORE_BUILT TRUE)
+    message(STATUS "=== Realms Pascal core: ${REALMS_PASCAL_CORE_PATH} ===")
+elseif(ENABLE_PASCAL_CORE)
+    message(STATUS "Free Pascal Compiler (fpc) not found; Realms will use its C++ reference core.")
+endif()
 
 # =============================================================================
 # Optional External Tools (KayteIDE / KCC)
@@ -76,6 +109,7 @@ if(ENABLE_DESKTOP_SANDBOX)
         "${DESKTOP_SRC_DIR}/DesktopOnlineClient.cpp"
         "${DESKTOP_SRC_DIR}/ShopCatalog.cpp"
         "${DESKTOP_SRC_DIR}/Localization.cpp"
+        "${DESKTOP_SRC_DIR}/DesktopConsole.cpp"
         "${SHARED_CPP_DIR}/GltfScene.cpp"
         "${SHARED_CPP_DIR}/ImageDecode.cpp"
     )
@@ -120,6 +154,7 @@ if(ENABLE_DESKTOP_SANDBOX)
     )
 
     target_link_libraries(ekron-realms PRIVATE
+        realms_engine
         ${EKRON_SDL2_TARGET}
         Threads::Threads
         $<$<PLATFORM_ID:Linux>:${CMAKE_DL_LIBS}>
@@ -139,6 +174,11 @@ if(ENABLE_DESKTOP_SANDBOX)
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         target_compile_options(ekron-realms PRIVATE -Wall -Wextra)
     endif()
+
+    if(REALMS_PASCAL_CORE_BUILT)
+        # The sandbox loads librealms_core at runtime; build it alongside.
+        add_dependencies(ekron-realms realms_pascal_core)
+    endif()
 endif()
 
 # =============================================================================
@@ -146,7 +186,6 @@ endif()
 # =============================================================================
 set(FPC_LAUNCHER_BUILT FALSE)
 if(ENABLE_FPC_CLIENT)
-    find_package(FPC QUIET)
     if(FPC_FOUND)
         message(STATUS "=== Free Pascal Compiler Found: ${FPC_EXECUTABLE} (${FPC_VERSION}) ===")
         set(FPC_EXTRA_FLAGS -Mobjfpc -Scghi -O2)
@@ -215,6 +254,14 @@ if(TARGET ekron-realms)
             )
         endif()
 
+        if(REALMS_PASCAL_CORE_BUILT)
+            # Private library probed by realms::Engine at <bindir>/../lib/ekron-realms.
+            install(FILES "${REALMS_PASCAL_CORE_PATH}"
+                DESTINATION "lib/ekron-realms"
+                PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ
+            )
+        endif()
+
         install(DIRECTORY
             "${SHARED_ASSETS_DIR}/models"
             "${SHARED_ASSETS_DIR}/textures"
@@ -269,7 +316,46 @@ add_executable(ekron_localization_test
 target_include_directories(ekron_localization_test PRIVATE sys/desktop)
 add_test(NAME ekron_localization COMMAND ekron_localization_test)
 
+# Realms bridge conformance: C++ reference core (+ Free Pascal core below).
+add_executable(realms_bridge_test tests/realms/realms_bridge_test.cpp)
+target_link_libraries(realms_bridge_test PRIVATE realms_engine)
+add_test(NAME realms_bridge_native COMMAND realms_bridge_test)
+set_tests_properties(realms_bridge_native PROPERTIES ENVIRONMENT "REALMS_CORE=")
+
+if(EKRON_SDL2_TARGET)
+    # Drop-down console line editing / command submission (no GL needed).
+    add_executable(realms_desktop_console_test
+        tests/realms/desktop_console_test.cpp
+        sys/desktop/DesktopConsole.cpp
+    )
+    target_include_directories(realms_desktop_console_test PRIVATE sys/desktop sys/android/app/src/main/cpp)
+    target_link_libraries(realms_desktop_console_test PRIVATE realms_engine ${EKRON_SDL2_TARGET})
+    target_compile_definitions(realms_desktop_console_test PRIVATE EKRON_CONSOLE_TEST_NO_RENDERER=1)
+    add_test(NAME realms_desktop_console COMMAND realms_desktop_console_test)
+    set_tests_properties(realms_desktop_console PROPERTIES ENVIRONMENT "REALMS_CORE=native")
+endif()
+
+if(REALMS_PASCAL_CORE_BUILT)
+    add_dependencies(realms_bridge_test realms_pascal_core)
+    add_test(NAME realms_bridge_pascal COMMAND realms_bridge_test --pascal "${REALMS_PASCAL_CORE_PATH}")
+endif()
+
 if(TARGET ekron-realms)
+    add_test(
+        NAME ekron_desktop_engine_info
+        COMMAND $<TARGET_FILE:ekron-realms> --engine-info --assets "${SHARED_ASSETS_DIR}"
+    )
+    if(REALMS_PASCAL_CORE_BUILT)
+        # The shipped sandbox must actually run on the Free Pascal core.
+        add_test(
+            NAME ekron_desktop_headless_smoke_pascal
+            COMMAND $<TARGET_FILE:ekron-realms> --headless-smoke --assets "${SHARED_ASSETS_DIR}"
+        )
+        set_tests_properties(ekron_desktop_headless_smoke_pascal PROPERTIES
+            ENVIRONMENT "REALMS_CORE=pascal"
+            PASS_REGULAR_EXPRESSION "realmsCore=pascal-quake2"
+        )
+    endif()
     add_test(
         NAME ekron_desktop_version
         COMMAND $<TARGET_FILE:ekron-realms> --version

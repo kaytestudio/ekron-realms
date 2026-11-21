@@ -11,6 +11,8 @@ on:
       - '!Resources/ekron-realms.desktop'
       - 'Projects/**'
       - 'sys/desktop/**'
+      - 'realms/**'
+      - 'tests/realms/**'
       - 'tests/native/desktop_hud_layout_test.cpp'
       - 'tests/native/localization_test.cpp'
       - 'tests/native/shop_catalog_test.cpp'
@@ -27,6 +29,8 @@ on:
       - '!Resources/ekron-realms.desktop'
       - 'Projects/**'
       - 'sys/desktop/**'
+      - 'realms/**'
+      - 'tests/realms/**'
       - 'tests/native/desktop_hud_layout_test.cpp'
       - 'tests/native/localization_test.cpp'
       - 'tests/native/shop_catalog_test.cpp'
@@ -69,7 +73,8 @@ jobs:
           {
             cmake -S . -B build -G Ninja \
               -DCMAKE_BUILD_TYPE=Release \
-              -DENABLE_FPC_CLIENT=ON &&
+              -DENABLE_FPC_CLIENT=ON \
+              -DENABLE_PASCAL_CORE=ON &&
             cmake --build build -j"$(sysctl -n hw.ncpu)"
           } 2>&1 | tee /tmp/macos-build.log || {
             tail -n 8 /tmp/macos-build.log | while IFS= read -r line; do
@@ -88,6 +93,7 @@ jobs:
           test -f "$APP_BUNDLE/Contents/Resources/models/abandoned_city_street_for_games.glb"
           test -x "$APP_BUNDLE/Contents/MacOS/EkronRealms"
           test -x "$APP_BUNDLE/Contents/MacOS/realms-launcher"
+          test -f "$APP_BUNDLE/Contents/Frameworks/librealms_core.dylib"
 
           mkdir -p "$APP_BUNDLE/Contents/Frameworks"
           SDL2_REF="$(otool -L "$APP_BUNDLE/Contents/MacOS/EkronRealms" | awk '/libSDL2/{print $1; exit}')"
@@ -137,6 +143,9 @@ jobs:
           APP_BUNDLE="build/EkronRealms.app"
           "$APP_BUNDLE/Contents/MacOS/EkronRealms" --version
           "$APP_BUNDLE/Contents/MacOS/EkronRealms" --headless-smoke
+          "$APP_BUNDLE/Contents/MacOS/EkronRealms" --engine-info
+          REALMS_CORE=pascal "$APP_BUNDLE/Contents/MacOS/EkronRealms" --headless-smoke | tee /tmp/pascal-smoke.log
+          grep -q 'realmsCore=pascal-quake2' /tmp/pascal-smoke.log
           "$APP_BUNDLE/Contents/MacOS/realms-launcher" --version
           "$APP_BUNDLE/Contents/MacOS/realms-launcher" --headless-smoke
 

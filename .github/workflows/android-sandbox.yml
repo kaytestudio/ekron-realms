@@ -6,6 +6,8 @@ on:
     paths:
       - 'sys/android/**'
       - 'tests/native/**'
+      - 'tests/realms/**'
+      - 'realms/**'
       - 'tools/*android*'
       - 'tools/validate_i18n.py'
       - '.github/workflows/android-sandbox.yml'
@@ -13,6 +15,8 @@ on:
     paths:
       - 'sys/android/**'
       - 'tests/native/**'
+      - 'tests/realms/**'
+      - 'realms/**'
       - 'tools/*android*'
       - 'tools/validate_i18n.py'
       - '.github/workflows/android-sandbox.yml'
@@ -69,6 +73,7 @@ jobs:
           run_test ekron-debug-test -O2 tests/native/debug_player_test.cpp
           run_test ekron-texture-test -O2 tests/native/texture_mesh_test.cpp
           run_test ekron-gltf-test -O1 tests/native/gltf_scene_test.cpp sys/android/app/src/main/cpp/GltfScene.cpp sys/android/app/src/main/cpp/ImageDecode.cpp
+          run_test realms-bridge-test -O2 -Irealms/include tests/realms/realms_bridge_test.cpp realms/src/Engine.cpp realms/src/NativeCore.cpp realms/src/SandboxBoot.cpp -ldl
 
       - name: Validate translations (English, Russian, Portuguese (Portugal))
         run: python3 tools/validate_i18n.py

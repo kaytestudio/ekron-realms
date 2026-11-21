@@ -8,6 +8,8 @@ on:
       - 'sys/android/app/src/main/cpp/**'
       - 'sys/android/app/src/main/assets/**'
       - 'tests/native/**'
+      - 'tests/realms/**'
+      - 'realms/**'
       - 'tools/*ios*'
       - 'tools/validate_i18n.py'
       - 'tools/*shader*'
@@ -18,6 +20,8 @@ on:
       - 'sys/android/app/src/main/cpp/**'
       - 'sys/android/app/src/main/assets/**'
       - 'tests/native/**'
+      - 'tests/realms/**'
+      - 'realms/**'
       - 'tools/*ios*'
       - 'tools/validate_i18n.py'
       - 'tools/*shader*'
@@ -85,6 +89,7 @@ jobs:
           run_test ekron-debug-test -O2 tests/native/debug_player_test.cpp
           run_test ekron-texture-test -O2 tests/native/texture_mesh_test.cpp
           run_test ekron-gltf-test -O1 tests/native/gltf_scene_test.cpp /tmp/ekron-GltfScene.o /tmp/ekron-ImageDecode.o
+          run_test realms-bridge-test -O2 -Irealms/include tests/realms/realms_bridge_test.cpp realms/src/Engine.cpp realms/src/NativeCore.cpp realms/src/SandboxBoot.cpp
 
       - name: Validate translations (English, Russian, Portuguese (Portugal))
         run: python3 tools/validate_i18n.py

@@ -13,6 +13,7 @@
 
 #include "CityGraffiti.h"
 #include "DebugPlayer.h"
+#include "DesktopConsole.h"
 #include "DesktopRenderer.h"
 #include "DesktopHudLayout.h"
 #include "DesktopOnlineClient.h"
@@ -30,6 +31,8 @@
 #include "ToolInteraction.h"
 #include "WorldRecovery.h"
 #include "third_party/json.hpp"
+#include "realms/Engine.h"
+#include "realms/SandboxBoot.h"
 
 #include <algorithm>
 #include <array>
@@ -228,6 +231,82 @@ city::SpawnConfig loadSpawnConfig(const std::string &assetRoot) {
     return cfg;
 }
 
+// ---------------------------------------------------------------------------
+// Realms Engine (Quake 2 stack: Free Pascal core <-> C++ bridge) integration
+// ---------------------------------------------------------------------------
+
+std::string executableDir(const char *argv0) {
+    if (char *base = SDL_GetBasePath()) {
+        std::string dir(base);
+        SDL_free(base);
+        return dir;
+    }
+    if (argv0 && argv0[0] != '\0') {
+        std::error_code ec;
+        return fs::weakly_canonical(fs::path(argv0), ec).parent_path().string();
+    }
+    return {};
+}
+
+const char *realmsPlatformTag() {
+#if defined(__APPLE__)
+    return "desktop-macos";
+#else
+    return "desktop-linux";
+#endif
+}
+
+realms::EngineConfig makeEngineConfig(const std::string &assetRoot, const std::string &writableRoot,
+                                      const char *argv0) {
+    realms::EngineConfig cfg;
+    cfg.executableDir = executableDir(argv0);
+    if (!assetRoot.empty()) cfg.searchRoots.push_back(assetRoot);
+    cfg.writableRoot = writableRoot;
+    cfg.printSink = [](int level, const std::string &text) {
+        if (level == REALMS_PRINT_DEVELOPER && !std::getenv("REALMS_DEVELOPER")) return;
+        auto &out = level == REALMS_PRINT_INFO ? std::cout : std::cerr;
+        out << "[Realms] " << text << "\n";
+    };
+    return cfg;
+}
+
+realms::sandbox::BootOptions makeBootOptions(const realms::EngineConfig &cfg, std::string commandLine,
+                                             bool execUserConfig) {
+    realms::sandbox::BootOptions boot;
+    boot.platform = realmsPlatformTag();
+    boot.commandLine = std::move(commandLine);
+    boot.execUserConfig = execUserConfig;
+    std::vector<std::string> roots = cfg.searchRoots;
+    if (!cfg.writableRoot.empty()) roots.insert(roots.begin(), cfg.writableRoot);
+    boot.fileExists = [roots](const std::string &path) {
+        std::error_code ec;
+        for (const auto &root : roots)
+            if (fs::is_regular_file(fs::path(root) / path, ec)) return true;
+        return false;
+    };
+    return boot;
+}
+
+int printEngineInfo(const std::string &assetRoot, const char *argv0) {
+    realms::Engine engine;
+    realms::EngineConfig cfg = makeEngineConfig(assetRoot, {}, argv0);
+    cfg.printSink = nullptr;
+    if (!engine.init(cfg)) {
+        std::cerr << "Realms engine failed to start: "
+                  << (engine.pascalLoadError().empty() ? "core init failed" : engine.pascalLoadError()) << "\n";
+        return 1;
+    }
+    realms::sandbox::boot(engine, makeBootOptions(cfg, {}, false));
+    std::cout << realms::kEngineName << " " << realms::kEngineVersion << "\n"
+              << "Core:     " << engine.backendName() << (engine.pascalBackend() ? " (Free Pascal)" : " (C++)") << "\n"
+              << "Origin:   " << engine.backendOrigin() << "\n"
+              << "Platform: " << engine.cvarString("realms_platform") << "\n"
+              << "Assets:   " << (assetRoot.empty() ? "<not found>" : assetRoot) << "\n";
+    if (!engine.pascalBackend() && !engine.pascalLoadError().empty())
+        std::cout << "Pascal:   " << engine.pascalLoadError() << "\n";
+    return 0;
+}
+
 std::array<float, 16> computeCarMatrix(const sandbox::Object &o,
                                        const ekron::desktop::DesktopGltfModel &carModel,
                                        bool held,
@@ -288,9 +367,30 @@ std::array<float, 16> computeDroneMatrix(const sandbox::FpvDrone &drone,
     };
 }
 
-int runHeadlessSmoke(const std::string &assetRoot) {
+int runHeadlessSmoke(const std::string &assetRoot, const char *argv0) {
     if (assetRoot.empty()) {
         std::cerr << "[Ekron] Headless smoke failed: assets directory not found\n";
+        return 1;
+    }
+
+    // Realms Engine: core must start, run the shared config and its aliases.
+    realms::Engine engine;
+    const realms::EngineConfig engineCfg = makeEngineConfig(assetRoot, {}, argv0);
+    if (!engine.init(engineCfg)) {
+        std::cerr << "[Ekron] Headless smoke failed: Realms engine did not start ("
+                  << engine.pascalLoadError() << ")\n";
+        return 1;
+    }
+    realms::sandbox::boot(engine, makeBootOptions(engineCfg, {}, false));
+    if (engine.cvarString("sv_hostname") != "Ekron Realms") {
+        std::cerr << "[Ekron] Headless smoke failed: config/realms.cfg was not executed by the Realms core\n";
+        return 1;
+    }
+    int smokeCalls = 0;
+    engine.addCommand("smoke_probe", [&](const realms::CommandArgs &args) { smokeCalls += int(args.size()); });
+    engine.exec("alias probe \"smoke_probe a b\"; probe; set sensitivity 4.5\n");
+    if (smokeCalls != 3 || std::fabs(realms::sandbox::lookScale(engine) - 1.5f) > 1e-4f) {
+        std::cerr << "[Ekron] Headless smoke failed: Realms command bridge round trip\n";
         return 1;
     }
 
@@ -410,7 +510,8 @@ int runHeadlessSmoke(const std::string &assetRoot) {
               << "cityBatches=" << cityModel.scene().batches.size() << ", "
               << "colliders=" << cityModel.scene().colliders.size() << ", "
               << "uazBatches=" << carModel.scene().batches.size() << ", "
-              << "droneBatches=" << droneModel.scene().batches.size() << "\n";
+              << "droneBatches=" << droneModel.scene().batches.size() << ", "
+              << "realmsCore=" << engine.backendName() << "\n";
     return 0;
 }
 
@@ -495,6 +596,9 @@ void printHelp(const char *exe) {
         << "                      Set EKRON_JOIN_TOKEN in the environment; players only, no shared world\n"
         << "  --lang <code>       UI language: en, ru or pt-PT (default: saved choice, then system locale)\n"
         << "                      The EKRON_LANG environment variable is honoured too\n"
+        << "  --engine-info       Show which Realms core is active (Free Pascal or C++) and exit\n"
+        << "  +<command> [args]   Quake 2 style console commands, e.g. +set sensitivity 4 +exec my.cfg\n"
+        << "                      REALMS_CORE=pascal|native|auto selects the Realms core\n"
         << "  --help              Show this help message\n\n"
         << "Desktop Controls:\n"
         << "  WASD                Move (or FPV drone throttle/yaw; Arrows/Mouse for pitch/roll)\n"
@@ -510,7 +614,8 @@ void printHelp(const char *exe) {
         << "  E                   Interact (door, UAZ-469, sofa, FPV drone)\n"
         << "  V / H               Toggle FPV/Chase camera / Return drone home\n"
         << "  N / P / F11 / Esc   Noclip flight / Copy spawn.json / Fullscreen / Pause menu\n"
-        << "  L                   Cycle UI language (English / Русский / Português)\n";
+        << "  L                   Cycle UI language (English / Русский / Português)\n"
+        << "  `                   Realms console (cvarlist, cmdlist, set, alias, exec, noclip, quit...)\n";
 }
 
 } // namespace
@@ -518,6 +623,8 @@ void printHelp(const char *exe) {
 int main(int argc, char **argv) {
     std::string cliAssets;
     std::string onlineHost, onlineName = "Player";
+    bool onlineNameSet = false;
+    bool engineInfo = false;
     int onlinePort = 38475;
     bool headlessSmoke = false;
     std::optional<i18n::Language> cliLanguage;
@@ -526,7 +633,8 @@ int main(int argc, char **argv) {
         const std::string arg = argv[i];
         if (arg == "--version" || arg == "-v") {
             std::cout << "Ekron Realms Desktop " << kAppVersion
-                      << " (" << platformName() << " " << archName() << ")\n";
+                      << " (" << platformName() << " " << archName() << ")\n"
+                      << "Realms engine " << realms::kEngineVersion << " (Quake 2 stack, Free Pascal core bridge)\n";
             return 0;
         }
         if (arg == "--help" || arg == "-h") {
@@ -535,12 +643,15 @@ int main(int argc, char **argv) {
         }
         if (arg == "--headless-smoke") {
             headlessSmoke = true;
+        } else if (arg == "--engine-info") {
+            engineInfo = true;
         } else if (arg == "--assets" && i + 1 < argc) {
             cliAssets = argv[++i];
         } else if (arg == "--online-host" && i + 1 < argc) {
             onlineHost = argv[++i];
         } else if (arg == "--online-name" && i + 1 < argc) {
             onlineName = argv[++i];
+            onlineNameSet = true;
         } else if (arg == "--lang" && i + 1 < argc) {
             const std::string value = argv[++i];
             cliLanguage = i18n::parseLanguageTag(value);
@@ -559,8 +670,11 @@ int main(int argc, char **argv) {
 
     SDL_SetMainReady();
     const std::string assetRoot = resolveAssetRoot(cliAssets, argc > 0 ? argv[0] : nullptr);
+    if (engineInfo) {
+        return printEngineInfo(assetRoot, argc > 0 ? argv[0] : nullptr);
+    }
     if (headlessSmoke) {
-        return runHeadlessSmoke(assetRoot);
+        return runHeadlessSmoke(assetRoot, argc > 0 ? argv[0] : nullptr);
     }
 
     if (assetRoot.empty()) {
@@ -585,6 +699,24 @@ int main(int argc, char **argv) {
         if (!lang) lang = systemLanguage();
         i18n::setLanguage(lang.value_or(i18n::Language::English));
     }
+
+    // Realms Engine: Quake 2 cvars/commands/console/PAK filesystem through the
+    // Free Pascal core (librealms_core) or the C++ reference core.
+    realms::Engine engine;
+    const realms::EngineConfig engineCfg =
+        makeEngineConfig(assetRoot, fs::path(settingsPath).parent_path().string(), argc > 0 ? argv[0] : nullptr);
+    if (!engine.init(engineCfg)) {
+        std::cerr << "[Ekron] Realms engine failed to start: " << engine.pascalLoadError() << "\n";
+        SDL_Quit();
+        return 1;
+    }
+    engine.registerCvar("vid_fullscreen", "0", REALMS_CVAR_ARCHIVE);
+    {
+        std::vector<std::string> args(argv + (argc > 0 ? 1 : 0), argv + argc);
+        realms::sandbox::boot(engine, makeBootOptions(engineCfg, realms::Engine::commandLineScript(args), true));
+    }
+    if (onlineNameSet) engine.setCvar("name", onlineName);
+    ekron::desktop::DesktopConsole console;
 
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
@@ -756,7 +888,7 @@ int main(int argc, char **argv) {
     ekron::desktop::DesktopOnlineClient online;
     if (!onlineHost.empty()) {
         const char *token = std::getenv("EKRON_JOIN_TOKEN");
-        online.connect(onlineHost, onlinePort, onlineName, token ? token : "");
+        online.connect(onlineHost, onlinePort, engine.cvarString("name", onlineName), token ? token : "");
     }
     bool running = true;
     bool catalogOpen = false;
@@ -800,7 +932,7 @@ int main(int argc, char **argv) {
     };
 
     auto syncMouseCapture = [&]() {
-        const bool capture = !catalogOpen && !pauseOpen && !shopOpen;
+        const bool capture = !catalogOpen && !pauseOpen && !shopOpen && !console.isOpen();
         SDL_SetRelativeMouseMode(capture ? SDL_TRUE : SDL_FALSE);
     };
     syncMouseCapture();
@@ -969,6 +1101,50 @@ int main(int argc, char **argv) {
         }
     };
 
+    auto toggleNoclip = [&]() {
+        if (drone.piloting() || seatedCar >= 0) return;
+        flying = !flying;
+        player.reset(world.x, world.y, world.z);
+        showToast(i18n::tr(flying ? Str::FlightOn : Str::FlightOff));
+    };
+
+    // Sandbox actions exposed as Realms console commands (also usable from
+    // config/realms.cfg aliases, autoexec.cfg and +command line arguments).
+    engine.addCommand("quit", [&](const realms::CommandArgs &) { running = false; });
+    engine.addCommand("noclip", [&](const realms::CommandArgs &) { toggleNoclip(); });
+    engine.addCommand("respawn", [&](const realms::CommandArgs &) { respawnPlayer(); });
+    engine.addCommand("teleport_road", [&](const realms::CommandArgs &) { teleportToRoad(); });
+    engine.addCommand("restore_car", [&](const realms::CommandArgs &) { respawnCar(); });
+    engine.addCommand("copy_spawn", [&](const realms::CommandArgs &) { copySpawnJson(); });
+    engine.addCommand("lang", [&](const realms::CommandArgs &args) {
+        if (args.size() < 2) { cycleLanguage(); return; }
+        if (auto lang = i18n::parseLanguageTag(args[1])) {
+            i18n::setLanguage(*lang);
+            saveLanguage(settingsPath, *lang);
+            SDL_SetWindowTitle(window, i18n::tr(Str::WindowTitle));
+        } else {
+            engine.print("lang: expected en, ru or pt-PT", REALMS_PRINT_WARNING);
+        }
+    });
+    engine.addCommand("pos", [&](const realms::CommandArgs &) {
+        char buf[128];
+        std::snprintf(buf, sizeof(buf), "x=%.2f y=%.2f z=%.2f yaw=%.1f", world.x, world.y, world.z,
+                      world.yaw * (180.0f / 3.14159265358979323846f));
+        engine.print(buf);
+    });
+    engine.addCommand("realms_info", [&](const realms::CommandArgs &) {
+        engine.print(std::string(realms::kEngineName) + " " + realms::kEngineVersion + " core=" +
+                     engine.backendName() + " origin=" + engine.backendOrigin());
+    });
+
+    if (engine.cvarBool("vid_fullscreen")) {
+        fullscreen = true;
+        SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN_DESKTOP);
+    }
+    engine.cvarModified("vid_fullscreen", true);
+    engine.print(std::string("Realms engine ready: ") + engine.backendName() + " (" + engine.backendOrigin() +
+                 "). Press ` for the console.");
+
     auto lastTick = std::chrono::steady_clock::now();
 
     while (running) {
@@ -986,6 +1162,8 @@ int main(int argc, char **argv) {
         while (SDL_PollEvent(&ev)) {
             if (ev.type == SDL_QUIT) {
                 running = false;
+            } else if (console.handleEvent(ev, engine)) {
+                syncMouseCapture();
             } else if (ev.type == SDL_KEYDOWN && !ev.key.repeat) {
                 const SDL_Keycode key = ev.key.keysym.sym;
                 if (key == SDLK_ESCAPE) {
@@ -1000,8 +1178,7 @@ int main(int argc, char **argv) {
                     }
                     syncMouseCapture();
                 } else if (key == SDLK_F11) {
-                    fullscreen = !fullscreen;
-                    SDL_SetWindowFullscreen(window, fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+                    engine.setCvar("vid_fullscreen", fullscreen ? "0" : "1");
                 } else if (!pauseOpen && key == SDLK_g) {
                     if (!drone.piloting() && seatedCar < 0) {
                         shopOpen = !shopOpen;
@@ -1037,9 +1214,7 @@ int main(int argc, char **argv) {
                         prone = !prone;
                         crouched = false;
                     } else if (key == SDLK_n && !drone.piloting() && seatedCar < 0) {
-                        flying = !flying;
-                        player.reset(world.x, world.y, world.z);
-                        showToast(i18n::tr(flying ? Str::FlightOn : Str::FlightOff));
+                        toggleNoclip();
                     } else if (key == SDLK_p) {
                         copySpawnJson();
                     } else if (key == SDLK_l) {
@@ -1083,8 +1258,10 @@ int main(int argc, char **argv) {
                     mouseRollInput = std::clamp(float(ev.motion.xrel) * 0.035f, -1.0f, 1.0f);
                     mousePitchInput = std::clamp(-float(ev.motion.yrel) * 0.035f, -1.0f, 1.0f);
                 } else if (!drone.piloting()) {
-                    world.yaw -= float(ev.motion.xrel) * 0.003f;
-                    world.pitch = std::clamp(world.pitch - float(ev.motion.yrel) * 0.003f, -1.3f, 1.3f);
+                    const float look = 0.003f * realms::sandbox::lookScale(engine);
+                    world.yaw -= float(ev.motion.xrel) * look;
+                    world.pitch = std::clamp(world.pitch - realms::sandbox::pitchSign(engine) * float(ev.motion.yrel) * look,
+                                             -1.3f, 1.3f);
                 }
             } else if (ev.type == SDL_MOUSEWHEEL && !catalogOpen && !pauseOpen && !shopOpen) {
                 if (ev.wheel.y != 0) {
@@ -1250,6 +1427,14 @@ int main(int argc, char **argv) {
         const float dt = std::clamp(std::chrono::duration<float>(now - lastTick).count(), 0.0f, 0.05f);
         lastTick = now;
 
+        // Realms frame: advances the core clock and runs the command buffer.
+        engine.frame(dt);
+        if (engine.cvarModified("vid_fullscreen", true)) {
+            fullscreen = engine.cvarBool("vid_fullscreen");
+            SDL_SetWindowFullscreen(window, fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+        }
+        if (!running) break;
+
         if (toastTimer > 0.0f) {
             toastTimer = std::max(0.0f, toastTimer - dt);
         }
@@ -1263,7 +1448,7 @@ int main(int argc, char **argv) {
         float dronePitch = mousePitchInput;
         float droneRoll = mouseRollInput;
 
-        if (!catalogOpen && !pauseOpen && !shopOpen) {
+        if (!catalogOpen && !pauseOpen && !shopOpen && !console.isOpen()) {
             if (drone.piloting()) {
                 if (keys[SDL_SCANCODE_W]) droneThrottle += 1.0f;
                 if (keys[SDL_SCANCODE_S]) droneThrottle -= 1.0f;
@@ -1837,9 +2022,14 @@ int main(int argc, char **argv) {
             }
         }
 
+        console.draw(renderer, hudW, hudH, engine, dt);
+
         renderer.flushUi(gl, drawW, drawH);
         SDL_GL_SwapWindow(window);
     }
+
+    realms::sandbox::saveUserConfig(engine);
+    engine.shutdown();
 
     // Final synchronous save on clean exit
     {

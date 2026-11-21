@@ -16,6 +16,8 @@
 #include <atomic>
 #include <fstream>
 #include <android/asset_manager.h>
+#include "RealmsAndroid.h"
+#include "realms/SandboxBoot.h"
 
 namespace {
 std::mutex commandMutex;
@@ -206,6 +208,10 @@ extern "C" JNIEXPORT void JNICALL Java_com_example_realms_MainActivity_nativeVer
 }
 
 Renderer::Renderer(android_app *app):app_(app),last_(std::chrono::steady_clock::now()){
+ // Realms Engine (Quake 2 stack): cvars, command buffer and config are shared with Desktop/iOS.
+ auto &engine=realms_android::ensureEngine(app);
+ engine.addCommand("noclip",[this](const realms::CommandArgs&){if(drone_.piloting()||seatedCar_>=0)return;flying_=!flying_;player_.reset(world_.x,world_.y,world_.z);});
+ engine.addCommand("respawn",[this](const realms::CommandArgs&){respawnPlayer();});
  loadStage=0;debugNotice=0;currentTool=0;holdingObject=false;LoadGuard loadGuard;flying_=retainedWorld?retainedFlying:false;
  savePath_=std::string(app->activity->internalDataPath)+"/sandbox-v1.txt";
  if(retainedWorld)world_=*retainedWorld;else world_.load(savePath_);
@@ -295,6 +301,7 @@ void Renderer::advanceLoading(){
  }
 }
 Renderer::~Renderer(){
+ {auto &engine=realms_android::ensureEngine(app_);engine.removeCommand("noclip");engine.removeCommand("respawn");realms_android::saveConfig();}
  if(seatedCar_>=0){world_.objects[seatedCar_].anchored=carWasAnchored_;world_.x=seatFrom_.x;world_.y=seatFrom_.y;world_.z=seatFrom_.z;seatedCar_=-1;}
  if(assetsJob_.valid())assetsJob_.wait();
  tools_.cancel(world_);
@@ -305,7 +312,7 @@ Renderer::~Renderer(){
 }
 void Renderer::resetInput(){verticalInput=0;leftId_=rightId_=-1;moveX_=moveY_=0;last_=std::chrono::steady_clock::now();}
 void Renderer::handleInput(){
- std::vector<int> pending;{std::lock_guard<std::mutex> lock(commandMutex);pending.swap(commands);if(gameplayReady){if(drone_.mode==sandbox::FpvDrone::Flying)drone_.look(lookDx,lookDy);else if(!drone_.piloting()){world_.yaw-=lookDx*.004f;world_.pitch=std::clamp(world_.pitch-lookDy*.004f,-1.3f,1.3f);}}lookDx=lookDy=0;}
+ std::vector<int> pending;{std::lock_guard<std::mutex> lock(commandMutex);pending.swap(commands);if(gameplayReady){if(drone_.mode==sandbox::FpvDrone::Flying)drone_.look(lookDx,lookDy);else if(!drone_.piloting()){auto &engine=realms_android::ensureEngine(app_);const float look=.004f*realms::sandbox::lookScale(engine);world_.yaw-=lookDx*look;world_.pitch=std::clamp(world_.pitch-realms::sandbox::pitchSign(engine)*lookDy*look,-1.3f,1.3f);}}lookDx=lookDy=0;}
  if(!gameplayReady){pending.clear();resetInput();drone_.leave();droneThrottle=droneYawInput=dronePitchInput=droneRollInput=0;}
  if(roadJob_.valid()&&roadJob_.wait_for(std::chrono::seconds(0))==std::future_status::ready){
   auto point=roadJob_.get();if(point){world_.x=(*point)[0];world_.z=(*point)[1];
@@ -408,6 +415,7 @@ void Renderer::render(){
  if(loadStage>=0&&loadStage<5)advanceLoading();
  eglQuerySurface(display_,surface_,EGL_WIDTH,&width_);eglQuerySurface(display_,surface_,EGL_HEIGHT,&height_);if(width_<1||height_<1)return;
  const auto now=std::chrono::steady_clock::now();float dt=std::clamp(std::chrono::duration<float>(now-last_).count(),0.f,.05f);last_=now;
+ realms_android::ensureEngine(app_).frame(dt);
  if(gameplayReady&&city_.ready()){
   size_t objectCountBefore=world_.objects.size();
   bool moving=dynamics_.update(world_,*city_.scene().collision,dt,tools_.held,city_.scene().minimum,city_.scene().maximum,&tools_.held,&seatedCar_);

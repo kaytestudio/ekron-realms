@@ -151,3 +151,67 @@ function(add_fpc_executable target)
         FPC_OUTPUT_PATH "${OUTPUT_PATH}"
     )
 endfunction()
+
+# add_fpc_library(<target> SOURCE <library.lpr> NAME <libname> [OUTPUT_DIRECTORY dir]
+#                 [UNIT_DIRS ...] [COMPILE_FLAGS ...] [DEPENDS ...])
+# Builds a Free Pascal `library` as a shared object for the host platform
+# (lib<NAME>.so on Linux, lib<NAME>.dylib on macOS, <NAME>.dll on Windows).
+# The output path is stored in the FPC_OUTPUT_PATH target property.
+function(add_fpc_library target)
+    set(options)
+    set(oneValueArgs SOURCE NAME OUTPUT_DIRECTORY)
+    set(multiValueArgs UNIT_DIRS COMPILE_FLAGS DEPENDS)
+    cmake_parse_arguments(FPCL "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
+
+    if(NOT FPCL_SOURCE OR NOT FPCL_NAME)
+        message(FATAL_ERROR "add_fpc_library: SOURCE and NAME are required")
+    endif()
+    if(NOT FPCL_OUTPUT_DIRECTORY)
+        set(FPCL_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
+    endif()
+    if(NOT IS_ABSOLUTE "${FPCL_SOURCE}")
+        set(FPCL_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/${FPCL_SOURCE}")
+    endif()
+
+    if(WIN32)
+        set(_lib_file "${FPCL_NAME}.dll")
+    elseif(APPLE)
+        set(_lib_file "lib${FPCL_NAME}.dylib")
+    else()
+        set(_lib_file "lib${FPCL_NAME}.so")
+    endif()
+    set(_out "${FPCL_OUTPUT_DIRECTORY}/${_lib_file}")
+    set(_unit_out "${CMAKE_CURRENT_BINARY_DIR}/fpc-units/${target}")
+    file(MAKE_DIRECTORY "${_unit_out}")
+    file(MAKE_DIRECTORY "${FPCL_OUTPUT_DIRECTORY}")
+
+    set(_flags "-FE${FPCL_OUTPUT_DIRECTORY}" "-FU${_unit_out}")
+    get_filename_component(_src_dir "${FPCL_SOURCE}" DIRECTORY)
+    list(APPEND _flags "-Fu${_src_dir}" "-Fi${_src_dir}")
+    set(_deps "${FPCL_SOURCE}")
+    foreach(dir ${FPCL_UNIT_DIRS})
+        list(APPEND _flags "-Fu${dir}" "-Fi${dir}")
+        file(GLOB _units "${dir}/*.pas" "${dir}/*.pp" "${dir}/*.inc")
+        list(APPEND _deps ${_units})
+    endforeach()
+    file(GLOB _src_units "${_src_dir}/*.pas" "${_src_dir}/*.pp" "${_src_dir}/*.inc")
+    list(APPEND _deps ${_src_units})
+    if(NOT APPLE AND NOT WIN32)
+        list(APPEND _flags "-Cg") # position independent code for shared objects
+    endif()
+
+    add_custom_command(
+        OUTPUT "${_out}"
+        COMMAND ${FPC_EXECUTABLE}
+            ${_flags}
+            ${FPC_DARWIN_SDK_FLAGS}
+            ${FPCL_COMPILE_FLAGS}
+            "${FPCL_SOURCE}"
+        DEPENDS ${_deps} ${FPCL_DEPENDS}
+        WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+        COMMENT "Compiling Free Pascal library ${_lib_file}"
+        VERBATIM
+    )
+    add_custom_target(${target} ALL DEPENDS "${_out}")
+    set_target_properties(${target} PROPERTIES FPC_OUTPUT_PATH "${_out}")
+endfunction()
