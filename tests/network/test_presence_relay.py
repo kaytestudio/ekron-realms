@@ -6,7 +6,9 @@ import subprocess
 import tempfile
 import unittest
 
-from server.sandbox_relay import MAX_FRAME, MAX_SERVER_FRAME, PresenceRelay, decode_frame, ProtocolError, encode
+from server.sandbox_relay import (COIN_RATE_PER_SECOND, MAX_FRAME, MAX_SERVER_FRAME,
+                                  SHOP_PRICES, START_COINS, PresenceRelay, decode_frame,
+                                  ProtocolError, encode)
 
 TOKEN = "correct horse battery staple 0123456789"
 
@@ -197,6 +199,93 @@ class RelayNetworkTests(unittest.IsolatedAsyncioTestCase):
         for _ in range(30):
             self.assertEqual(await self.recv(reader), {"type": "pong"})
         self.assertIsNone(await self.recv(reader))
+
+    async def test_welcome_carries_starting_wallet(self):
+        reader, _ = await self.connect("Alice")
+        welcome = await self.recv(reader)
+        self.assertEqual(welcome["wallet"]["coins"], START_COINS)
+        self.assertEqual(welcome["wallet"]["owned"], [])
+
+    async def test_buy_succeeds_and_updates_wallet(self):
+        item_id = 1  # Flame skin, price 150
+        reader, writer = await self.connect("Alice")
+        await self.recv(reader)  # welcome
+        await self.send(writer, {"type": "buy", "id": item_id})
+        purchase = await self.recv(reader)
+        self.assertEqual(purchase["type"], "purchase")
+        self.assertEqual(purchase["id"], item_id)
+        self.assertTrue(purchase["ok"])
+        self.assertEqual(purchase["coins"], START_COINS - SHOP_PRICES[item_id])
+        self.assertEqual(purchase["owned"], [item_id])
+        # Wallet query reflects the same state.
+        await self.send(writer, {"type": "wallet"})
+        wallet = await self.recv(reader)
+        self.assertEqual(wallet["coins"], START_COINS - SHOP_PRICES[item_id])
+        self.assertEqual(wallet["owned"], [item_id])
+
+    async def test_buy_insufficient_coins_is_rejected(self):
+        item_id = 106  # Start with Flight, price 800 > START_COINS
+        reader, writer = await self.connect("Alice")
+        await self.recv(reader)
+        await self.send(writer, {"type": "buy", "id": item_id})
+        purchase = await self.recv(reader)
+        self.assertFalse(purchase["ok"])
+        self.assertEqual(purchase["reason"], "insufficient")
+        self.assertEqual(purchase["coins"], START_COINS)
+        self.assertEqual(purchase["owned"], [])
+
+    async def test_duplicate_purchase_is_rejected(self):
+        reader, writer = await self.connect("Alice")
+        await self.recv(reader)
+        await self.send(writer, {"type": "buy", "id": 1})
+        self.assertTrue((await self.recv(reader))["ok"])
+        await self.send(writer, {"type": "buy", "id": 1})
+        purchase = await self.recv(reader)
+        self.assertFalse(purchase["ok"])
+        self.assertEqual(purchase["reason"], "owned")
+
+    async def test_coin_bonus_unlock_grants_topup(self):
+        # Item 101 costs 300 and grants +500, so the net balance rises by 200.
+        reader, writer = await self.connect("Alice")
+        await self.recv(reader)
+        await self.send(writer, {"type": "buy", "id": 101})
+        purchase = await self.recv(reader)
+        self.assertTrue(purchase["ok"])
+        self.assertEqual(purchase["coins"], START_COINS - 300 + 500)
+
+    async def test_double_coins_doubles_accrual(self):
+        reader, writer = await self.connect("Alice")
+        await self.recv(reader)
+        await self.send(writer, {"type": "buy", "id": 102})  # Double Coins, 500
+        self.assertTrue((await self.recv(reader))["ok"])
+        await asyncio.sleep(0.6)
+        await self.send(writer, {"type": "ping"})
+        self.assertEqual(await self.recv(reader), {"type": "pong"})
+        await self.send(writer, {"type": "wallet"})
+        wallet = await self.recv(reader)
+        # Rate doubles to 4/s; ~0.6s yields 2 coins on top of the post-buy balance.
+        self.assertGreater(wallet["coins"], START_COINS - 500)
+        self.assertLessEqual(wallet["coins"], START_COINS - 500 + 3)
+
+    async def test_unknown_item_disconnects(self):
+        reader, writer = await self.connect("Alice")
+        await self.recv(reader)
+        await self.send(writer, {"type": "buy", "id": 999999})
+        self.assertIsNone(await self.recv(reader))
+
+    async def test_passive_coin_accrual_reflected_in_wallet(self):
+        reader, writer = await self.connect("Alice")
+        await self.recv(reader)
+        # Wait long enough for at least one passive coin at the configured rate.
+        await asyncio.sleep(0.6)
+        # A ping wakes the loop so accrual is applied before the wallet query.
+        await self.send(writer, {"type": "ping"})
+        self.assertEqual(await self.recv(reader), {"type": "pong"})
+        await self.send(writer, {"type": "wallet"})
+        wallet = await self.recv(reader)
+        expected = START_COINS + int(0.6 * COIN_RATE_PER_SECOND)
+        self.assertGreater(wallet["coins"], START_COINS)
+        self.assertLessEqual(wallet["coins"], expected + 1)
 
 
 if __name__ == "__main__":

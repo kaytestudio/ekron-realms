@@ -32,6 +32,18 @@ struct DesktopOnlineClient::State {
     bool hasPose = false;
     int socket = -1;
     sandbox::RemotePlayers remote;
+    // Store economy mirror (authoritative while connected to the relay).
+    long long coins = 0;
+    std::vector<int> owned;
+    bool synced = false;
+    std::atomic<int> pendingPurchase{-1};
+    std::atomic<bool> purchaseQueued{false};
+    std::atomic<long long> purchaseSeq{0};
+    std::atomic<long long> pendingReq{-1};
+    long long lastPurchaseReq = -1;
+    int lastPurchaseId = -1;
+    bool lastPurchaseOk = false;
+    std::string lastPurchaseReason;
 };
 
 DesktopOnlineClient::DesktopOnlineClient() : state_(std::make_shared<State>()) {}
@@ -42,7 +54,7 @@ void DesktopOnlineClient::disconnect() {
 #if defined(EKRON_TLS_ONLINE) && !defined(_WIN32)
     { std::lock_guard<std::mutex> lock(state->mutex); if (state->socket >= 0) ::shutdown(state->socket, SHUT_RDWR); }
 #endif
-    { std::lock_guard<std::mutex> lock(state->mutex); state->status = "Offline"; }
+    { std::lock_guard<std::mutex> lock(state->mutex); state->status = "Offline"; state->synced = false; }
     state->remote.replace(nullptr, 0);
 }
 void DesktopOnlineClient::updatePose(float x, float y, float z, float yaw, float pitch) {
@@ -54,6 +66,56 @@ std::vector<sandbox::RemotePlayerPose> DesktopOnlineClient::players() const { re
 std::string DesktopOnlineClient::status() const {
     std::lock_guard<std::mutex> lock(state_->mutex);
     return state_->status;
+}
+
+long long DesktopOnlineClient::walletCoins() const {
+    std::lock_guard<std::mutex> lock(state_->mutex);
+    return state_->synced ? state_->coins : 0;
+}
+
+bool DesktopOnlineClient::shopOwns(int itemId) const {
+    std::lock_guard<std::mutex> lock(state_->mutex);
+    if (!state_->synced) return false;
+    return std::find(state_->owned.begin(), state_->owned.end(), itemId) != state_->owned.end();
+}
+
+std::vector<int> DesktopOnlineClient::shopOwned() const {
+    std::lock_guard<std::mutex> lock(state_->mutex);
+    return state_->synced ? state_->owned : std::vector<int>{};
+}
+
+bool DesktopOnlineClient::shopSynced() const {
+    std::lock_guard<std::mutex> lock(state_->mutex);
+    return state_->synced;
+}
+
+long long DesktopOnlineClient::requestPurchase(int itemId) {
+    if (itemId <= 0) return -1;
+    const long long seq = state_->purchaseSeq.fetch_add(1) + 1;
+    state_->pendingPurchase.store(itemId);
+    state_->pendingReq.store(seq);
+    state_->purchaseQueued.store(true);
+    return seq;
+}
+
+int DesktopOnlineClient::lastPurchaseId() const {
+    std::lock_guard<std::mutex> lock(state_->mutex);
+    return state_->lastPurchaseId;
+}
+
+bool DesktopOnlineClient::lastPurchaseOk() const {
+    std::lock_guard<std::mutex> lock(state_->mutex);
+    return state_->lastPurchaseOk;
+}
+
+std::string DesktopOnlineClient::lastPurchaseReason() const {
+    std::lock_guard<std::mutex> lock(state_->mutex);
+    return state_->lastPurchaseReason;
+}
+
+long long DesktopOnlineClient::lastPurchaseReq() const {
+    std::lock_guard<std::mutex> lock(state_->mutex);
+    return state_->lastPurchaseReq;
 }
 
 void DesktopOnlineClient::connect(std::string host, int port, std::string name, std::string token) {
@@ -122,6 +184,29 @@ void DesktopOnlineClient::connect(std::string host, int port, std::string name, 
             for (const auto &p : peers) if (p.second.hasPose) packed.insert(packed.end(),p.second.pose.begin(),p.second.pose.end());
             state->remote.replace(packed.data(), packed.size());
         };
+        auto applyWallet = [&](const Json &w) {
+            if (!w.is_object()) return;
+            std::vector<int> ids;
+            if (w.contains("coins") && w["coins"].is_number_integer()) {
+                const long long c = w["coins"].get<long long>();
+                if (c >= 0 && c <= 1000000000LL) {
+                    std::lock_guard<std::mutex> lock(state->mutex);
+                    state->coins = c;
+                }
+            }
+            if (w.contains("owned") && w["owned"].is_array()) {
+                for (const auto &v : w["owned"]) {
+                    if (v.is_number_integer()) {
+                        const int id = v.get<int>();
+                        if (id > 0 && id < 100000) ids.push_back(id);
+                    }
+                }
+                std::lock_guard<std::mutex> lock(state->mutex);
+                state->owned = std::move(ids);
+            }
+            std::lock_guard<std::mutex> lock(state->mutex);
+            state->synced = true;
+        };
         auto process = [&](const std::string &line) {
             int depth = 0; bool quoted = false, escaped = false;
             for (char c : line) {
@@ -149,10 +234,26 @@ void DesktopOnlineClient::connect(std::string host, int port, std::string name, 
                         if (!p["pose"].is_null() && (!p["pose"].is_object() || !parsePose(p["pose"],peer))) return false;
                         peers.emplace(id,peer);
                     }
-                    welcomed=true;publish();setStatus("Online: players only");return true;
+                    welcomed=true;
+                    if (j.contains("wallet")) applyWallet(j["wallet"]);
+                    publish();setStatus("Online: players only");return true;
                 }
                 if (!welcomed) return false;
                 if (type=="pong") return true;
+                if (type=="wallet") { applyWallet(j); return true; }
+                if (type=="purchase") {
+                    applyWallet(j);
+                    std::lock_guard<std::mutex> lock(state->mutex);
+                    state->lastPurchaseId = (j.contains("id") && j["id"].is_number_integer())
+                        ? j["id"].get<int>() : -1;
+                    state->lastPurchaseOk = (j.contains("ok") && j["ok"].is_boolean())
+                        ? j["ok"].get<bool>() : false;
+                    if (j.contains("reason") && j["reason"].is_string())
+                        state->lastPurchaseReason = j["reason"].get<std::string>();
+                    if (j.contains("req") && j["req"].is_number_integer())
+                        state->lastPurchaseReq = j["req"].get<long long>();
+                    return true;
+                }
                 if (!j.contains("id") || !j["id"].is_string()) return false;
                 auto id=j["id"].get<std::string>();
                 if (type=="joined") {
@@ -211,6 +312,7 @@ void DesktopOnlineClient::connect(std::string host, int port, std::string name, 
             } catch (const std::exception &) { break; }
             std::string input;long long seq=0;
             auto nextSend=Clock::now(), welcomeDeadline=Clock::now()+std::chrono::seconds(5);
+            auto nextWalletQuery=Clock::now()+std::chrono::seconds(1);
             bool ok=true;
             while (!state->stopped && ok) {
                 auto now=Clock::now();
@@ -225,6 +327,20 @@ void DesktopOnlineClient::connect(std::string host, int port, std::string name, 
                         message={{"type","pose"},{"seq",seq++},{"position",{p[0],p[1],p[2]}},{"yaw",p[3]},{"pitch",p[4]}};
                     if (!send(message.dump()+"\n")) break;
                     nextSend=now+std::chrono::milliseconds(150);
+                }
+                if (welcomed && state->purchaseQueued.load()) {
+                    const int buyId = state->pendingPurchase.load();
+                    const long long req = state->pendingReq.load();
+                    if (buyId > 0 && send(Json{{"type","buy"},{"id",buyId},{"req",req}}.dump()+"\n")) {
+                        // Handled; the relay replies with a "purchase" message.
+                    }
+                    state->purchaseQueued.store(false);
+                    state->pendingPurchase.store(-1);
+                    state->pendingReq.store(-1);
+                }
+                if (welcomed && now >= nextWalletQuery) {
+                    send(Json{{"type","wallet"}}.dump()+"\n");
+                    nextWalletQuery = now + std::chrono::seconds(1);
                 }
                 if (SSL_pending(ssl)>0 || wait(POLLIN,Clock::now()+std::chrono::milliseconds(100))) {
                     char bytes[4096];int n=SSL_read(ssl,bytes,sizeof(bytes));

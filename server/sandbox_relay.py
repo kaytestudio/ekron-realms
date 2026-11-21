@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Experimental TLS presence relay for render-only sandbox player markers.
 
-This deliberately handles presence and player transforms only. It is not an
-authoritative sandbox simulation or a production-ready public game server.
+This deliberately handles presence and player transforms only, plus a
+per-player in-game store economy (gold-coin wallet, passive coin accrual and
+authoritative skin/unlock purchases). It is not an authoritative sandbox
+simulation or a production-ready public game server.
 """
 
 import argparse
@@ -24,6 +26,28 @@ AUTH_TIMEOUT = 5.0
 IDLE_TIMEOUT = 30.0
 SEND_TIMEOUT = 3.0
 MAX_MESSAGES_PER_SECOND = 30
+
+# ---------------------------------------------------------------------------
+# In-game store economy (weapon skins + gold-coin unlocks).
+#
+# The relay is the authoritative wallet while a client is connected: it holds
+# each peer's gold-coin balance and owned item ids, accrues passive coins for
+# connection time, and validates purchases against the shared price table.
+# Item ids/prices mirror sys/desktop/ShopCatalog.cpp.
+# ---------------------------------------------------------------------------
+START_COINS = 500
+COIN_RATE_PER_SECOND = 2.0
+
+SHOP_PRICES = {
+    1: 150, 2: 150, 3: 200, 4: 200, 5: 350, 6: 350, 7: 400, 8: 500,
+    101: 300, 102: 500, 103: 250, 104: 250, 105: 400, 106: 800,
+}
+# Items that grant an immediate coin bonus when purchased (mirrors the client
+# Coin Bonus unlock). Applied server-side so the authoritative balance stays
+# consistent with the offline effect.
+SHOP_COIN_BONUS = {101: 500}
+# Item that doubles the passive accrual rate (mirrors the client Double Coins).
+SHOP_DOUBLE_COINS = 102
 
 
 class ProtocolError(Exception):
@@ -87,6 +111,27 @@ def encode(message):
                        allow_nan=False) + "\n").encode("ascii")
 
 
+def wallet_message(peer):
+    return {"type": "wallet", "coins": peer.coins, "owned": sorted(peer.owned)}
+
+
+def accrue_coins(peer, now):
+    """Grant passive coins for connection time. Returns True when the balance
+    changed (so callers can decide whether to notify the client). The Double
+    Coins unlock doubles the rate, matching the client-side effect."""
+    elapsed = now - peer.last_reward
+    if elapsed <= 0.0:
+        return False
+    rate = COIN_RATE_PER_SECOND * (2 if SHOP_DOUBLE_COINS in peer.owned else 1)
+    gained = int(elapsed * rate)
+    if gained <= 0:
+        return False
+    peer.coins += gained
+    # Keep the fractional remainder so accrual stays accurate across calls.
+    peer.last_reward += gained / rate
+    return True
+
+
 class Peer:
     def __init__(self, writer, name):
         self.id = secrets.token_hex(16)
@@ -95,6 +140,9 @@ class Peer:
         self.seq = -1
         self.pose = None
         self.messages = deque()
+        self.coins = START_COINS
+        self.owned = set()
+        self.last_reward = time.monotonic()
 
 
 class PresenceRelay:
@@ -128,6 +176,37 @@ class PresenceRelay:
         # Timeouts and buffer limits prevent one slow client blocking everyone.
         await asyncio.gather(*(self.send(peer.writer, message)
                                for peer in list(self.peers.values()) if peer.id != exclude))
+
+    async def handle_purchase(self, peer, message):
+        # Authoritative store purchase: validate the item and the wallet, then
+        # reply with the resulting balance and ownership so the client can
+        # mirror it. Economy state is per-peer and never broadcast.
+        item_id = message.get("id")
+        if type(item_id) is not int or item_id not in SHOP_PRICES:
+            raise ProtocolError("invalid shop item")
+        req = message.get("req")
+        if type(req) is not int:
+            req = None
+        price = SHOP_PRICES[item_id]
+        owned = sorted(peer.owned)
+        if item_id in peer.owned:
+            await self.send(writer=peer.writer, message={
+                "type": "purchase", "id": item_id, "ok": False,
+                "reason": "owned", "coins": peer.coins, "owned": owned, "req": req})
+            return
+        if peer.coins < price:
+            await self.send(writer=peer.writer, message={
+                "type": "purchase", "id": item_id, "ok": False,
+                "reason": "insufficient", "coins": peer.coins, "owned": owned, "req": req})
+            return
+        peer.coins -= price
+        peer.owned.add(item_id)
+        # Coin Bonus unlock grants an immediate top-up, mirroring the client.
+        if item_id in SHOP_COIN_BONUS:
+            peer.coins += SHOP_COIN_BONUS[item_id]
+        await self.send(writer=peer.writer, message={
+            "type": "purchase", "id": item_id, "ok": True,
+            "coins": peer.coins, "owned": sorted(peer.owned), "req": req})
 
     async def read(self, reader, timeout):
         try:
@@ -164,13 +243,15 @@ class PresenceRelay:
             existing = [{"id": p.id, "name": p.name, "pose": p.pose}
                         for p in previous_peers]
             self.peers[peer.id] = peer
-            await self.send(writer, {"type": "welcome", "version": 1, "id": peer.id, "players": existing})
+            await self.send(writer, {"type": "welcome", "version": 1, "id": peer.id,
+                                     "players": existing, "wallet": wallet_message(peer)})
             # Newer joins already see this peer in their welcome snapshot.
             await asyncio.gather(*(self.send(p.writer, {"type": "joined", "id": peer.id, "name": peer.name})
                                    for p in previous_peers))
             while not writer.is_closing():
                 message = await self.read(reader, IDLE_TIMEOUT)
                 now = time.monotonic()
+                accrue_coins(peer, now)
                 while peer.messages and now - peer.messages[0] >= 1.0:
                     peer.messages.popleft()
                 if len(peer.messages) >= MAX_MESSAGES_PER_SECOND:
@@ -183,6 +264,10 @@ class PresenceRelay:
                     peer.seq = pose["seq"]
                     peer.pose = pose
                     await self.broadcast({**pose, "id": peer.id}, exclude=peer.id)
+                elif message.get("type") == "wallet":
+                    await self.send(writer, wallet_message(peer))
+                elif message.get("type") == "buy":
+                    await self.handle_purchase(peer, message)
                 else:
                     raise ProtocolError("unsupported message")
         except (ProtocolError, EOFError, asyncio.TimeoutError, ConnectionError, OSError, UnicodeEncodeError):

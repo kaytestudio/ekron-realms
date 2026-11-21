@@ -19,6 +19,7 @@
   - **Gravity Gun**: Grab, carry, orient, throw, and freeze/unfreeze dynamic objects in place.
   - **FPV Quadcopter & Live Controller Monitor**: Deployable FPV drone (`fpv_drone.glb`) with Mode-2 flight physics, return-to-home, FPV/chase camera switching, and an offscreen `480×270` live video feed rendered onto the handheld 3D controller (`chasing_m2_rc_underwater_drone_remote.glb`).
   - **Contextual World Interactions**: Enter and recover the **UAZ-469** (`uaz_469_1973_classic.glb`), sit on furniture, interact with doors, toggle `noclip` flight, teleport back to road/spawn, and export player coordinates as `config/spawn.json`.
+- **In-Game Store (Online Play)**: An in-game shop opened with **`G`** where players spend **gold coins** earned while playing on **weapon skins** (cosmetic gravity-gun beam tints) and **unlocks** (double coins, coin bonus, golden/neon crosshair, camo HUD, start-with-flight). The economy is server-authoritative when connected to the presence relay (`DesktopOnlineClient` + `sandbox_relay.py`) and falls back to a persisted local wallet (`store.json`) offline.
 - **Experimental Online Player Presence**: Optional self-hosted TLS 1.2+ relay (`server/sandbox_relay.py`) with strict certificate/hostname verification and shared-token authentication (`EKRON_JOIN_TOKEN`) that renders live remote player markers on Android, iOS, and Desktop *(player presence only; building, physics, and vehicles are not yet synchronized)*.
 
 ---
