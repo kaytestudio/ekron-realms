@@ -106,8 +106,9 @@ endif()
 if(ENABLE_DESKTOP_SANDBOX)
     find_package(Threads REQUIRED)
 
+    # Everything but main.cpp, compiled once (PIC) for both the ekron-realms
+    # executable and libekron_sandbox (the realms-pascal program's sandbox).
     set(DESKTOP_SOURCES
-        "${DESKTOP_SRC_DIR}/main.cpp"
         "${DESKTOP_SRC_DIR}/DesktopRenderer.cpp"
         "${DESKTOP_SRC_DIR}/DesktopOnlineClient.cpp"
         "${DESKTOP_SRC_DIR}/ShopCatalog.cpp"
@@ -123,9 +124,36 @@ if(ENABLE_DESKTOP_SANDBOX)
         "${SHARED_CPP_DIR}/GltfScene.cpp"
         "${SHARED_CPP_DIR}/ImageDecode.cpp"
     )
+    add_library(ekron_sandbox_objects OBJECT ${DESKTOP_SOURCES})
+    set_target_properties(ekron_sandbox_objects PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    target_include_directories(ekron_sandbox_objects PUBLIC
+        "${DESKTOP_SRC_DIR}"
+        "${SHARED_CPP_DIR}"
+    )
+    target_link_libraries(ekron_sandbox_objects PUBLIC
+        realms_engine
+        ${EKRON_SDL2_TARGET}
+        Threads::Threads
+        $<$<PLATFORM_ID:Linux>:${CMAKE_DL_LIBS}>
+    )
+
+    # Presence remains optional when OpenSSL development files are unavailable.
+    if(UNIX)
+        find_package(OpenSSL 1.1.1 QUIET)
+        if(OpenSSL_FOUND)
+            target_compile_definitions(ekron_sandbox_objects PUBLIC EKRON_TLS_ONLINE=1)
+            target_link_libraries(ekron_sandbox_objects PUBLIC OpenSSL::SSL OpenSSL::Crypto)
+        else()
+            message(STATUS "OpenSSL development files not found: experimental online presence disabled")
+        endif()
+    endif()
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(ekron_sandbox_objects PUBLIC -Wall -Wextra)
+    endif()
 
     if(APPLE)
-        add_executable(ekron-realms MACOSX_BUNDLE ${DESKTOP_SOURCES})
+        add_executable(ekron-realms MACOSX_BUNDLE "${DESKTOP_SRC_DIR}/main.cpp")
         set_target_properties(ekron-realms PROPERTIES
             OUTPUT_NAME "EkronRealms"
             MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Resources/Info.plist"
@@ -155,40 +183,39 @@ if(ENABLE_DESKTOP_SANDBOX)
             VERBATIM
         )
     else()
-        add_executable(ekron-realms ${DESKTOP_SOURCES})
+        add_executable(ekron-realms "${DESKTOP_SRC_DIR}/main.cpp")
         set_target_properties(ekron-realms PROPERTIES OUTPUT_NAME "ekron-realms")
     endif()
 
-    target_include_directories(ekron-realms PRIVATE
-        "${DESKTOP_SRC_DIR}"
-        "${SHARED_CPP_DIR}"
-    )
-
-    target_link_libraries(ekron-realms PRIVATE
-        realms_engine
-        ${EKRON_SDL2_TARGET}
-        Threads::Threads
-        $<$<PLATFORM_ID:Linux>:${CMAKE_DL_LIBS}>
-    )
-
-    # Presence remains optional when OpenSSL development files are unavailable.
-    if(UNIX)
-        find_package(OpenSSL 1.1.1 QUIET)
-        if(OpenSSL_FOUND)
-            target_compile_definitions(ekron-realms PRIVATE EKRON_TLS_ONLINE=1)
-            target_link_libraries(ekron-realms PRIVATE OpenSSL::SSL OpenSSL::Crypto)
-        else()
-            message(STATUS "OpenSSL development files not found: experimental online presence disabled")
-        endif()
-    endif()
-
-    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-        target_compile_options(ekron-realms PRIVATE -Wall -Wextra)
-    endif()
+    target_link_libraries(ekron-realms PRIVATE ekron_sandbox_objects)
 
     if(REALMS_PASCAL_CORE_BUILT)
         # The sandbox loads librealms_core at runtime; build it alongside.
         add_dependencies(ekron-realms realms_pascal_core)
+    endif()
+
+    # libekron_sandbox: the same sandbox as a shared library with the C entry
+    # point ekron_sandbox_run() (sys/desktop/ekron_sandbox.h), for the Free
+    # Pascal realms-pascal program (Projects/realms.lpr, below).
+    if(ENABLE_FPC_CLIENT AND FPC_FOUND)
+        add_library(ekron_sandbox SHARED "${DESKTOP_SRC_DIR}/main.cpp")
+        target_compile_definitions(ekron_sandbox PRIVATE EKRON_SANDBOX_LIBRARY=1)
+        target_link_libraries(ekron_sandbox PRIVATE ekron_sandbox_objects)
+        if(APPLE)
+            set(EKRON_SANDBOX_LIB_DIR "${CMAKE_CURRENT_BINARY_DIR}/EkronRealms.app/Contents/Frameworks")
+            set_target_properties(ekron_sandbox PROPERTIES
+                INSTALL_NAME_DIR "@rpath"
+                BUILD_WITH_INSTALL_RPATH TRUE
+                INSTALL_RPATH "@loader_path"
+            )
+        else()
+            set(EKRON_SANDBOX_LIB_DIR "${CMAKE_CURRENT_BINARY_DIR}")
+        endif()
+        set_target_properties(ekron_sandbox PROPERTIES
+            LIBRARY_OUTPUT_DIRECTORY "${EKRON_SANDBOX_LIB_DIR}"
+        )
+        # The bundle directory exists before the library is linked into it.
+        add_dependencies(ekron_sandbox ekron-realms)
     endif()
 endif()
 
@@ -196,6 +223,7 @@ endif()
 # Optional Free Pascal Desktop Launcher (Projects/realms_launcher.lpr)
 # =============================================================================
 set(FPC_LAUNCHER_BUILT FALSE)
+set(REALMS_PASCAL_CLIENT_BUILT FALSE)
 if(ENABLE_FPC_CLIENT)
     if(FPC_FOUND)
         message(STATUS "=== Free Pascal Compiler Found: ${FPC_EXECUTABLE} (${FPC_VERSION}) ===")
@@ -230,6 +258,40 @@ if(ENABLE_FPC_CLIENT)
             add_dependencies(realms_launcher_fpc ekron-realms)
         endif()
         set(FPC_LAUNCHER_BUILT TRUE)
+
+        # realms-pascal (Projects/realms.lpr): a Free Pascal program with the
+        # Pascal Realms core compiled in, running the C++ SDL2 sandbox from
+        # libekron_sandbox in the same process.
+        if(TARGET ekron_sandbox)
+            file(GLOB _realms_pascal_units "${REALMS_DIR}/pascal/*.pas" "${REALMS_DIR}/pascal/*.inc")
+            set(_realms_pascal_flags -Mobjfpc -Sh -O2 "-Fl${EKRON_SANDBOX_LIB_DIR}")
+            if(APPLE)
+                list(APPEND _realms_pascal_flags "-k-rpath" "-k@executable_path/../Frameworks")
+            else()
+                # Build tree: next to the program; .deb: <prefix>/lib/ekron-realms.
+                list(APPEND _realms_pascal_flags -Xs "-k-rpath" "-k\$ORIGIN:\$ORIGIN/../lib/ekron-realms")
+                if(EKRON_SDL2_LIBRARY)
+                    # ld checks libekron_sandbox's own dependencies (SDL2) too.
+                    get_filename_component(_sdl2_lib_dir "${EKRON_SDL2_LIBRARY}" DIRECTORY)
+                    list(APPEND _realms_pascal_flags "-k-rpath-link" "-k${_sdl2_lib_dir}")
+                endif()
+            endif()
+            add_fpc_executable(realms_pascal_client
+                SOURCES
+                    "Projects/realms.lpr"
+                    ${_realms_pascal_units}
+                INCLUDE_DIRS
+                    "${REALMS_DIR}/pascal"
+                COMPILE_FLAGS
+                    ${_realms_pascal_flags}
+                DEPENDS
+                    ekron_sandbox
+                OUTPUT_NAME "realms-pascal"
+                OUTPUT_DIRECTORY "${FPC_OUT_DIR}"
+            )
+            add_dependencies(realms_pascal_client ekron_sandbox)
+            set(REALMS_PASCAL_CLIENT_BUILT TRUE)
+        endif()
     else()
         message(STATUS "Free Pascal Compiler (fpc) not found; skipping optional realms-launcher target.")
     endif()
@@ -262,6 +324,15 @@ if(TARGET ekron-realms)
         if(FPC_LAUNCHER_BUILT)
             install(PROGRAMS "${CMAKE_CURRENT_BINARY_DIR}/realms-launcher"
                 DESTINATION "${CMAKE_INSTALL_BINDIR}"
+            )
+        endif()
+
+        if(REALMS_PASCAL_CLIENT_BUILT)
+            install(PROGRAMS "${CMAKE_CURRENT_BINARY_DIR}/realms-pascal"
+                DESTINATION "${CMAKE_INSTALL_BINDIR}"
+            )
+            install(TARGETS ekron_sandbox
+                LIBRARY DESTINATION "lib/ekron-realms"
             )
         endif()
 
@@ -405,6 +476,27 @@ if(TARGET ekron-realms)
     add_test(
         NAME ekron_desktop_headless_smoke
         COMMAND $<TARGET_FILE:ekron-realms> --headless-smoke --assets "${SHARED_ASSETS_DIR}"
+    )
+endif()
+
+if(REALMS_PASCAL_CLIENT_BUILT)
+    # The Free Pascal program runs the sandbox on the Pascal core it links in.
+    get_target_property(_REALMS_PASCAL_BIN realms_pascal_client FPC_OUTPUT_PATH)
+    add_test(
+        NAME realms_pascal_client_engine_info
+        COMMAND "${_REALMS_PASCAL_BIN}" --engine-info --assets "${SHARED_ASSETS_DIR}"
+    )
+    set_tests_properties(realms_pascal_client_engine_info PROPERTIES
+        ENVIRONMENT "REALMS_CORE="
+        PASS_REGULAR_EXPRESSION "Core: +pascal-quake2 \\(Free Pascal\\)[\r\n]+Origin: +linked"
+    )
+    add_test(
+        NAME realms_pascal_client_headless_smoke
+        COMMAND "${_REALMS_PASCAL_BIN}" --headless-smoke --assets "${SHARED_ASSETS_DIR}"
+    )
+    set_tests_properties(realms_pascal_client_headless_smoke PROPERTIES
+        ENVIRONMENT "REALMS_CORE=pascal"
+        PASS_REGULAR_EXPRESSION "realmsCore=pascal-quake2"
     )
 endif()
 

@@ -93,7 +93,9 @@ jobs:
             cmake --build build -j"$(nproc)" &&
             test -x build/ekron-realms &&
             test -x build/realms-launcher &&
-            test -f build/librealms_core.so
+            test -f build/librealms_core.so &&
+            test -x build/realms-pascal &&
+            test -f build/libekron_sandbox.so
           } 2>&1 | tee /tmp/linux-build.log || {
             tail -n 8 /tmp/linux-build.log | while IFS= read -r line; do
               [ -n "$line" ] && echo "::error::[linux-build] $line"
@@ -136,6 +138,13 @@ jobs:
           grep -q 'realmsCore=pascal-quake2' /tmp/pascal-smoke.log
           /usr/bin/realms-launcher --version
           /usr/bin/realms-launcher --headless-smoke
+          # Free Pascal program: Pascal Realms core linked in, C++ SDL2 sandbox.
+          test -f /usr/lib/ekron-realms/libekron_sandbox.so
+          /usr/bin/realms-pascal --version
+          /usr/bin/realms-pascal --engine-info | tee /tmp/realms-pascal-info.log
+          grep -q 'Origin:   linked' /tmp/realms-pascal-info.log
+          /usr/bin/realms-pascal --headless-smoke | tee /tmp/realms-pascal-smoke.log
+          grep -q 'realmsCore=pascal-quake2' /tmp/realms-pascal-smoke.log
 
       - name: Upload Debian package
         uses: actions/upload-artifact@v7

@@ -17,6 +17,7 @@
 #include "DesktopConsole.h"
 #include "DesktopMapMode.h"
 #include "DesktopRenderer.h"
+#include "ekron_sandbox.h"
 #include "DesktopHudLayout.h"
 #include "DesktopOnlineClient.h"
 #include "FpvDrone.h"
@@ -47,6 +48,7 @@
 #include <filesystem>
 #include <fstream>
 #include <future>
+#include <exception>
 #include <iostream>
 #include <iterator>
 #include <optional>
@@ -626,7 +628,15 @@ void printHelp(const char *exe) {
 
 } // namespace
 
-int main(int argc, char **argv) {
+// The desktop executable's entry point. In libekron_sandbox (the C++ sandbox
+// as a shared library, driven by the Free Pascal `realms-pascal` program from
+// Projects/realms.lpr) the same body runs from ekron_sandbox_run() below.
+#if defined(EKRON_SANDBOX_LIBRARY)
+static int sandboxMain(int argc, char **argv)
+#else
+int main(int argc, char **argv)
+#endif
+{
     std::string cliAssets;
     std::string onlineHost, onlineName = "Player";
     bool onlineNameSet = false;
@@ -2217,3 +2227,26 @@ int main(int argc, char **argv) {
     SDL_Quit();
     return 0;
 }
+
+#if defined(EKRON_SANDBOX_LIBRARY)
+// C entry point of libekron_sandbox (see sys/desktop/ekron_sandbox.h).
+// `pascalCore` is the caller's own realms_pascal_get_api: the Realms core
+// then runs inside the calling program instead of being loaded from
+// librealms_core. No C++ exception may unwind into the (Pascal) caller.
+extern "C" __attribute__((visibility("default")))
+int ekron_sandbox_run(int argc, char **argv, RealmsGetApiFn pascalCore) {
+    realms::Engine::setLinkedPascalCore(pascalCore);
+    int rc = 1;
+    try {
+        rc = sandboxMain(argc, argv);
+    } catch (const std::exception &e) {
+        std::cerr << "[Ekron] sandbox stopped: " << e.what() << "\n";
+    } catch (...) {
+        std::cerr << "[Ekron] sandbox stopped: unknown exception\n";
+    }
+    std::cout.flush();
+    std::cerr.flush();
+    realms::Engine::setLinkedPascalCore(nullptr);
+    return rc;
+}
+#endif

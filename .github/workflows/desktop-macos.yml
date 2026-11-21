@@ -113,6 +113,9 @@ jobs:
           test -x "$APP_BUNDLE/Contents/MacOS/EkronRealms"
           test -x "$APP_BUNDLE/Contents/MacOS/realms-launcher"
           test -f "$APP_BUNDLE/Contents/Frameworks/librealms_core.dylib"
+          # Free Pascal client: realms-pascal + the C++ sandbox it runs (libekron_sandbox).
+          test -x "$APP_BUNDLE/Contents/MacOS/realms-pascal"
+          test -f "$APP_BUNDLE/Contents/Frameworks/libekron_sandbox.dylib"
 
           mkdir -p "$APP_BUNDLE/Contents/Frameworks"
           SDL2_REF="$(otool -L "$APP_BUNDLE/Contents/MacOS/EkronRealms" | awk '/libSDL2/{print $1; exit}')"
@@ -129,6 +132,11 @@ jobs:
             chmod 755 "$APP_BUNDLE/Contents/Frameworks/$DYLIB_NAME"
             install_name_tool -id "@rpath/$DYLIB_NAME" "$APP_BUNDLE/Contents/Frameworks/$DYLIB_NAME"
             install_name_tool -change "$SDL2_REF" "@rpath/$DYLIB_NAME" "$APP_BUNDLE/Contents/MacOS/EkronRealms"
+            SANDBOX_LIB="$APP_BUNDLE/Contents/Frameworks/libekron_sandbox.dylib"
+            SANDBOX_SDL2_REF="$(otool -L "$SANDBOX_LIB" | awk '/libSDL2/{print $1; exit}')"
+            if [ -n "$SANDBOX_SDL2_REF" ]; then
+              install_name_tool -change "$SANDBOX_SDL2_REF" "@rpath/$DYLIB_NAME" "$SANDBOX_LIB"
+            fi
 
             # Homebrew sdl2-compat dlopens "@loader_path/libSDL3.dylib" inside Contents/Frameworks
             SDL3_REF="$(otool -L "$APP_BUNDLE/Contents/Frameworks/$DYLIB_NAME" | awk '/libSDL3/{print $1; exit}')"
@@ -167,6 +175,13 @@ jobs:
           grep -q 'realmsCore=pascal-quake2' /tmp/pascal-smoke.log
           "$APP_BUNDLE/Contents/MacOS/realms-launcher" --version
           "$APP_BUNDLE/Contents/MacOS/realms-launcher" --headless-smoke
+          # Free Pascal program: Pascal Realms core linked in, C++ SDL2 sandbox.
+          "$APP_BUNDLE/Contents/MacOS/realms-pascal" --version
+          "$APP_BUNDLE/Contents/MacOS/realms-pascal" --engine-info | tee /tmp/realms-pascal-info.log
+          grep -q 'Origin:   linked' /tmp/realms-pascal-info.log
+          "$APP_BUNDLE/Contents/MacOS/realms-pascal" --headless-smoke | tee /tmp/realms-pascal-smoke.log
+          grep -q 'realmsCore=pascal-quake2' /tmp/realms-pascal-smoke.log
+          otool -L "$APP_BUNDLE/Contents/Frameworks/libekron_sandbox.dylib"
 
           ditto -c -k --keepParent "$APP_BUNDLE" build/EkronRealms-macos.app.zip
           test -f build/EkronRealms-macos.app.zip

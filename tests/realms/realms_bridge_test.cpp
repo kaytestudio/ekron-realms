@@ -341,7 +341,7 @@ void runAbiSuite(const RealmsCoreApi *api, bool rangeReads) {
 
 // --------------------------------------------------------- facade suite ---
 
-void runEngineSuite(const std::string &pascalLibrary) {
+void runEngineSuite(const std::string &pascalLibrary, RealmsGetApiFn pascalGetApi) {
     namespace fs = std::filesystem;
     // Unique per run: ctest -j runs the C++ and Pascal suites side by side.
     const fs::path tmp = fs::temp_directory_path() /
@@ -563,6 +563,41 @@ void runEngineSuite(const std::string &pascalLibrary) {
     CHECK(!engine.initialized());
     CHECK(second.init(cfg)); // slot released
     second.shutdown();
+
+    // A core linked into the program (the realms-pascal executable) wins over
+    // library probing, for Pascal and Auto preferences alike.
+    realms::EngineConfig linkedCfg = cfg;
+    linkedCfg.pascalLibrary = (tmp / "no-such-core.so").string();
+    if (pascalGetApi) {
+        realms::Engine::setLinkedPascalCore(pascalGetApi);
+        for (auto pref : {realms::BackendPreference::Pascal, realms::BackendPreference::Auto}) {
+            linkedCfg.backend = pref;
+            realms::Engine linked;
+            CHECK(linked.init(linkedCfg));
+            CHECK(linked.backendName() == "pascal-quake2" && linked.pascalBackend());
+            CHECK(linked.backendOrigin() == "linked");
+            linked.exec("set cl_linked 7\n");
+            CHECK(linked.cvarInt("cl_linked") == 7);
+        }
+        realms::Engine::setLinkedPascalCore(nullptr);
+        linkedCfg.backend = realms::BackendPreference::Auto;
+        realms::Engine unlinked; // cleared: back to probing for librealms_core
+        CHECK(unlinked.init(linkedCfg) && unlinked.backendOrigin() != "linked");
+    } else {
+        // A linked core that rejects the bridge version is reported, and Auto
+        // falls back to the C++ core.
+        realms::Engine::setLinkedPascalCore([](uint32_t) -> const RealmsCoreApi * { return nullptr; });
+        linkedCfg.backend = realms::BackendPreference::Pascal;
+        realms::Engine rejected;
+        CHECK(!rejected.init(linkedCfg));
+        CHECK(rejected.pascalLoadError() == "linked Pascal core rejected bridge version");
+        linkedCfg.backend = realms::BackendPreference::Auto;
+        realms::Engine fallback;
+        CHECK(fallback.init(linkedCfg));
+        CHECK(fallback.backendName() == "native-cpp" && fallback.backendOrigin() == "built-in");
+        fallback.shutdown();
+        realms::Engine::setLinkedPascalCore(nullptr);
+    }
     fs::remove_all(tmp, ec);
 }
 
@@ -575,12 +610,14 @@ int main(int argc, char **argv) {
     }
 
     const RealmsCoreApi *api = nullptr;
+    RealmsGetApiFn pascalGetApi = nullptr;
     if (pascalLibrary.empty()) {
         api = realms_native_get_api(REALMS_BRIDGE_VERSION);
     } else {
 #if defined(REALMS_PASCAL_STATIC)
         api = realms_pascal_get_api(REALMS_BRIDGE_VERSION);
         CHECK(realms_pascal_get_api(REALMS_BRIDGE_VERSION + 1) == nullptr);
+        pascalGetApi = &realms_pascal_get_api;
 #elif defined(_WIN32)
         std::fprintf(stderr, "--pascal is not supported on Windows in this test\n");
         return 2;
@@ -597,6 +634,7 @@ int main(int argc, char **argv) {
         }
         api = getApi(REALMS_BRIDGE_VERSION);
         CHECK(getApi(REALMS_BRIDGE_VERSION + 1) == nullptr);
+        pascalGetApi = getApi;
 #endif
     }
     if (!api) {
@@ -611,7 +649,7 @@ int main(int argc, char **argv) {
     runMapSuite(api);
     meshmap_suite::runMeshMapChecks();
     walker_suite::runGeometryChecks();
-    runEngineSuite(pascalLibrary);
+    runEngineSuite(pascalLibrary, pascalGetApi);
 
     std::printf("[realms] %d checks, %d failures (%s)\n", gChecks, gFailures, backend.c_str());
     return gFailures == 0 ? 0 : 1;

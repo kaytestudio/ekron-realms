@@ -338,16 +338,34 @@ If CMake can't find FPC automatically:
 cmake -DFPC_EXECUTABLE=/path/to/fpc ..
 ```
 
+### Free Pascal Client (`realms-pascal`)
+
+`Projects/realms.lpr` builds `realms-pascal`, a Free Pascal program with the Pascal Realms core (`realms/pascal`) compiled in. It runs the C++ desktop sandbox, built a second time as a shared library (`libekron_sandbox.so` / `.dylib`, entry point `ekron_sandbox_run()` in `sys/desktop/ekron_sandbox.h`). Window, input, OpenGL and audio therefore use SDL2 from C++. The sandbox gets the core's `realms_pascal_get_api` table directly, origin `linked`, instead of loading `librealms_core`. CMake builds it with `-DENABLE_FPC_CLIENT=ON` when `fpc` is found (target `realms_pascal_client`):
+
+| | Program | Sandbox library |
+| :--- | :--- | :--- |
+| Linux build tree | `build/realms-pascal` | `build/libekron_sandbox.so` (RUNPATH `$ORIGIN`) |
+| `.deb` | `/usr/bin/realms-pascal` | `/usr/lib/ekron-realms/libekron_sandbox.so` |
+| macOS | `EkronRealms.app/Contents/MacOS/realms-pascal` | `EkronRealms.app/Contents/Frameworks/libekron_sandbox.dylib` |
+
+```bash
+cmake -S . -B build -DENABLE_FPC_CLIENT=ON && cmake --build build
+build/realms-pascal --engine-info     # Core: pascal-quake2 (Free Pascal) / Origin: linked
+build/realms-pascal                   # the game
+```
+
+To build it by hand once `libekron_sandbox` exists, from `Projects/`: `fpc -Mobjfpc -Sh -O2 -Fu../realms/pascal -Fi../realms/pascal -Fl../build realms.lpr`. The old Quake 2 client graph that used to be `realms.lpr` is kept as `Projects/realms_q2legacy.lpr`. It does not build: six `sys/linux` units it names don't exist, and the engine units don't compile together yet.
+
 ### Pascal SDL2 Units and Other Submodules
 
-The Free Pascal sys layer (`sys/mac/sys_mac.pas`, `Projects/realms.lpi`) uses the SDL2 units in `tools/SDL2-for-Pascal`. That folder, `tools/SDL3-for-Pascal` and `ide` (KayteIDE) are git submodules. The desktop C++ client, the launcher and the Realms core don't need them. Fetch the SDL2 units with:
+The legacy Free Pascal sys layer (`sys/mac/sys_mac.pas`, `Projects/realms.lpi`) uses the SDL2 units in `tools/SDL2-for-Pascal`. That folder, `tools/SDL3-for-Pascal` and `ide` (KayteIDE) are git submodules. The desktop C++ client, `realms-pascal`, the launcher and the Realms core don't need them. Fetch the SDL2 units with:
 
 ```bash
 git submodule update --init tools/SDL2-for-Pascal
 # or everything: git submodule update --init
 ```
 
-Units listed with `in '...'` resolve from the directory fpc runs in. `Projects/realms.lpr` and `realms.lpi` compile from `Projects/`. `tests/pascal/sdl2_sys_smoke.lpr` uses SDL2 the same way `sys_mac.pas` does, and the desktop CI builds and runs it:
+Units listed with `in '...'` resolve from the directory fpc runs in. `Projects/realms_q2legacy.lpr` and `realms.lpi` compile from `Projects/`. `tests/pascal/sdl2_sys_smoke.lpr` uses SDL2 the same way `sys_mac.pas` does, and the desktop CI builds and runs it:
 
 ```bash
 cd Projects
@@ -544,7 +562,7 @@ Realms/
 │   └── FindLazarus.cmake
 └── Projects/
     ├── realms.lpi  # Lazarus project
-    └── realms.lpr  # Pascal program
+    └── realms.lpr  # Free Pascal client (realms-pascal)
 ```
 
 ### Compilation Errors
@@ -559,9 +577,10 @@ fpc -iV
 # Try verbose build to see actual error
 cmake --build . --verbose
 
-# Try building with FPC directly to see the actual error
+# Try building with FPC directly to see the actual error (realms-pascal;
+# needs libekron_sandbox from the CMake build in ../build)
 cd Projects
-fpc realms.lpr
+fpc -Mobjfpc -Sh -Fu../realms/pascal -Fi../realms/pascal -Fl../build realms.lpr
 ```
 
 ### Wrong Architecture on macOS
@@ -623,7 +642,7 @@ Realms/
 │   └── FindLazarus.cmake      # Lazarus detection module
 ├── Projects/                   # Main project files (note: capital P)
 │   ├── realms.lpi             # Lazarus project
-│   ├── realms.lpr             # Pascal program
+│   ├── realms.lpr             # Free Pascal client (realms-pascal)
 │   └── *.pas                  # Additional units
 ├── src/                       # Optional additional sources
 ├── units/                     # Optional unit directories

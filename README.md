@@ -6,7 +6,7 @@
 [![Native iOS sandbox](https://github.com/kaytestudio/ekron-realms/actions/workflows/ios-sandbox.yml/badge.svg)](https://github.com/kaytestudio/ekron-realms/actions/workflows/ios-sandbox.yml)
 [![Networking foundation](https://github.com/kaytestudio/ekron-realms/actions/workflows/network-foundation.yml/badge.svg)](https://github.com/kaytestudio/ekron-realms/actions/workflows/network-foundation.yml)
 
-**Ekron Realms** is an open-source 3D urban sandbox and first-person exploration/building game. It features a shared native **C++17** world, rigid-body physics, and glTF 2.0 asset pipeline running natively across **Linux (`.deb`)**, **macOS (`.app`)**, **Android (`.apk`)**, and **iOS (`.ipa`)**, alongside an optional **Free Pascal** desktop launcher (`realms-launcher`), an experimental **TLS online presence relay**, and the classic **Free Pascal / Lazarus** engine codebase.
+**Ekron Realms** is an open-source 3D urban sandbox and first-person exploration/building game. It features a shared native **C++17** world, rigid-body physics, and glTF 2.0 asset pipeline running natively across **Linux (`.deb`)**, **macOS (`.app`)**, **Android (`.apk`)**, and **iOS (`.ipa`)**, alongside an optional **Free Pascal** desktop client (`realms-pascal`: the Pascal Realms core running the C++ SDL2 sandbox in one program) and launcher (`realms-launcher`), an experimental **TLS online presence relay**, and the classic **Free Pascal / Lazarus** engine codebase.
 
 ---
 
@@ -31,8 +31,8 @@
 
 | Platform | Source Directory | Graphics & App Stack | Package / CI Artifact | GitHub Actions Workflow |
 | :--- | :--- | :--- | :--- | :--- |
-| **Linux (Debian / Ubuntu)** | `sys/desktop/`, `sys/linux/` | C++17, SDL2, OpenGL 3.3 Core + optional FPC `realms-launcher` | `ekron-realms_*.deb` (`ekron-realms-linux-deb`) | [`desktop-debian.yml`](.github/workflows/desktop-debian.yml) |
-| **macOS (Apple Silicon & Intel)** | `sys/desktop/`, `sys/mac/` | C++17, SDL2, OpenGL 3.3 Core + optional FPC `realms-launcher` | `EkronRealms.app` (`ekron-realms-macos-app`) | [`desktop-macos.yml`](.github/workflows/desktop-macos.yml) |
+| **Linux (Debian / Ubuntu)** | `sys/desktop/`, `sys/linux/` | C++17, SDL2, OpenGL 3.3 Core + optional FPC `realms-pascal` / `realms-launcher` | `ekron-realms_*.deb` (`ekron-realms-linux-deb`) | [`desktop-debian.yml`](.github/workflows/desktop-debian.yml) |
+| **macOS (Apple Silicon & Intel)** | `sys/desktop/`, `sys/mac/` | C++17, SDL2, OpenGL 3.3 Core + optional FPC `realms-pascal` / `realms-launcher` | `EkronRealms.app` (`ekron-realms-macos-app`) | [`desktop-macos.yml`](.github/workflows/desktop-macos.yml) |
 | **Android** | `sys/android/` | C++17, GameActivity (JNI / Kotlin), OpenGL ES 3.0 | `app-debug.apk` (`ekron-native-sandbox-debug`) | [`android-sandbox.yml`](.github/workflows/android-sandbox.yml) |
 | **iOS** | `sys/ios/` | C++17, Objective-C++ / Swift (UIKit), Metal | `ekron-native-sandbox-debug.ipa` | [`ios-sandbox.yml`](.github/workflows/ios-sandbox.yml) |
 | **Presence Relay (Experimental)** | `server/` | Python 3.10+ (`ssl` TLS 1.2+) | `server/sandbox_relay.py` | [`network-foundation.yml`](.github/workflows/network-foundation.yml) |
@@ -166,6 +166,10 @@ xcodebuild archive \
 
 The `REALMS_CORE=pascal|native|auto` environment variable selects the Realms core. With `pascal`, startup fails if `librealms_core` is missing.
 
+### Free Pascal Client (`realms-pascal`)
+
+With `fpc` installed and `-DENABLE_FPC_CLIENT=ON`, the build also produces `realms-pascal` (`Projects/realms.lpr`). It is a Free Pascal program with the Pascal Realms core compiled in. It runs the C++ desktop sandbox (window, input, OpenGL, audio, world) from `libekron_sandbox`, so SDL2 is used from C++ and no Pascal SDL units are needed. It takes the same flags as `ekron-realms`. `--engine-info` reports `Core: pascal-quake2 (Free Pascal)` and `Origin: linked`. It is installed as `/usr/bin/realms-pascal` by the `.deb` and as `EkronRealms.app/Contents/MacOS/realms-pascal` on macOS.
+
 ---
 
 ## Testing & Verification
@@ -173,7 +177,7 @@ The `REALMS_CORE=pascal|native|auto` environment variable selects the Realms cor
 ```bash
 # Run desktop CTest suite (HUD layout, shop, localization, Realms bridge conformance
 # for the C++ and Free Pascal cores, console, sound decoding/mixing, --engine-info,
-# --version, --headless-smoke)
+# --version, --headless-smoke, and the realms-pascal program on its linked core)
 ctest --test-dir build --output-on-failure -V
 
 # Validate Android and iOS translations (English, Russian, Portuguese (Portugal))
@@ -206,7 +210,7 @@ ekron-realms/
 │   ├── linux/ & mac/           # Platform units for the Free Pascal launcher & legacy engine
 │   └── ...                     # Additional legacy platform ports
 ├── server/                     # Experimental Python TLS 1.2+ online presence relay
-├── Projects/                   # Free Pascal launcher (realms_launcher.lpr) and Lazarus / Delphi projects
+├── Projects/                   # Free Pascal client (realms.lpr → realms-pascal), launcher (realms_launcher.lpr), legacy Q2 graph (realms_q2legacy.lpr), Lazarus / Delphi projects
 ├── tests/                      # C++17 simulation/physics tests (tests/native), Realms bridge tests (tests/realms) & TLS relay tests (tests/network)
 ├── tools/                      # Texture generator, catalog icon renderer, sound pack builder, shader validators; SDL2/SDL3-for-Pascal submodules; tools/kcc (-DENABLE_KCC=ON)
 └── docs/                       # Sandbox design notes and cross-platform HUD verification guide

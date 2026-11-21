@@ -103,10 +103,16 @@ public:
     // "pascal-quake2" or "native-cpp" ("offline" before init).
     std::string backendName() const;
     bool pascalBackend() const { return pascal_; }
-    // Where the core came from: library path, "static" or "built-in".
+    // Where the core came from: library path, "static", "linked" or "built-in".
     const std::string &backendOrigin() const { return origin_; }
     // Why the Pascal core was not used (empty when it was, or not requested).
     const std::string &pascalLoadError() const { return pascalError_; }
+
+    // Pascal core compiled into the running program: the realms-pascal
+    // executable (Projects/realms.lpr) passes its own realms_pascal_get_api
+    // before starting the sandbox. While set, Pascal/Auto engines use it
+    // instead of loading librealms_core (origin "linked"); nullptr clears it.
+    static void setLinkedPascalCore(RealmsGetApiFn getApi);
 
     // Console variables -----------------------------------------------------
     bool registerCvar(const std::string &name, const std::string &defaultValue, int32_t flags = 0);
