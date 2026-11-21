@@ -66,7 +66,7 @@ Mouse and touch look use `sensitivity` and `m_invert` on all three platforms.
 | Platform | How |
 | :--- | :--- |
 | Linux / macOS | The desktop CMake build adds the `realms_pascal_core` target when `fpc` is installed. It is controlled by `-DENABLE_PASCAL_CORE=ON`, which is the default. |
-| Android | `realms/pascal/build_core.sh android-aarch64` writes to `sys/android/app/src/main/jniLibs/arm64-v8a/`. It needs an FPC cross compiler and `ANDROID_NDK_HOME`. |
+| Android | Free Pascal 3.2 has no packaged Android cross compiler, so build one once: `realms/pascal/fpc_android_toolchain.sh <FPCSource-release_3_2_2> $HOME/fpc-android aarch64 x86_64`. It needs a host `fpc` and GNU binutils (`binutils-aarch64-linux-gnu`). Then `FPC_ANDROID_PREFIX=$HOME/fpc-android ANDROID_NDK_HOME=… realms/pascal/build_core.sh android-aarch64` writes `librealms_core.so` to `sys/android/app/src/main/jniLibs/arm64-v8a/`. It links against bionic (API 30) with 16 KB page alignment. CI does all of this and packages the arm64-v8a and x86_64 cores into the APK. |
 | iOS | `realms/pascal/build_core.sh ios-arm64` produces `librealms_core.a`. Link it in Xcode and add `REALMS_PASCAL_STATIC=1` to the preprocessor definitions. |
 | Any CMake consumer | `-DREALMS_PASCAL_STATIC_LIBRARY=/path/librealms_core.a` links a static Pascal core into `realms_engine`. |
 
@@ -75,7 +75,8 @@ Mouse and touch look use `sensitivity` and `m_invert` on all three platforms.
 `tests/realms/realms_bridge_test.cpp` is the ABI conformance suite. It covers cvar semantics, the command buffer, aliases and macros, PAK mounting, `writeconfig`, error paths, and the Engine facade. It runs against:
 
 - the C++ core (CTest `realms_bridge_native`; Android/iOS CI);
-- the Pascal core (CTest `realms_bridge_pascal`, i.e. `realms_bridge_test --pascal <lib>`, when `fpc` is available).
+- the Pascal core (CTest `realms_bridge_pascal`, i.e. `realms_bridge_test --pascal <lib>`, when `fpc` is available);
+- both cores on an Android x86_64 emulator (API 30), using the Android-built `librealms_core.so` (`realms/pascal/android_device_test.sh`, CI job `realms-pascal-device`).
 
 On Linux and macOS, CI also starts the packaged sandbox with `REALMS_CORE=pascal --headless-smoke`. The run must report `realmsCore=pascal-quake2`.
 
