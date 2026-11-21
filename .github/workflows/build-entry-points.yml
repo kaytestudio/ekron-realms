@@ -100,12 +100,13 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build pkg-config \
             libsdl2-dev libgl1-mesa-dev fpc fp-units-fcl
-          # Debian/Ubuntu ship lazbuild in lcl-utils(-X.Y).
-          for pkg in lcl-utils lcl-utils-3.0 lazarus; do
-            if sudo apt-get install -y --no-install-recommends "$pkg" > "/tmp/apt-$pkg.log" 2>&1; then
+          # Debian/Ubuntu ship lazbuild in lcl-utils(-X.Y); it needs the Lazarus
+          # directory with lcl/ (lcl-nogui pulls in lcl-units).
+          for pkg in "lcl-utils lcl-nogui" "lcl-utils-3.0 lcl-nogui-3.0" lazarus; do
+            if sudo apt-get install -y --no-install-recommends $pkg > "/tmp/apt-${pkg%% *}.log" 2>&1; then
               echo "installed $pkg"; break
             fi
-            echo "::warning::apt-get install $pkg failed: $(tail -n 2 "/tmp/apt-$pkg.log" | tr '\n' ' ')"
+            echo "::warning::apt-get install $pkg failed: $(tail -n 2 "/tmp/apt-${pkg%% *}.log" | tr '\n' ' ')"
           done
           if ! command -v lazbuild >/dev/null; then
             LB="$(dpkg -L $(dpkg -l | awk '/^ii +(lcl-utils|lazarus)/{print $2}') 2>/dev/null | grep -E '/lazbuild(-[0-9.]+)?$' | head -n 1 || true)"
