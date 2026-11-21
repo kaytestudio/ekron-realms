@@ -182,7 +182,7 @@ jobs:
             tests/realms/realms_bridge_test.cpp realms/src/Engine.cpp realms/src/NativeCore.cpp realms/src/SandboxBoot.cpp \
             build/realms-macos-static/librealms_core.a -o /tmp/realms-bridge-static > /tmp/realms-static-link.log 2>&1; then
             cat /tmp/realms-static-link.log
-            echo "::error title=Pascal static core (link)::$(grep -E 'rror|ndefined|uplicate|\"_|referenced|warning' /tmp/realms-static-link.log | head -n 14 | tr '\n' ' ' | cut -c1-1500)"
+            echo "::error title=Pascal static core (link)::$(grep -v '^ *$' /tmp/realms-static-link.log | head -n 24 | tr '\n' ' ' | cut -c1-2000)"
             exit 1
           fi
           rc=0
