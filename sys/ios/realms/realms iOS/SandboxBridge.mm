@@ -4,6 +4,7 @@
 //
 
 #import "SandboxBridge.h"
+#import <AVFoundation/AVFoundation.h>
 #import "../realms Shared/ShaderTypes.h"
 
 #include "SandboxWorld.h"
@@ -23,6 +24,8 @@
 #include "DebugPlayer.h"
 #include "GltfScene.h"
 #include "MapSession.h"
+#include "SoundSnapshot.h"
+#include "SoundSystem.h"
 #include "realms/Engine.h"
 #include "realms/SandboxBoot.h"
 
@@ -38,6 +41,7 @@
 #include <cstring>
 #include <fstream>
 #include <future>
+#include <iterator>
 #include <memory>
 #include <mutex>
 #include <numeric>
@@ -616,6 +620,124 @@ private:
     std::future<std::optional<city::Scene>> prepare_;
 };
 
+// ---- Game sound -----------------------------------------------------------
+// One SoundSystem for the process (the engine it registers `play`,
+// `soundlist`, `stopsound` with is process-wide as well), pulled by an
+// AVAudioEngine source node on the audio thread.
+
+ekron::audio::SoundSystem &IosSound() {
+    // Never destroyed: the render block may still run while the process exits.
+    static auto *sound = new ekron::audio::SoundSystem();
+    return *sound;
+}
+
+struct IosAudioOutput {
+    AVAudioEngine *engine = nil;
+    id configObserver = nil;
+    id interruptObserver = nil;
+    bool started = false;
+    bool wanted = true;
+};
+
+IosAudioOutput gAudio;
+// Sounds start with the first playable sandbox frame (not under the intro).
+bool gSoundHeard = false;
+
+void IosAudioStopEngine() {
+    if (gAudio.engine) [gAudio.engine stop];
+    gAudio.engine = nil;
+}
+
+void IosAudioStartEngine() {
+    if (gAudio.engine || !gAudio.wanted) return;
+    AVAudioEngine *engine = [[AVAudioEngine alloc] init];
+    double rate = [engine.outputNode outputFormatForBus:0].sampleRate;
+    if (!(rate >= 8000.0)) rate = 48000.0;
+    AVAudioFormat *format = [[AVAudioFormat alloc] initStandardFormatWithSampleRate:rate channels:2];
+    if (!format) return;
+    auto &mixer = IosSound().mixer();
+    mixer.setOutputRate(int(rate));
+    ekron::audio::Mixer *pull = &mixer;
+    AVAudioSourceNode *source = [[AVAudioSourceNode alloc]
+        initWithFormat:format
+           renderBlock:^OSStatus(BOOL *isSilence, const AudioTimeStamp *, AVAudioFrameCount frameCount,
+                                 AudioBufferList *buffers) {
+               // The mixer renders interleaved stereo; the node wants planar.
+               static float scratch[2 * 512];
+               float *left = buffers->mNumberBuffers > 0 ? static_cast<float *>(buffers->mBuffers[0].mData) : nullptr;
+               float *right = buffers->mNumberBuffers > 1 ? static_cast<float *>(buffers->mBuffers[1].mData) : nullptr;
+               if (!left) return noErr;
+               AVAudioFrameCount done = 0;
+               while (done < frameCount) {
+                   const AVAudioFrameCount n = std::min<AVAudioFrameCount>(frameCount - done, 512);
+                   pull->render(scratch, int(n));
+                   for (AVAudioFrameCount i = 0; i < n; ++i) {
+                       if (right) {
+                           left[done + i] = scratch[2 * i];
+                           right[done + i] = scratch[2 * i + 1];
+                       } else {
+                           left[done + i] = 0.5f * (scratch[2 * i] + scratch[2 * i + 1]);
+                       }
+                   }
+                   done += n;
+               }
+               *isSilence = NO;
+               return noErr;
+           }];
+    [engine attachNode:source];
+    [engine connect:source to:engine.mainMixerNode format:format];
+    [engine prepare];
+    NSError *error = nil;
+    if (![engine startAndReturnError:&error]) {
+        NSLog(@"[Realms] audio: cannot start AVAudioEngine: %@", error);
+        return;
+    }
+    gAudio.engine = engine;
+    NSLog(@"[Realms] audio: AVAudioEngine %.0f Hz", rate);
+}
+
+void IosSoundStart(const std::string &bundleRoot, realms::Engine &engine) {
+    if (gAudio.started) return;
+    gAudio.started = true;
+    auto &sound = IosSound();
+    sound.loadAsync([bundleRoot](const std::string &path, std::vector<uint8_t> &out) {
+        std::ifstream in(bundleRoot + "/" + path, std::ios::binary);
+        if (!in) return false;
+        out.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+        return !out.empty();
+    });
+    sound.registerCommands(engine);
+    sound.syncCvars(engine);
+
+    // Ambient: respects the silent switch and mixes with the user's music.
+    AVAudioSession *session = [AVAudioSession sharedInstance];
+    [session setCategory:AVAudioSessionCategoryAmbient error:nil];
+    [session setActive:YES error:nil];
+    NSNotificationCenter *center = [NSNotificationCenter defaultCenter];
+    // Route / sample-rate change: rebuild the graph at the new rate.
+    gAudio.configObserver = [center addObserverForName:AVAudioEngineConfigurationChangeNotification
+                                                object:nil
+                                                 queue:[NSOperationQueue mainQueue]
+                                            usingBlock:^(NSNotification *) {
+                                                IosAudioStopEngine();
+                                                IosAudioStartEngine();
+                                            }];
+    gAudio.interruptObserver = [center
+        addObserverForName:AVAudioSessionInterruptionNotification
+                    object:nil
+                     queue:[NSOperationQueue mainQueue]
+                usingBlock:^(NSNotification *note) {
+                    const NSUInteger type = [note.userInfo[AVAudioSessionInterruptionTypeKey] unsignedIntegerValue];
+                    if (type == AVAudioSessionInterruptionTypeBegan) {
+                        IosAudioStopEngine();
+                    } else {
+                        [[AVAudioSession sharedInstance] setActive:YES error:nil];
+                        IosAudioStartEngine();
+                    }
+                }];
+    IosAudioStartEngine();
+}
+
 } // namespace
 
 @implementation SandboxBridge {
@@ -824,6 +946,7 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
 
     {
         realms::Engine &engine = [self realms];
+        IosSoundStart(bundleRoot_, engine);
         __weak SandboxBridge *weakSelf = self;
         engine.addCommand("noclip", [weakSelf](const realms::CommandArgs &) {
             SandboxBridge *strongSelf = weakSelf;
@@ -1908,6 +2031,22 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
     const float cameraPitch = drone_.piloting() ? drone_.viewPitch() : world_.pitch;
     const float cameraRoll = drone_.piloting() ? drone_.viewRoll() : 0.0f;
 
+    // Game sound: the listener is the camera (the drone when piloting).
+    if (gameplayReady_ && cityModel_.ready()) gSoundHeard = true;
+    if (gSoundHeard) {
+        auto &sound = IosSound();
+        sound.syncCvars([self realms]);
+        ekron::audio::Listener ear;
+        ear.x = cameraEye.x;
+        ear.y = cameraEye.y;
+        ear.z = cameraEye.z;
+        ear.yaw = cameraYaw;
+        sound.director().sandbox(ekron::audio::sandboxFrame(gameplayReady_ && cityModel_.ready(), ear, world_, tools_,
+                                                            drone_, player_, seatedCar_, flying_,
+                                                            droneThrottle_.load()),
+                                 dt, sound);
+    }
+
     if (gameplayReady_) {
         tools_.pull(world_, dt, cityModel_.scene().collision.get());
     }
@@ -2266,6 +2405,7 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
 - (void)handleMapChange {
     mapChangePending_ = false;
     realms::Engine &engine = [self realms];
+    IosSound().director().reset();
     const std::string path = pendingMap_;
     if (mapMode_.active()) mapMode_.close();
     mapState_ = 0;
@@ -2320,6 +2460,12 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
         input.jump = mapJump_ > 0.0f;
         input.crouch = mapCrouch_;
         mapMode_.update(engine, input, mapYaw_, mapPitch_, dt);
+    }
+    if (gSoundHeard) {
+        auto &sound = IosSound();
+        sound.syncCvars(engine);
+        sound.director().map(ekron::audio::mapFrame(gameplayReady_, engine, mapMode_.session().walker(), mapYaw_), dt,
+                             sound);
     }
     mapJump_ = std::max(0.0f, mapJump_ - dt);
     mapState_ = mapMode_.texturedPending() ? 2 : 1;
@@ -2447,6 +2593,24 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
     droneYawInput_ = clean(yaw);
     dronePitchInput_ = clean(pitch);
     droneRollInput_ = clean(roll);
+}
+
+- (void)playUiSound:(int32_t)sound {
+    static const char *const names[] = {"ui_click", "ui_open", "ui_close", "ui_confirm", "ui_error"};
+    if (sound < 0 || sound > 4) return;
+    IosSound().ui(names[sound]);
+}
+
+- (void)setAudioActive:(BOOL)active {
+    gAudio.wanted = active;
+    IosSound().mixer().setPaused(!active);
+    if (!gAudio.started) return;
+    if (active) {
+        [[AVAudioSession sharedInstance] setActive:YES error:nil];
+        IosAudioStartEngine();
+    } else {
+        IosAudioStopEngine();
+    }
 }
 
 - (void)sendCommand:(int32_t)command {

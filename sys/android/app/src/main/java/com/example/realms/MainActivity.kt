@@ -53,6 +53,9 @@ class MainActivity : GameActivity() {
     private external fun nativeMapImportName(picked: String): String
     private external fun nativeMapImportHeader(fileName: String, head: ByteArray): Boolean
     private external fun nativeMapImportLimit(): Long
+    // Menu sounds (shared mixer, AndroidSound.cpp): 0 click, 1 open, 2 close, 3 confirm, 4 error.
+    private external fun nativeUiSound(id: Int)
+    private fun uiSound(id: Int) { try { nativeUiSound(id) } catch(_: UnsatisfiedLinkError) {} }
     private val mapImportExecutor = Executors.newSingleThreadExecutor()
     /** "Import map…": the system file picker; a .gltf may be picked together with its .bin and textures. */
     private val pickMapFiles = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
@@ -449,9 +452,10 @@ class MainActivity : GameActivity() {
         val material=if(selectedSurface<0) getString(R.string.material_model) else if(selectedSurface==6) getString(R.string.material_fabric) else materialNames[materialIds.indexOf(selectedSurface).coerceAtLeast(0)]
         selectedSlot.contentDescription=getString(R.string.selected_slot_description, items[selected], material)
     }
-    private fun closePopup(){popup?.let { hud.removeView(it) };popup=null;catalogAdapter=null}
+    private fun closePopup(sound: Boolean = true){popup?.let { if(sound)uiSound(2);hud.removeView(it) };popup=null;catalogAdapter=null}
     private fun panel(title: String): LinearLayout {
-        closePopup()
+        uiSound(if(popup!=null) 0 else 1)
+        closePopup(false)
         val panel=LinearLayout(this).apply {
             orientation=LinearLayout.VERTICAL;isClickable=true;isMotionEventSplittingEnabled=true
             background=GradientDrawable().apply { setColor(0xe6202b33.toInt());cornerRadius=dp(12).toFloat();setStroke(dp(1),0x887eaaa6.toInt()) }
@@ -512,8 +516,8 @@ class MainActivity : GameActivity() {
                     handler.post { if(!isDestroyed)image.setImageBitmap(bitmap) }
                 }
             }
-            card(getString(R.string.catalog_card_remote), "catalog/rendered/fpv_remote.webp"){selectTool(HandTool.DRONE_REMOTE)}
-            card(getString(R.string.catalog_card_drone), "catalog/rendered/fpv_drone.webp"){nativeCommand(40);closePopup()}
+            card(getString(R.string.catalog_card_remote), "catalog/rendered/fpv_remote.webp"){uiSound(0);closePopup(false);selectTool(HandTool.DRONE_REMOTE)}
+            card(getString(R.string.catalog_card_drone), "catalog/rendered/fpv_drone.webp"){uiSound(0);nativeCommand(40);closePopup(false)}
             container.addView(cards,LinearLayout.LayoutParams(-1,0,1f))
             return
         }
@@ -550,12 +554,12 @@ class MainActivity : GameActivity() {
             requestedTool=HandTool.SPAWN_GUN;toolsState.select(HandTool.SPAWN_GUN)
             nativeCommand(300+BuildCatalog.entries[index].nativeType)
             pendingSelection=index;selected=index;selectedSurface=BuildCatalog.entries[index].defaultSurface
-            updateSelectedIcon();closePopup();renderTools()
+            uiSound(0);updateSelectedIcon();closePopup(false);renderTools()
         }
     }
     private fun setPaused(value: Boolean) {
         if(::toolWheel.isInitialized)toolWheel.cancel()
-        closePopup();paused=value;joystick.reset();lookArea.reset();weapon.running=!value && active;nativeVertical(0f)
+        closePopup(false);paused=value;joystick.reset();lookArea.reset();weapon.running=!value && active;nativeVertical(0f)
         nativeReady(worldReady && active && !paused)
     }
     private fun showPauseMenu() {
@@ -564,7 +568,7 @@ class MainActivity : GameActivity() {
         val dialog=AlertDialog.Builder(this).setTitle(R.string.pause)
             .setItems(arrayOf(R.string.pause_resume,if(flyingNow) R.string.pause_flight_off else R.string.pause_flight_on,R.string.pause_road,R.string.pause_restore_uaz,
                 R.string.pause_spawn,R.string.pause_online,R.string.pause_disconnect,R.string.pause_language,R.string.pause_maps).map { getString(it) }.toTypedArray()) { _, which ->
-                setPaused(false)
+                uiSound(0);setPaused(false)
                 if(which==1)nativeCommand(6)
                 if(which==2)nativeCommand(7)
                 if(which==3)nativeCommand(34)
@@ -575,7 +579,8 @@ class MainActivity : GameActivity() {
                 if(which==8)handler.post { showMapPicker() }
             }.create()
         dialog.setOnDismissListener { setPaused(false);hideSystemUi() }
-        dialog.show()
+        dialog.setOnCancelListener { uiSound(2) }
+        uiSound(1);dialog.show()
     }
     /** Pause menu while walking a Realms map: movement options, other maps and the way back. */
     private fun showMapPauseMenu() {
@@ -583,14 +588,15 @@ class MainActivity : GameActivity() {
         val dialog=AlertDialog.Builder(this).setTitle(getString(R.string.notice_map_mode, mapName))
             .setItems(arrayOf(R.string.pause_resume,if(flyingNow) R.string.pause_noclip_off else R.string.pause_noclip_on,R.string.pause_spawn,
                 R.string.pause_maps,R.string.pause_leave_map).map { getString(it) }.toTypedArray()) { _, which ->
-                setPaused(false)
+                uiSound(0);setPaused(false)
                 if(which==1)nativeCommand(6)
                 if(which==2)nativeCommand(35)
                 if(which==3)handler.post { showMapPicker() }
                 if(which==4)nativeCommand(50)
             }.create()
         dialog.setOnDismissListener { setPaused(false);hideSystemUi() }
-        dialog.show()
+        dialog.setOnCancelListener { uiSound(2) }
+        uiSound(1);dialog.show()
     }
     /** Quake 2 BSPs and glTF scenes from the APK (maps/, models/) and internal storage (maps/). */
     private fun isMapName(name: String)=listOf(".bsp",".glb",".gltf").any { name.lowercase(Locale.ROOT).endsWith(it) }
@@ -613,7 +619,7 @@ class MainActivity : GameActivity() {
         setPaused(true)
         val dialog=AlertDialog.Builder(this).setTitle(R.string.maps_title).setNegativeButton(R.string.cancel, null)
             .setItems(labels.toTypedArray()) { _, which ->
-                setPaused(false)
+                uiSound(0);setPaused(false)
                 when {
                     which < maps.size -> {
                         Toast.makeText(this, getString(R.string.map_loading, maps[which].substringAfterLast('/')), Toast.LENGTH_SHORT).show()
@@ -624,7 +630,8 @@ class MainActivity : GameActivity() {
                 }
             }.create()
         dialog.setOnDismissListener { setPaused(false);hideSystemUi() }
-        dialog.show()
+        dialog.setOnCancelListener { uiSound(2) }
+        uiSound(1);dialog.show()
     }
     /** Imported maps (internal storage maps/) other than the one being walked. */
     private fun showRemoveMapPicker() {
@@ -635,12 +642,13 @@ class MainActivity : GameActivity() {
         setPaused(true)
         val dialog=AlertDialog.Builder(this).setTitle(R.string.maps_remove_title).setNegativeButton(R.string.cancel, null)
             .setItems(maps.toTypedArray()) { _, which ->
-                setPaused(false)
+                uiSound(0);setPaused(false)
                 if(File(importedMapDir(), maps[which]).delete())
                     Toast.makeText(this, getString(R.string.maps_removed, maps[which]), Toast.LENGTH_SHORT).show()
             }.create()
         dialog.setOnDismissListener { setPaused(false);hideSystemUi() }
-        dialog.show()
+        dialog.setOnCancelListener { uiSound(2) }
+        uiSound(1);dialog.show()
     }
     /** Copies picked files into internal storage maps/ off the UI thread, then loads the first map among them. */
     private fun importMapFiles(uris: List<Uri>) {

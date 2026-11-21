@@ -134,6 +134,7 @@ final class BuildCatalogPopupView: UIView {
     var onTakeFpvRemote: (() -> Void)?
     var onTakeFpvDrone: (() -> Void)?
     var onClose: (() -> Void)?
+    var onTab: (() -> Void)?
 
     private var currentCategory: Int = 0
     private let headerLabel = UILabel()
@@ -246,6 +247,7 @@ final class BuildCatalogPopupView: UIView {
 
     @objc private func handleTabTap(_ sender: UIButton) {
         currentCategory = sender.tag
+        onTab?()
         updateTabStyles()
         rebuildContent()
     }

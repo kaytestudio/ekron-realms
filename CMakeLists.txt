@@ -111,7 +111,12 @@ if(ENABLE_DESKTOP_SANDBOX)
         "${DESKTOP_SRC_DIR}/Localization.cpp"
         "${DESKTOP_SRC_DIR}/DesktopConsole.cpp"
         "${DESKTOP_SRC_DIR}/DesktopMapMode.cpp"
+        "${DESKTOP_SRC_DIR}/DesktopAudio.cpp"
         "${SHARED_CPP_DIR}/MapSession.cpp"
+        "${SHARED_CPP_DIR}/SoundDecode.cpp"
+        "${SHARED_CPP_DIR}/SoundMixer.cpp"
+        "${SHARED_CPP_DIR}/SoundDirector.cpp"
+        "${SHARED_CPP_DIR}/SoundSystem.cpp"
         "${SHARED_CPP_DIR}/GltfScene.cpp"
         "${SHARED_CPP_DIR}/ImageDecode.cpp"
     )
@@ -140,6 +145,7 @@ if(ENABLE_DESKTOP_SANDBOX)
             COMMAND ${CMAKE_COMMAND} -E copy_directory "${SHARED_ASSETS_DIR}/textures" "${MAC_APP_RESOURCES}/textures"
             COMMAND ${CMAKE_COMMAND} -E copy_directory "${SHARED_ASSETS_DIR}/catalog" "${MAC_APP_RESOURCES}/catalog"
             COMMAND ${CMAKE_COMMAND} -E copy_directory "${SHARED_ASSETS_DIR}/config" "${MAC_APP_RESOURCES}/config"
+            COMMAND ${CMAKE_COMMAND} -E copy_directory "${SHARED_ASSETS_DIR}/sounds" "${MAC_APP_RESOURCES}/sounds"
             COMMAND ${CMAKE_COMMAND} -E copy_if_different "${SHARED_ASSETS_DIR}/intro.mp4" "${MAC_APP_RESOURCES}/intro.mp4"
             COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/RINGSCE_v2.png" "${MAC_APP_RESOURCES}/RINGSCE_v2.png"
             COMMENT "Copying Ekron 3D assets into EkronRealms.app/Contents/Resources"
@@ -269,6 +275,7 @@ if(TARGET ekron-realms)
             "${SHARED_ASSETS_DIR}/textures"
             "${SHARED_ASSETS_DIR}/catalog"
             "${SHARED_ASSETS_DIR}/config"
+            "${SHARED_ASSETS_DIR}/sounds"
             DESTINATION "${CMAKE_INSTALL_DATADIR}/ekron-realms"
         )
         install(FILES "${SHARED_ASSETS_DIR}/intro.mp4"
@@ -336,6 +343,21 @@ target_include_directories(realms_map_render_alignment_test PRIVATE tests/realms
 target_link_libraries(realms_map_render_alignment_test PRIVATE realms_engine)
 add_test(NAME realms_map_render_alignment
          COMMAND realms_map_render_alignment_test "${SHARED_ASSETS_DIR}/models")
+
+# Game sound: every shipped .ogg decodes and is credited; mixer, director,
+# console commands (play / soundlist / stopsound) and s_volume cvars.
+add_executable(ekron_sound_test
+    tests/native/sound_test.cpp
+    "${SHARED_CPP_DIR}/SoundDecode.cpp"
+    "${SHARED_CPP_DIR}/SoundMixer.cpp"
+    "${SHARED_CPP_DIR}/SoundDirector.cpp"
+    "${SHARED_CPP_DIR}/SoundSystem.cpp"
+)
+target_include_directories(ekron_sound_test PRIVATE "${SHARED_CPP_DIR}")
+find_package(Threads REQUIRED)
+target_link_libraries(ekron_sound_test PRIVATE realms_engine Threads::Threads)
+add_test(NAME ekron_sound COMMAND ekron_sound_test "${SHARED_ASSETS_DIR}")
+set_tests_properties(ekron_sound PROPERTIES ENVIRONMENT "REALMS_CORE=native")
 
 if(EKRON_SDL2_TARGET)
     # Drop-down console line editing / command submission (no GL needed).

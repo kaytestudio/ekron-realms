@@ -1,6 +1,7 @@
 #include <jni.h>
 #include "AndroidOut.h"
 #include "Renderer.h"
+#include "AndroidSound.h"
 #include <game-activity/GameActivity.cpp>
 #include <game-text-input/gametextinput.cpp>
 
@@ -23,8 +24,15 @@ void handle_cmd(android_app *app, int32_t command) {
             active = true;
             if (renderer) renderer->resetInput();
             break;
-        case APP_CMD_LOST_FOCUS:
+        case APP_CMD_RESUME:
+            android_sound::resume();
+            break;
         case APP_CMD_PAUSE:
+            android_sound::pause();
+            active = false;
+            if (renderer) renderer->resetInput();
+            break;
+        case APP_CMD_LOST_FOCUS:
             active = false;
             if (renderer) renderer->resetInput();
             break;

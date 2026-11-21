@@ -20,6 +20,8 @@
 #include <fstream>
 #include <android/asset_manager.h>
 #include "RealmsAndroid.h"
+#include "AndroidSound.h"
+#include "SoundSnapshot.h"
 #include "realms/SandboxBoot.h"
 
 namespace {
@@ -36,6 +38,8 @@ std::atomic<int> loadStage{0},debugNotice{0},loadPercent{0};
 std::atomic<float> verticalInput{0};
 std::atomic<float> stickRight{0},stickForward{0};
 std::atomic<bool> gameplayReady{false};
+// Sounds start with the first playable frame (not under the intro video).
+bool soundHeard=false;
 std::atomic<int> currentTool{0},currentSelection{0},currentSurface{-1},interactionAction{0},freezeState{0};
 std::atomic<int> droneMode{0};
 std::atomic<float> droneThrottle{0},droneYawInput{0},dronePitchInput{0},droneRollInput{0};
@@ -251,6 +255,7 @@ extern "C" JNIEXPORT void JNICALL Java_com_example_realms_MainActivity_nativeVer
 Renderer::Renderer(android_app *app):app_(app),last_(std::chrono::steady_clock::now()){
  // Realms Engine (Quake 2 stack): cvars, command buffer and config are shared with Desktop/iOS.
  auto &engine=realms_android::ensureEngine(app);
+ android_sound::start(app);
  engine.addCommand("noclip",[this](const realms::CommandArgs&){if(mapMode_.active()){mapMode_.session().toggleNoclip();verticalInput=0;return;}if(drone_.piloting()||seatedCar_>=0)return;flying_=!flying_;player_.reset(world_.x,world_.y,world_.z);});
  engine.addCommand("respawn",[this](const realms::CommandArgs&){if(!mapMode_.active()){respawnPlayer();return;}if(mapMode_.respawn(realms_android::ensureEngine(app_))){mapYaw_=mapMode_.session().spawnRenderYaw();mapPitch_=0;}});
  // A map still loaded in the engine (surface recreated) reopens once the sandbox is up.
@@ -538,6 +543,12 @@ void Renderer::render(){
  float cameraYaw=drone_.piloting()?drone_.viewYaw():world_.yaw;
  float cameraPitch=drone_.piloting()?drone_.viewPitch():world_.pitch;
  if(gameplayReady)tools_.pull(world_,dt,city_.scene().collision.get());
+ if(gameplayReady&&city_.ready())soundHeard=true;
+ if(auto *sound=android_sound::get();sound&&soundHeard){
+  sound->syncCvars(realms_android::ensureEngine(app_));
+  ekron::audio::Listener ear;ear.x=cameraEye.x;ear.y=cameraEye.y;ear.z=cameraEye.z;ear.yaw=cameraYaw;
+  sound->director().sandbox(ekron::audio::sandboxFrame(gameplayReady&&city_.ready(),ear,world_,tools_,drone_,player_,seatedCar_,flying_,droneThrottle.load()),dt,*sound);
+ }
  std::vector<Vertex> vertices;vertices.reserve((world_.scenery.size()+world_.objects.size()*10+1)*36);
  sandbox::appendRemotePlayers(vertices,remotePlayers.snapshot());
  if(city_.ready())sandbox::appendCityGraffiti(vertices,*city_.scene().collision);
@@ -686,6 +697,7 @@ bool Renderer::pollMapChange(){
 void Renderer::handleMapChange(){
  mapChangePending_=false;
  auto &engine=realms_android::ensureEngine(app_);
+ if(auto *sound=android_sound::get())sound->director().reset();
  const std::string path=pendingMap_;
  if(mapMode_.active())mapMode_.close();
  mapState=0;showMapPath("");
@@ -719,6 +731,10 @@ void Renderer::renderMap(float dt){
   input.forward=stickForward.load();input.right=stickRight.load();input.up=verticalInput.load();
   input.jump=mapJump_>0;input.crouch=mapCrouch_;
   mapMode_.update(engine,input,mapYaw_,mapPitch_,dt);
+ }
+ if(auto *sound=android_sound::get();sound&&soundHeard){
+  sound->syncCvars(engine);
+  sound->director().map(ekron::audio::mapFrame(gameplayReady,engine,mapMode_.session().walker(),mapYaw_),dt,*sound);
  }
  mapJump_=std::max(0.f,mapJump_-dt);
  mapState=mapMode_.texturedPending()?2:1;

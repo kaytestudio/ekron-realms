@@ -170,11 +170,13 @@ class GameViewController: UIViewController {
         resetTransientInputs()
         bridge?.setGameplayReady(false)
         bridge?.flushSave()
+        bridge?.setAudioActive(false)
         mtkView?.isPaused = true
     }
 
     @objc private func handleDidBecomeActive() {
         appActive = true
+        bridge?.setAudioActive(true)
         mtkView?.isPaused = false
         if !introFinished {
             introPlayer?.play()
@@ -808,21 +810,24 @@ class GameViewController: UIViewController {
             })
         }
         alert.addAction(UIAlertAction(title: loc("cancel"), style: .cancel) { [weak self] _ in
-            self?.setMenuPaused(false)
+            self?.setMenuPaused(false, sound: UiSound.close)
         })
         present(alert, animated: true)
     }
 
     private func toggleCatalogPopup() {
         if catalogPopup != nil {
-            closeCatalogPopup()
+            closeCatalogPopup(sound: true)
             return
         }
         guard worldReady, appActive, !isPausedMenu, interactionCode != 4, !mapMode else { return }
         let popup = BuildCatalogPopupView()
         popup.selectedCatalogIndex = selectedCatalogIndex
         popup.onClose = { [weak self] in
-            self?.closeCatalogPopup()
+            self?.closeCatalogPopup(sound: true)
+        }
+        popup.onTab = { [weak self] in
+            self?.bridge?.playUiSound(UiSound.click)
         }
         popup.onSelectCatalogItem = { [weak self] index in
             guard let self = self else { return }
@@ -833,27 +838,39 @@ class GameViewController: UIViewController {
             self.pendingSelection = index
             self.selectedCatalogIndex = index
             self.selectedSurface = entry.defaultSurface
+            self.bridge?.playUiSound(UiSound.click)
             self.closeCatalogPopup()
             self.renderToolControls()
         }
         popup.onTakeFpvRemote = { [weak self] in
+            self?.bridge?.playUiSound(UiSound.click)
             self?.selectTool(.droneRemote)
         }
         popup.onTakeFpvDrone = { [weak self] in
+            self?.bridge?.playUiSound(UiSound.click)
             self?.bridge?.sendCommand(40)
             self?.closeCatalogPopup()
         }
         hudOverlay.addSubview(popup)
         catalogPopup = popup
+        bridge?.playUiSound(UiSound.open)
         view.setNeedsLayout()
     }
 
-    private func closeCatalogPopup() {
+    private func closeCatalogPopup(sound: Bool = false) {
+        if sound && catalogPopup != nil { bridge?.playUiSound(UiSound.close) }
         catalogPopup?.removeFromSuperview()
         catalogPopup = nil
     }
 
-    private func setMenuPaused(_ value: Bool) {
+    /// Menu sounds through the shared mixer (SandboxBridge playUiSound).
+    private enum UiSound {
+        static let click: Int32 = 0, open: Int32 = 1, close: Int32 = 2, confirm: Int32 = 3, error: Int32 = 4
+    }
+
+    /// Dialogs open with `open`; a choice clicks unless `sound` says otherwise.
+    private func setMenuPaused(_ value: Bool, sound: Int32? = nil) {
+        bridge?.playUiSound(sound ?? (value ? UiSound.open : UiSound.click))
         toolWheel.cancel()
         closeCatalogPopup()
         isPausedMenu = value
@@ -873,7 +890,7 @@ class GameViewController: UIViewController {
         let flyTitle = flyingNow ? loc("pause_flight_off") : loc("pause_flight_on")
         let alert = UIAlertController(title: loc("pause"), message: nil, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: loc("pause_resume"), style: .cancel) { [weak self] _ in
-            self?.setMenuPaused(false)
+            self?.setMenuPaused(false, sound: UiSound.close)
         })
         alert.addAction(UIAlertAction(title: flyTitle, style: .default) { [weak self] _ in
             self?.setMenuPaused(false)
@@ -915,7 +932,7 @@ class GameViewController: UIViewController {
         setMenuPaused(true)
         let alert = UIAlertController(title: locF("notice_map_mode", mapName), message: nil, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: loc("pause_resume"), style: .cancel) { [weak self] _ in
-            self?.setMenuPaused(false)
+            self?.setMenuPaused(false, sound: UiSound.close)
         })
         alert.addAction(UIAlertAction(title: flyingNow ? loc("pause_noclip_off") : loc("pause_noclip_on"), style: .default) { [weak self] _ in
             self?.setMenuPaused(false)
@@ -985,7 +1002,7 @@ class GameViewController: UIViewController {
             })
         }
         alert.addAction(UIAlertAction(title: loc("cancel"), style: .cancel) { [weak self] _ in
-            self?.setMenuPaused(false)
+            self?.setMenuPaused(false, sound: UiSound.close)
         })
         present(alert, animated: true)
     }
@@ -1046,7 +1063,7 @@ class GameViewController: UIViewController {
                     alert.addAction(UIAlertAction(title: loc("ok"), style: .default) { [weak self] _ in
                         self?.setMenuPaused(false)
                     })
-                    self.setMenuPaused(true)
+                    self.setMenuPaused(true, sound: UiSound.error)
                     self.present(alert, animated: true)
                 }
             }
@@ -1070,7 +1087,7 @@ class GameViewController: UIViewController {
             })
         }
         alert.addAction(UIAlertAction(title: loc("cancel"), style: .cancel) { [weak self] _ in
-            self?.setMenuPaused(false)
+            self?.setMenuPaused(false, sound: UiSound.close)
         })
         present(alert, animated: true)
     }
@@ -1094,7 +1111,7 @@ class GameViewController: UIViewController {
         alert.addTextField { $0.placeholder = loc("online_port_hint"); $0.text = "38475"; $0.keyboardType = .numberPad }
         alert.addTextField { $0.placeholder = loc("online_name_hint"); $0.text = loc("online_default_name") }
         alert.addTextField { $0.placeholder = loc("online_token_hint"); $0.isSecureTextEntry = true; $0.autocapitalizationType = .none }
-        alert.addAction(UIAlertAction(title: loc("cancel"), style: .cancel) { [weak self] _ in self?.setMenuPaused(false) })
+        alert.addAction(UIAlertAction(title: loc("cancel"), style: .cancel) { [weak self] _ in self?.setMenuPaused(false, sound: UiSound.close) })
         alert.addAction(UIAlertAction(title: loc("online_connect"), style: .default) { [weak self, weak alert] _ in
             guard let self = self, let fields = alert?.textFields, fields.count == 4 else { return }
             self.setMenuPaused(false)
@@ -1140,7 +1157,7 @@ extension GameViewController: UIDocumentPickerDelegate {
     }
 
     func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
-        setMenuPaused(false)
+        setMenuPaused(false, sound: UiSound.close)
     }
 }
 

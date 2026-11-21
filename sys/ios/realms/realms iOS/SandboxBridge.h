@@ -37,6 +37,11 @@ NS_ASSUME_NONNULL_BEGIN
 // Packed x, y, z, yaw tuples for render-only remote players.
 - (void)setRemotePlayers:(const float * _Nullable)values count:(NSInteger)count NS_SWIFT_NAME(setRemotePlayers(_:count:));
 - (void)resetInput NS_SWIFT_NAME(resetInput());
+// Game sound (shared SoundSystem through AVAudioEngine). Menu sounds:
+// 0 click, 1 open, 2 close, 3 confirm, 4 error.
+- (void)playUiSound:(int32_t)sound NS_SWIFT_NAME(playUiSound(_:));
+// Stops audio output in the background and restarts it on return.
+- (void)setAudioActive:(BOOL)active NS_SWIFT_NAME(setAudioActive(_:));
 - (void)flushSave NS_SWIFT_NAME(flushSave());
 
 @end
