@@ -1,0 +1,133 @@
+#pragma once
+
+// Ekron Realms in-game store: weapon skins and gold-coin unlocks.
+//
+// This unit is intentionally free of SDL/GL dependencies so the catalog,
+// wallet and purchase rules can be unit-tested on their own (see
+// tests/native/shop_catalog_test.cpp) and reused by the desktop client.
+//
+// The catalog is split into two kinds:
+//   * Skin  -- a cosmetic tint applied to the Gravity Gun (the player's
+//              primary weapon) beam and reflected in the HUD.
+//   * Extra -- a gold-coin unlock that grants a gameplay or cosmetic
+//              bonus. Extras are active as soon as they are owned.
+//
+// Gold coins are earned while playing and spent on skins/extras. When the
+// client is connected to the online presence relay the economy is
+// server-authoritative (see DesktopOnlineClient / sandbox_relay.py); this
+// class provides the local, offline-capable fallback and persistence.
+
+#include <string>
+#include <unordered_set>
+#include <vector>
+
+namespace ekron::desktop {
+
+enum class ShopKind {
+    Skin,
+    Extra,
+};
+
+// Cosmetic/functional effects granted by Extra items. Skins use Effect::None.
+enum class ShopEffect {
+    None = 0,
+    CoinBonus,      // instantly grants a coin bonus
+    DoubleCoins,    // doubles the passive coin accrual rate
+    GoldenCrosshair,// golden crosshair cosmetic
+    CamoHud,        // alternate HUD accent colour
+    NeonSight,      // neon crosshair cosmetic
+    StartWithFlight,// spawn with noclip flight enabled
+};
+
+struct ShopItem {
+    int id;                 // unique catalog id
+    ShopKind kind;
+    const char *name;       // static UTF-8 label
+    const char *description;
+    int price;              // cost in gold coins
+    float tintR = 1.0f;     // skin beam tint (RGB, 0..1)
+    float tintG = 1.0f;
+    float tintB = 1.0f;
+    ShopEffect effect = ShopEffect::None;
+    long long effectValue = 0; // e.g. coin bonus amount
+};
+
+struct ShopCategory {
+    const char *name;
+    ShopKind kind;
+    std::vector<ShopItem> items;
+};
+
+// Stable, statically-allocated catalog. Order is preserved for UI rendering.
+const std::vector<ShopCategory> &shopCategories();
+
+// Look up a single item by id (nullptr when unknown).
+const ShopItem *findShopItem(int id);
+
+// Human-readable label for an Extra effect (used by the UI).
+const char *shopEffectLabel(ShopEffect effect);
+
+// Persisted wallet + ownership state for one player.
+class ShopState {
+public:
+    long long coins = 0;
+    std::unordered_set<int> owned;
+    int equippedSkinId = -1;
+    std::unordered_set<int> activeExtras;
+
+    // Base passive coin accrual, in coins per second of play.
+    static constexpr long long kBaseCoinsPerSecond = 1;
+
+    // Load from a JSON file. Returns true when a readable store was found.
+    // Never throws: a missing or malformed file leaves the default state.
+    bool load(const std::string &path);
+
+    // Persist to a JSON file. Best-effort; failures are ignored (the in-game
+    // economy is not critical state).
+    void save(const std::string &path) const;
+
+    // Attempt to purchase an item. Returns true on success and deducts the
+    // price / records ownership. On failure returns false and fills
+    // reasonOut with a short, localised explanation.
+    bool tryBuy(int itemId, std::string &reasonOut);
+
+    bool owns(int itemId) const { return owned.count(itemId) != 0; }
+    bool isEquippedSkin(int itemId) const { return equippedSkinId == itemId; }
+
+    // Equip a skin (only meaningful for Skin items). Returns false when the
+    // item is not owned or is not a skin.
+    bool equipSkin(int itemId);
+
+    // Whether an owned Extra is active. Extras auto-activate on purchase, so
+    // this is true for any owned Extra; exposed for symmetry and future
+    // toggleable unlocks.
+    bool hasExtra(int itemId) const;
+
+    // Passive coin accrual. `multiplier` scales the base rate (e.g. 2 for the
+    // Double Coins unlock). Ignored when <= 0.
+    void accrue(float seconds, int multiplier = 1);
+
+    // Grant or revoke coins directly (used by the Coin Bonus unlock and by
+    // server-authoritative wallet sync).
+    void addCoins(long long amount);
+
+    // The currently equipped skin, or nullptr when none is equipped.
+    const ShopItem *equippedSkin() const;
+
+    // Replace the whole state (used when syncing from the online relay).
+    void applyRemote(long long newCoins, const std::vector<int> &newOwned,
+                     int newEquippedSkin);
+
+private:
+    bool extrasAutoActivate(int itemId);
+
+    // Fractional seconds banked for passive accrual so the integer coin
+    // balance does not lose the sub-second remainder between frames.
+    double accruedSeconds_ = 0.0;
+};
+
+// Multiplier applied to passive accrual when the player owns the Double Coins
+// unlock. Pure helper so the UI and the client agree on the rule.
+int shopCoinMultiplier(const ShopState &state);
+
+} // namespace ekron::desktop

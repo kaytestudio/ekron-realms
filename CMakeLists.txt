@@ -74,6 +74,7 @@ if(ENABLE_DESKTOP_SANDBOX)
         "${DESKTOP_SRC_DIR}/main.cpp"
         "${DESKTOP_SRC_DIR}/DesktopRenderer.cpp"
         "${DESKTOP_SRC_DIR}/DesktopOnlineClient.cpp"
+        "${DESKTOP_SRC_DIR}/ShopCatalog.cpp"
         "${SHARED_CPP_DIR}/GltfScene.cpp"
         "${SHARED_CPP_DIR}/ImageDecode.cpp"
     )
@@ -245,6 +246,17 @@ enable_testing()
 
 add_executable(ekron_desktop_hud_layout_test tests/native/desktop_hud_layout_test.cpp)
 add_test(NAME ekron_desktop_hud_layout COMMAND ekron_desktop_hud_layout_test)
+
+# In-game store catalog / wallet / purchase rules (SDL-independent).
+add_executable(ekron_shop_catalog_test
+    tests/native/shop_catalog_test.cpp
+    sys/desktop/ShopCatalog.cpp
+)
+target_include_directories(ekron_shop_catalog_test PRIVATE
+    sys/desktop
+    sys/android/app/src/main/cpp
+)
+add_test(NAME ekron_shop_catalog COMMAND ekron_shop_catalog_test)
 
 if(TARGET ekron-realms)
     add_test(

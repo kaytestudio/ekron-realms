@@ -117,6 +117,38 @@ connections time out after 30 seconds. There are at most 16 concurrent
 connections (including connections waiting to authenticate), and at most 30
 messages per connection per second. Slow clients are disconnected.
 
+### In-game store economy
+
+Each peer owns a gold-coin wallet and a set of owned store items, authoritative
+on the relay. New peers start with `START_COINS` (500) and accrue
+`COIN_RATE_PER_SECOND` (2) coins per second of connection time; owning the
+Double Coins unlock (item 102) doubles that rate, and the Coin Bonus unlock
+(item 101) grants +500 coins on purchase. The `welcome` frame carries the
+peer's initial wallet, and a client may query it at any time:
+
+```json
+{"type":"wallet"}
+```
+
+The relay replies with the current balance and owned item ids:
+
+```json
+{"type":"wallet","coins":500,"owned":[1,102]}
+```
+
+To buy a skin or unlock, send the item id (and an optional client request id
+`req` that the relay echoes back so the caller can correlate the reply). The
+relay validates the item against its price table, checks the wallet, deducts
+the price, records ownership and replies:
+
+```json
+{"type":"buy","id":3,"req":7}
+{"type":"purchase","id":3,"ok":true,"coins":300,"owned":[1,3],"req":7}
+```
+
+On failure the reply has `"ok":false` and a `"reason"` of `"owned"` or
+`"insufficient"`. Item ids and prices mirror `sys/desktop/ShopCatalog.cpp`.
+
 This protocol is experimental and may change when the authoritative game
 server and real clients are implemented. No compatibility or security guarantee
 is made for untrusted environments.

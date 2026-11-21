@@ -17,6 +17,7 @@
 #include "DesktopHudLayout.h"
 #include "DesktopOnlineClient.h"
 #include "FpvDrone.h"
+#include "ShopCatalog.h"
 #include "GravityBeam.h"
 #include "Interaction.h"
 #include "LevelPlacement.h"
@@ -134,6 +135,25 @@ std::string resolveSavePath() {
         return (dir / "city-glb-v1.txt").string();
     }
     return (fs::temp_directory_path() / "ekron-city-glb-v1.txt").string();
+}
+
+// Persistent store wallet + ownership (weapon skins / unlocks). Lives next to
+// the city save so it survives across sessions.
+std::string resolveStorePath() {
+    if (char *pref = SDL_GetPrefPath("KayteStudio", "EkronRealms")) {
+        fs::path dir(pref);
+        SDL_free(pref);
+        std::error_code ec;
+        fs::create_directories(dir, ec);
+        return (dir / "store.json").string();
+    }
+    if (const char *home = std::getenv("HOME"); home && home[0] != '\0') {
+        fs::path dir = fs::path(home) / ".local" / "share" / "ekron-realms";
+        std::error_code ec;
+        fs::create_directories(dir, ec);
+        return (dir / "store.json").string();
+    }
+    return (fs::temp_directory_path() / "ekron-store.json").string();
 }
 
 city::SpawnConfig loadSpawnConfig(const std::string &assetRoot) {
@@ -408,6 +428,7 @@ void printHelp(const char *exe) {
         << "  Space / C / Z       Jump (Ascend) / Crouch (Descend) / Prone\n"
         << "  1 / 2 / 3           Gravity Gun / FPV Remote / Empty Hands\n"
         << "  Q or Tab or B       Open/close Build & Equipment Catalog\n"
+        << "  G                   Open/close Store (weapon skins & gold-coin unlocks)\n"
         << "  LMB                 Grab/Drop (Gravity Gun), Place item (Build), Connect FPV\n"
         << "  RMB or F            Freeze/Unfreeze object or cancel Build mode\n"
         << "  R or MouseWheel     Rotate preview or held object 90 deg\n"
@@ -568,6 +589,12 @@ int main(int argc, char **argv) {
     const std::string savePath = resolveSavePath();
     const bool loadedSave = world.load(savePath);
 
+    // In-game store: weapon skins + gold-coin unlocks. Persisted locally and
+    // synchronised with the online relay while connected.
+    const std::string storePath = resolveStorePath();
+    ekron::desktop::ShopState shop;
+    shop.load(storePath);
+
     const city::SpawnConfig spawnCfg = loadSpawnConfig(assetRoot);
     sandbox::World SpawnNav = world;
     city::SpawnPoint roadAnchor{};
@@ -639,20 +666,27 @@ int main(int argc, char **argv) {
     bool running = true;
     bool catalogOpen = false;
     bool pauseOpen = false;
+    bool shopOpen = false;
     bool flying = spawnCfg.enabled && spawnCfg.startFlying;
+    // "Start with Flight" unlock grants noclip flight on (re)spawn.
+    if (shop.hasExtra(106)) flying = true;
     bool crouched = false;
     bool prone = false;
     bool building = false;
     bool fullscreen = false;
     sandbox::HandTool spawnReturnTool = sandbox::HandTool::GRAVITY_GUN;
     int selectedCategory = 1;
+    int selectedShopCategory = 0;
     int seatedCar = -1;
     bool carWasAnchored = false;
     physics::Vec3 seatFrom{};
     float seatTime = 1.0f;
     bool saveDirty = false;
     float saveTimer = 0.0f;
-    std::string toastText = "Добро пожаловать в ЭКРОН! [Q] Каталог  [1-3] Инструменты  [Esc] Меню";
+    bool shopDirty = false;
+    float shopSaveTimer = 0.0f;
+    long long pendingShopToastReq = -1;
+    std::string toastText = "Добро пожаловать в ЭКРОН! [Q] Каталог  [G] Магазин  [1-3] Инструменты  [Esc] Меню";
     float toastTimer = 5.5f;
 
     auto showToast = [&](std::string msg, float secs = 2.6f) {
@@ -660,15 +694,25 @@ int main(int argc, char **argv) {
         toastTimer = secs;
     };
 
+    // "Start with Flight" unlock: grant noclip flight once on spawn/purchase.
+    // Deliberately not applied every frame so the player can still toggle
+    // noclip off manually from the pause menu.
+    auto grantStartWithFlight = [&]() {
+        if (shop.hasExtra(106) && !flying) {
+            flying = true;
+            showToast("Улучшение «Старт с полётом» активировано");
+        }
+    };
+
     auto syncMouseCapture = [&]() {
-        const bool capture = !catalogOpen && !pauseOpen;
+        const bool capture = !catalogOpen && !pauseOpen && !shopOpen;
         SDL_SetRelativeMouseMode(capture ? SDL_TRUE : SDL_FALSE);
     };
     syncMouseCapture();
 
     auto respawnPlayer = [&]() {
         seatedCar = -1;
-        flying = spawnCfg.enabled && spawnCfg.startFlying;
+        flying = (spawnCfg.enabled && spawnCfg.startFlying) || shop.hasExtra(106);
         crouched = false;
         prone = false;
         world.x = spawnPos.x;
@@ -841,7 +885,9 @@ int main(int argc, char **argv) {
             } else if (ev.type == SDL_KEYDOWN && !ev.key.repeat) {
                 const SDL_Keycode key = ev.key.keysym.sym;
                 if (key == SDLK_ESCAPE) {
-                    if (catalogOpen) {
+                    if (shopOpen) {
+                        shopOpen = false;
+                    } else if (catalogOpen) {
                         catalogOpen = false;
                     } else if (drone.piloting()) {
                         drone.leave();
@@ -852,12 +898,17 @@ int main(int argc, char **argv) {
                 } else if (key == SDLK_F11) {
                     fullscreen = !fullscreen;
                     SDL_SetWindowFullscreen(window, fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+                } else if (!pauseOpen && key == SDLK_g) {
+                    if (!drone.piloting() && seatedCar < 0) {
+                        shopOpen = !shopOpen;
+                        syncMouseCapture();
+                    }
                 } else if (!pauseOpen && (key == SDLK_q || key == SDLK_TAB || key == SDLK_b)) {
                     if (!drone.piloting() && seatedCar < 0) {
                         catalogOpen = !catalogOpen;
                         syncMouseCapture();
                     }
-                } else if (!pauseOpen && !catalogOpen) {
+                } else if (!pauseOpen && !catalogOpen && !shopOpen) {
                     if (key == SDLK_1) {
                         tools.select(world, sandbox::HandTool::GRAVITY_GUN);
                         building = false;
@@ -920,7 +971,7 @@ int main(int argc, char **argv) {
                         }
                     }
                 }
-            } else if (ev.type == SDL_MOUSEMOTION && !catalogOpen && !pauseOpen) {
+            } else if (ev.type == SDL_MOUSEMOTION && !catalogOpen && !pauseOpen && !shopOpen) {
                 if (drone.mode == sandbox::FpvDrone::Flying) {
                     drone.look(float(ev.motion.xrel), float(ev.motion.yrel));
                     mouseRollInput = std::clamp(float(ev.motion.xrel) * 0.035f, -1.0f, 1.0f);
@@ -929,7 +980,7 @@ int main(int argc, char **argv) {
                     world.yaw -= float(ev.motion.xrel) * 0.003f;
                     world.pitch = std::clamp(world.pitch - float(ev.motion.yrel) * 0.003f, -1.3f, 1.3f);
                 }
-            } else if (ev.type == SDL_MOUSEWHEEL && !catalogOpen && !pauseOpen) {
+            } else if (ev.type == SDL_MOUSEWHEEL && !catalogOpen && !pauseOpen && !shopOpen) {
                 if (ev.wheel.y != 0) {
                     if (building) {
                         world.rotation = (world.rotation + (ev.wheel.y > 0 ? 1 : 3)) % 4;
@@ -987,7 +1038,59 @@ int main(int argc, char **argv) {
                             break;
                         }
                     }
-                } else if (!catalogOpen && !pauseOpen) {
+                } else if (shopOpen && ev.button.button == SDL_BUTTON_LEFT) {
+                    const float sw = std::min(760.0f, float(hudW) - 60.0f);
+                    const float sh = std::min(540.0f, float(hudH) - 60.0f);
+                    const float sx = (float(hudW) - sw) * 0.5f;
+                    const float sy = (float(hudH) - sh) * 0.5f;
+                    const auto &scats = ekron::desktop::shopCategories();
+
+                    // Close button
+                    if (Rect{sx + sw - 44.0f, sy + 12.0f, 32.0f, 30.0f}.contains(mx, my)) {
+                        shopOpen = false;
+                        syncMouseCapture();
+                    }
+                    // Category tabs (Skins / Extras)
+                    const float stabW = (sw - 32.0f - 8.0f) / 2.0f;
+                    for (size_t t = 0; t < scats.size(); ++t) {
+                        if (Rect{sx + 16.0f + float(t) * (stabW + 8.0f), sy + 60.0f, stabW, 32.0f}.contains(mx, my)) {
+                            selectedShopCategory = int(t);
+                        }
+                    }
+                    // Cards + action buttons
+                    const auto &sitems = scats[size_t(selectedShopCategory)].items;
+                    const float scardW = (sw - 32.0f - 3.0f * 12.0f) / 4.0f;
+                    const float scardH = sh - 150.0f;
+                    for (size_t k = 0; k < sitems.size(); ++k) {
+                        const float kx = sx + 16.0f + float(k) * (scardW + 12.0f);
+                        const float ky = sy + 104.0f;
+                        Rect btn{kx + 8.0f, ky + scardH - 40.0f, scardW - 16.0f, 30.0f};
+                        if (!btn.contains(mx, my)) continue;
+                        const int id = sitems[k].id;
+                        if (shop.owns(id)) {
+                            if (sitems[k].kind == ekron::desktop::ShopKind::Skin && shop.equipSkin(id)) {
+                                shopDirty = true;
+                                shop.save(storePath);
+                                showToast(std::string("Скин применён: ") + sitems[k].name);
+                            }
+                        } else if (online.shopSynced()) {
+                            pendingShopToastReq = online.requestPurchase(id);
+                            showToast("Запрос покупки у сервера…");
+                        } else {
+                            std::string reason;
+                            if (shop.tryBuy(id, reason)) {
+                                grantStartWithFlight();
+                                shopDirty = true;
+                                pendingShopToastReq = id; // local echo for the toast
+                                shop.save(storePath);
+                                showToast(std::string("Куплено: ") + sitems[k].name);
+                            } else {
+                                showToast(reason);
+                            }
+                        }
+                        break;
+                    }
+                } else if (!catalogOpen && !pauseOpen && !shopOpen) {
                     if (ev.button.button == SDL_BUTTON_LEFT) {
                         if (drone.mode == sandbox::FpvDrone::InHands) {
                             drone.place(*cityModel.scene().collision, builtCollision);
@@ -1053,7 +1156,7 @@ int main(int argc, char **argv) {
         float dronePitch = mousePitchInput;
         float droneRoll = mouseRollInput;
 
-        if (!catalogOpen && !pauseOpen) {
+        if (!catalogOpen && !pauseOpen && !shopOpen) {
             if (drone.piloting()) {
                 if (keys[SDL_SCANCODE_W]) droneThrottle += 1.0f;
                 if (keys[SDL_SCANCODE_S]) droneThrottle -= 1.0f;
@@ -1174,6 +1277,38 @@ int main(int argc, char **argv) {
             }
         }
 
+        // Store economy: passive coins, online wallet sync, purchase feedback
+        // and debounced local persistence.
+        if (!pauseOpen) {
+            if (online.shopSynced()) {
+                // Online: the relay is authoritative. Mirror its wallet and
+                // ownership, then resolve a pending purchase into a toast.
+                shop.applyRemote(online.walletCoins(), online.shopOwned(), shop.equippedSkinId);
+                if (pendingShopToastReq >= 0 && online.lastPurchaseReq() == pendingShopToastReq) {
+                    if (online.lastPurchaseOk()) {
+                        grantStartWithFlight();
+                        showToast("Куплено у сервера");
+                    } else {
+                        const std::string reason = online.lastPurchaseReason();
+                        showToast(reason.empty() ? "Покупка отклонена сервером" : reason);
+                    }
+                    pendingShopToastReq = -1;
+                }
+            } else {
+                // Offline: accrue coins locally (with the Double Coins multiplier).
+                shop.accrue(dt, ekron::desktop::shopCoinMultiplier(shop));
+                if (pendingShopToastReq >= 0) pendingShopToastReq = -1;
+            }
+        }
+        if (shopDirty) {
+            shopSaveTimer += dt;
+            if (shopSaveTimer >= 1.0f) {
+                shop.save(storePath);
+                shopDirty = false;
+                shopSaveTimer = 0.0f;
+            }
+        }
+
         // Build world vertex stream
         std::vector<sandbox::MeshVertex> worldVertices;
         worldVertices.reserve((world.objects.size() * 10 + 4) * 36);
@@ -1227,7 +1362,12 @@ int main(int argc, char **argv) {
         }
 
         if (tools.holding() && tools.tool == sandbox::HandTool::GRAVITY_GUN) {
-            sandbox::appendGravityBeam(worldVertices, world, tools.display);
+            // Apply the equipped weapon-skin tint to the gravity beam.
+            const ekron::desktop::ShopItem *skin = shop.equippedSkin();
+            sandbox::appendGravityBeam(worldVertices, world, tools.display,
+                                       skin ? skin->tintR : 0.15f,
+                                       skin ? skin->tintG : 1.0f,
+                                       skin ? skin->tintB : 0.45f);
         }
 
         placementPreview.reset();
@@ -1285,17 +1425,22 @@ int main(int argc, char **argv) {
         // 2D Desktop HUD
         renderer.beginUi(hudW, hudH);
 
-        // Center crosshair
-        if (!catalogOpen && !pauseOpen) {
+        // Center crosshair (cosmetic skins from the store)
+        ekron::desktop::Color crossColor{0.92f, 0.98f, 0.95f, 0.85f};
+        if (shop.hasExtra(103)) crossColor = {1.00f, 0.84f, 0.20f, 0.95f};      // Золотой прицел
+        else if (shop.hasExtra(105)) crossColor = {0.40f, 1.00f, 0.95f, 0.95f}; // Неоновый прицел
+        if (!catalogOpen && !pauseOpen && !shopOpen) {
             const float cx = float(hudW) * 0.5f;
             const float cy = float(hudH) * 0.5f;
-            renderer.drawRect(cx - 8.0f, cy - 1.0f, 16.0f, 2.0f, {0.92f, 0.98f, 0.95f, 0.85f});
-            renderer.drawRect(cx - 1.0f, cy - 8.0f, 2.0f, 16.0f, {0.92f, 0.98f, 0.95f, 0.85f});
+            renderer.drawRect(cx - 8.0f, cy - 1.0f, 16.0f, 2.0f, crossColor);
+            renderer.drawRect(cx - 1.0f, cy - 8.0f, 2.0f, 16.0f, crossColor);
         }
 
         // Top-left status bar
+        ekron::desktop::Color hudAccent{0.18f, 0.68f, 0.58f, 0.85f};
+        if (shop.hasExtra(104)) hudAccent = {0.38f, 0.62f, 0.32f, 0.85f}; // Камуфляж HUD
         renderer.drawRect(14.0f, 14.0f, 430.0f, 54.0f, {0.06f, 0.09f, 0.12f, 0.78f});
-        renderer.drawBorder(14.0f, 14.0f, 430.0f, 54.0f, 1.5f, {0.18f, 0.68f, 0.58f, 0.85f});
+        renderer.drawBorder(14.0f, 14.0f, 430.0f, 54.0f, 1.5f, hudAccent);
         const char *toolLabel = building ? "Строительство"
             : (tools.tool == sandbox::HandTool::GRAVITY_GUN ? "1: Грави-пушка"
             : (tools.tool == sandbox::HandTool::DRONE_REMOTE ? "2: Пульт FPV" : "3: Пустые руки"));
@@ -1335,7 +1480,7 @@ int main(int argc, char **argv) {
                        : (o.doorTarget > 0.5f ? "[E] Закрыть дверь" : "[E] Открыть дверь"));
             }
         }
-        if (!prompt.empty() && !catalogOpen && !pauseOpen) {
+        if (!prompt.empty() && !catalogOpen && !pauseOpen && !shopOpen) {
             const float pw = ekron::font::measureTextWidth(prompt, 1.65f) + 28.0f;
             renderer.drawRect((float(hudW) - pw) * 0.5f, float(hudH) * 0.62f, pw, 32.0f, {0.06f, 0.14f, 0.14f, 0.85f});
             renderer.drawBorder((float(hudW) - pw) * 0.5f, float(hudH) * 0.62f, pw, 32.0f, 1.5f, {0.22f, 0.78f, 0.66f, 0.9f});
@@ -1439,6 +1584,89 @@ int main(int argc, char **argv) {
                 }
                 renderer.drawCenteredText(kx + cardW * 0.5f, ky + cardH - 44.0f, items[k].title, 1.65f, {0.96f, 0.99f, 1.0f, 1.0f});
                 renderer.drawCenteredText(kx + cardW * 0.5f, ky + cardH - 20.0f, items[k].subtitle, 1.25f, {0.68f, 0.80f, 0.84f, 0.95f});
+            }
+        }
+
+        // Store (shop) modal: weapon skins + gold-coin unlocks.
+        if (shopOpen) {
+            renderer.drawRect(0.0f, 0.0f, float(hudW), float(hudH), {0.02f, 0.03f, 0.05f, 0.66f});
+            const float sw = std::min(760.0f, float(hudW) - 60.0f);
+            const float sh = std::min(540.0f, float(hudH) - 60.0f);
+            const float sx = (float(hudW) - sw) * 0.5f;
+            const float sy = (float(hudH) - sh) * 0.5f;
+
+            renderer.drawRect(sx, sy, sw, sh, {0.08f, 0.11f, 0.15f, 0.97f});
+            renderer.drawBorder(sx, sy, sw, sh, 2.0f, {0.72f, 0.58f, 0.16f, 0.98f});
+            renderer.drawText(sx + 18.0f, sy + 18.0f, "МАГАЗИН — ЭКРОН", 1.85f, {1.00f, 0.92f, 0.55f, 1.0f});
+
+            char balanceBuf[128]{};
+            std::snprintf(balanceBuf, sizeof(balanceBuf), "ЗОЛОТО: %lld", static_cast<long long>(shop.coins));
+            renderer.drawText(sx + 18.0f, sy + 44.0f, balanceBuf, 1.45f, {1.00f, 0.84f, 0.32f, 1.0f});
+            if (!onlineHost.empty())
+                renderer.drawText(sx + sw - 18.0f - ekron::font::measureTextWidth(online.status(), 1.05f),
+                                  sy + 44.0f, online.status(), 1.05f, {0.68f, 0.80f, 0.84f, 1.0f});
+
+            // Close button
+            renderer.drawRect(sx + sw - 44.0f, sy + 12.0f, 32.0f, 30.0f, {0.42f, 0.14f, 0.16f, 0.95f});
+            renderer.drawCenteredText(sx + sw - 28.0f, sy + 27.0f, "X", 1.75f, {1, 1, 1, 1});
+
+            const auto &scats = ekron::desktop::shopCategories();
+            const float stabW = (sw - 32.0f - 8.0f) / 2.0f;
+            for (size_t t = 0; t < scats.size(); ++t) {
+                const bool active = int(t) == selectedShopCategory;
+                const float tx = sx + 16.0f + float(t) * (stabW + 8.0f);
+                renderer.drawRect(tx, sy + 60.0f, stabW, 32.0f,
+                                  active ? ekron::desktop::Color{0.55f, 0.44f, 0.14f, 0.98f}
+                                         : ekron::desktop::Color{0.13f, 0.17f, 0.22f, 0.95f});
+                renderer.drawBorder(tx, sy + 60.0f, stabW, 32.0f, 1.0f,
+                                    active ? ekron::desktop::Color{1.00f, 0.86f, 0.40f, 1.0f}
+                                           : ekron::desktop::Color{0.25f, 0.32f, 0.38f, 0.8f});
+                renderer.drawCenteredText(tx + stabW * 0.5f, sy + 77.0f, scats[t].name, 1.45f, {0.98f, 0.96f, 0.90f, 1.0f});
+            }
+
+            const auto &sitems = scats[size_t(selectedShopCategory)].items;
+            const float scardW = (sw - 32.0f - 3.0f * 12.0f) / 4.0f;
+            const float scardH = sh - 150.0f;
+            for (size_t k = 0; k < sitems.size(); ++k) {
+                const float kx = sx + 16.0f + float(k) * (scardW + 12.0f);
+                const float ky = sy + 104.0f;
+                const ekron::desktop::ShopItem &it = sitems[k];
+                const bool owned = shop.owns(it.id);
+                const bool equipped = it.kind == ekron::desktop::ShopKind::Skin && shop.isEquippedSkin(it.id);
+                renderer.drawRect(kx, ky, scardW, scardH,
+                                  equipped ? ekron::desktop::Color{0.20f, 0.24f, 0.14f, 0.98f}
+                                           : ekron::desktop::Color{0.11f, 0.15f, 0.19f, 0.96f});
+                renderer.drawBorder(kx, ky, scardW, scardH, 1.5f,
+                                    equipped ? ekron::desktop::Color{1.00f, 0.90f, 0.45f, 1.0f}
+                                             : ekron::desktop::Color{0.22f, 0.30f, 0.36f, 0.9f});
+                // Icon: skin tint square for skins, gold coin for extras.
+                const float iconSz = std::min(scardW - 28.0f, scardH - 110.0f);
+                const float ix = kx + (scardW - iconSz) * 0.5f;
+                const float iy = ky + 14.0f;
+                renderer.drawRect(ix, iy, iconSz, iconSz,
+                                  it.kind == ekron::desktop::ShopKind::Skin
+                                      ? ekron::desktop::Color{it.tintR, it.tintG, it.tintB, 1.0f}
+                                      : ekron::desktop::Color{0.70f, 0.56f, 0.20f, 1.0f});
+                renderer.drawBorder(ix, iy, iconSz, iconSz, 1.0f, {0.20f, 0.28f, 0.34f, 0.9f});
+
+                renderer.drawCenteredText(kx + scardW * 0.5f, ky + scardH - 66.0f, it.name, 1.45f, {0.98f, 0.99f, 1.0f, 1.0f});
+                renderer.drawCenteredText(kx + scardW * 0.5f, ky + scardH - 46.0f, it.description, 1.15f, {0.70f, 0.80f, 0.84f, 0.95f});
+
+                // Action button
+                const float bx = kx + 8.0f, by = ky + scardH - 40.0f, bw = scardW - 16.0f, bh = 30.0f;
+                const ekron::desktop::Color bcol = owned
+                    ? (equipped ? ekron::desktop::Color{0.35f, 0.60f, 0.40f, 0.98f}
+                                : ekron::desktop::Color{0.16f, 0.30f, 0.26f, 0.98f})
+                    : ekron::desktop::Color{0.52f, 0.42f, 0.12f, 0.98f};
+                renderer.drawRect(bx, by, bw, bh, bcol);
+                renderer.drawBorder(bx, by, bw, bh, 1.0f,
+                                    owned ? ekron::desktop::Color{0.55f, 0.85f, 0.65f, 1.0f}
+                                          : ekron::desktop::Color{1.00f, 0.88f, 0.45f, 1.0f});
+                const std::string btnLabel = owned
+                    ? (equipped ? std::string("ПРИМЕНЕНО")
+                                : (it.kind == ekron::desktop::ShopKind::Skin ? std::string("НАДЕТЬ") : std::string("АКТИВНО")))
+                    : (std::string("КУПИТЬ ") + std::to_string(it.price));
+                renderer.drawCenteredText(bx + bw * 0.5f, by + 15.0f, btnLabel, 1.30f, {0.98f, 0.99f, 1.0f, 1.0f});
             }
         }
 

@@ -29,6 +29,18 @@ int main(int argc, char **argv) {
     if (!waitFor([&] { return first.status() == "Online: players only"; })) {
         std::cerr << "first: " << first.status() << '\n'; return 4;
     }
+    // The relay is authoritative for the in-game store economy: the welcome
+    // carries the starting wallet and marks the client as synced.
+    if (!first.shopSynced() || first.walletCoins() != 500) {
+        std::cerr << "shop sync: synced=" << first.shopSynced()
+                  << " coins=" << first.walletCoins() << '\n'; return 7;
+    }
+    // A purchase is validated by the relay and mirrored back to the client.
+    first.requestPurchase(1); // Flame skin, 150 gold
+    if (!waitFor([&] { return first.shopOwns(1) && first.walletCoins() == 350; })) {
+        std::cerr << "purchase: coins=" << first.walletCoins()
+                  << " owns=" << first.shopOwns(1) << '\n'; return 8;
+    }
     ekron::desktop::DesktopOnlineClient second;
     second.connect(host, port, "Bob", token);
     second.updatePose(-4, 2, 5, -.3f, -.1f);
