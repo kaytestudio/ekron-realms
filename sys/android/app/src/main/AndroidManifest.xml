@@ -6,7 +6,8 @@
         android:allowBackup="false"
         android:hardwareAccelerated="true"
         android:icon="@mipmap/ic_launcher"
-        android:label="ЭКРОН — песочница"
+        android:label="@string/app_name"
+        android:localeConfig="@xml/locales_config"
         android:supportsRtl="true"
         android:theme="@style/SandboxTheme"
         android:usesCleartextTraffic="false">

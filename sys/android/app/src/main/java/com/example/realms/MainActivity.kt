@@ -15,6 +15,10 @@ import android.os.Handler
 import android.os.Looper
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import android.graphics.Color
 import android.view.Gravity
 import android.view.MotionEvent
@@ -70,7 +74,8 @@ class MainActivity : GameActivity() {
     private lateinit var rotateHeldControl: HudButton
     private lateinit var crouchControl: HudButton
     private lateinit var proneControl: HudButton
-    private val items = BuildCatalog.entries.map { it.label }.toTypedArray()
+    // Localized via res/values{,-ru,-pt-rPT}; resolved lazily because resources are not ready during construction.
+    private val items by lazy { BuildCatalog.entries.map { getString(it.labelRes) }.toTypedArray() }
     private val catalogImages=arrayOfNulls<Bitmap>(BuildCatalog.entries.size)
     private val catalogExecutor=Executors.newSingleThreadExecutor()
     private var catalogAdapter: BaseAdapter? = null
@@ -86,7 +91,7 @@ class MainActivity : GameActivity() {
     private var selectedSurface=1
     private val materialImages=arrayOfNulls<Bitmap>(7)
     private val materialIds=intArrayOf(5,1,2,3)
-    private val materialNames=arrayOf("Дерево","Бетон","Кирпич","Металл")
+    private val materialNames by lazy { arrayOf(R.string.material_wood,R.string.material_concrete,R.string.material_brick,R.string.material_metal).map { getString(it) } }
     private var selected = 0
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var coordinates: TextView
@@ -117,10 +122,10 @@ class MainActivity : GameActivity() {
                         if(pendingSurface==null && nativeSurface in listOf(1,2,3,5,6))selectedSurface=nativeSurface
                     }
                     if(state.size>=12){interactionCode=state[11].toInt();interactionControl.visibility=if(interactionCode>0)View.VISIBLE else View.GONE
-                        interactionControl.caption=when(interactionCode){6->"Подключиться";1->"Открыть";2->"Закрыть";3->"Сесть";4->"Выйти";else->""}
+                        interactionControl.caption=when(interactionCode){6->getString(R.string.interaction_connect);1->getString(R.string.interaction_open);2->getString(R.string.interaction_close);3->getString(R.string.interaction_sit);4->getString(R.string.interaction_exit);else->""}
                         interactionControl.contentDescription=interactionControl.caption;interactionControl.invalidate()
                     }
-                    if(state.size>=13){freezeControl.caption=if(state[12]>.5f) "Разморозить" else "Заморозить";freezeControl.contentDescription=freezeControl.caption;freezeControl.invalidate()}
+                    if(state.size>=13){freezeControl.caption=if(state[12]>.5f) getString(R.string.action_unfreeze) else getString(R.string.action_freeze);freezeControl.contentDescription=freezeControl.caption;freezeControl.invalidate()}
                     if(state.size>=15){crouchControl.isSelected=state[14].toInt()==1;proneControl.isSelected=state[14].toInt()==2}
                     renderTools()
                 }
@@ -129,7 +134,7 @@ class MainActivity : GameActivity() {
                 coordinates.text = String.format(Locale.US, "X: %.1f   Y: %.1f   Z: %.1f", state[0], state[1], state[2])
                 val flying = state[3] > 0.5f
                 flyingNow = flying
-                flight.text = if (flying) "✈ Полёт: ВКЛ" else "✈ Полёт: ВЫКЛ"
+                flight.text = getString(if (flying) R.string.flight_on else R.string.flight_off)
                 altitude.visibility = if (flying) View.VISIBLE else View.GONE
                 val stage = state[4].toInt()
                 worldReady = stage == 6 && introFinished
@@ -140,28 +145,28 @@ class MainActivity : GameActivity() {
                 spinner.visibility = if (stage < 0) View.GONE else View.VISIBLE
                 if(state.size>=9)spinner.progress=state[8].toInt().coerceIn(0,100)
                 loadingText.text = when (stage) {
-                    0 -> "Подготовка графики…"
-                    1 -> "Загрузка текстур…"
-                    2 -> "Загрузка города и материалов…"
-                    3 -> "Подготовка УАЗа и парковки…"
-                    4 -> "Загрузка моделей на GPU…"
-                    5 -> "Подготовка первого кадра…"
-                    6 -> "Мир готов"
-                    else -> "Не удалось запустить рендерер.\nПерезапусти игру. Ошибка записана в logcat / Ekron."
+                    0 -> getString(R.string.loading_stage_graphics)
+                    1 -> getString(R.string.loading_stage_textures)
+                    2 -> getString(R.string.loading_stage_city)
+                    3 -> getString(R.string.loading_stage_vehicle)
+                    4 -> getString(R.string.loading_stage_gpu)
+                    5 -> getString(R.string.loading_stage_first_frame)
+                    6 -> getString(R.string.loading_stage_ready)
+                    else -> getString(R.string.loading_failed)
                 }
                 if(stage in 0..5 && state.size>=9)loadingText.append(" ${state[8].toInt()}%")
                 notice.text = when (state[5].toInt()) {
-                    1 -> "Точка из конфига небезопасна — спавн перенесён на открытое место."
-                    2 -> "Безопасная точка пока недоступна — освободите спавн."
-                    3 -> "Нет свободного места для УАЗа. Освободите парковку."
-                    5 -> "Нет безопасного места рядом для выхода."
-                    4 -> "Игрок возвращён на безопасный спавн."
-                    else -> if (flying) "Сквозь стены · ↑ / ↓ — высота" else when(toolsState.tool) {
-                        HandTool.HAND_EMPTY -> "Пустые руки"
-                        HandTool.SPAWN_GUN -> "Спавн-пушка: ${items[selected]}"
-                        HandTool.GRAVITY_GUN -> if(toolsState.holding) "Предмет захвачен" else "Грави-пушка: наведите на свою постройку"
-                        HandTool.DELETE_TOOL -> "Удаление своих построек"
-                        HandTool.DRONE_REMOTE -> "Пульт FPV · подключение к дрону"
+                    1 -> getString(R.string.notice_spawn_moved)
+                    2 -> getString(R.string.notice_spawn_unavailable)
+                    3 -> getString(R.string.notice_no_parking)
+                    5 -> getString(R.string.notice_no_exit)
+                    4 -> getString(R.string.notice_player_respawned)
+                    else -> if (flying) getString(R.string.notice_flying) else when(toolsState.tool) {
+                        HandTool.HAND_EMPTY -> getString(R.string.tool_empty_hands)
+                        HandTool.SPAWN_GUN -> getString(R.string.notice_spawn_gun, items[selected])
+                        HandTool.GRAVITY_GUN -> if(toolsState.holding) getString(R.string.notice_item_grabbed) else getString(R.string.notice_gravity_gun)
+                        HandTool.DELETE_TOOL -> getString(R.string.notice_delete_tool)
+                        HandTool.DRONE_REMOTE -> getString(R.string.notice_fpv_remote)
                     }
                 }
             }
@@ -173,7 +178,7 @@ class MainActivity : GameActivity() {
                     if(normalHudVisibility.isEmpty()){
                         closePopup();toolWheel.cancel();joystick.reset();lookArea.reset()
                         for(i in 0 until hud.childCount){val child=hud.getChildAt(i);if(child!==fpvLayer)normalHudVisibility[child]=child.visibility}
-                        Toast.makeText(this@MainActivity,"Слева — высота и рыскание. Справа — наклоны. × — к пульту.",Toast.LENGTH_LONG).show()
+                        Toast.makeText(this@MainActivity,getString(R.string.fpv_controls_hint),Toast.LENGTH_LONG).show()
                     }
                     for(i in 0 until hud.childCount){val child=hud.getChildAt(i);if(child!==fpvLayer)child.visibility=View.INVISIBLE}
                     fpvLayer.visibility=View.VISIBLE;fpvLayer.bringToFront()
@@ -208,17 +213,17 @@ class MainActivity : GameActivity() {
             setPadding(dp(12), dp(8), dp(12), dp(8))
             background = GradientDrawable().apply { setColor(0xaa263039.toInt()); cornerRadius = dp(5).toFloat() }
         }
-        heading.addView(label("ЭКРОН • ПЕСОЧНИЦА", 14f))
+        heading.addView(label(getString(R.string.hud_title), 14f))
         coordinates = label("X: —   Y: —   Z: —", 13f).apply {
-            contentDescription = "Координаты игрока. Нажмите, чтобы скопировать для конфига"
+            contentDescription = getString(R.string.coordinates_description)
             setOnClickListener {
                 val json = String.format(Locale.US, "{\"enabled\":true,\"position\":{\"x\":%.4f,\"y\":%.4f,\"z\":%.4f},\"yawDegrees\":%.4f,\"startFlying\":%s}", latest[0], latest[1], latest[2], latestYawDegrees, flyingNow.toString())
                 (getSystemService(CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("spawn.json", json))
-                Toast.makeText(this@MainActivity, "Координаты для spawn.json скопированы", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, R.string.spawn_copied, Toast.LENGTH_SHORT).show()
             }
         }
         heading.addView(coordinates)
-        notice = label("Свободный режим", 10f)
+        notice = label(getString(R.string.notice_free_mode), 10f)
         heading.addView(notice)
         overlay.addView(heading, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START))
         overlay.addView(label("+", 26f), FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
@@ -234,10 +239,10 @@ class MainActivity : GameActivity() {
             setOnClickListener { click() }
         }
         val pause = action("", "pause") { showPauseMenu() }.apply { visualScale=.73f }
-        pause.contentDescription = "Пауза"
+        pause.contentDescription = getString(R.string.pause)
         overlay.addView(pause, FrameLayout.LayoutParams(dp(60), dp(60), Gravity.TOP or Gravity.END).apply { topMargin=dp(6); rightMargin=dp(8) })
         val movement = LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; gravity=Gravity.CENTER; isMotionEventSplittingEnabled=true }
-        val jump = action("Прыжок", "jump") { nativeCommand(8) }
+        val jump = action(getString(R.string.action_jump), "jump") { nativeCommand(8) }
         // Fire on press, not release. The joystick keeps its own pointer and axes untouched.
         jump.setOnTouchListener { v, event ->
             when(event.actionMasked) {
@@ -246,11 +251,11 @@ class MainActivity : GameActivity() {
             }
             true
         }
-        crouchControl = action("Присесть", "crouch") {
+        crouchControl = action(getString(R.string.action_crouch), "crouch") {
             crouchControl.isSelected = !crouchControl.isSelected; proneControl.isSelected=false
             nativeCommand(9)
         }
-        proneControl = action("Лечь", "prone") {
+        proneControl = action(getString(R.string.action_prone), "prone") {
             proneControl.isSelected = !proneControl.isSelected; crouchControl.isSelected=false
             nativeCommand(10)
         }
@@ -263,8 +268,8 @@ class MainActivity : GameActivity() {
             if(worldReady && active && !paused) {
                 setPaused(true)
                 val dialog = AlertDialog.Builder(this)
-                    .setTitle("Выбор инструмента")
-                    .setItems(arrayOf("Грави-пушка", "Пульт FPV", "Пустые руки")) { _, index ->
+                    .setTitle(R.string.tool_picker_title)
+                    .setItems(arrayOf(getString(R.string.tool_gravity_gun), getString(R.string.tool_fpv_remote), getString(R.string.tool_empty_hands))) { _, index ->
                         setPaused(false)
                         selectTool(ToolWheelSelection.tools[index])
                     }.create()
@@ -272,7 +277,7 @@ class MainActivity : GameActivity() {
                 dialog.show()
             }
         }.apply { visualScale=.73f }
-        switchWeapon.contentDescription="Выбор инструмента: удерживайте, проведите и отпустите"
+        switchWeapon.contentDescription=getString(R.string.tool_switch_description)
         switchWeapon.setOnTouchListener { view, event ->
             if(!worldReady || !active || paused) { toolWheel.cancel(); true }
             else {
@@ -283,9 +288,9 @@ class MainActivity : GameActivity() {
             }
         }
         overlay.addView(switchWeapon,FrameLayout.LayoutParams(dp(60),dp(60),Gravity.TOP or Gravity.END).apply { topMargin=dp(66);rightMargin=dp(8) })
-        catalogControl=action("", "cube") { showBuildCatalog() }.apply { contentDescription="Спавн: открыть каталог";visualScale=.73f }
+        catalogControl=action("", "cube") { showBuildCatalog() }.apply { contentDescription=getString(R.string.catalog_open_description);visualScale=.73f }
         overlay.addView(catalogControl,FrameLayout.LayoutParams(dp(60),dp(60),Gravity.TOP or Gravity.END).apply { topMargin=dp(66);rightMargin=dp(72) })
-        removeControl=action("", "remove") { nativeCommand(4) }.apply { danger=true;visualScale=.73f;contentDescription="Удалить" }
+        removeControl=action("", "remove") { nativeCommand(4) }.apply { danger=true;visualScale=.73f;contentDescription=getString(R.string.action_remove) }
         overlay.addView(removeControl,FrameLayout.LayoutParams(dp(60),dp(60),Gravity.TOP or Gravity.END).apply { topMargin=dp(126);rightMargin=dp(72) })
         toolActions=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;gravity=Gravity.END;isMotionEventSplittingEnabled=true }
         spawnActions=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER }
@@ -304,22 +309,22 @@ class MainActivity : GameActivity() {
         selectedSwatch=MaterialBlockView(this,selectedSurface)
         selectedSlot.addView(selectedSwatch,FrameLayout.LayoutParams(dp(25),dp(25),Gravity.BOTTOM or Gravity.END))
         // Selection art remains available inside the catalogue, not as a duplicate HUD opener.
-        addControl(spawnActions,"","build") { if(requestedTool==null)nativeCommand(200+BuildCatalog.entries[selected].nativeType) }.apply { contentDescription="Установить выбранный предмет" }
+        addControl(spawnActions,"","build") { if(requestedTool==null)nativeCommand(200+BuildCatalog.entries[selected].nativeType) }.apply { contentDescription=getString(R.string.action_place_selected) }
         val turns=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
-        addControl(turns,"","left") { nativeCommand(31) }.apply { contentDescription="Повернуть влево" }
-        addControl(turns,"","right") { nativeCommand(2) }.apply { contentDescription="Повернуть вправо" }
+        addControl(turns,"","left") { nativeCommand(31) }.apply { contentDescription=getString(R.string.action_turn_left) }
+        addControl(turns,"","right") { nativeCommand(2) }.apply { contentDescription=getString(R.string.action_turn_right) }
         spawnActions.addView(turns)
-        grabControl=addControl(gravityActions,"","grab") { nativeCommand(32) }.apply { contentDescription="Захват" }
-        freezeControl=addControl(gravityActions,"Заморозить","freeze") { nativeCommand(38) }
-        rotateHeldControl=addControl(gravityActions,"Вращать","rotate") { nativeCommand(33) }
+        grabControl=addControl(gravityActions,"","grab") { nativeCommand(32) }.apply { contentDescription=getString(R.string.action_grab) }
+        freezeControl=addControl(gravityActions,getString(R.string.action_freeze),"freeze") { nativeCommand(38) }
+        rotateHeldControl=addControl(gravityActions,getString(R.string.action_rotate_held),"rotate") { nativeCommand(33) }
         toolActions.addView(spawnActions)
         toolActions.addView(gravityActions)
         remoteActions=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL;visibility=View.GONE }
-        addControl(remoteActions,"Вернуть","home") { nativeCommand(44) }.apply { contentDescription="Вернуть дрон к игроку" }
-        addControl(remoteActions,"Убрать пульт","remove") { nativeCommand(42) }.apply { contentDescription="Убрать пульт: пустые руки" }
+        addControl(remoteActions,getString(R.string.action_drone_home),"home") { nativeCommand(44) }.apply { contentDescription=getString(R.string.action_drone_home_description) }
+        addControl(remoteActions,getString(R.string.action_put_away_remote),"remove") { nativeCommand(42) }.apply { contentDescription=getString(R.string.action_put_away_remote_description) }
         toolActions.addView(remoteActions)
         overlay.addView(toolActions,FrameLayout.LayoutParams(-2,-2,Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin=dp(8) })
-        interactionControl=action("Открыть","grab") { nativeCommand(if(interactionCode==6)43 else 36) }.apply { visibility=View.GONE }
+        interactionControl=action(getString(R.string.interaction_open),"grab") { nativeCommand(if(interactionCode==6)43 else 36) }.apply { visibility=View.GONE }
         overlay.addView(interactionControl,FrameLayout.LayoutParams(dp(80),dp(60),Gravity.BOTTOM or Gravity.END).apply { bottomMargin=dp(8);rightMargin=dp(76) })
         renderTools()
         // Flight is now in the pause menu; its altitude controls do not cover the action column.
@@ -336,7 +341,7 @@ class MainActivity : GameActivity() {
                 }
             },LinearLayout.LayoutParams(dp(84),dp(48)))
         }
-        verticalButton("↑ Вверх",1f);verticalButton("↓ Вниз",-1f)
+        verticalButton(getString(R.string.fly_up),1f);verticalButton(getString(R.string.fly_down),-1f)
         overlay.addView(altitude,FrameLayout.LayoutParams(-2,-2,Gravity.CENTER_VERTICAL or Gravity.END).apply { rightMargin=dp(actionSize+20) })
 
         // Independent Android widgets remain responsive while GLB parsing runs on the native thread.
@@ -344,11 +349,11 @@ class MainActivity : GameActivity() {
             orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER
             setBackgroundColor(Color.rgb(24, 35, 42)); isClickable = true; isFocusable = true
         }
-        loading.addView(label("ЭКРОН", 32f))
-        loading.addView(label("Пока ждёте загрузку мира, вам будет показан короткий видео ролик", 14f).apply { setPadding(0, dp(12), 0, dp(20)) })
+        loading.addView(label(getString(R.string.loading_title), 32f))
+        loading.addView(label(getString(R.string.loading_video_hint), 14f).apply { setPadding(0, dp(12), 0, dp(20)) })
         spinner = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply { max=100;isIndeterminate=false }
         loading.addView(spinner, LinearLayout.LayoutParams(dp(240), dp(16)))
-        loadingText = label("Подготовка мира…", 14f).apply { gravity = Gravity.CENTER; setPadding(dp(20), dp(18), dp(20), 0) }
+        loadingText = label(getString(R.string.loading_preparing_world), 14f).apply { gravity = Gravity.CENTER; setPadding(dp(20), dp(18), dp(20), 0) }
         loading.addView(loadingText)
         overlay.addView(loading, FrameLayout.LayoutParams(-1, -1))
         nativeReady(false)
@@ -379,13 +384,13 @@ class MainActivity : GameActivity() {
                 }
             }
         }
-        dronePlace=action("Поставить дрон","build") { nativeCommand(41) }.apply { visibility=View.GONE }
+        dronePlace=action(getString(R.string.drone_place),"build") { nativeCommand(41) }.apply { visibility=View.GONE }
         overlay.addView(dronePlace,FrameLayout.LayoutParams(dp(90),dp(70),Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin=dp(10) })
         fpvLayer=FrameLayout(this).apply { visibility=View.GONE;isMotionEventSplittingEnabled=true }
         fpvControls=FpvControlView(this,{throttle,yaw,pitch,roll->nativeDroneInput(throttle,yaw,pitch,roll)},{x,y->nativeLook(x,y)})
         fpvLayer.addView(fpvControls,FrameLayout.LayoutParams(-1,-1))
-        fpvLayer.addView(action("Смена вида","switch") { nativeCommand(45) }.apply { contentDescription="Сменить вид: FPV или орбитальная камера" },FrameLayout.LayoutParams(dp(82),dp(64),Gravity.TOP or Gravity.END).apply { topMargin=dp(8);rightMargin=dp(76) })
-        fpvLayer.addView(action("","remove") { fpvControls.reset();nativeCommand(42) }.apply { contentDescription="Выйти из FPV" },FrameLayout.LayoutParams(dp(60),dp(60),Gravity.TOP or Gravity.END).apply { topMargin=dp(8);rightMargin=dp(8) })
+        fpvLayer.addView(action(getString(R.string.fpv_switch_view),"switch") { nativeCommand(45) }.apply { contentDescription=getString(R.string.fpv_switch_view_description) },FrameLayout.LayoutParams(dp(82),dp(64),Gravity.TOP or Gravity.END).apply { topMargin=dp(8);rightMargin=dp(76) })
+        fpvLayer.addView(action("","remove") { fpvControls.reset();nativeCommand(42) }.apply { contentDescription=getString(R.string.fpv_exit) },FrameLayout.LayoutParams(dp(60),dp(60),Gravity.TOP or Gravity.END).apply { topMargin=dp(8);rightMargin=dp(8) })
         overlay.addView(fpvLayer,FrameLayout.LayoutParams(-1,-1))
         addContentView(overlay, ViewGroup.LayoutParams(-1, -1))
         hideSystemUi()
@@ -406,8 +411,8 @@ class MainActivity : GameActivity() {
         val image=catalogImages[selected]
         if(image!=null)selectedImage.setImageBitmap(image) else selectedImage.setImageResource(android.R.drawable.ic_menu_gallery)
         selectedSwatch.materialId=selectedSurface;selectedSwatch.texture=materialImages.getOrNull(selectedSurface);selectedSwatch.invalidate()
-        val material=if(selectedSurface<0) "Материалы модели" else if(selectedSurface==6) "Ткань" else materialNames[materialIds.indexOf(selectedSurface).coerceAtLeast(0)]
-        selectedSlot.contentDescription="${items[selected]} · $material · открыть каталог"
+        val material=if(selectedSurface<0) getString(R.string.material_model) else if(selectedSurface==6) getString(R.string.material_fabric) else materialNames[materialIds.indexOf(selectedSurface).coerceAtLeast(0)]
+        selectedSlot.contentDescription=getString(R.string.selected_slot_description, items[selected], material)
     }
     private fun closePopup(){popup?.let { hud.removeView(it) };popup=null;catalogAdapter=null}
     private fun panel(title: String): LinearLayout {
@@ -419,7 +424,7 @@ class MainActivity : GameActivity() {
         }
         val heading=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL }
         heading.addView(label(title,13f),LinearLayout.LayoutParams(0,dp(32),1f))
-        heading.addView(label("×",24f).apply { gravity=Gravity.CENTER;contentDescription="Закрыть каталог";setOnClickListener { closePopup() } },LinearLayout.LayoutParams(dp(48),dp(32)))
+        heading.addView(label("×",24f).apply { gravity=Gravity.CENTER;contentDescription=getString(R.string.catalog_close);setOnClickListener { closePopup() } },LinearLayout.LayoutParams(dp(48),dp(32)))
         panel.addView(heading)
         val height=resources.configuration.screenHeightDp
         val left=(height*.32f).toInt().coerceIn(120,184)+28
@@ -436,9 +441,10 @@ class MainActivity : GameActivity() {
         gravityActions.visibility=if(toolsState.gravityVisible&&interactionCode!=4)View.VISIBLE else View.GONE
         removeControl.visibility=if(toolsState.deleteVisible&&interactionCode!=4)View.VISIBLE else View.GONE
         rotateHeldControl.visibility=if(toolsState.rotateHeldVisible&&interactionCode!=4)View.VISIBLE else View.GONE
-        if(grabControl.contentDescription!=toolsState.grabCaption) {
+        val grabCaption=getString(toolsState.grabCaption)
+        if(grabControl.contentDescription!=grabCaption) {
             grabControl.symbol=if(toolsState.holding) "release" else "grab"
-            grabControl.contentDescription=toolsState.grabCaption;grabControl.invalidate()
+            grabControl.contentDescription=grabCaption;grabControl.invalidate()
         }
     }
     private fun selectTool(tool: HandTool) {
@@ -446,9 +452,9 @@ class MainActivity : GameActivity() {
     }
     private fun showBuildCatalog(category: Int = 0) {
         if(!worldReady || !active || paused || interactionCode==4)return
-        val container=panel("Спавн")
+        val container=panel(getString(R.string.catalog_title))
         val tabs=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
-        listOf("Строительство", "Мебель", "Оружие", "FPV Дроны").forEachIndexed { index, title ->
+        listOf(R.string.catalog_tab_construction, R.string.catalog_tab_furniture, R.string.catalog_tab_weapons, R.string.catalog_tab_fpv).map { getString(it) }.forEachIndexed { index, title ->
             tabs.addView(Button(this).apply { text=title;textSize=10f;isSelected=index==category
                 setTextColor(if(index==category)0xff7dffd2.toInt() else Color.WHITE)
                 setOnClickListener { showBuildCatalog(index) }
@@ -468,13 +474,13 @@ class MainActivity : GameActivity() {
                     handler.post { if(!isDestroyed)image.setImageBitmap(bitmap) }
                 }
             }
-            card("Пульт FPV · взять", "catalog/rendered/fpv_remote.webp"){selectTool(HandTool.DRONE_REMOTE)}
-            card("FPV-дрон · достать", "catalog/rendered/fpv_drone.webp"){nativeCommand(40);closePopup()}
+            card(getString(R.string.catalog_card_remote), "catalog/rendered/fpv_remote.webp"){selectTool(HandTool.DRONE_REMOTE)}
+            card(getString(R.string.catalog_card_drone), "catalog/rendered/fpv_drone.webp"){nativeCommand(40);closePopup()}
             container.addView(cards,LinearLayout.LayoutParams(-1,0,1f))
             return
         }
         if(visibleItems.isEmpty()){
-            container.addView(label("В этом разделе пока нет предметов",14f).apply { gravity=Gravity.CENTER },LinearLayout.LayoutParams(-1,0,1f))
+            container.addView(label(getString(R.string.catalog_empty),14f).apply { gravity=Gravity.CENTER },LinearLayout.LayoutParams(-1,0,1f))
             return
         }
         val grid=GridView(this).apply { numColumns=4;horizontalSpacing=dp(4);verticalSpacing=dp(4);clipToPadding=false;isMotionEventSplittingEnabled=true }
@@ -516,8 +522,9 @@ class MainActivity : GameActivity() {
     }
     private fun showPauseMenu() {
         setPaused(true)
-        val dialog=AlertDialog.Builder(this).setTitle("Пауза")
-            .setItems(arrayOf("Продолжить",if(flyingNow) "Выключить полёт" else "Включить полёт","На дорогу","Восстановить УАЗ","На спавн","Онлайн: игроки (экспериментально)","Отключиться от сервера")) { _, which ->
+        val dialog=AlertDialog.Builder(this).setTitle(R.string.pause)
+            .setItems(arrayOf(R.string.pause_resume,if(flyingNow) R.string.pause_flight_off else R.string.pause_flight_on,R.string.pause_road,R.string.pause_restore_uaz,
+                R.string.pause_spawn,R.string.pause_online,R.string.pause_disconnect,R.string.pause_language).map { getString(it) }.toTypedArray()) { _, which ->
                 setPaused(false)
                 if(which==1)nativeCommand(6)
                 if(which==2)nativeCommand(7)
@@ -525,9 +532,20 @@ class MainActivity : GameActivity() {
                 if(which==4)nativeCommand(35)
                 if(which==5)handler.post { showOnlineDialog() }
                 if(which==6)online.disconnect()
+                if(which==7)handler.post { openLanguageSettings() }
             }.create()
         dialog.setOnDismissListener { setPaused(false);hideSystemUi() }
         dialog.show()
+    }
+    /** English, Russian and Portuguese (Portugal) follow the system or per-app language (res/xml/locales_config.xml). */
+    private fun openLanguageSettings() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            try {
+                startActivity(Intent(Settings.ACTION_APP_LOCALE_SETTINGS, Uri.fromParts("package", packageName, null)))
+                return
+            } catch (_: Exception) {}
+        }
+        Toast.makeText(this, R.string.language_settings_hint, Toast.LENGTH_LONG).show()
     }
     private fun showOnlineDialog() {
         if (!worldReady || !active) return
@@ -535,24 +553,24 @@ class MainActivity : GameActivity() {
         fun field(hintText: String, initial: String = ""): EditText = EditText(this).apply {
             hint = hintText; setText(initial); setSingleLine(true)
         }
-        val host = field("Имя сервера (сертификат TLS)")
-        val port = field("Порт", "38475").apply { inputType = android.text.InputType.TYPE_CLASS_NUMBER }
-        val name = field("Имя игрока", "Игрок")
-        val token = field("Ключ доступа").apply {
+        val host = field(getString(R.string.online_server_hint))
+        val port = field(getString(R.string.online_port_hint), "38475").apply { inputType = android.text.InputType.TYPE_CLASS_NUMBER }
+        val name = field(getString(R.string.online_name_hint), getString(R.string.online_default_name))
+        val token = field(getString(R.string.online_token_hint)).apply {
             inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
         }
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(8), dp(20), 0)
             addView(TextView(this@MainActivity).apply {
-                text = "Только видимость игроков. Постройки, физика, транспорт и дроны не синхронизируются. Используйте только доверенный сервер."
+                text = getString(R.string.online_disclaimer)
             })
             addView(host); addView(port); addView(name); addView(token)
         }
-        val dialog = AlertDialog.Builder(this).setTitle("Онлайн (экспериментально)")
+        val dialog = AlertDialog.Builder(this).setTitle(R.string.online_title)
             .setView(ScrollView(this).apply { addView(content) })
-            .setPositiveButton("Подключить", null)
-            .setNegativeButton("Отмена", null).create()
+            .setPositiveButton(R.string.online_connect, null)
+            .setNegativeButton(R.string.cancel, null).create()
         dialog.setOnDismissListener { setPaused(false); hideSystemUi() }
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
@@ -562,7 +580,7 @@ class MainActivity : GameActivity() {
                 val key = token.text.toString()
                 if (address.isEmpty() || address.length > 253 || number == null || number !in 1..65535 ||
                     playerName.isEmpty() || playerName.length > 32 || key.toByteArray(Charsets.UTF_8).size !in 32..256) {
-                    Toast.makeText(this, "Проверьте адрес, порт, имя и ключ (32–256 байт)", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, R.string.online_invalid_input, Toast.LENGTH_LONG).show()
                 } else {
                     setPaused(false)
                     online.connect(address, number, playerName, key)

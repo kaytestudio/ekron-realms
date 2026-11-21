@@ -24,7 +24,7 @@ Referência visual: `concepts/ekron-war-city-ru.png`. Isto é arte conceptual e 
 
 **Controlos e Idioma**
 
-* Interface, nomes dos itens e dicas em russo.
+* Interface, nomes dos itens e dicas em três idiomas: inglês, russo e português europeu. O idioma segue as definições do sistema (no computador também `--lang`, `EKRON_LANG`, a tecla `L` e o menu de pausa).
 * Telemóvel na orientação horizontal.
 * À esquerda — joystick de movimento; à direita — área de visão e botões de interação, salto e construção.
 * No modo de construção — seleção de item, rotação, colocação e cancelamento.

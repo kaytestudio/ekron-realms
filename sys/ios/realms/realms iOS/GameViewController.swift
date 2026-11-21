@@ -27,8 +27,8 @@ class GameViewController: UIViewController {
 
     private let joystick = StickControlView()
     private let pauseButton = HudActionButton(caption: "", symbol: "pause")
-    private let jumpButton = HudActionButton(caption: "Прыжок", symbol: "jump")
-    private let crouchButton = HudActionButton(caption: "Присесть", symbol: "crouch")
+    private let jumpButton = HudActionButton(caption: loc("action_jump"), symbol: "jump")
+    private let crouchButton = HudActionButton(caption: loc("action_crouch"), symbol: "crouch")
 
     private let switchWeaponButton = ToolSwitchButton()
     private let catalogButton = HudActionButton(caption: "", symbol: "cube")
@@ -43,15 +43,15 @@ class GameViewController: UIViewController {
 
     private let gravityStrip = PassthroughContainerView()
     private let grabButton = HudActionButton(caption: "", symbol: "grab")
-    private let freezeButton = HudActionButton(caption: "Заморозить", symbol: "freeze")
-    private let rotateHeldButton = HudActionButton(caption: "Вращать", symbol: "rotate")
+    private let freezeButton = HudActionButton(caption: loc("action_freeze"), symbol: "freeze")
+    private let rotateHeldButton = HudActionButton(caption: loc("action_rotate_held"), symbol: "rotate")
 
     private let remoteStrip = PassthroughContainerView()
-    private let returnDroneButton = HudActionButton(caption: "Вернуть", symbol: "home")
-    private let putAwayRemoteButton = HudActionButton(caption: "Убрать пульт", symbol: "remove")
+    private let returnDroneButton = HudActionButton(caption: loc("action_drone_home"), symbol: "home")
+    private let putAwayRemoteButton = HudActionButton(caption: loc("action_put_away_remote"), symbol: "remove")
 
-    private let interactionButton = HudActionButton(caption: "Открыть", symbol: "grab")
-    private let dronePlaceButton = HudActionButton(caption: "Поставить дрон", symbol: "build")
+    private let interactionButton = HudActionButton(caption: loc("interaction_open"), symbol: "grab")
+    private let dronePlaceButton = HudActionButton(caption: loc("drone_place"), symbol: "build")
 
     // Flight altitude controls
     private let altitudeContainer = PassthroughContainerView()
@@ -131,7 +131,7 @@ class GameViewController: UIViewController {
         if bridge == nil {
             finishIntroImmediately()
             loadingProgressView.isHidden = true
-            loadingStatusLabel.text = "Metal недоступен на этом устройстве."
+            loadingStatusLabel.text = loc("metal_unavailable")
         }
 
         pollTimer = Timer.scheduledTimer(withTimeInterval: 0.08, repeats: true) { [weak self] _ in
@@ -212,7 +212,7 @@ class GameViewController: UIViewController {
         headingBox.addTarget(self, action: #selector(copyCoordinatesToClipboard), for: .touchUpInside)
         hudOverlay.addSubview(headingBox)
 
-        titleLabel.text = "ЭКРОН • ПЕСОЧНИЦА"
+        titleLabel.text = loc("hud_title")
         titleLabel.font = UIFont.systemFont(ofSize: 13, weight: .bold)
         titleLabel.textColor = .white
         titleLabel.isUserInteractionEnabled = false
@@ -224,7 +224,7 @@ class GameViewController: UIViewController {
         coordinatesLabel.isUserInteractionEnabled = false
         headingBox.addSubview(coordinatesLabel)
 
-        noticeLabel.text = "Свободный режим"
+        noticeLabel.text = loc("notice_free_mode")
         noticeLabel.font = UIFont.systemFont(ofSize: 10.5, weight: .regular)
         noticeLabel.textColor = UIColor(white: 0.9, alpha: 0.95)
         noticeLabel.numberOfLines = 2
@@ -248,7 +248,7 @@ class GameViewController: UIViewController {
 
         // Top-right controls
         pauseButton.visualScale = 0.73
-        pauseButton.accessibilityLabel = "Пауза"
+        pauseButton.accessibilityLabel = loc("pause")
         pauseButton.onTap = { [weak self] in
             self?.showPauseMenu()
         }
@@ -276,7 +276,7 @@ class GameViewController: UIViewController {
         hudOverlay.addSubview(switchWeaponButton)
 
         catalogButton.visualScale = 0.73
-        catalogButton.accessibilityLabel = "Спавн: открыть каталог"
+        catalogButton.accessibilityLabel = loc("catalog_open_description")
         catalogButton.onTap = { [weak self] in
             self?.toggleCatalogPopup()
         }
@@ -284,7 +284,7 @@ class GameViewController: UIViewController {
 
         removeButton.visualScale = 0.73
         removeButton.danger = true
-        removeButton.accessibilityLabel = "Удалить"
+        removeButton.accessibilityLabel = loc("action_remove")
         removeButton.onTap = { [weak self] in
             self?.bridge?.sendCommand(4)
         }
@@ -305,15 +305,15 @@ class GameViewController: UIViewController {
         hudOverlay.addSubview(crouchButton)
 
         // Spawn strip
-        buildPlaceButton.accessibilityLabel = "Установить выбранный предмет"
+        buildPlaceButton.accessibilityLabel = loc("action_place_selected")
         buildPlaceButton.onTap = { [weak self] in
             guard let self = self, self.requestedTool == nil else { return }
             let nativeType = SandboxBuildCatalog.entries[self.selectedCatalogIndex].nativeType
             self.bridge?.sendCommand(200 + nativeType)
         }
-        turnLeftButton.accessibilityLabel = "Повернуть влево"
+        turnLeftButton.accessibilityLabel = loc("action_turn_left")
         turnLeftButton.onTap = { [weak self] in self?.bridge?.sendCommand(31) }
-        turnRightButton.accessibilityLabel = "Повернуть вправо"
+        turnRightButton.accessibilityLabel = loc("action_turn_right")
         turnRightButton.onTap = { [weak self] in self?.bridge?.sendCommand(2) }
         spawnStrip.addSubview(buildPlaceButton)
         spawnStrip.addSubview(turnLeftButton)
@@ -351,8 +351,8 @@ class GameViewController: UIViewController {
         hudOverlay.addSubview(dronePlaceButton)
 
         // Noclip altitude controls
-        configureAltitudeButton(flyUpButton, title: "↑ Вверх", upAction: #selector(handleFlyUpDown), releaseAction: #selector(handleFlyRelease))
-        configureAltitudeButton(flyDownButton, title: "↓ Вниз", upAction: #selector(handleFlyDownDown), releaseAction: #selector(handleFlyRelease))
+        configureAltitudeButton(flyUpButton, title: loc("fly_up"), upAction: #selector(handleFlyUpDown), releaseAction: #selector(handleFlyRelease))
+        configureAltitudeButton(flyDownButton, title: loc("fly_down"), upAction: #selector(handleFlyDownDown), releaseAction: #selector(handleFlyRelease))
         altitudeContainer.addSubview(flyUpButton)
         altitudeContainer.addSubview(flyDownButton)
         altitudeContainer.isHidden = true
@@ -418,13 +418,13 @@ class GameViewController: UIViewController {
         loadingOverlay.backgroundColor = UIColor(red: 24 / 255, green: 35 / 255, blue: 42 / 255, alpha: 1.0)
         view.addSubview(loadingOverlay)
 
-        loadingTitleLabel.text = "ЭКРОН"
+        loadingTitleLabel.text = loc("loading_title")
         loadingTitleLabel.font = UIFont.systemFont(ofSize: 32, weight: .bold)
         loadingTitleLabel.textColor = .white
         loadingTitleLabel.textAlignment = .center
         loadingOverlay.addSubview(loadingTitleLabel)
 
-        loadingSubtitleLabel.text = "Нативная городская песочница"
+        loadingSubtitleLabel.text = loc("loading_subtitle")
         loadingSubtitleLabel.font = UIFont.systemFont(ofSize: 14, weight: .regular)
         loadingSubtitleLabel.textColor = UIColor(white: 0.85, alpha: 1.0)
         loadingSubtitleLabel.textAlignment = .center
@@ -434,7 +434,7 @@ class GameViewController: UIViewController {
         loadingProgressView.trackTintColor = UIColor(white: 1.0, alpha: 0.18)
         loadingOverlay.addSubview(loadingProgressView)
 
-        loadingStatusLabel.text = "Подготовка мира…"
+        loadingStatusLabel.text = loc("loading_preparing_world")
         loadingStatusLabel.font = UIFont.systemFont(ofSize: 14, weight: .medium)
         loadingStatusLabel.textColor = .white
         loadingStatusLabel.textAlignment = .center
@@ -460,7 +460,7 @@ class GameViewController: UIViewController {
                 introVideoContainer.layer.addSublayer(layer)
                 introPlayerLayer = layer
 
-                skipIntroButton.setTitle("Пропустить ›", for: .normal)
+                skipIntroButton.setTitle(loc("skip_intro"), for: .normal)
                 skipIntroButton.setTitleColor(.white, for: .normal)
                 skipIntroButton.titleLabel?.font = UIFont.systemFont(ofSize: 13, weight: .semibold)
                 skipIntroButton.backgroundColor = UIColor(white: 0.1, alpha: 0.65)
@@ -634,15 +634,15 @@ class GameViewController: UIViewController {
         interactionCode = Int(state[11])
         interactionButton.isHidden = (interactionCode <= 0) || wasInFpvMode
         switch interactionCode {
-        case 6: interactionButton.caption = "Подключиться"
-        case 1: interactionButton.caption = "Открыть"
-        case 2: interactionButton.caption = "Закрыть"
-        case 3: interactionButton.caption = "Сесть"
-        case 4: interactionButton.caption = "Выйти"
+        case 6: interactionButton.caption = loc("interaction_connect")
+        case 1: interactionButton.caption = loc("interaction_open")
+        case 2: interactionButton.caption = loc("interaction_close")
+        case 3: interactionButton.caption = loc("interaction_sit")
+        case 4: interactionButton.caption = loc("interaction_exit")
         default: interactionButton.caption = ""
         }
 
-        freezeButton.caption = state[12] > 0.5 ? "Разморозить" : "Заморозить"
+        freezeButton.caption = state[12] > 0.5 ? loc("action_unfreeze") : loc("action_freeze")
 
         latestPosition = [state[0], state[1], state[2]]
         coordinatesLabel.text = String(format: "X: %.1f   Y: %.1f   Z: %.1f", state[0], state[1], state[2])
@@ -662,39 +662,39 @@ class GameViewController: UIViewController {
 
         let stageText: String
         switch stage {
-        case 0: stageText = "Подготовка графики…"
-        case 1: stageText = "Загрузка текстур…"
-        case 2: stageText = "Загрузка города и материалов…"
-        case 3: stageText = "Подготовка УАЗа и парковки…"
-        case 4: stageText = "Загрузка моделей на GPU…"
-        case 5: stageText = "Подготовка первого кадра…"
-        case 6: stageText = "Мир готов"
-        default: stageText = "Не удалось загрузить ресурсы мира.\nПерезапустите приложение."
+        case 0: stageText = loc("loading_stage_graphics")
+        case 1: stageText = loc("loading_stage_textures")
+        case 2: stageText = loc("loading_stage_city")
+        case 3: stageText = loc("loading_stage_vehicle")
+        case 4: stageText = loc("loading_stage_gpu")
+        case 5: stageText = loc("loading_stage_first_frame")
+        case 6: stageText = loc("loading_stage_ready")
+        default: stageText = loc("loading_failed_resources")
         }
         loadingStatusLabel.text = (0...5).contains(stage) ? "\(stageText) \(pct)%" : stageText
 
         let noticeCode = Int(state[5])
         switch noticeCode {
-        case 1: noticeLabel.text = "Точка из конфига небезопасна — спавн перенесён."
-        case 2: noticeLabel.text = "Безопасная точка недоступна — освободите спавн."
-        case 3: noticeLabel.text = "Нет свободного места для УАЗа."
-        case 4: noticeLabel.text = "Игрок возвращён на безопасный спавн."
-        case 5: noticeLabel.text = "Нет безопасного места рядом для выхода."
+        case 1: noticeLabel.text = loc("notice_spawn_moved_short")
+        case 2: noticeLabel.text = loc("notice_spawn_unavailable_short")
+        case 3: noticeLabel.text = loc("notice_no_parking_short")
+        case 4: noticeLabel.text = loc("notice_player_respawned")
+        case 5: noticeLabel.text = loc("notice_no_exit")
         default:
             if flyingNow {
-                noticeLabel.text = "Сквозь стены · ↑ / ↓ — высота"
+                noticeLabel.text = loc("notice_flying")
             } else {
                 switch toolsState.tool {
                 case .handEmpty:
-                    noticeLabel.text = "Пустые руки"
+                    noticeLabel.text = loc("tool_empty_hands")
                 case .spawnGun:
-                    noticeLabel.text = "Спавн-пушка: \(SandboxBuildCatalog.entries[selectedCatalogIndex].label)"
+                    noticeLabel.text = locF("notice_spawn_gun", SandboxBuildCatalog.entries[selectedCatalogIndex].label)
                 case .gravityGun:
-                    noticeLabel.text = toolsState.holding ? "Предмет захвачен" : "Грави-пушка: наведите на постройку"
+                    noticeLabel.text = toolsState.holding ? loc("notice_item_grabbed") : loc("notice_gravity_gun_short")
                 case .deleteTool:
-                    noticeLabel.text = "Удаление своих построек"
+                    noticeLabel.text = loc("notice_delete_tool")
                 case .droneRemote:
-                    noticeLabel.text = "Пульт FPV · подключение к дрону"
+                    noticeLabel.text = loc("notice_fpv_remote")
                 }
             }
         }
@@ -708,7 +708,7 @@ class GameViewController: UIViewController {
                 toolWheel.cancel()
                 joystick.reset()
                 lookControl.reset()
-                showToast("Слева — высота и рыскание. Справа — наклоны. × — к пульту.")
+                showToast(loc("fpv_controls_hint"))
             } else {
                 fpvOverlay.reset()
             }
@@ -774,14 +774,14 @@ class GameViewController: UIViewController {
     private func showToolActionSheet() {
         guard worldReady, appActive, !isPausedMenu else { return }
         setMenuPaused(true)
-        let alert = UIAlertController(title: "Выбор инструмента", message: nil, preferredStyle: .alert)
+        let alert = UIAlertController(title: loc("tool_picker_title"), message: nil, preferredStyle: .alert)
         for (idx, title) in SandboxToolWheelMath.names.enumerated() {
             alert.addAction(UIAlertAction(title: title, style: .default) { [weak self] _ in
                 self?.setMenuPaused(false)
                 self?.selectTool(SandboxToolWheelMath.tools[idx])
             })
         }
-        alert.addAction(UIAlertAction(title: "Отмена", style: .cancel) { [weak self] _ in
+        alert.addAction(UIAlertAction(title: loc("cancel"), style: .cancel) { [weak self] _ in
             self?.setMenuPaused(false)
         })
         present(alert, animated: true)
@@ -840,50 +840,63 @@ class GameViewController: UIViewController {
     private func showPauseMenu() {
         guard worldReady else { return }
         setMenuPaused(true)
-        let flyTitle = flyingNow ? "Выключить полёт" : "Включить полёт"
-        let alert = UIAlertController(title: "Пауза", message: nil, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "Продолжить", style: .cancel) { [weak self] _ in
+        let flyTitle = flyingNow ? loc("pause_flight_off") : loc("pause_flight_on")
+        let alert = UIAlertController(title: loc("pause"), message: nil, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: loc("pause_resume"), style: .cancel) { [weak self] _ in
             self?.setMenuPaused(false)
         })
         alert.addAction(UIAlertAction(title: flyTitle, style: .default) { [weak self] _ in
             self?.setMenuPaused(false)
             self?.bridge?.sendCommand(6)
         })
-        alert.addAction(UIAlertAction(title: "На дорогу", style: .default) { [weak self] _ in
+        alert.addAction(UIAlertAction(title: loc("pause_road"), style: .default) { [weak self] _ in
             self?.setMenuPaused(false)
             self?.bridge?.sendCommand(7)
         })
-        alert.addAction(UIAlertAction(title: "Восстановить УАЗ", style: .default) { [weak self] _ in
+        alert.addAction(UIAlertAction(title: loc("pause_restore_uaz"), style: .default) { [weak self] _ in
             self?.setMenuPaused(false)
             self?.bridge?.sendCommand(34)
         })
-        alert.addAction(UIAlertAction(title: "На спавн", style: .default) { [weak self] _ in
+        alert.addAction(UIAlertAction(title: loc("pause_spawn"), style: .default) { [weak self] _ in
             self?.setMenuPaused(false)
             self?.bridge?.sendCommand(35)
         })
-        alert.addAction(UIAlertAction(title: "Онлайн: игроки (экспериментально)", style: .default) { [weak self] _ in
+        alert.addAction(UIAlertAction(title: loc("pause_online"), style: .default) { [weak self] _ in
             self?.setMenuPaused(false)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { self?.showOnlineDialog() }
         })
-        alert.addAction(UIAlertAction(title: "Отключиться от сервера", style: .default) { [weak self] _ in
+        alert.addAction(UIAlertAction(title: loc("pause_disconnect"), style: .default) { [weak self] _ in
             self?.setMenuPaused(false)
             self?.online.disconnect()
         })
+        alert.addAction(UIAlertAction(title: loc("pause_language"), style: .default) { [weak self] _ in
+            self?.setMenuPaused(false)
+            self?.openLanguageSettings()
+        })
         present(alert, animated: true)
+    }
+
+    /// English, Russian and Portuguese (Portugal) follow the per-app language in iOS Settings.
+    private func openLanguageSettings() {
+        if let url = URL(string: UIApplication.openSettingsURLString), UIApplication.shared.canOpenURL(url) {
+            UIApplication.shared.open(url)
+        } else {
+            showToast(loc("language_settings_hint"))
+        }
     }
 
     private func showOnlineDialog() {
         guard worldReady, appActive, presentedViewController == nil else { return }
         setMenuPaused(true)
-        let alert = UIAlertController(title: "Онлайн (экспериментально)",
-            message: "Только видимость игроков. Постройки, физика, транспорт и дроны не синхронизируются. Используйте только доверенный сервер.",
+        let alert = UIAlertController(title: loc("online_title"),
+            message: loc("online_disclaimer"),
             preferredStyle: .alert)
-        alert.addTextField { $0.placeholder = "Имя сервера (сертификат TLS)"; $0.autocapitalizationType = .none; $0.autocorrectionType = .no }
-        alert.addTextField { $0.placeholder = "Порт"; $0.text = "38475"; $0.keyboardType = .numberPad }
-        alert.addTextField { $0.placeholder = "Имя игрока"; $0.text = "Игрок" }
-        alert.addTextField { $0.placeholder = "Ключ доступа"; $0.isSecureTextEntry = true; $0.autocapitalizationType = .none }
-        alert.addAction(UIAlertAction(title: "Отмена", style: .cancel) { [weak self] _ in self?.setMenuPaused(false) })
-        alert.addAction(UIAlertAction(title: "Подключить", style: .default) { [weak self, weak alert] _ in
+        alert.addTextField { $0.placeholder = loc("online_server_hint"); $0.autocapitalizationType = .none; $0.autocorrectionType = .no }
+        alert.addTextField { $0.placeholder = loc("online_port_hint"); $0.text = "38475"; $0.keyboardType = .numberPad }
+        alert.addTextField { $0.placeholder = loc("online_name_hint"); $0.text = loc("online_default_name") }
+        alert.addTextField { $0.placeholder = loc("online_token_hint"); $0.isSecureTextEntry = true; $0.autocapitalizationType = .none }
+        alert.addAction(UIAlertAction(title: loc("cancel"), style: .cancel) { [weak self] _ in self?.setMenuPaused(false) })
+        alert.addAction(UIAlertAction(title: loc("online_connect"), style: .default) { [weak self, weak alert] _ in
             guard let self = self, let fields = alert?.textFields, fields.count == 4 else { return }
             self.setMenuPaused(false)
             let host = (fields[0].text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -892,7 +905,7 @@ class GameViewController: UIViewController {
             guard !host.isEmpty, host.utf8.count <= 253,
                   let port = UInt16(fields[1].text ?? ""), port > 0,
                   !name.isEmpty, name.unicodeScalars.count <= 32, (32...256).contains(token.utf8.count) else {
-                self.showToast("Проверьте адрес, порт, имя и ключ (32–256 байт)")
+                self.showToast(loc("online_invalid_input"))
                 return
             }
             self.online.connect(host: host, port: port, name: name, token: token)
@@ -905,7 +918,7 @@ class GameViewController: UIViewController {
                           locale: Locale(identifier: "en_US_POSIX"),
                           latestPosition[0], latestPosition[1], latestPosition[2], latestYawDegrees, flyingNow ? "true" : "false")
         UIPasteboard.general.string = json
-        showToast("Координаты для spawn.json скопированы")
+        showToast(loc("spawn_copied"))
     }
 
     private func showToast(_ message: String) {

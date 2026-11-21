@@ -28,11 +28,11 @@ class ToolStateTest {
     }
     @Test fun captureOnlyChangesOnWorldConfirmation() {
         val s=ToolState();s.select(HandTool.GRAVITY_GUN)
-        assertEquals("Захват",s.grabCaption);assertFalse(s.rotateHeldVisible)
-        s.confirmHolding(true);assertEquals("Бросить",s.grabCaption);assertTrue(s.rotateHeldVisible)
+        assertEquals(R.string.action_grab,s.grabCaption);assertFalse(s.rotateHeldVisible)
+        s.confirmHolding(true);assertEquals(R.string.action_throw,s.grabCaption);assertTrue(s.rotateHeldVisible)
         s.select(HandTool.SPAWN_GUN);assertFalse(s.holding);assertFalse(s.rotateHeldVisible)
         s.confirmHolding(true);assertFalse(s.holding)
         s.select(HandTool.GRAVITY_GUN);s.confirmHolding(true);s.confirmHolding(false)
-        assertEquals("Захват",s.grabCaption)
+        assertEquals(R.string.action_grab,s.grabCaption)
     }
 }

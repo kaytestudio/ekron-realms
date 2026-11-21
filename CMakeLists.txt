@@ -75,6 +75,7 @@ if(ENABLE_DESKTOP_SANDBOX)
         "${DESKTOP_SRC_DIR}/DesktopRenderer.cpp"
         "${DESKTOP_SRC_DIR}/DesktopOnlineClient.cpp"
         "${DESKTOP_SRC_DIR}/ShopCatalog.cpp"
+        "${DESKTOP_SRC_DIR}/Localization.cpp"
         "${SHARED_CPP_DIR}/GltfScene.cpp"
         "${SHARED_CPP_DIR}/ImageDecode.cpp"
     )
@@ -251,12 +252,22 @@ add_test(NAME ekron_desktop_hud_layout COMMAND ekron_desktop_hud_layout_test)
 add_executable(ekron_shop_catalog_test
     tests/native/shop_catalog_test.cpp
     sys/desktop/ShopCatalog.cpp
+    sys/desktop/Localization.cpp
 )
 target_include_directories(ekron_shop_catalog_test PRIVATE
     sys/desktop
     sys/android/app/src/main/cpp
 )
 add_test(NAME ekron_shop_catalog COMMAND ekron_shop_catalog_test)
+
+# Desktop i18n: English / Russian / Portuguese (Portugal) string table,
+# placeholders, locale parsing and pixel-font glyph coverage (SDL-independent).
+add_executable(ekron_localization_test
+    tests/native/localization_test.cpp
+    sys/desktop/Localization.cpp
+)
+target_include_directories(ekron_localization_test PRIVATE sys/desktop)
+add_test(NAME ekron_localization COMMAND ekron_localization_test)
 
 if(TARGET ekron-realms)
     add_test(

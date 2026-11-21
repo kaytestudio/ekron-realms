@@ -22,7 +22,8 @@ int main() {
         assert(std::abs(size.first * 0.5f * layout.mouseScaleX - layout.width * 0.5f) < 0.001f);
         assert(std::abs(size.second * 0.5f * layout.mouseScaleY - layout.height * 0.5f) < 0.001f);
         // Every pause button and the catalog fit into the logical viewport.
-        assert((layout.height - 370.0f) * 0.5f + 62.0f + 6.0f * 42.0f + 34.0f <= layout.height);
+        // 8 buttons (including the language switcher), panel height 62 + 8 * 42.
+        assert((layout.height - 398.0f) * 0.5f + 62.0f + 7.0f * 42.0f + 34.0f <= layout.height);
     }
     assert(fitHudTextScale(1.3f, 600.0f, 800.0f) == 1.3f);
     assert(std::abs(fitHudTextScale(1.3f, 1200.0f, 600.0f) - 0.65f) < 0.0001f);

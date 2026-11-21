@@ -2,6 +2,7 @@ package com.example.realms
 
 import android.os.Handler
 import android.os.Looper
+import androidx.annotation.StringRes
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
@@ -12,10 +13,11 @@ import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
 import kotlin.math.abs
 
-/** Experimental TLS presence client. It does not synchronize sandbox objects. */
+/** Experimental TLS presence client. It does not synchronize sandbox objects.
+ *  Status messages are localized string resources (values/, values-ru/, values-pt-rPT/). */
 class OnlinePresence(
     private val onPlayers: (FloatArray) -> Unit,
-    private val onStatus: (String) -> Unit
+    private val onStatus: (Int) -> Unit
 ) {
     private val main = Handler(Looper.getMainLooper())
     private var generation = 0L
@@ -28,7 +30,7 @@ class OnlinePresence(
         socket = next
         return true
     }
-    private fun status(id: Long, text: String) = main.post { if (current(id)) onStatus(text) }
+    private fun status(id: Long, @StringRes text: Int) = main.post { if (current(id)) onStatus(text) }
     private fun players(id: Long, values: FloatArray) = main.post { if (current(id)) onPlayers(values) }
 
     fun updatePose(values: FloatArray) {
@@ -47,7 +49,7 @@ class OnlinePresence(
     fun connect(host: String, port: Int, name: String, token: String) {
         disconnect()
         val id = synchronized(this) { generation }
-        status(id, "Подключение к серверу…")
+        status(id, R.string.online_status_connecting)
         Thread({ runClient(id, host, port, name, token) }, "EkronPresence").apply {
             isDaemon = true
             start()
@@ -130,7 +132,7 @@ class OnlinePresence(
                         }
                         welcomed = true
                         publish()
-                        status(id, "Подключено: видны только игроки; постройки не синхронизируются")
+                        status(id, R.string.online_status_connected)
                     }
                     "joined" -> {
                         require(welcomed)
@@ -189,14 +191,14 @@ class OnlinePresence(
                 } catch (_: SocketTimeoutException) { /* Send poses even when no one else is moving. */ }
             }
         } catch (_: Exception) {
-            if (current(id)) status(id, "Не удалось подключиться: проверьте адрес, сертификат и ключ")
+            if (current(id)) status(id, R.string.online_status_failed)
         } finally {
             synchronized(this) {
                 if (id == generation) {
                     try { socket?.close() } catch (_: Exception) {}
                     socket = null
                     players(id, floatArrayOf())
-                    if (welcomed) status(id, "Соединение с сервером закрыто")
+                    if (welcomed) status(id, R.string.online_status_closed)
                 }
             }
         }

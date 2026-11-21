@@ -14,7 +14,10 @@ class ToolWheelView(context: Context, private val choose: (HandTool) -> Unit) : 
     private val drag = ToolWheelGesture(20f * density)
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val icons = ToolWheelSelection.tools.map { tool -> ToolArtView(context).apply { this.tool = tool } }
-    private val names = listOf("Грави-пушка", "Пульт FPV", "Пустые руки")
+    private val names = listOf(R.string.tool_gravity_gun, R.string.tool_fpv_remote, R.string.tool_empty_hands).map { context.getString(it) }
+    private val chooseCaption = context.getString(R.string.tool_wheel_choose)
+    private val swipeCaption = context.getString(R.string.tool_wheel_swipe)
+    private val releaseCaption = context.getString(R.string.tool_wheel_release)
     private var progress = 0f
     private var animator: ValueAnimator? = null
     private var pointer = -1
@@ -105,9 +108,9 @@ class ToolWheelView(context: Context, private val choose: (HandTool) -> Unit) : 
         }
         paint.style = Paint.Style.FILL; paint.color = Color.WHITE; paint.textAlign = Paint.Align.CENTER
         paint.textSize = min(11f*density, radius*.08f)
-        canvas.drawText(selected?.let { names[it] } ?: "Выбор", cx, cy-2*density, paint)
+        canvas.drawText(selected?.let { names[it] } ?: chooseCaption, cx, cy-2*density, paint)
         paint.textSize = min(9f*density, radius*.065f)
-        canvas.drawText(if (selected == null) "Проведите пальцем" else "Отпустите", cx, cy+14*density, paint)
+        canvas.drawText(if (selected == null) swipeCaption else releaseCaption, cx, cy+14*density, paint)
         canvas.restore()
     }
 }

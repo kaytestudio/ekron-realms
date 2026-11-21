@@ -1,5 +1,7 @@
 package com.example.realms
 
+import androidx.annotation.StringRes
+
 enum class HandTool { HAND_EMPTY, SPAWN_GUN, GRAVITY_GUN, DELETE_TOOL, DRONE_REMOTE }
 
 /** Pure state reducer; held state is confirmed by the native world, never guessed on tap. */
@@ -20,5 +22,6 @@ class ToolState {
     val gravityVisible get() = tool == HandTool.GRAVITY_GUN
     val rotateHeldVisible get() = gravityVisible && holding
     val deleteVisible get() = tool == HandTool.SPAWN_GUN
-    val grabCaption get() = if (holding) "Бросить" else "Захват"
+    /** Localized caption resource for the grab/throw button. */
+    @get:StringRes val grabCaption: Int get() = if (holding) R.string.action_throw else R.string.action_grab
 }

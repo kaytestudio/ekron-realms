@@ -57,18 +57,18 @@ int main() {
     CHECK(state.coins == 0);
     CHECK(state.equippedSkinId == 1);     // buying a skin equips it
     CHECK(!state.tryBuy(1, reason));      // already owned
-    CHECK(reason == "Уже куплено");
+    CHECK(reason == kShopErrorOwned);
 
     // Not enough coins.
     ShopState poor;
     poor.coins = 10;
     CHECK(!poor.tryBuy(5, reason));       // Gold skin, 350
-    CHECK(reason == "Недостаточно золота");
+    CHECK(reason == kShopErrorInsufficient);
     CHECK(!poor.owns(5));
 
     // Unknown item.
     CHECK(!poor.tryBuy(12345, reason));
-    CHECK(reason == "Неизвестный товар");
+    CHECK(reason == kShopErrorUnknown);
 
     // Extras auto-activate and grant their effects through the state.
     ShopState extra;
@@ -156,6 +156,29 @@ int main() {
     // Effect labels are non-null for known effects.
     CHECK(std::string(shopEffectLabel(ShopEffect::DoubleCoins)).size() > 0);
     CHECK(std::string(shopEffectLabel(ShopEffect::None)).empty());
+
+    // Purchase failure codes match the presence relay protocol and are
+    // translated for every supported language.
+    namespace i18n = ekron::i18n;
+    for (const char *code : {kShopErrorUnknown, kShopErrorOwned, kShopErrorInsufficient}) {
+        for (size_t l = 0; l < i18n::kLanguageCount; ++l) {
+            i18n::setLanguage(static_cast<i18n::Language>(l));
+            CHECK(!i18n::localizeShopError(code).empty());
+        }
+    }
+
+    // Item names follow the UI language.
+    const ShopItem *flame = findShopItem(1);
+    i18n::setLanguage(i18n::Language::English);
+    CHECK(std::string(shopItemName(*flame)) == "Flame");
+    CHECK(std::string(shopCategoryName(cats[1])) == "UPGRADES");
+    i18n::setLanguage(i18n::Language::Russian);
+    CHECK(std::string(shopItemName(*flame)) == "Пламя");
+    CHECK(std::string(shopItemDescription(*flame)) == "Ярко-красный выброс грави-пушки");
+    i18n::setLanguage(i18n::Language::PortuguesePT);
+    CHECK(std::string(shopItemName(*flame)) == "Chama");
+    CHECK(std::string(shopEffectLabel(ShopEffect::CoinBonus)) == "+500 moedas");
+    i18n::setLanguage(i18n::Language::English);
 
     if (failures == 0) {
         std::cout << "Shop catalog, wallet, purchase and persistence OK\n";

@@ -15,24 +15,25 @@ namespace {
 // ---------------------------------------------------------------------------
 
 const std::vector<ShopCategory> &catalog() {
+    using i18n::Str;
     static const std::vector<ShopCategory> kCats = {
-        {"СКИНЫ ВОЙНУХИ", ShopKind::Skin, {
-            {1, ShopKind::Skin, "Пламя",            "Ярко-красный выброс грави-пушки", 150, 1.00f, 0.32f, 0.10f, ShopEffect::None, 0},
-            {2, ShopKind::Skin, "Ледяной",          "Холодная голубая плазма",         150, 0.40f, 0.85f, 1.00f, ShopEffect::None, 0},
-            {3, ShopKind::Skin, "Изумруд",          "Ярко-зелёная энергия",            200, 0.25f, 0.95f, 0.40f, ShopEffect::None, 0},
-            {4, ShopKind::Skin, "Азур",             "Спокойная синяя плазма",          200, 0.30f, 0.55f, 1.00f, ShopEffect::None, 0},
-            {5, ShopKind::Skin, "Золотая печать",    "Искристое золотое свечение",      350, 1.00f, 0.82f, 0.25f, ShopEffect::None, 0},
-            {6, ShopKind::Skin, "Фиолетовая буря",  "Глубокий фиолетовый импульс",     350, 0.75f, 0.30f, 1.00f, ShopEffect::None, 0},
-            {7, ShopKind::Skin, "Ядовитая роза",    "Ярко-розовый ядовитый свет",      400, 1.00f, 0.20f, 0.55f, ShopEffect::None, 0},
-            {8, ShopKind::Skin, "Неон",             "Острая неоновая бело-голубая",    500, 0.60f, 1.00f, 0.95f, ShopEffect::None, 0},
+        {Str::ShopCategorySkins, ShopKind::Skin, {
+            {1, ShopKind::Skin, Str::ShopSkinFlame,       Str::ShopSkinFlameDesc,       150, 1.00f, 0.32f, 0.10f, ShopEffect::None, 0},
+            {2, ShopKind::Skin, Str::ShopSkinFrost,       Str::ShopSkinFrostDesc,       150, 0.40f, 0.85f, 1.00f, ShopEffect::None, 0},
+            {3, ShopKind::Skin, Str::ShopSkinEmerald,     Str::ShopSkinEmeraldDesc,     200, 0.25f, 0.95f, 0.40f, ShopEffect::None, 0},
+            {4, ShopKind::Skin, Str::ShopSkinAzure,       Str::ShopSkinAzureDesc,       200, 0.30f, 0.55f, 1.00f, ShopEffect::None, 0},
+            {5, ShopKind::Skin, Str::ShopSkinGoldenSeal,  Str::ShopSkinGoldenSealDesc,  350, 1.00f, 0.82f, 0.25f, ShopEffect::None, 0},
+            {6, ShopKind::Skin, Str::ShopSkinVioletStorm, Str::ShopSkinVioletStormDesc, 350, 0.75f, 0.30f, 1.00f, ShopEffect::None, 0},
+            {7, ShopKind::Skin, Str::ShopSkinToxicRose,   Str::ShopSkinToxicRoseDesc,   400, 1.00f, 0.20f, 0.55f, ShopEffect::None, 0},
+            {8, ShopKind::Skin, Str::ShopSkinNeon,        Str::ShopSkinNeonDesc,        500, 0.60f, 1.00f, 0.95f, ShopEffect::None, 0},
         }},
-        {"УЛУЧШЕНИЯ", ShopKind::Extra, {
-            {101, ShopKind::Extra, "Бонусный кошелёк",   "Мгновенно +500 золотых монет", 300, 1.00f, 1.00f, 1.00f, ShopEffect::CoinBonus, 500},
-            {102, ShopKind::Extra, "Двойные монеты",     "Скорость накопления монет ×2",  500, 1.00f, 1.00f, 1.00f, ShopEffect::DoubleCoins, 0},
-            {103, ShopKind::Extra, "Золотой прицел",      "Золотой прицел на экране",      250, 1.00f, 1.00f, 1.00f, ShopEffect::GoldenCrosshair, 0},
-            {104, ShopKind::Extra, "Камуфляж HUD",        "Камуфляжная расцветка интерфейса", 250, 1.00f, 1.00f, 1.00f, ShopEffect::CamoHud, 0},
-            {105, ShopKind::Extra, "Неоновый прицел",     "Неоновый прицел с свечением",   400, 1.00f, 1.00f, 1.00f, ShopEffect::NeonSight, 0},
-            {106, ShopKind::Extra, "Старт с полётом",     "Возвращение на спавн с полётом", 800, 1.00f, 1.00f, 1.00f, ShopEffect::StartWithFlight, 0},
+        {Str::ShopCategoryExtras, ShopKind::Extra, {
+            {101, ShopKind::Extra, Str::ShopExtraBonusWallet,     Str::ShopExtraBonusWalletDesc,     300, 1.00f, 1.00f, 1.00f, ShopEffect::CoinBonus, 500},
+            {102, ShopKind::Extra, Str::ShopExtraDoubleCoins,     Str::ShopExtraDoubleCoinsDesc,     500, 1.00f, 1.00f, 1.00f, ShopEffect::DoubleCoins, 0},
+            {103, ShopKind::Extra, Str::ShopExtraGoldenCrosshair, Str::ShopExtraGoldenCrosshairDesc, 250, 1.00f, 1.00f, 1.00f, ShopEffect::GoldenCrosshair, 0},
+            {104, ShopKind::Extra, Str::ShopExtraCamoHud,         Str::ShopExtraCamoHudDesc,         250, 1.00f, 1.00f, 1.00f, ShopEffect::CamoHud, 0},
+            {105, ShopKind::Extra, Str::ShopExtraNeonSight,       Str::ShopExtraNeonSightDesc,       400, 1.00f, 1.00f, 1.00f, ShopEffect::NeonSight, 0},
+            {106, ShopKind::Extra, Str::ShopExtraStartWithFlight, Str::ShopExtraStartWithFlightDesc, 800, 1.00f, 1.00f, 1.00f, ShopEffect::StartWithFlight, 0},
         }},
     };
     return kCats;
@@ -57,17 +58,22 @@ const ShopItem *findShopItem(int id) {
 }
 
 const char *shopEffectLabel(ShopEffect effect) {
+    using i18n::Str;
     switch (effect) {
-        case ShopEffect::CoinBonus:       return "+500 монет";
-        case ShopEffect::DoubleCoins:     return "×2 скорость монет";
-        case ShopEffect::GoldenCrosshair: return "Золотой прицел";
-        case ShopEffect::CamoHud:         return "Камуфляж HUD";
-        case ShopEffect::NeonSight:       return "Неоновый прицел";
-        case ShopEffect::StartWithFlight: return "Старт с полётом";
+        case ShopEffect::CoinBonus:       return i18n::tr(Str::ShopEffectCoinBonus);
+        case ShopEffect::DoubleCoins:     return i18n::tr(Str::ShopEffectDoubleCoins);
+        case ShopEffect::GoldenCrosshair: return i18n::tr(Str::ShopExtraGoldenCrosshair);
+        case ShopEffect::CamoHud:         return i18n::tr(Str::ShopExtraCamoHud);
+        case ShopEffect::NeonSight:       return i18n::tr(Str::ShopExtraNeonSight);
+        case ShopEffect::StartWithFlight: return i18n::tr(Str::ShopExtraStartWithFlight);
         case ShopEffect::None:
         default:                           return "";
     }
 }
+
+const char *shopItemName(const ShopItem &item) { return i18n::tr(item.name); }
+const char *shopItemDescription(const ShopItem &item) { return i18n::tr(item.description); }
+const char *shopCategoryName(const ShopCategory &category) { return i18n::tr(category.name); }
 
 bool ShopState::extrasAutoActivate(int itemId) {
     const ShopItem *item = findShopItem(itemId);
@@ -137,15 +143,15 @@ bool ShopState::tryBuy(int itemId, std::string &reasonOut) {
     reasonOut.clear();
     const ShopItem *item = findShopItem(itemId);
     if (!item) {
-        reasonOut = "Неизвестный товар";
+        reasonOut = kShopErrorUnknown;
         return false;
     }
     if (owned.count(itemId)) {
-        reasonOut = "Уже куплено";
+        reasonOut = kShopErrorOwned;
         return false;
     }
     if (coins < item->price) {
-        reasonOut = "Недостаточно золота";
+        reasonOut = kShopErrorInsufficient;
         return false;
     }
     coins -= item->price;
@@ -228,7 +234,7 @@ void ShopState::applyRemote(long long newCoins, const std::vector<int> &newOwned
 }
 
 int shopCoinMultiplier(const ShopState &state) {
-    return state.hasExtra(102) ? 2 : 1; // 102 == "Двойные монеты"
+    return state.hasExtra(102) ? 2 : 1; // 102 == "Double Coins"
 }
 
 } // namespace ekron::desktop

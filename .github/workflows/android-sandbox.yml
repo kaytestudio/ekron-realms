@@ -7,12 +7,14 @@ on:
       - 'sys/android/**'
       - 'tests/native/**'
       - 'tools/*android*'
+      - 'tools/validate_i18n.py'
       - '.github/workflows/android-sandbox.yml'
   pull_request:
     paths:
       - 'sys/android/**'
       - 'tests/native/**'
       - 'tools/*android*'
+      - 'tools/validate_i18n.py'
       - '.github/workflows/android-sandbox.yml'
 
 permissions:
@@ -67,6 +69,9 @@ jobs:
           run_test ekron-debug-test -O2 tests/native/debug_player_test.cpp
           run_test ekron-texture-test -O2 tests/native/texture_mesh_test.cpp
           run_test ekron-gltf-test -O1 tests/native/gltf_scene_test.cpp sys/android/app/src/main/cpp/GltfScene.cpp sys/android/app/src/main/cpp/ImageDecode.cpp
+
+      - name: Validate translations (English, Russian, Portuguese (Portugal))
+        run: python3 tools/validate_i18n.py
 
       - name: Validate GLSL ES shaders
         run: |

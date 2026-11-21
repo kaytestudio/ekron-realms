@@ -1,7 +1,13 @@
 #pragma once
-// Built-in UTF-8 8x8 -> crisp scaled pixel font covering ASCII (0x20..0x7E) and Russian Cyrillic
-// (U+0401 'Ё', U+0410..U+044F 'А'..'я', U+0451 'ё', plus '—', '×', '°', '•').
-// Zero external font file or SDL2_ttf dependency required.
+// Built-in UTF-8 8x8 -> crisp scaled pixel font covering every glyph used by the
+// localized desktop HUD (see Localization.h):
+//   * English  -- ASCII (0x20..0x7E)
+//   * Russian  -- Cyrillic U+0401 'Ё', U+0410..U+044F 'А'..'я', U+0451 'ё'
+//   * Portuguese (Portugal) -- Latin-1 accented letters
+//     À Á Â Ã Ç É Ê Í Ó Ô Õ Ú / à á â ã ç é ê í ó ô õ ú
+//   * Punctuation -- '—', '×', '°', '•', '«', '»', '…'
+// Zero external font file or SDL2_ttf dependency required. The 16x12 atlas is
+// completely filled (192 slots); grow kAtlasRows before adding more glyphs.
 
 #include <array>
 #include <cstdint>
@@ -40,7 +46,15 @@ inline uint32_t nextUtf8Codepoint(std::string_view text, size_t &i) {
     return '?';
 }
 
-// Maps Unicode codepoint to atlas slot [0 .. 167]:
+// Portuguese accented letters, in atlas order starting at slot 165.
+inline constexpr std::array<uint32_t, 24> kLatinAccented = {
+    0x00C0, 0x00C1, 0x00C2, 0x00C3, 0x00C7, 0x00C9, 0x00CA, 0x00CD, 0x00D3, 0x00D4, 0x00D5, 0x00DA,
+    0x00E0, 0x00E1, 0x00E2, 0x00E3, 0x00E7, 0x00E9, 0x00EA, 0x00ED, 0x00F3, 0x00F4, 0x00F5, 0x00FA,
+};
+
+constexpr int kFallbackSlot = int('?' - 0x20);
+
+// Maps Unicode codepoint to atlas slot [0 .. 191]:
 //   0..94   : ASCII 0x20..0x7E
 //   95..158 : Cyrillic U+0410..U+044F ('А'..'я')
 //   159     : U+0401 ('Ё')
@@ -49,6 +63,11 @@ inline uint32_t nextUtf8Codepoint(std::string_view text, size_t &i) {
 //   162     : U+00D7 ('×')
 //   163     : U+00B0 ('°')
 //   164     : U+2022 ('•') / U+00B7 ('·')
+//   165..188: Portuguese accented letters (kLatinAccented)
+//   189     : U+00AB ('«')
+//   190     : U+00BB ('»')
+//   191     : U+2026 ('…')
+// Unsupported codepoints fall back to '?' (kFallbackSlot).
 inline int glyphSlot(uint32_t cp) {
     if (cp >= 0x20 && cp <= 0x7E) return int(cp - 0x20);
     if (cp >= 0x0410 && cp <= 0x044F) return 95 + int(cp - 0x0410);
@@ -58,12 +77,17 @@ inline int glyphSlot(uint32_t cp) {
     if (cp == 0x00D7) return 162;
     if (cp == 0x00B0) return 163;
     if (cp == 0x2022 || cp == 0x00B7) return 164;
-    return int('?' - 0x20);
+    for (size_t k = 0; k < kLatinAccented.size(); ++k)
+        if (kLatinAccented[k] == cp) return 165 + int(k);
+    if (cp == 0x00AB) return 189;
+    if (cp == 0x00BB) return 190;
+    if (cp == 0x2026) return 191;
+    return kFallbackSlot;
 }
 
-inline const std::array<uint64_t, 165> &glyphBitmaps() {
+inline const std::array<uint64_t, 192> &glyphBitmaps() {
     // Each uint64_t encodes 8 rows (MSB row 0 -> LSB row 7), MSB bit 7 = leftmost pixel.
-    static const std::array<uint64_t, 165> kGlyphs = {
+    static const std::array<uint64_t, 192> kGlyphs = {
         // 0x20..0x2F:  !"#$%&'()*+,-./
         0x0000000000000000ULL, 0x183C3C1818001800ULL, 0x6C6C240000000000ULL, 0x6C6CFE6CFE6C6C00ULL,
         0x183E603C067C1800ULL, 0x00C6CC183066C600ULL, 0x386C3876DCCE7600ULL, 0x1818300000000000ULL,
@@ -166,7 +190,35 @@ inline const std::array<uint64_t, 165> &glyphBitmaps() {
         0x0000007E00000000ULL, // —
         0x00663C183C660000ULL, // ×
         0x386C6C3800000000ULL, // °
-        0x0000183C3C180000ULL  // •
+        0x0000183C3C180000ULL, // •
+        // 165..188: Portuguese accented letters, 189..191: «, », …
+        0x303C66667E666600ULL, // À U+00C0
+        0x0C3C66667E666600ULL, // Á U+00C1
+        0x183C66667E666600ULL, // Â U+00C2
+        0x763C66667E666600ULL, // Ã U+00C3
+        0x3C66606060663C18ULL, // Ç U+00C7
+        0x0C7E606078607E00ULL, // É U+00C9
+        0x187E606078607E00ULL, // Ê U+00CA
+        0x0C3C181818183C00ULL, // Í U+00CD
+        0x0C3C666666663C00ULL, // Ó U+00D3
+        0x183C666666663C00ULL, // Ô U+00D4
+        0x763C666666663C00ULL, // Õ U+00D5
+        0x0C66666666663C00ULL, // Ú U+00DA
+        0x30183C063E663E00ULL, // à U+00E0
+        0x0C183C063E663E00ULL, // á U+00E1
+        0x18243C063E663E00ULL, // â U+00E2
+        0x324C3C063E663E00ULL, // ã U+00E3
+        0x00003C6660663C18ULL, // ç U+00E7
+        0x0C183C667E603C00ULL, // é U+00E9
+        0x18243C667E603C00ULL, // ê U+00EA
+        0x0C18381818183C00ULL, // í U+00ED
+        0x0C183C6666663C00ULL, // ó U+00F3
+        0x18243C6666663C00ULL, // ô U+00F4
+        0x324C3C6666663C00ULL, // õ U+00F5
+        0x0C18666666663E00ULL, // ú U+00FA
+        0x00003366CC663300ULL, // « U+00AB
+        0x0000CC663366CC00ULL, // » U+00BB
+        0x000000000000DB00ULL  // … U+2026
     };
     return kGlyphs;
 }

@@ -17,6 +17,8 @@
 // server-authoritative (see DesktopOnlineClient / sandbox_relay.py); this
 // class provides the local, offline-capable fallback and persistence.
 
+#include "Localization.h"
+
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -42,8 +44,8 @@ enum class ShopEffect {
 struct ShopItem {
     int id;                 // unique catalog id
     ShopKind kind;
-    const char *name;       // static UTF-8 label
-    const char *description;
+    i18n::Str name;         // localized label (see LocalizationStrings.h)
+    i18n::Str description;  // localized one-line description
     int price;              // cost in gold coins
     float tintR = 1.0f;     // skin beam tint (RGB, 0..1)
     float tintG = 1.0f;
@@ -53,7 +55,7 @@ struct ShopItem {
 };
 
 struct ShopCategory {
-    const char *name;
+    i18n::Str name;
     ShopKind kind;
     std::vector<ShopItem> items;
 };
@@ -64,8 +66,21 @@ const std::vector<ShopCategory> &shopCategories();
 // Look up a single item by id (nullptr when unknown).
 const ShopItem *findShopItem(int id);
 
-// Human-readable label for an Extra effect (used by the UI).
+// Human-readable label for an Extra effect in the current UI language
+// (empty for ShopEffect::None).
 const char *shopEffectLabel(ShopEffect effect);
+
+// Localized item name / description / category title in the current UI language.
+const char *shopItemName(const ShopItem &item);
+const char *shopItemDescription(const ShopItem &item);
+const char *shopCategoryName(const ShopCategory &category);
+
+// Stable purchase failure codes. They are shared with the presence relay
+// (server/sandbox_relay.py "purchase" replies) and translated for display by
+// ekron::i18n::localizeShopError().
+inline constexpr const char *kShopErrorUnknown = "unknown";
+inline constexpr const char *kShopErrorOwned = "owned";
+inline constexpr const char *kShopErrorInsufficient = "insufficient";
 
 // Persisted wallet + ownership state for one player.
 class ShopState {
@@ -88,7 +103,8 @@ public:
 
     // Attempt to purchase an item. Returns true on success and deducts the
     // price / records ownership. On failure returns false and fills
-    // reasonOut with a short, localised explanation.
+    // reasonOut with a stable, language-neutral code (kShopErrorUnknown,
+    // kShopErrorOwned or kShopErrorInsufficient) for the UI to translate.
     bool tryBuy(int itemId, std::string &reasonOut);
 
     bool owns(int itemId) const { return owned.count(itemId) != 0; }

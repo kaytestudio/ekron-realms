@@ -27,8 +27,8 @@ class FpvControlView(context: Context, private val input: (Float,Float,Float,Flo
         },LayoutParams(-1,-1))
         addView(cameraLook,LayoutParams(-1,-1))
         val size=(170*density).toInt()
-        leftStick.contentDescription="FPV левый джойстик: вверх и вниз — высота, влево и вправо — рыскание"
-        rightStick.contentDescription="FPV правый джойстик: вверх и вниз — продольный наклон, влево и вправо — боковой наклон"
+        leftStick.contentDescription=context.getString(R.string.fpv_left_stick)
+        rightStick.contentDescription=context.getString(R.string.fpv_right_stick)
         addView(leftStick,LayoutParams(size,size,Gravity.BOTTOM or Gravity.START).apply {leftMargin=(18*density).toInt();bottomMargin=(18*density).toInt()})
         addView(rightStick,LayoutParams(size,size,Gravity.BOTTOM or Gravity.END).apply {rightMargin=(18*density).toInt();bottomMargin=(18*density).toInt()})
     }
