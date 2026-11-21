@@ -1,7 +1,8 @@
 { ----------------------------------------------------------------------------
   Realms Engine - Free Pascal core library
 
-  Builds the Quake 2 derived core (cvars, command buffer, PAK filesystem) as
+  Builds the Quake 2 derived core (cvars, command buffer, PAK filesystem,
+  BSP collision model) as
     - librealms_core.so     (Linux desktop, Android jniLibs)
     - librealms_core.dylib  (macOS .app bundle)
     - librealms_core.a      (iOS, static: see realms/pascal/build_core.sh)
@@ -19,7 +20,7 @@ uses
   cthreads,
   {$ENDIF}
   ctypes, SysUtils, Math,
-  rlm_bridge, rlm_console, rlm_cvar, rlm_cmd, rlm_files;
+  rlm_bridge, rlm_console, rlm_cvar, rlm_cmd, rlm_files, rlm_cmodel;
 
 const
   BACKEND_NAME: PChar = 'pascal-quake2';
@@ -68,6 +69,7 @@ begin
     MaskFloatingPointExceptions;
     if Initialized then
     begin
+      CM_UnloadMap;
       Cmd_Shutdown;
       FS_Shutdown;
       Cvar_ClearAll;
@@ -91,6 +93,7 @@ end;
 procedure core_shutdown; cdecl;
 begin
   try
+    CM_UnloadMap;
     Cmd_Shutdown;
     FS_Shutdown;
     Cvar_ClearAll;
@@ -377,6 +380,251 @@ begin
   Result := FS_PakCount;
 end;
 
+{ --------------------------------------------------------- collision model }
+
+function core_map_load(path: PChar): cint32; cdecl;
+var
+  name, err: AnsiString;
+  data: Pointer;
+  size: LongInt;
+  ok: Boolean;
+begin
+  Result := 0;
+  try
+    MaskFloatingPointExceptions;
+    name := FS_NormalizePath(StrOf(path));
+    CM_UnloadMap;
+    if name = '' then
+      Exit(1);
+    if not FS_LoadFile(name, data, size) then
+    begin
+      Com_Warning('map_load: couldn''t load ' + name);
+      Exit;
+    end;
+    try
+      ok := CM_LoadMap(name, PByte(data), size, err);
+    finally
+      FreeMem(data);
+    end;
+    if not ok then
+    begin
+      Com_Warning('map_load: ' + name + ': ' + err);
+      Exit;
+    end;
+    Result := 1;
+  except
+    on E: Exception do
+    begin
+      CM_UnloadMap;
+      ReportException('map_load', E);
+    end;
+  end;
+end;
+
+function core_map_info(out_info: PRealmsMapInfo): cint32; cdecl;
+begin
+  Result := 0;
+  try
+    Result := CM_MapInfo(out_info);
+  except
+    on E: Exception do
+      ReportException('map_info', E);
+  end;
+end;
+
+function core_map_entities(buffer: PChar; buffer_size: cint32): cint32; cdecl;
+begin
+  Result := -1;
+  try
+    Result := CM_Entities(buffer, buffer_size);
+  except
+    on E: Exception do
+      ReportException('map_entities', E);
+  end;
+end;
+
+function core_map_model(index: cint32; mins, maxs, origin: pcfloat;
+  headnode: pcint32): cint32; cdecl;
+begin
+  Result := 0;
+  try
+    Result := CM_Model(index, mins, maxs, origin, headnode);
+  except
+    on E: Exception do
+      ReportException('map_model', E);
+  end;
+end;
+
+function core_map_headnode_for_box(mins, maxs: pcfloat): cint32; cdecl;
+begin
+  Result := 0;
+  try
+    Result := CM_HeadnodeForBox(mins, maxs);
+  except
+    on E: Exception do
+      ReportException('map_headnode_for_box', E);
+  end;
+end;
+
+function core_map_point_contents(point: pcfloat; headnode: cint32;
+  origin, angles: pcfloat): cint32; cdecl;
+begin
+  Result := 0;
+  try
+    MaskFloatingPointExceptions;
+    Result := CM_PointContents(point, headnode, origin, angles);
+  except
+    on E: Exception do
+      ReportException('map_point_contents', E);
+  end;
+end;
+
+procedure core_map_box_trace(start, end_, mins, maxs: pcfloat;
+  headnode, brushmask: cint32; origin, angles: pcfloat;
+  out_trace: PRealmsTrace); cdecl;
+begin
+  try
+    MaskFloatingPointExceptions;
+    CM_BoxTrace(start, end_, mins, maxs, headnode, brushmask, origin, angles, out_trace);
+  except
+    on E: Exception do
+      ReportException('map_box_trace', E);
+  end;
+end;
+
+function core_map_point_leaf(point: pcfloat): cint32; cdecl;
+begin
+  Result := 0;
+  try
+    MaskFloatingPointExceptions;
+    Result := CM_PointLeaf(point);
+  except
+    on E: Exception do
+      ReportException('map_point_leaf', E);
+  end;
+end;
+
+function core_map_leaf_info(leaf: cint32; contents, cluster, area: pcint32): cint32; cdecl;
+begin
+  Result := 0;
+  try
+    Result := CM_LeafInfo(leaf, contents, cluster, area);
+  except
+    on E: Exception do
+      ReportException('map_leaf_info', E);
+  end;
+end;
+
+function core_map_cluster_pvs(cluster: cint32; buffer: PByte; buffer_size: cint32): cint32; cdecl;
+begin
+  Result := 0;
+  try
+    Result := CM_ClusterPVS(cluster, buffer, buffer_size);
+  except
+    on E: Exception do
+      ReportException('map_cluster_pvs', E);
+  end;
+end;
+
+function core_map_cluster_phs(cluster: cint32; buffer: PByte; buffer_size: cint32): cint32; cdecl;
+begin
+  Result := 0;
+  try
+    Result := CM_ClusterPHS(cluster, buffer, buffer_size);
+  except
+    on E: Exception do
+      ReportException('map_cluster_phs', E);
+  end;
+end;
+
+procedure core_map_set_area_portal(portal, open: cint32); cdecl;
+begin
+  try
+    CM_SetAreaPortal(portal, open);
+  except
+    on E: Exception do
+      ReportException('map_set_area_portal', E);
+  end;
+end;
+
+function core_map_area_portal_open(portal: cint32): cint32; cdecl;
+begin
+  Result := -1;
+  try
+    Result := CM_AreaPortalOpen(portal);
+  except
+    on E: Exception do
+      ReportException('map_area_portal_open', E);
+  end;
+end;
+
+function core_map_areas_connected(area1, area2: cint32): cint32; cdecl;
+begin
+  Result := 0;
+  try
+    Result := CM_AreasConnected(area1, area2);
+  except
+    on E: Exception do
+      ReportException('map_areas_connected', E);
+  end;
+end;
+
+function core_map_write_area_bits(area: cint32; buffer: PByte; buffer_size: cint32): cint32; cdecl;
+begin
+  Result := 0;
+  try
+    Result := CM_WriteAreaBits(area, buffer, buffer_size);
+  except
+    on E: Exception do
+      ReportException('map_write_area_bits', E);
+  end;
+end;
+
+function core_map_box_leafs(mins, maxs: pcfloat; list: pcint32; list_size, headnode: cint32;
+  topnode: pcint32): cint32; cdecl;
+begin
+  Result := 0;
+  try
+    Result := CM_BoxLeafs(mins, maxs, list, list_size, headnode, topnode);
+  except
+    on E: Exception do
+      ReportException('map_box_leafs', E);
+  end;
+end;
+
+function core_map_headnode_visible(headnode: cint32; visbits: PByte; visbits_size: cint32): cint32; cdecl;
+begin
+  Result := 0;
+  try
+    Result := CM_HeadnodeVisible(headnode, visbits, visbits_size);
+  except
+    on E: Exception do
+      ReportException('map_headnode_visible', E);
+  end;
+end;
+
+function core_map_load_mesh(desc: PRealmsMeshDesc): cint32; cdecl;
+var
+  name, err: AnsiString;
+begin
+  Result := 0;
+  try
+    MaskFloatingPointExceptions;
+    if CM_LoadMesh(desc, err) then
+      Exit(1);
+    name := '?';
+    if (desc <> nil) and (desc^.name <> nil) then
+      name := StrOf(desc^.name);
+    Com_Warning('map_load_mesh: ' + name + ': ' + err);
+  except
+    on E: Exception do
+    begin
+      CM_UnloadMap;
+      ReportException('map_load_mesh', E);
+    end;
+  end;
+end;
+
 { ------------------------------------------------------------ entry point }
 
 procedure FillApi;
@@ -409,6 +657,24 @@ begin
   Api.fs_load := @core_fs_load;
   Api.fs_free := @core_fs_free;
   Api.fs_pak_count := @core_fs_pak_count;
+  Api.map_load := @core_map_load;
+  Api.map_info := @core_map_info;
+  Api.map_entities := @core_map_entities;
+  Api.map_model := @core_map_model;
+  Api.map_headnode_for_box := @core_map_headnode_for_box;
+  Api.map_point_contents := @core_map_point_contents;
+  Api.map_box_trace := @core_map_box_trace;
+  Api.map_point_leaf := @core_map_point_leaf;
+  Api.map_leaf_info := @core_map_leaf_info;
+  Api.map_cluster_pvs := @core_map_cluster_pvs;
+  Api.map_cluster_phs := @core_map_cluster_phs;
+  Api.map_set_area_portal := @core_map_set_area_portal;
+  Api.map_area_portal_open := @core_map_area_portal_open;
+  Api.map_areas_connected := @core_map_areas_connected;
+  Api.map_write_area_bits := @core_map_write_area_bits;
+  Api.map_box_leafs := @core_map_box_leafs;
+  Api.map_headnode_visible := @core_map_headnode_visible;
+  Api.map_load_mesh := @core_map_load_mesh;
 end;
 
 function realms_pascal_get_api(requested_version: cuint32): PRealmsCoreApi; cdecl;

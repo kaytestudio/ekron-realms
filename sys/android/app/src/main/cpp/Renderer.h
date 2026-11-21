@@ -14,6 +14,8 @@
 #include <optional>
 #include "TextureLoader.h"
 #include "GltfRenderer.h"
+#include "AndroidMapMode.h"
+#include <string>
 struct android_app;
 class Renderer {
 public:
@@ -65,4 +67,13 @@ private:
     bool assetsInstalled_=false;
     std::string savePath_;
     std::chrono::steady_clock::time_point last_;
+    // Realms map mode ("map <name>"): replaces the sandbox until killserver.
+    AndroidMapMode mapMode_;
+    float mapYaw_=0,mapPitch_=0,mapJump_=0;
+    bool mapCrouch_=false;
+    std::string pendingMap_;
+    bool mapChangePending_=false;
+    bool pollMapChange();
+    void handleMapChange();
+    void renderMap(float dt);
 };

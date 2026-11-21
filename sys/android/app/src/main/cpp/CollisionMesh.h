@@ -101,8 +101,12 @@ public:
         query(bounds,[&](const Triangle&t){
             Vec3 e1=t.b-t.a,e2=t.c-t.a,h=cross(direction,e2);float det=dot(e1,h);
             if(std::abs(det)<1e-7f)return;
-            float inv=1/det;Vec3 s=origin-t.a;float u=dot(s,h)*inv;if(u<0||u>1)return;
-            Vec3 q=cross(s,e1);float v=dot(direction,q)*inv;if(v<0||u+v>1)return;
+            // Small barycentric tolerance keeps the mesh watertight: a ray through the
+            // edge shared by two triangles (e.g. the diagonal of a box face) must not
+            // slip between them when rounding differs (arm64 FMA, Apple libm).
+            constexpr float edge=1e-5f;
+            float inv=1/det;Vec3 s=origin-t.a;float u=dot(s,h)*inv;if(u<-edge||u>1+edge)return;
+            Vec3 q=cross(s,e1);float v=dot(direction,q)*inv;if(v<-edge||u+v>1+edge)return;
             float distance=dot(e2,q)*inv;if(distance<.001f||distance>nearest)return;
             Vec3 n=normalized(cross(e1,e2));if(dot(n,direction)>0)n=n*-1;
             nearest=distance;hit={origin+direction*distance,n,distance};found=true;

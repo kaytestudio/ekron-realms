@@ -25,6 +25,10 @@ struct Batch { std::vector<Vertex> vertices;int material=-1;bool decorativeWire=
 struct LoadOptions {
     bool level=true;
     bool buildPhysics=true;
+    // Keep the file's own coordinates (node transforms applied, no
+    // recentring/scaling): used for Realms glTF maps, whose collision lives
+    // in the same space (realms::MeshMap).
+    bool keepSourceSpace=false;
     float targetExtent=80.f;
     float x=0,y=0,z=0,yaw=0;
 };
@@ -38,6 +42,12 @@ struct Scene {
     std::shared_ptr<const physics::CollisionMesh> fenceBarriers;
     float spawnX=0,spawnZ=0;
     std::array<float,3> minimum{},maximum{};
+    // How vertices relate to the file's own (source) space: when sourceMapped,
+    // vertex = (source - sourceOffset) * sourceScale. Set for keepSourceSpace
+    // (identity) and level scenes; placed (rotated) scenes leave it false.
+    bool sourceMapped=false;
+    float sourceScale=1;
+    std::array<float,3> sourceOffset{};
     // Reads both GLB and JSON glTF from assets; external paths resolve relative to the scene.
     bool load(const std::string &path,const ReadFile &read,std::string &diagnostics,const LoadOptions &options={});
 };

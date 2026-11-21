@@ -57,7 +57,7 @@ bool GltfRenderer::uploadStep(std::string &log){
     for(auto&batch:scene_.batches)std::vector<Vertex>().swap(batch.vertices);
     return ready();
 }
-void GltfRenderer::draw(GLuint program,float eyeX,float eyeZ,bool hologram){
+void GltfRenderer::draw(GLuint program,float eyeX,float eyeZ,bool hologram)const{
     if(!ready())return;
     glUniform1i(glGetUniformLocation(program,"modelPass"),1);glUniform1i(glGetUniformLocation(program,"modelAlbedo"),1);
     glActiveTexture(GL_TEXTURE1);glVertexAttrib3f(1,1,1,1);glVertexAttrib1f(4,4);

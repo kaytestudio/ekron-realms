@@ -15,6 +15,8 @@ namespace realms_android {
 namespace {
 
 realms::Engine gEngine;
+bool gMapChanged = false;
+std::string gMapChange;
 AAssetManager *gAssets = nullptr;
 std::string gInternal;
 
@@ -106,10 +108,26 @@ realms::Engine &ensureEngine(android_app *app) {
     realms::sandbox::BootOptions boot;
     boot.platform = "android";
     boot.fileExists = exists;
+    boot.onMapChanged = [](const std::string &path) {
+        gMapChanged = true;
+        gMapChange = path;
+    };
     realms::sandbox::boot(gEngine, boot);
     __android_log_print(ANDROID_LOG_INFO, "Realms", "Realms engine ready: core=%s origin=%s",
                         gEngine.backendName().c_str(), gEngine.backendOrigin().c_str());
     return gEngine;
+}
+
+bool readFile(const std::string &path, std::vector<unsigned char> &out) {
+    if (!safeRelative(path)) return false;
+    return readInternal(path, out) || readAsset(path, out);
+}
+
+bool takeMapChange(std::string &path) {
+    if (!gMapChanged) return false;
+    gMapChanged = false;
+    path = gMapChange;
+    return true;
 }
 
 void saveConfig() {

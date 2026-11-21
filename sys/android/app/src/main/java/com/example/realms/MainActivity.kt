@@ -18,6 +18,7 @@ import android.content.ClipboardManager
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.provider.OpenableColumns
 import android.provider.Settings
 import android.graphics.Color
 import android.view.Gravity
@@ -26,7 +27,9 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.*
 import java.util.Locale
+import androidx.activity.result.contract.ActivityResultContracts
 import com.google.androidgamesdk.GameActivity
+import java.io.File
 
 /** Android HUD over the native GLES scene; loading remains visible until its first frame. */
 class MainActivity : GameActivity() {
@@ -44,6 +47,22 @@ class MainActivity : GameActivity() {
     private external fun nativeMove(right: Float, forward: Float)
     private external fun nativeLook(dx: Float, dy: Float)
     private external fun nativeRemotePlayers(values: FloatArray)
+    private external fun nativeLoadMap(path: String)
+    private external fun nativeMapPath(): String
+    // Map import rules shared with iOS (mapview::importFileName / importHeaderOk).
+    private external fun nativeMapImportName(picked: String): String
+    private external fun nativeMapImportHeader(fileName: String, head: ByteArray): Boolean
+    private external fun nativeMapImportLimit(): Long
+    private val mapImportExecutor = Executors.newSingleThreadExecutor()
+    /** "Import map…": the system file picker; a .gltf may be picked together with its .bin and textures. */
+    private val pickMapFiles = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isNotEmpty()) importMapFiles(uris)
+    }
+    /** Realms map mode (status slot 17): the sandbox HUD steps aside while a map is walked. */
+    private var mapMode = false
+    private var mapTexturesLoading = false
+    private var mapName = ""
+    private lateinit var switchControl: HudButton
     private val online by lazy {
         OnlinePresence({ nativeRemotePlayers(it) }, { message ->
             if (active && !isFinishing) Toast.makeText(this, message, Toast.LENGTH_LONG).show()
@@ -129,6 +148,16 @@ class MainActivity : GameActivity() {
                     if(state.size>=15){crouchControl.isSelected=state[14].toInt()==1;proneControl.isSelected=state[14].toInt()==2}
                     renderTools()
                 }
+                val nowMap = state.size >= 18 && state[17] > 0.5f
+                mapTexturesLoading = state.size >= 18 && state[17] > 1.5f
+                // Re-read every poll: picking another map keeps map mode on.
+                if (nowMap) nativeMapPath().substringAfterLast('/').takeIf { it.isNotEmpty() }?.let { mapName = it }
+                if (nowMap != mapMode) {
+                    mapMode = nowMap
+                    if (!nowMap) mapName = ""
+                    if (nowMap) closePopup()
+                    renderTools()
+                }
                 latest = state.copyOfRange(0, 3)
                 if(state.size>=16) latestYawDegrees = Math.toDegrees(state[15].toDouble()).toFloat()
                 coordinates.text = String.format(Locale.US, "X: %.1f   Y: %.1f   Z: %.1f", state[0], state[1], state[2])
@@ -155,8 +184,13 @@ class MainActivity : GameActivity() {
                     else -> getString(R.string.loading_failed)
                 }
                 if(stage in 0..5 && state.size>=9)loadingText.append(" ${state[8].toInt()}%")
-                notice.text = when (state[5].toInt()) {
+                notice.text = if (mapMode) {
+                    if (flying) getString(R.string.notice_flying)
+                    else if (mapTexturesLoading) getString(R.string.notice_map_textures, mapName)
+                    else getString(R.string.notice_map_mode, mapName)
+                } else when (state[5].toInt()) {
                     1 -> getString(R.string.notice_spawn_moved)
+                    7 -> getString(R.string.notice_map_failed)
                     2 -> getString(R.string.notice_spawn_unavailable)
                     3 -> getString(R.string.notice_no_parking)
                     5 -> getString(R.string.notice_no_exit)
@@ -265,7 +299,7 @@ class MainActivity : GameActivity() {
         overlay.addView(toolWheel,FrameLayout.LayoutParams(-1,-1))
         // Click action is retained for accessibility; touch uses hold/drag/release.
         val switchWeapon=action("", "switch") {
-            if(worldReady && active && !paused) {
+            if(worldReady && active && !paused && !mapMode) {
                 setPaused(true)
                 val dialog = AlertDialog.Builder(this)
                     .setTitle(R.string.tool_picker_title)
@@ -278,8 +312,9 @@ class MainActivity : GameActivity() {
             }
         }.apply { visualScale=.73f }
         switchWeapon.contentDescription=getString(R.string.tool_switch_description)
+        switchControl=switchWeapon
         switchWeapon.setOnTouchListener { view, event ->
-            if(!worldReady || !active || paused) { toolWheel.cancel(); true }
+            if(!worldReady || !active || paused || mapMode) { toolWheel.cancel(); true }
             else {
                 if(event.actionMasked==MotionEvent.ACTION_DOWN) view.parent.requestDisallowInterceptTouchEvent(true)
                 toolWheel.gesture(event, toolsState.tool, open = {
@@ -432,15 +467,18 @@ class MainActivity : GameActivity() {
         popup=panel;return panel
     }
     private fun renderTools() {
+        // Seated in a car or walking a Realms map: no sandbox tools.
+        val tools=interactionCode!=4&&!mapMode
         weapon.tool=toolsState.tool
-        weapon.visibility=if(toolsState.viewmodelVisible&&interactionCode!=4)View.VISIBLE else View.GONE
+        weapon.visibility=if(toolsState.viewmodelVisible&&tools)View.VISIBLE else View.GONE
         updateSelectedIcon()
-        catalogControl.visibility=if(interactionCode!=4)View.VISIBLE else View.GONE
-        spawnActions.visibility=if(toolsState.spawnVisible&&interactionCode!=4)View.VISIBLE else View.GONE
-        remoteActions.visibility=if(toolsState.tool==HandTool.DRONE_REMOTE&&interactionCode!=4)View.VISIBLE else View.GONE
-        gravityActions.visibility=if(toolsState.gravityVisible&&interactionCode!=4)View.VISIBLE else View.GONE
-        removeControl.visibility=if(toolsState.deleteVisible&&interactionCode!=4)View.VISIBLE else View.GONE
-        rotateHeldControl.visibility=if(toolsState.rotateHeldVisible&&interactionCode!=4)View.VISIBLE else View.GONE
+        catalogControl.visibility=if(tools)View.VISIBLE else View.GONE
+        if(::switchControl.isInitialized)switchControl.visibility=if(!mapMode)View.VISIBLE else View.GONE
+        spawnActions.visibility=if(toolsState.spawnVisible&&tools)View.VISIBLE else View.GONE
+        remoteActions.visibility=if(toolsState.tool==HandTool.DRONE_REMOTE&&tools)View.VISIBLE else View.GONE
+        gravityActions.visibility=if(toolsState.gravityVisible&&tools)View.VISIBLE else View.GONE
+        removeControl.visibility=if(toolsState.deleteVisible&&tools)View.VISIBLE else View.GONE
+        rotateHeldControl.visibility=if(toolsState.rotateHeldVisible&&tools)View.VISIBLE else View.GONE
         val grabCaption=getString(toolsState.grabCaption)
         if(grabControl.contentDescription!=grabCaption) {
             grabControl.symbol=if(toolsState.holding) "release" else "grab"
@@ -521,10 +559,11 @@ class MainActivity : GameActivity() {
         nativeReady(worldReady && active && !paused)
     }
     private fun showPauseMenu() {
+        if(mapMode) { showMapPauseMenu(); return }
         setPaused(true)
         val dialog=AlertDialog.Builder(this).setTitle(R.string.pause)
             .setItems(arrayOf(R.string.pause_resume,if(flyingNow) R.string.pause_flight_off else R.string.pause_flight_on,R.string.pause_road,R.string.pause_restore_uaz,
-                R.string.pause_spawn,R.string.pause_online,R.string.pause_disconnect,R.string.pause_language).map { getString(it) }.toTypedArray()) { _, which ->
+                R.string.pause_spawn,R.string.pause_online,R.string.pause_disconnect,R.string.pause_language,R.string.pause_maps).map { getString(it) }.toTypedArray()) { _, which ->
                 setPaused(false)
                 if(which==1)nativeCommand(6)
                 if(which==2)nativeCommand(7)
@@ -533,9 +572,142 @@ class MainActivity : GameActivity() {
                 if(which==5)handler.post { showOnlineDialog() }
                 if(which==6)online.disconnect()
                 if(which==7)handler.post { openLanguageSettings() }
+                if(which==8)handler.post { showMapPicker() }
             }.create()
         dialog.setOnDismissListener { setPaused(false);hideSystemUi() }
         dialog.show()
+    }
+    /** Pause menu while walking a Realms map: movement options, other maps and the way back. */
+    private fun showMapPauseMenu() {
+        setPaused(true)
+        val dialog=AlertDialog.Builder(this).setTitle(getString(R.string.notice_map_mode, mapName))
+            .setItems(arrayOf(R.string.pause_resume,if(flyingNow) R.string.pause_noclip_off else R.string.pause_noclip_on,R.string.pause_spawn,
+                R.string.pause_maps,R.string.pause_leave_map).map { getString(it) }.toTypedArray()) { _, which ->
+                setPaused(false)
+                if(which==1)nativeCommand(6)
+                if(which==2)nativeCommand(35)
+                if(which==3)handler.post { showMapPicker() }
+                if(which==4)nativeCommand(50)
+            }.create()
+        dialog.setOnDismissListener { setPaused(false);hideSystemUi() }
+        dialog.show()
+    }
+    /** Quake 2 BSPs and glTF scenes from the APK (maps/, models/) and internal storage (maps/). */
+    private fun isMapName(name: String)=listOf(".bsp",".glb",".gltf").any { name.lowercase(Locale.ROOT).endsWith(it) }
+    private fun importedMapDir()=File(filesDir,"maps")
+    private fun importedMaps(): List<String> = importedMapDir().list()?.filter(::isMapName)?.sorted().orEmpty()
+    private fun availableMaps(): List<String> {
+        val found=linkedSetOf<String>()
+        for(dir in listOf("maps","models"))
+            try { assets.list(dir)?.sorted()?.filter(::isMapName)?.forEach { found.add("$dir/$it") } } catch(_: Exception) {}
+        importedMaps().forEach { found.add("maps/$it") }
+        // The sandbox's own street first.
+        return found.sortedBy { if(it.endsWith("abandoned_city_street_for_games.glb")) 0 else 1 }
+    }
+    private fun showMapPicker() {
+        if (!worldReady || !active) return
+        val maps=availableMaps()
+        val canRemove=importedMaps().isNotEmpty()
+        val labels=maps.map { it.substringAfterLast('/') } + getString(R.string.maps_import) +
+            (if(canRemove) listOf(getString(R.string.maps_remove)) else emptyList())
+        setPaused(true)
+        val dialog=AlertDialog.Builder(this).setTitle(R.string.maps_title).setNegativeButton(R.string.cancel, null)
+            .setItems(labels.toTypedArray()) { _, which ->
+                setPaused(false)
+                when {
+                    which < maps.size -> {
+                        Toast.makeText(this, getString(R.string.map_loading, maps[which].substringAfterLast('/')), Toast.LENGTH_SHORT).show()
+                        nativeLoadMap(maps[which])
+                    }
+                    which == maps.size -> try { pickMapFiles.launch(arrayOf("*/*")) } catch(_: Exception) {}
+                    else -> handler.post { showRemoveMapPicker() }
+                }
+            }.create()
+        dialog.setOnDismissListener { setPaused(false);hideSystemUi() }
+        dialog.show()
+    }
+    /** Imported maps (internal storage maps/) other than the one being walked. */
+    private fun showRemoveMapPicker() {
+        if (!worldReady || !active) return
+        val current=if(mapMode) nativeMapPath() else ""
+        val maps=importedMaps().filter { "maps/$it" != current }
+        if(maps.isEmpty()) return
+        setPaused(true)
+        val dialog=AlertDialog.Builder(this).setTitle(R.string.maps_remove_title).setNegativeButton(R.string.cancel, null)
+            .setItems(maps.toTypedArray()) { _, which ->
+                setPaused(false)
+                if(File(importedMapDir(), maps[which]).delete())
+                    Toast.makeText(this, getString(R.string.maps_removed, maps[which]), Toast.LENGTH_SHORT).show()
+            }.create()
+        dialog.setOnDismissListener { setPaused(false);hideSystemUi() }
+        dialog.show()
+    }
+    /** Copies picked files into internal storage maps/ off the UI thread, then loads the first map among them. */
+    private fun importMapFiles(uris: List<Uri>) {
+        val dir=importedMapDir()
+        val limit=nativeMapImportLimit()
+        mapImportExecutor.execute {
+            var firstMap: String?=null
+            var imported=0
+            var rejected=0
+            dir.mkdirs()
+            for(uri in uris) {
+                val name=pickedFileName(uri)?.let { nativeMapImportName(it) }.orEmpty()
+                if(name.isEmpty() || !copyPickedFile(uri, File(dir, name), name, limit)) { rejected++; continue }
+                imported++
+                if(firstMap==null && isMapName(name)) firstMap=name
+            }
+            handler.post {
+                if(rejected>0) Toast.makeText(this, R.string.maps_import_failed, Toast.LENGTH_LONG).show()
+                val map=firstMap
+                if(map!=null && worldReady && active) {
+                    Toast.makeText(this, getString(R.string.map_loading, map), Toast.LENGTH_SHORT).show()
+                    nativeLoadMap("maps/$map")
+                } else if(imported>0 && rejected==0) {
+                    Toast.makeText(this, R.string.maps_imported_files, Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+    private fun pickedFileName(uri: Uri): String? {
+        val shown=try {
+            contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                if(c.moveToFirst()) c.getString(0) else null
+            }
+        } catch(_: Exception) { null }
+        return shown ?: uri.lastPathSegment
+    }
+    /** Header-checked, size-capped copy through a .part file (never a half-written map). */
+    private fun copyPickedFile(uri: Uri, target: File, name: String, limit: Long): Boolean {
+        val part=File(target.path + ".part")
+        var ok=false
+        try {
+            contentResolver.openInputStream(uri)?.use { input ->
+                val head=ByteArray(64)
+                var got=0
+                while(got<head.size) { val n=input.read(head, got, head.size-got); if(n<0) break; got+=n }
+                if(got>0 && nativeMapImportHeader(name, head.copyOf(got))) {
+                    part.outputStream().use { out ->
+                        out.write(head, 0, got)
+                        var total=got.toLong()
+                        val buffer=ByteArray(64*1024)
+                        while(total<=limit) {
+                            val n=input.read(buffer)
+                            if(n<0) break
+                            total+=n
+                            out.write(buffer, 0, n)
+                        }
+                        ok=total<=limit
+                    }
+                }
+            }
+            ok=ok && part.renameTo(target)
+        } catch(_: Exception) {
+            ok=false
+        } finally {
+            if(part.exists()) part.delete()
+        }
+        return ok
     }
     /** English, Russian and Portuguese (Portugal) follow the system or per-app language (res/xml/locales_config.xml). */
     private fun openLanguageSettings() {
@@ -613,7 +785,7 @@ class MainActivity : GameActivity() {
         videoEndedAt = SystemClock.elapsedRealtime()
         player?.release(); player = null; video?.visibility = View.GONE
     }
-    override fun onDestroy() { catalogExecutor.shutdownNow();nativeReady(false); player?.release(); player = null; handler.removeCallbacks(poll); super.onDestroy() }
+    override fun onDestroy() { catalogExecutor.shutdownNow();mapImportExecutor.shutdown();nativeReady(false); player?.release(); player = null; handler.removeCallbacks(poll); super.onDestroy() }
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) hideSystemUi() else { nativeVertical(0f); if (::joystick.isInitialized) joystick.reset();if (::lookArea.isInitialized)lookArea.reset() }

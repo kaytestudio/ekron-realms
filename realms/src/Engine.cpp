@@ -25,6 +25,12 @@ extern "C" const RealmsCoreApi *realms_pascal_get_api(uint32_t requested_version
 #include <dlfcn.h>
 #endif
 
+// Bit-exact with the Free Pascal core: no fused multiply-add contraction
+// (clang contracts a*b+c by default on arm64 / FMA targets).
+#if defined(__clang__)
+#pragma clang fp contract(off)
+#endif
+
 namespace fs = std::filesystem;
 
 namespace realms {
@@ -360,6 +366,280 @@ bool Engine::loadFile(const std::string &path, std::vector<unsigned char> &out) 
 
 int32_t Engine::pakCount() const {
     return core_ ? core_->fs_pak_count() : 0;
+}
+
+// -------------------------------------------------------- collision model
+
+namespace {
+
+TraceResult toTraceResult(const RealmsTrace &t) {
+    TraceResult r;
+    r.allsolid = t.allsolid != 0;
+    r.startsolid = t.startsolid != 0;
+    r.fraction = t.fraction;
+    for (int i = 0; i < 3; ++i) {
+        r.endpos[size_t(i)] = t.endpos[i];
+        r.normal[size_t(i)] = t.plane_normal[i];
+    }
+    r.planeDist = t.plane_dist;
+    r.contents = t.contents;
+    r.surfaceFlags = t.surface_flags;
+    r.surfaceValue = t.surface_value;
+    const char *nameEnd = std::find(t.surface_name, t.surface_name + sizeof(t.surface_name), '\0');
+    r.surface.assign(t.surface_name, nameEnd);
+    return r;
+}
+
+} // namespace
+
+bool Engine::loadMap(const std::string &path) {
+    meshMap_ = MeshMap{};
+    mapPath_.clear();
+    if (!core_ || path.empty()) return false;
+    if (!isMeshMapPath(path)) {
+        if (core_->map_load(path.c_str()) != 1) return false;
+        mapPath_ = path;
+        return true;
+    }
+    core_->map_load(""); // like map_load: a failed load leaves no map
+    std::vector<unsigned char> data;
+    if (!loadFile(path, data)) {
+        print("map_load: couldn't load " + path, REALMS_PRINT_WARNING);
+        return false;
+    }
+    GltfMapOptions options;
+    const float scale = cvarFloat("map_mesh_scale", 32.0f);
+    if (scale > 0.0f && std::isfinite(scale)) options.scale = scale;
+    MeshMap mesh;
+    std::string error;
+    const auto reader = [this](const std::string &p, std::vector<unsigned char> &out) { return loadFile(p, out); };
+    if (!gltfToMeshMap(data.data(), data.size(), path, reader, options, mesh, error)) {
+        print("map_load: " + path + ": " + error, REALMS_PRINT_WARNING);
+        return false;
+    }
+    mesh.thickness = cvarFloat("map_mesh_thickness", 0.0f);
+    return loadMeshMap(mesh, path, crc32(data.data(), data.size()));
+}
+
+bool Engine::loadMeshMap(const MeshMap &map, const std::string &name, uint32_t checksum) {
+    meshMap_ = MeshMap{};
+    mapPath_.clear();
+    if (!core_) return false;
+    std::vector<RealmsMeshSurface> surfaces;
+    const RealmsMeshDesc desc = meshMapDesc(map, surfaces, name.c_str(), checksum);
+    if (core_->map_load_mesh(&desc) != 1) return false;
+    meshMap_ = map;
+    mapPath_ = name;
+    return true;
+}
+
+std::string Engine::findMap(const std::string &name) const {
+    if (!core_ || name.empty()) return {};
+    std::vector<std::string> candidates = {name};
+    if (name.find('/') == std::string::npos) {
+        candidates.push_back("maps/" + name);
+        for (const char *ext : {".bsp", ".glb", ".gltf"}) candidates.push_back("maps/" + name + ext);
+    }
+    std::vector<unsigned char> probe;
+    for (const std::string &c : candidates) {
+        const size_t slash = c.rfind('/'), dot = c.rfind('.');
+        if (dot == std::string::npos || (slash != std::string::npos && dot < slash)) continue; // needs an extension
+        if (loadFile(c, probe)) return c;
+    }
+    return {};
+}
+
+void Engine::unloadMap() {
+    meshMap_ = MeshMap{};
+    mapPath_.clear();
+    if (core_) core_->map_load("");
+}
+
+bool Engine::mapLoaded() const {
+    RealmsMapInfo info{};
+    return mapInfo(info);
+}
+
+bool Engine::mapInfo(RealmsMapInfo &out) const {
+    out = RealmsMapInfo{};
+    out.struct_size = sizeof(RealmsMapInfo);
+    return core_ && core_->map_info(&out) == 1;
+}
+
+std::string Engine::mapEntities() const {
+    if (!core_) return {};
+    const int32_t len = core_->map_entities(nullptr, 0);
+    if (len <= 0) return {};
+    std::string text(size_t(len) + 1, '\0');
+    core_->map_entities(&text[0], int32_t(text.size()));
+    text.resize(size_t(len));
+    return text;
+}
+
+bool Engine::mapModel(int32_t index, MapModel &out) const {
+    out = MapModel{};
+    return core_ && core_->map_model(index, out.mins.data(), out.maxs.data(), out.origin.data(), &out.headnode) == 1;
+}
+
+int32_t Engine::headnodeForBox(const Vec3 &mins, const Vec3 &maxs) {
+    return core_ ? core_->map_headnode_for_box(mins.data(), maxs.data()) : 0;
+}
+
+int32_t Engine::pointContents(const Vec3 &point, int32_t headnode) const {
+    return core_ ? core_->map_point_contents(point.data(), headnode, nullptr, nullptr) : 0;
+}
+
+int32_t Engine::transformedPointContents(const Vec3 &point, int32_t headnode, const Vec3 &origin,
+                                         const Vec3 &angles) const {
+    return core_ ? core_->map_point_contents(point.data(), headnode, origin.data(), angles.data()) : 0;
+}
+
+TraceResult Engine::boxTrace(const Vec3 &start, const Vec3 &end, const Vec3 &mins, const Vec3 &maxs,
+                             int32_t headnode, int32_t brushmask) const {
+    if (!core_) {
+        TraceResult r;
+        r.endpos = end;
+        return r;
+    }
+    RealmsTrace t{};
+    core_->map_box_trace(start.data(), end.data(), mins.data(), maxs.data(), headnode, brushmask, nullptr, nullptr, &t);
+    return toTraceResult(t);
+}
+
+TraceResult Engine::transformedBoxTrace(const Vec3 &start, const Vec3 &end, const Vec3 &mins, const Vec3 &maxs,
+                                        int32_t headnode, int32_t brushmask, const Vec3 &origin,
+                                        const Vec3 &angles) const {
+    if (!core_) {
+        TraceResult r;
+        r.endpos = end;
+        return r;
+    }
+    RealmsTrace t{};
+    core_->map_box_trace(start.data(), end.data(), mins.data(), maxs.data(), headnode, brushmask, origin.data(),
+                         angles.data(), &t);
+    return toTraceResult(t);
+}
+
+int32_t Engine::pointLeaf(const Vec3 &point) const {
+    return core_ ? core_->map_point_leaf(point.data()) : 0;
+}
+
+bool Engine::leafInfo(int32_t leaf, int32_t &contents, int32_t &cluster, int32_t &area) const {
+    contents = cluster = area = 0;
+    return core_ && core_->map_leaf_info(leaf, &contents, &cluster, &area) == 1;
+}
+
+namespace {
+template <typename Fn> std::vector<uint8_t> readRow(Fn fn) {
+    const int32_t size = fn(nullptr, 0);
+    if (size <= 0) return {};
+    std::vector<uint8_t> row(size_t(size), 0);
+    fn(row.data(), size);
+    return row;
+}
+} // namespace
+
+std::vector<uint8_t> Engine::clusterPVS(int32_t cluster) const {
+    if (!core_) return {};
+    return readRow([&](uint8_t *b, int32_t n) { return core_->map_cluster_pvs(cluster, b, n); });
+}
+
+std::vector<uint8_t> Engine::clusterPHS(int32_t cluster) const {
+    if (!core_) return {};
+    return readRow([&](uint8_t *b, int32_t n) { return core_->map_cluster_phs(cluster, b, n); });
+}
+
+bool Engine::clusterVisible(const std::vector<uint8_t> &row, int32_t cluster) {
+    if (cluster < 0 || size_t(cluster >> 3) >= row.size()) return false;
+    return (row[size_t(cluster >> 3)] & (1u << (cluster & 7))) != 0;
+}
+
+void Engine::setAreaPortal(int32_t portal, bool open) {
+    if (core_) core_->map_set_area_portal(portal, open ? 1 : 0);
+}
+
+int32_t Engine::areaPortalState(int32_t portal) const {
+    return core_ ? core_->map_area_portal_open(portal) : -1;
+}
+
+bool Engine::areasConnected(int32_t area1, int32_t area2) const {
+    return core_ && core_->map_areas_connected(area1, area2) == 1;
+}
+
+std::vector<uint8_t> Engine::areaBits(int32_t area) const {
+    if (!core_) return {};
+    return readRow([&](uint8_t *b, int32_t n) { return core_->map_write_area_bits(area, b, n); });
+}
+
+std::vector<int32_t> Engine::boxLeafs(const Vec3 &mins, const Vec3 &maxs, int32_t headnode, int32_t *topnode,
+                                      size_t maxLeafs) const {
+    if (topnode) *topnode = -1;
+    if (!core_ || maxLeafs == 0) return {};
+    std::vector<int32_t> list(std::min<size_t>(maxLeafs, 1u << 20), 0);
+    const int32_t n =
+        core_->map_box_leafs(mins.data(), maxs.data(), list.data(), int32_t(list.size()), headnode, topnode);
+    list.resize(size_t(std::max(n, 0)));
+    return list;
+}
+
+bool Engine::headnodeVisible(int32_t headnode, const std::vector<uint8_t> &visbits) const {
+    return core_ && !visbits.empty() &&
+           core_->map_headnode_visible(headnode, visbits.data(), int32_t(visbits.size())) == 1;
+}
+
+std::vector<MapEntity> Engine::parseEntities(const std::string &text) {
+    // COM_Parse: whitespace separated tokens, quoted strings, // comments.
+    size_t at = 0;
+    auto token = [&](std::string &out) -> bool {
+        out.clear();
+        for (;;) {
+            while (at < text.size() && static_cast<unsigned char>(text[at]) <= ' ') ++at;
+            if (at + 1 < text.size() && text[at] == '/' && text[at + 1] == '/') {
+                while (at < text.size() && text[at] != '\n') ++at;
+                continue;
+            }
+            break;
+        }
+        if (at >= text.size()) return false;
+        if (text[at] == '"') {
+            ++at;
+            while (at < text.size() && text[at] != '"') out += text[at++];
+            if (at < text.size()) ++at;
+            return true;
+        }
+        if (text[at] == '{' || text[at] == '}') {
+            out = text[at++];
+            return true;
+        }
+        while (at < text.size() && static_cast<unsigned char>(text[at]) > ' ' && text[at] != '"') out += text[at++];
+        return true;
+    };
+    std::vector<MapEntity> entities;
+    std::string tok;
+    while (token(tok)) {
+        if (tok != "{") break; // ED_LoadFromFile: "found %s when expecting {"
+        MapEntity entity;
+        bool closed = false;
+        std::string key;
+        while (token(key)) {
+            if (key == "}") {
+                closed = true;
+                break;
+            }
+            std::string value;
+            if (!token(value) || value == "}") break; // EOF without closing brace
+            entity.emplace_back(key, value);
+        }
+        if (!closed) break;
+        entities.push_back(std::move(entity));
+    }
+    return entities;
+}
+
+std::string Engine::entityValue(const MapEntity &entity, const std::string &key) {
+    for (const auto &kv : entity)
+        if (kv.first == key) return kv.second;
+    return {};
 }
 
 // ------------------------------------------------------------------ frame

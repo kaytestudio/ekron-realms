@@ -110,6 +110,8 @@ if(ENABLE_DESKTOP_SANDBOX)
         "${DESKTOP_SRC_DIR}/ShopCatalog.cpp"
         "${DESKTOP_SRC_DIR}/Localization.cpp"
         "${DESKTOP_SRC_DIR}/DesktopConsole.cpp"
+        "${DESKTOP_SRC_DIR}/DesktopMapMode.cpp"
+        "${SHARED_CPP_DIR}/MapSession.cpp"
         "${SHARED_CPP_DIR}/GltfScene.cpp"
         "${SHARED_CPP_DIR}/ImageDecode.cpp"
     )
@@ -321,6 +323,19 @@ add_executable(realms_bridge_test tests/realms/realms_bridge_test.cpp)
 target_link_libraries(realms_bridge_test PRIVATE realms_engine)
 add_test(NAME realms_bridge_native COMMAND realms_bridge_test)
 set_tests_properties(realms_bridge_native PROPERTIES ENVIRONMENT "REALMS_CORE=")
+
+# glTF maps: collision (realms::MeshMap) and the drawn model (city::Scene in
+# source space) line up, on a synthetic room and every shipped .glb.
+add_executable(realms_map_render_alignment_test
+    tests/realms/map_render_alignment_test.cpp
+    "${SHARED_CPP_DIR}/GltfScene.cpp"
+    "${SHARED_CPP_DIR}/MapSession.cpp"
+    "${SHARED_CPP_DIR}/ImageDecode.cpp"
+)
+target_include_directories(realms_map_render_alignment_test PRIVATE tests/realms "${SHARED_CPP_DIR}")
+target_link_libraries(realms_map_render_alignment_test PRIVATE realms_engine)
+add_test(NAME realms_map_render_alignment
+         COMMAND realms_map_render_alignment_test "${SHARED_ASSETS_DIR}/models")
 
 if(EKRON_SDL2_TARGET)
     # Drop-down console line editing / command submission (no GL needed).

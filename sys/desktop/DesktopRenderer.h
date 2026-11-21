@@ -57,6 +57,11 @@ public:
                       const std::string &relativePath,
                       std::string &logOut,
                       city::LoadOptions options = {});
+    // Loads through a reader (e.g. the Realms PAK filesystem).
+    bool loadWithReader(const std::string &path,
+                        const city::ReadFile &read,
+                        std::string &logOut,
+                        city::LoadOptions options = {});
 
     void upload(ekron::gl::Api &gl);
     void release(ekron::gl::Api &gl);
@@ -109,6 +114,19 @@ public:
                          float yaw,
                          float pitch,
                          float roll);
+
+    // Realms map mode: static map geometry (render space: metres, Y up) and
+    // an optional glTF map model drawn in its source space.
+    void setMapGeometry(ekron::gl::Api &gl, const std::vector<sandbox::MeshVertex> &vertices);
+    void clearMapGeometry(ekron::gl::Api &gl);
+    void renderMapWorld(ekron::gl::Api &gl,
+                        int drawableW,
+                        int drawableH,
+                        const DesktopGltfModel *mapModel,
+                        physics::Vec3 eye,
+                        float yaw,
+                        float pitch,
+                        float roll);
 
     // 2D UI layer (coordinates in logical window pixels [0..winW] x [0..winH], top-left origin)
     void beginUi(int logicalW, int logicalH);
@@ -168,6 +186,9 @@ private:
     GLuint ghostVbo_ = 0;
     GLuint uiVao_ = 0;
     GLuint uiVbo_ = 0;
+    GLuint mapVao_ = 0;
+    GLuint mapVbo_ = 0;
+    GLsizei mapCount_ = 0;
 
     GLuint whiteTex_ = 0;
     GLuint materialArrayTex_ = 0;

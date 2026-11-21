@@ -22,6 +22,7 @@
 #include "LevelPlacement.h"
 #include "DebugPlayer.h"
 #include "GltfScene.h"
+#include "MapSession.h"
 #include "realms/Engine.h"
 #include "realms/SandboxBoot.h"
 
@@ -403,6 +404,218 @@ struct PreparedAssets {
     bool droneValid = false;
 };
 
+// ---- Realms map mode ---------------------------------------------------
+//
+// "map <name>" (pause menu > Maps, or any script) swaps the sandbox for a
+// Quake 2 BSP or glTF map loaded into the Realms core, walked with
+// realms::MapWalker. Spaces and the walker are mapview::MapSession, shared
+// with Android (AndroidMapMode) and the desktop client; this is the Metal
+// twin of AndroidMapMode:
+//   * the sandbox city, already on the GPU, when the map is that same file
+//     (a level-mode scene: the camera moves into its space);
+//   * other glTF maps: the textured file, prepared on a worker thread and
+//     uploaded a few steps per frame; until then, and for BSPs, the map's
+//     own triangles with the sandbox material layers.
+
+constexpr const char *kCityAsset = "models/abandoned_city_street_for_games.glb";
+
+// Map changes reported by the engine (boot hook, any thread that runs the
+// command buffer); the bridge may be recreated, the engine is not.
+std::mutex gMapChangeMutex;
+bool gMapChanged = false;
+std::string gMapChange;
+
+void noteMapChange(const std::string &path) {
+    std::lock_guard<std::mutex> lock(gMapChangeMutex);
+    gMapChanged = true;
+    gMapChange = path;
+}
+
+bool takeMapChange(std::string &path) {
+    std::lock_guard<std::mutex> lock(gMapChangeMutex);
+    if (!gMapChanged) return false;
+    gMapChanged = false;
+    path = gMapChange;
+    return true;
+}
+
+// Walker state kept when the bridge is recreated while a map is loaded.
+struct RetainedMap {
+    std::string path;
+    realms::MapWalker walker;
+    float yaw = 0.0f;
+    float pitch = 0.0f;
+    bool crouch = false;
+};
+std::optional<RetainedMap> gRetainedMap;
+
+class MetalMapMode {
+public:
+    MetalMapMode() = default;
+    MetalMapMode(const MetalMapMode &) = delete;
+    MetalMapMode &operator=(const MetalMapMode &) = delete;
+    ~MetalMapMode() {
+        if (prepare_.valid()) prepare_.wait();
+    }
+
+    // Opens the engine's loaded map. `roots` are the engine's search roots
+    // (writable support directory first, then the bundle), read directly by
+    // the worker - never through the engine, which belongs to the render
+    // thread.
+    bool open(realms::Engine &engine,
+              id<MTLDevice> device,
+              const MetalGltfModel &sandboxCity,
+              const std::string &sandboxCityPath,
+              const std::vector<std::string> &roots,
+              std::string &error) {
+        close();
+        realms::MapGeometry geometry;
+        if (!session_.open(engine, geometry, error)) return false;
+
+        const city::Scene &cityScene = sandboxCity.scene();
+        if (session_.mesh() && session_.path() == sandboxCityPath && sandboxCity.ready() &&
+            cityScene.sourceMapped && cityScene.sourceScale > 0.0f) {
+            reuseCity_ = true;
+            cityScale_ = cityScene.sourceScale;
+            cityOffset_ = cityScene.sourceOffset;
+            session_.summary() += ", textured";
+            return true;
+        }
+
+        std::vector<sandbox::MeshVertex> vertices;
+        mapview::toRenderVertices(geometry, session_.unitsPerMetre(), vertices);
+        if (!vertices.empty()) {
+            triangles_ = [device newBufferWithBytes:vertices.data()
+                                             length:vertices.size() * sizeof(sandbox::MeshVertex)
+                                            options:MTLResourceStorageModeShared];
+            count_ = triangles_ ? static_cast<NSUInteger>(vertices.size()) : 0;
+        }
+
+        if (session_.mesh()) {
+            const std::string path = session_.path();
+            prepare_ = std::async(std::launch::async, [path, roots]() -> std::optional<city::Scene> {
+                try {
+                    city::Scene scene;
+                    city::LoadOptions options;
+                    options.level = false;
+                    options.buildPhysics = false;
+                    options.keepSourceSpace = true;
+                    std::string log;
+                    auto reader = [&roots](const std::string &p, std::vector<unsigned char> &bytes) {
+                        for (const std::string &root : roots) {
+                            if (readFileFromRoot(root, p, bytes)) return true;
+                        }
+                        return false;
+                    };
+                    if (scene.load(path, reader, log, options)) return scene;
+                    NSLog(@"[Realms] map: %s: no textured model (%s)", path.c_str(), log.c_str());
+                } catch (const std::exception &e) {
+                    NSLog(@"[Realms] map: %s: %s", path.c_str(), e.what());
+                }
+                return std::nullopt;
+            });
+        }
+        return true;
+    }
+
+    void close() {
+        if (prepare_.valid()) prepare_.wait();
+        prepare_ = {};
+        model_.release();
+        triangles_ = nil;
+        count_ = 0;
+        reuseCity_ = false;
+        cityScale_ = 1.0f;
+        cityOffset_ = {};
+        session_.close();
+    }
+
+    bool active() const { return session_.active(); }
+    // The textured model is still being prepared / uploaded.
+    bool texturedPending() const { return prepare_.valid() || model_.uploading(); }
+
+    // Continues preparing / uploading the textured model (~4 ms per frame).
+    void advance(id<MTLDevice> device, id<MTLCommandQueue> queue, id<MTLTexture> whiteTexture) {
+        if (prepare_.valid() && prepare_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+            std::optional<city::Scene> scene;
+            try {
+                scene = prepare_.get();
+            } catch (const std::exception &) {
+            }
+            prepare_ = {};
+            if (scene) model_.beginUpload(std::move(*scene));
+        }
+        if (!model_.uploading()) return;
+        const auto start = std::chrono::steady_clock::now();
+        while (model_.uploading() && std::chrono::steady_clock::now() - start < std::chrono::milliseconds(4)) {
+            model_.uploadStep(device, queue, whiteTexture);
+        }
+        if (model_.ready()) {
+            triangles_ = nil; // the textured model replaces the plain triangles
+            count_ = 0;
+            session_.summary() += ", textured";
+        }
+    }
+
+    void update(const realms::Engine &engine, const realms::WalkInput &input, float renderYaw, float renderPitch,
+                float dt) {
+        session_.update(engine, input, renderYaw, renderPitch, dt);
+    }
+    bool respawn(const realms::Engine &engine) { return session_.respawn(engine); }
+
+    // Camera eye in the space draw() renders in.
+    physics::Vec3 drawEye() const {
+        const physics::Vec3 e = session_.eye();
+        return reuseCity_ ? mapview::toLevelScene(e, cityScale_, cityOffset_) : e;
+    }
+
+    // Draws the map; the scene uniforms, sky and material array are already
+    // set on `encoder` (see encodeSceneSetup).
+    void draw(id<MTLRenderCommandEncoder> encoder,
+              id<MTLRenderPipelineState> sandboxPipeline,
+              id<MTLRenderPipelineState> opaquePipeline,
+              id<MTLRenderPipelineState> blendedPipeline,
+              id<MTLDepthStencilState> depthWriteState,
+              id<MTLDepthStencilState> depthReadState,
+              id<MTLSamplerState> const samplers[3][3],
+              id<MTLTexture> whiteTexture,
+              const MetalGltfModel &sandboxCity) const {
+        const physics::Vec3 eye = drawEye();
+        const matrix_float4x4 identity = matrix_identity_float4x4;
+        if (reuseCity_ || model_.ready()) {
+            (reuseCity_ ? sandboxCity : model_).draw(encoder, opaquePipeline, blendedPipeline, depthWriteState,
+                                                     depthReadState, samplers, whiteTexture, identity, eye.x, eye.z,
+                                                     false);
+            return;
+        }
+        if (!triangles_ || count_ == 0) return;
+        SandboxDrawUniforms draw{};
+        draw.objectTransform = identity;
+        draw.baseColorFactor = simd_make_float4(1.0f, 1.0f, 1.0f, 1.0f);
+        draw.materialParams = simd_make_float4(0.94f, 0.5f, 0.0f, 0.0f);
+        draw.drawFlags = simd_make_int4(0, 0, 0, 0);
+        [encoder setRenderPipelineState:sandboxPipeline];
+        [encoder setDepthStencilState:depthWriteState];
+        [encoder setVertexBuffer:triangles_ offset:0 atIndex:0];
+        [encoder setVertexBytes:&draw length:sizeof(draw) atIndex:2];
+        [encoder setFragmentBytes:&draw length:sizeof(draw) atIndex:2];
+        [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:count_];
+    }
+
+    mapview::MapSession &session() { return session_; }
+    const mapview::MapSession &session() const { return session_; }
+
+private:
+    mapview::MapSession session_;
+    bool reuseCity_ = false;
+    float cityScale_ = 1.0f;
+    std::array<float, 3> cityOffset_{};
+    id<MTLBuffer> triangles_ = nil;
+    NSUInteger count_ = 0;
+    MetalGltfModel model_;
+    std::future<std::optional<city::Scene>> prepare_;
+};
+
 } // namespace
 
 @implementation SandboxBridge {
@@ -505,6 +718,18 @@ struct PreparedAssets {
     // Position, flight, stance and camera angles are captured on the render thread.
     std::array<float, 7> snapshot_;
     sandbox::RemotePlayers remotePlayers_;
+
+    // Realms map mode (render thread, except where noted).
+    MetalMapMode mapMode_;
+    float mapYaw_;
+    float mapPitch_;
+    float mapJump_;
+    bool mapCrouch_;
+    std::string pendingMap_;
+    bool mapChangePending_;
+    std::vector<std::string> pendingMapRequests_; // commandMutex_
+    std::atomic<int> mapState_;                   // status slot 17
+    std::string mapPathShown_;                    // snapshotMutex_
 }
 
 // Realms Engine (Quake 2 stack: cvars, command buffer, PAK filesystem) shared
@@ -537,6 +762,7 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
         }
         return false;
     };
+    boot.onMapChanged = [](const std::string &path) { noteMapChange(path); };
     realms::sandbox::boot(engine, boot);
     NSLog(@"[Realms] engine ready: core=%s", engine.backendName().c_str());
     return engine;
@@ -607,6 +833,17 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
             SandboxBridge *strongSelf = weakSelf;
             if (strongSelf) [strongSelf respawnPlayer];
         });
+        // A map already loaded (by an earlier bridge or a boot script) opens
+        // once the sandbox has finished loading.
+        std::string ignored;
+        while (takeMapChange(ignored)) {
+        }
+        if (engine.mapLoaded()) {
+            pendingMap_ = engine.mapPath();
+            mapChangePending_ = true;
+        } else {
+            gRetainedMap.reset();
+        }
     }
 
     currentSelection_ = world_.selected;
@@ -693,6 +930,10 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
     if (assetsJob_.valid()) {
         assetsJob_.wait();
     }
+    if (mapMode_.active()) {
+        gRetainedMap = RetainedMap{mapMode_.session().path(), mapMode_.session().walker(), mapYaw_, mapPitch_, mapCrouch_};
+    }
+    mapMode_.close();
     [self flushSave];
     realms::Engine &engine = [self realms];
     engine.removeCommand("noclip");
@@ -700,6 +941,11 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
 }
 
 - (void)realmsToggleNoclip {
+    if (mapMode_.active()) {
+        mapMode_.session().toggleNoclip();
+        verticalInput_ = 0.0f;
+        return;
+    }
     if (drone_.piloting() || seatedCar_ >= 0) return;
     flying_ = !flying_;
     player_.reset(world_.x, world_.y, world_.z);
@@ -894,6 +1140,14 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
 }
 
 - (void)respawnPlayer {
+    if (mapMode_.active()) {
+        if (mapMode_.respawn([self realms])) {
+            mapYaw_ = mapMode_.session().spawnRenderYaw();
+            mapPitch_ = 0.0f;
+            [self resetInput];
+        }
+        return;
+    }
     if (!cityModel_.scene().collision) return;
     tools_.cancel(world_);
     [self rebuildBuiltCollision];
@@ -1007,11 +1261,18 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
 
 - (void)processCommands {
     std::vector<int32_t> pending;
+    std::vector<std::string> mapRequests;
     {
         std::lock_guard<std::mutex> lock(commandMutex_);
         pending.swap(pendingCommands_);
+        mapRequests.swap(pendingMapRequests_);
         if (gameplayReady_) {
-            if (drone_.mode == sandbox::FpvDrone::Flying) {
+            if (mapMode_.active()) {
+                realms::Engine &engine = [self realms];
+                const float look = 0.004f * realms::sandbox::lookScale(engine);
+                mapYaw_ -= lookDx_ * look;
+                mapPitch_ = std::clamp(mapPitch_ - realms::sandbox::pitchSign(engine) * lookDy_ * look, -1.5f, 1.5f);
+            } else if (drone_.mode == sandbox::FpvDrone::Flying) {
                 drone_.look(lookDx_, lookDy_);
             } else if (!drone_.piloting()) {
                 realms::Engine &engine = [self realms];
@@ -1032,6 +1293,37 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
         droneYawInput_ = 0.0f;
         dronePitchInput_ = 0.0f;
         droneRollInput_ = 0.0f;
+    }
+
+    {
+        realms::Engine &engine = [self realms];
+        for (const std::string &name : mapRequests) {
+            [self pollMapChange];
+            engine.exec("map \"" + name + "\"\n");
+            // A failed load reports "" (the previous map is gone too).
+            const BOOL changed = [self pollMapChange];
+            debugNotice_ = (changed && !pendingMap_.empty()) ? 0 : 7;
+        }
+        if (std::find(pending.begin(), pending.end(), 50) != pending.end()) {
+            engine.exec("killserver\n");
+            [self pollMapChange];
+        }
+        if (mapMode_.active() || mapChangePending_) {
+            // Map mode: movement commands only; sandbox tools wait for killserver.
+            for (int32_t command : pending) {
+                if (command == 6) {
+                    mapMode_.session().toggleNoclip();
+                    verticalInput_ = 0.0f;
+                } else if (command == 8) {
+                    mapJump_ = 0.2f;
+                } else if (command == 9) {
+                    mapCrouch_ = !mapCrouch_;
+                } else if (command == 35) {
+                    [self respawnPlayer];
+                }
+            }
+            pending.clear();
+        }
     }
 
     if (roadJob_.valid() && roadJob_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
@@ -1326,14 +1618,13 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
     return makeColumnMatrix(m);
 }
 
-- (void)encodeWorldView:(id<MTLRenderCommandEncoder>)encoder
-            worldBuffer:(id<MTLBuffer>)worldBuf
-       worldVertexCount:(NSUInteger)worldCount
-              cameraEye:(physics::Vec3)eye
-                    yaw:(float)yaw
-                  pitch:(float)pitch
-                   roll:(float)roll
-                 aspect:(float)aspect {
+// Sky, shared scene uniforms, sandbox material array and default sampler.
+- (void)encodeSceneSetup:(id<MTLRenderCommandEncoder>)encoder
+               cameraEye:(physics::Vec3)eye
+                     yaw:(float)yaw
+                   pitch:(float)pitch
+                    roll:(float)roll
+                  aspect:(float)aspect {
     [encoder setCullMode:MTLCullModeNone];
     [encoder setFrontFacingWinding:MTLWindingCounterClockwise];
 
@@ -1359,6 +1650,17 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
     [encoder setFragmentTexture:(texturesReady_ && materialArrayTexture_ ? materialArrayTexture_ : fallbackArrayTexture_) atIndex:0];
     [encoder setFragmentTexture:whiteTexture_ atIndex:1];
     [encoder setFragmentSamplerState:gltfSamplers_[0][0] atIndex:0];
+}
+
+- (void)encodeWorldView:(id<MTLRenderCommandEncoder>)encoder
+            worldBuffer:(id<MTLBuffer>)worldBuf
+       worldVertexCount:(NSUInteger)worldCount
+              cameraEye:(physics::Vec3)eye
+                    yaw:(float)yaw
+                  pitch:(float)pitch
+                   roll:(float)roll
+                 aspect:(float)aspect {
+    [self encodeSceneSetup:encoder cameraEye:eye yaw:yaw pitch:pitch roll:roll aspect:aspect];
 
     const matrix_float4x4 identity = matrix_identity_float4x4;
 
@@ -1434,6 +1736,16 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
     const float dt = std::clamp(std::chrono::duration<float>(now - lastTime_).count(), 0.0f, 0.05f);
     lastTime_ = now;
     [self realms].frame(dt);
+
+    // Realms map mode replaces the sandbox frame while a map is loaded.
+    [self pollMapChange];
+    if (mapChangePending_ && loadStage_ == 6) {
+        [self handleMapChange];
+    }
+    if (mapMode_.active()) {
+        [self renderMapInView:view dt:dt];
+        return;
+    }
 
     if (gameplayReady_ && cityModel_.ready()) {
         const size_t countBefore = world_.objects.size();
@@ -1933,6 +2245,171 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
     }
 }
 
+#pragma mark - Realms map mode
+
+- (BOOL)pollMapChange {
+    std::string path;
+    BOOL changed = NO;
+    while (takeMapChange(path)) {
+        pendingMap_ = path;
+        mapChangePending_ = true;
+        changed = YES;
+    }
+    return changed;
+}
+
+- (void)showMapPath:(const std::string &)path {
+    std::lock_guard<std::mutex> lock(snapshotMutex_);
+    mapPathShown_ = path;
+}
+
+- (void)handleMapChange {
+    mapChangePending_ = false;
+    realms::Engine &engine = [self realms];
+    const std::string path = pendingMap_;
+    if (mapMode_.active()) mapMode_.close();
+    mapState_ = 0;
+    [self showMapPath:std::string()];
+    if (path.empty() || !engine.mapLoaded()) {
+        gRetainedMap.reset();
+        [self resetInput];
+        return;
+    }
+    std::string error;
+    if (!mapMode_.open(engine, device_, cityModel_, kCityAsset, {supportDir_, bundleRoot_}, error)) {
+        NSLog(@"[Realms] map mode: %s: %s", path.c_str(), error.c_str());
+        gRetainedMap.reset();
+        debugNotice_ = 7;
+        return;
+    }
+    // Sandbox interactions pause; the sandbox world itself stays as it was.
+    if (drone_.piloting()) drone_.leave();
+    droneThrottle_ = 0.0f;
+    droneYawInput_ = 0.0f;
+    dronePitchInput_ = 0.0f;
+    droneRollInput_ = 0.0f;
+    placementPreview_.reset();
+    mapYaw_ = mapMode_.session().spawnRenderYaw();
+    mapPitch_ = 0.0f;
+    mapCrouch_ = false;
+    mapJump_ = 0.0f;
+    if (gRetainedMap && gRetainedMap->path == mapMode_.session().path()) {
+        mapMode_.session().walker() = gRetainedMap->walker;
+        mapYaw_ = gRetainedMap->yaw;
+        mapPitch_ = gRetainedMap->pitch;
+        mapCrouch_ = gRetainedMap->crouch;
+    }
+    gRetainedMap.reset();
+    mapState_ = mapMode_.texturedPending() ? 2 : 1;
+    [self showMapPath:mapMode_.session().path()];
+    debugNotice_ = 0;
+    [self resetInput];
+    const auto &w = mapMode_.session().walker();
+    NSLog(@"[Realms] map mode: %s (%s), spawn %s at %.1f %.1f %.1f", path.c_str(),
+          mapMode_.session().summary().c_str(), w.spawnSource.c_str(), w.origin[0], w.origin[1], w.origin[2]);
+}
+
+- (void)renderMapInView:(MTKView *)view dt:(float)dt {
+    realms::Engine &engine = [self realms];
+    mapMode_.advance(device_, commandQueue_, whiteTexture_);
+    if (gameplayReady_) {
+        realms::WalkInput input;
+        input.forward = stickForward_.load();
+        input.right = stickRight_.load();
+        input.up = verticalInput_.load();
+        input.jump = mapJump_ > 0.0f;
+        input.crouch = mapCrouch_;
+        mapMode_.update(engine, input, mapYaw_, mapPitch_, dt);
+    }
+    mapJump_ = std::max(0.0f, mapJump_ - dt);
+    mapState_ = mapMode_.texturedPending() ? 2 : 1;
+    interactionAction_ = 0;
+    freezeState_ = 0;
+    holdingObject_ = false;
+    droneMode_ = 0;
+
+    MTLRenderPassDescriptor *passDesc = view.currentRenderPassDescriptor;
+    id<CAMetalDrawable> drawable = view.currentDrawable;
+    id<MTLCommandBuffer> commandBuffer = [commandQueue_ commandBuffer];
+    if (!commandBuffer || !passDesc || !drawable) {
+        dispatch_semaphore_signal(inFlightSemaphore_);
+        return;
+    }
+    dispatch_semaphore_t sema = inFlightSemaphore_;
+    [commandBuffer addCompletedHandler:^(id<MTLCommandBuffer> _Nonnull) {
+        dispatch_semaphore_signal(sema);
+    }];
+
+    const CGSize drawSize = view.drawableSize;
+    const float aspect = float(drawSize.width / drawSize.height);
+    passDesc.colorAttachments[0].loadAction = MTLLoadActionClear;
+    passDesc.colorAttachments[0].storeAction = MTLStoreActionStore;
+    passDesc.colorAttachments[0].clearColor = MTLClearColorMake(0.56, 0.61, 0.63, 1.0);
+    passDesc.depthAttachment.loadAction = MTLLoadActionClear;
+    passDesc.depthAttachment.storeAction = MTLStoreActionDontCare;
+    passDesc.depthAttachment.clearDepth = 1.0;
+
+    id<MTLRenderCommandEncoder> encoder = [commandBuffer renderCommandEncoderWithDescriptor:passDesc];
+    if (encoder) {
+        [self encodeSceneSetup:encoder cameraEye:mapMode_.drawEye() yaw:mapYaw_ pitch:mapPitch_ roll:0.0f aspect:aspect];
+        mapMode_.draw(encoder,
+                      sandboxOpaquePipeline_,
+                      modelOpaquePipeline_,
+                      modelBlendedPipeline_,
+                      depthWriteState_,
+                      depthReadOnlyState_,
+                      gltfSamplers_,
+                      whiteTexture_,
+                      cityModel_);
+        [encoder endEncoding];
+    }
+    [commandBuffer presentDrawable:drawable];
+    [commandBuffer commit];
+
+    const auto &w = mapMode_.session().walker();
+    const physics::Vec3 at = mapMode_.session().eye();
+    std::lock_guard<std::mutex> lock(snapshotMutex_);
+    snapshot_ = {at.x, at.y, at.z, w.noclip ? 1.0f : 0.0f, w.ducked ? 1.0f : 0.0f, mapYaw_, mapPitch_};
+}
+
+- (void)loadMap:(NSString *)path {
+    const char *chars = path.UTF8String;
+    if (!chars) return;
+    const std::string name(chars);
+    if (!mapview::safeMapName(name)) {
+        NSLog(@"[Realms] map: rejected name");
+        return;
+    }
+    std::lock_guard<std::mutex> lock(commandMutex_);
+    if (pendingMapRequests_.size() < 4) pendingMapRequests_.push_back(name);
+}
+
+- (NSString *)currentMapPath {
+    std::string path;
+    {
+        std::lock_guard<std::mutex> lock(snapshotMutex_);
+        path = mapPathShown_;
+    }
+    return [NSString stringWithUTF8String:path.c_str()] ?: @"";
+}
+
++ (NSString *)mapImportFileName:(NSString *)pickedName {
+    const char *chars = pickedName.UTF8String;
+    if (!chars) return @"";
+    const std::string name = mapview::importFileName(chars);
+    return [NSString stringWithUTF8String:name.c_str()] ?: @"";
+}
+
++ (BOOL)mapImportHeaderOk:(NSData *)head fileName:(NSString *)fileName {
+    const char *chars = fileName.UTF8String;
+    if (!chars || !head) return NO;
+    return mapview::importHeaderOk(chars, static_cast<const unsigned char *>(head.bytes), head.length) ? YES : NO;
+}
+
++ (int64_t)mapImportLimit {
+    return static_cast<int64_t>(mapview::kMaxImportBytes);
+}
+
 #pragma mark - Control Bridge
 
 - (void)setGameplayReady:(BOOL)ready {
@@ -1981,7 +2458,8 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
 
 - (NSInteger)pollStatus:(float *)outValues count:(NSInteger)count {
     if (!outValues || count <= 0) return 0;
-    std::array<float, 17> values{};
+    std::array<float, 18> values{};
+    values[17] = float(mapState_.load());
     {
         std::lock_guard<std::mutex> lock(snapshotMutex_);
         std::copy_n(snapshot_.begin(), 4, values.begin());

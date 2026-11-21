@@ -10,6 +10,7 @@ on:
       - 'realms/**'
       - 'tools/*android*'
       - 'tools/validate_i18n.py'
+      - 'game/qcommon/**'
       - '.github/workflows/android-sandbox.yml'
   pull_request:
     paths:
@@ -19,17 +20,172 @@ on:
       - 'realms/**'
       - 'tools/*android*'
       - 'tools/validate_i18n.py'
+      - 'game/qcommon/**'
       - '.github/workflows/android-sandbox.yml'
 
 permissions:
   contents: read
 
 jobs:
+  # Realms Engine: compile the Free Pascal Quake 2 core for Android through
+  # the bridge ABI (librealms_core.so for arm64-v8a devices and x86_64
+  # emulators). FPC 3.2 has no Android cross compiler in apt, so one is built
+  # from the official sources (compiler + RTL only) and cached.
+  realms-pascal-core:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      FPC_SOURCE_TAG: release_3_2_2
+      FPC_ANDROID_PREFIX: /home/runner/fpc-android
+      ANDROID_API: '30'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Free Pascal and GNU binutils for Android CPUs
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends fpc binutils-aarch64-linux-gnu
+          fpc -iV
+          aarch64-linux-gnu-ld --version | head -n 1
+          x86_64-linux-gnu-ld --version | head -n 1
+
+      - name: Locate Android NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -name sdkmanager -type f 2>/dev/null | head -n 1)"
+          yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses >/dev/null || true
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" 'ndk;26.1.10909125' >/dev/null
+          echo "ANDROID_NDK_HOME=$SDK_ROOT/ndk/26.1.10909125" >> "$GITHUB_ENV"
+
+      - name: Restore FPC Android cross compilers
+        id: fpc-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.FPC_ANDROID_PREFIX }}
+          key: fpc-android-${{ env.FPC_SOURCE_TAG }}-ubuntu-24.04-${{ hashFiles('realms/pascal/fpc_android_toolchain.sh') }}
+
+      - name: Build FPC Android cross compilers (aarch64, x86_64)
+        if: steps.fpc-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://codeload.github.com/fpc/FPCSource/tar.gz/refs/tags/$FPC_SOURCE_TAG" | tar xz -C /tmp
+          if ! realms/pascal/fpc_android_toolchain.sh "/tmp/FPCSource-$FPC_SOURCE_TAG" "$FPC_ANDROID_PREFIX" aarch64 x86_64 > /tmp/fpc-cross.log 2>&1; then
+            tail -n 60 /tmp/fpc-cross.log
+            echo "::error title=FPC Android cross compiler::$(grep -E 'Error|error|Fatal' /tmp/fpc-cross.log | tail -n 8 | tr '\n' ' ' | cut -c1-900)"
+            exit 1
+          fi
+          tail -n 5 /tmp/fpc-cross.log
+
+      - name: Compile librealms_core.so (Free Pascal core) for Android
+        shell: bash
+        run: |
+          set -euo pipefail
+          for target in android-aarch64:arm64-v8a android-x86_64:x86_64; do
+            abi="${target#*:}"
+            if ! realms/pascal/build_core.sh "${target%%:*}" "out/realms-pascal-android/$abi" > "/tmp/core-$abi.log" 2>&1; then
+              cat "/tmp/core-$abi.log"
+              echo "::error title=librealms_core ($abi)::$(grep -E 'Error|error|Fatal|undefined' "/tmp/core-$abi.log" | tail -n 8 | tr '\n' ' ' | cut -c1-900)"
+              exit 1
+            fi
+            tail -n 3 "/tmp/core-$abi.log"
+          done
+
+      - name: Verify Android libraries (ABI, exports, no glibc, no text relocations, 16 KB pages)
+        shell: bash
+        run: |
+          set -euo pipefail
+          check() {
+            local abi="$1" machine="$2" lib="out/realms-pascal-android/$1/librealms_core.so"
+            test -f "$lib"
+            file "$lib"
+            readelf -h "$lib" | grep "Machine:.*$machine" >/dev/null || { echo "::error::$abi: wrong machine"; exit 1; }
+            readelf -d "$lib" | grep 'SONAME.*librealms_core.so' >/dev/null || { echo "::error::$abi: missing SONAME"; exit 1; }
+            readelf --dyn-syms -W "$lib" | grep ' realms_pascal_get_api$' >/dev/null || { echo "::error::$abi: realms_pascal_get_api not exported"; exit 1; }
+            if readelf -d "$lib" | grep TEXTREL >/dev/null; then echo "::error::$abi: text relocations (rejected by Android)"; exit 1; fi
+            local needed; needed="$(readelf -d "$lib" | sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p' | tr '\n' ' ')"
+            echo "$abi NEEDED: $needed"
+            for n in $needed; do
+              case "$n" in libc.so|libdl.so|libm.so|liblog.so) ;; *) echo "::error::$abi: unexpected dependency $n"; exit 1 ;; esac
+            done
+            if readelf -V "$lib" | grep GLIBC >/dev/null; then echo "::error::$abi: glibc symbol versions"; exit 1; fi
+            readelf -l -W "$lib" | awk '$1=="LOAD"{print $NF}' | while read -r align; do
+              [ $((align)) -ge 16384 ] || { echo "::error::$abi: LOAD alignment $align < 16 KB"; exit 1; }
+            done
+            ls -l "$lib"
+          }
+          check arm64-v8a AArch64
+          check x86_64 'X86-64'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: realms-pascal-android
+          path: out/realms-pascal-android
+          if-no-files-found: error
+
+  # Run the bridge conformance suite on an Android emulator against the
+  # Free Pascal core (and the C++ reference core for comparison).
+  realms-pascal-device:
+    needs: realms-pascal-core
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: realms-pascal-android
+          path: out/realms-pascal-android
+
+      - name: Cross-compile the bridge test for x86_64 Android
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -name sdkmanager -type f 2>/dev/null | head -n 1)"
+          yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses >/dev/null || true
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" 'ndk;26.1.10909125' >/dev/null
+          CLANG="$SDK_ROOT/ndk/26.1.10909125/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++"
+          "$CLANG" --target=x86_64-linux-android30 -std=c++17 -O2 -Wall -Wextra -Werror -static-libstdc++ \
+            -Irealms/include tests/realms/realms_bridge_test.cpp \
+            realms/src/Engine.cpp realms/src/NativeCore.cpp realms/src/NativeCModel.cpp realms/src/SandboxBoot.cpp realms/src/MeshMap.cpp realms/src/MapGeometry.cpp realms/src/MapWalker.cpp \
+            -o out/realms_bridge_test
+          file out/realms_bridge_test
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run Realms bridge suite on the emulator (Pascal + C++ cores)
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          arch: x86_64
+          target: default
+          force-avd-creation: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: bash realms/pascal/android_device_test.sh out/realms_bridge_test out/realms-pascal-android/x86_64/librealms_core.so
+
   apk:
+    needs: realms-pascal-core
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+
+      # The APK ships the Free Pascal core; realms::Engine dlopens it from the
+      # app's native library dir (ABIs without it use the C++ reference core).
+      - uses: actions/download-artifact@v4
+        with:
+          name: realms-pascal-android
+          path: sys/android/app/src/main/jniLibs
 
       - name: Test native world logic
         shell: bash
@@ -64,6 +220,7 @@ jobs:
           run_test ekron-indoor-test -O2 tests/native/indoor_placement_test.cpp
           run_test ekron-dynamics-test -O2 tests/native/object_dynamics_test.cpp
           run_test ekron-raycast-test -O2 tests/native/raycast_placement_test.cpp
+          run_test ekron-raycast-watertight-test -O2 tests/native/raycast_watertight_test.cpp
           run_test ekron-tools-test -O2 tests/native/tool_interaction_test.cpp
           run_test ekron-fence-test -O2 tests/native/fence_collision_test.cpp
           run_test ekron-physics-test -O2 tests/native/player_physics_test.cpp
@@ -73,7 +230,7 @@ jobs:
           run_test ekron-debug-test -O2 tests/native/debug_player_test.cpp
           run_test ekron-texture-test -O2 tests/native/texture_mesh_test.cpp
           run_test ekron-gltf-test -O1 tests/native/gltf_scene_test.cpp sys/android/app/src/main/cpp/GltfScene.cpp sys/android/app/src/main/cpp/ImageDecode.cpp
-          run_test realms-bridge-test -O2 -Irealms/include tests/realms/realms_bridge_test.cpp realms/src/Engine.cpp realms/src/NativeCore.cpp realms/src/SandboxBoot.cpp -ldl
+          run_test realms-bridge-test -O2 -Irealms/include tests/realms/realms_bridge_test.cpp realms/src/Engine.cpp realms/src/NativeCore.cpp realms/src/NativeCModel.cpp realms/src/SandboxBoot.cpp realms/src/MeshMap.cpp realms/src/MapGeometry.cpp realms/src/MapWalker.cpp -ldl
 
       - name: Validate translations (English, Russian, Portuguese (Portugal))
         run: python3 tools/validate_i18n.py
@@ -115,8 +272,49 @@ jobs:
           chmod +x ./gradlew
           ./gradlew :app:assembleDebug :app:testDebugUnitTest --stacktrace 2>&1 | tee /tmp/android-build.log
 
+      - name: Verify the APK ships the Realms Pascal core
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=sys/android/app/build/outputs/apk/debug/app-debug.apk
+          unzip -l "$APK" | grep -E 'lib/.*/lib(realms|realms_core)\.so' | tee /tmp/apk-libs.txt
+          for abi in arm64-v8a x86_64; do
+            grep -q "lib/$abi/librealms_core.so" /tmp/apk-libs.txt || { echo "::error::APK is missing lib/$abi/librealms_core.so"; exit 1; }
+            grep -q "lib/$abi/librealms.so" /tmp/apk-libs.txt || { echo "::error::APK is missing lib/$abi/librealms.so"; exit 1; }
+          done
+
       - uses: actions/upload-artifact@v4
         with:
           name: ekron-native-sandbox-debug
           path: sys/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+  # Launch the real debug APK and require it to start on the Free Pascal core
+  # it ships (logcat: "Realms engine ready: core=pascal-quake2").
+  realms-apk-smoke:
+    needs: apk
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ekron-native-sandbox-debug
+          path: out/apk
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Launch the APK on the emulator and check the Realms core
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          arch: x86_64
+          target: default
+          force-avd-creation: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: bash realms/pascal/android_app_smoke.sh out/apk/app-debug.apk pascal-quake2

@@ -52,12 +52,30 @@ jobs:
           clang++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic \
             -c sys/android/app/src/main/cpp/ImageDecode.cpp -o /tmp/ekron-ImageDecode.o
 
+          # Run every test even if one fails, and surface each failure as an
+          # annotation (test name, exit code and the tail of its output) so it
+          # is visible from the PR checks without downloading the raw log.
+          failed=()
           run_test() {
             local out="$1"
             local opt="$2"
             shift 2
-            clang++ -std=c++17 "$opt" -Wall -Wextra -Werror -pedantic "$@" -o "/tmp/$out"
-            "/tmp/$out"
+            local rc=0
+            echo "::group::$out"
+            if ! clang++ -std=c++17 "$opt" -Wall -Wextra -Werror -pedantic "$@" -o "/tmp/$out" 2> "/tmp/$out.build.log"; then
+              cat "/tmp/$out.build.log"
+              echo "::error title=$out (compile)::$(tail -n 6 "/tmp/$out.build.log" | tr '\n' ' ' | cut -c1-900)"
+              failed+=("$out")
+              echo "::endgroup::"
+              return 0
+            fi
+            "/tmp/$out" > "/tmp/$out.log" 2>&1 || rc=$?
+            cat "/tmp/$out.log"
+            if [ "$rc" -ne 0 ]; then
+              echo "::error title=$out (exit $rc)::$(tail -n 8 "/tmp/$out.log" | tr '\n' ' ' | cut -c1-900)"
+              failed+=("$out")
+            fi
+            echo "::endgroup::"
           }
 
           run_test ekron-contact-energy -O2 tests/native/contact_energy_test.cpp
@@ -80,6 +98,7 @@ jobs:
           run_test ekron-indoor-test -O2 tests/native/indoor_placement_test.cpp
           run_test ekron-dynamics-test -O2 tests/native/object_dynamics_test.cpp
           run_test ekron-raycast-test -O2 tests/native/raycast_placement_test.cpp
+          run_test ekron-raycast-watertight-test -O2 tests/native/raycast_watertight_test.cpp
           run_test ekron-tools-test -O2 tests/native/tool_interaction_test.cpp
           run_test ekron-fence-test -O2 tests/native/fence_collision_test.cpp
           run_test ekron-physics-test -O2 tests/native/player_physics_test.cpp
@@ -89,7 +108,12 @@ jobs:
           run_test ekron-debug-test -O2 tests/native/debug_player_test.cpp
           run_test ekron-texture-test -O2 tests/native/texture_mesh_test.cpp
           run_test ekron-gltf-test -O1 tests/native/gltf_scene_test.cpp /tmp/ekron-GltfScene.o /tmp/ekron-ImageDecode.o
-          run_test realms-bridge-test -O2 -Irealms/include tests/realms/realms_bridge_test.cpp realms/src/Engine.cpp realms/src/NativeCore.cpp realms/src/SandboxBoot.cpp
+          run_test realms-bridge-test -O2 -Irealms/include tests/realms/realms_bridge_test.cpp realms/src/Engine.cpp realms/src/NativeCore.cpp realms/src/NativeCModel.cpp realms/src/SandboxBoot.cpp realms/src/MeshMap.cpp realms/src/MapGeometry.cpp realms/src/MapWalker.cpp
+
+          if [ "${#failed[@]}" -ne 0 ]; then
+            echo "::error title=native tests::${#failed[@]} failing: ${failed[*]}"
+            exit 1
+          fi
 
       - name: Validate translations (English, Russian, Portuguese (Portugal))
         run: python3 tools/validate_i18n.py
@@ -99,6 +123,90 @@ jobs:
         run: |
           set -euo pipefail
           python3 tools/validate_ios_shaders.py
+
+      - name: Install Free Pascal
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew list fpc >/dev/null 2>&1 || brew install fpc
+          ver="$(fpc -iV)"
+          echo "FPC $ver ($(fpc -iSP)-$(fpc -iSO)), $(xcodebuild -version | head -n 1)"
+          {
+            echo "FPC_VERSION=$ver"
+            echo "FPC_SOURCE_TAG=release_${ver//./_}"
+            echo "FPC_IOS_PREFIX=$HOME/fpc-ios"
+            echo "XCODE_VERSION=$(xcodebuild -version | head -n 1 | tr -cd '0-9.')"
+          } >> "$GITHUB_ENV"
+
+      - name: Restore FPC iOS runtime library
+        id: fpc-ios-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/fpc-ios
+          key: fpc-ios-${{ runner.arch }}-${{ env.FPC_VERSION }}-xcode${{ env.XCODE_VERSION }}-${{ hashFiles('realms/pascal/fpc_ios_toolchain.sh') }}
+
+      - name: Build FPC iOS runtime library (aarch64-ios)
+        if: steps.fpc-ios-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://codeload.github.com/fpc/FPCSource/tar.gz/refs/tags/$FPC_SOURCE_TAG" | tar xz -C "$RUNNER_TEMP"
+          realms/pascal/fpc_ios_toolchain.sh "$RUNNER_TEMP/FPCSource-$FPC_SOURCE_TAG" "$FPC_IOS_PREFIX" > /tmp/fpc-ios-rtl.log 2>&1 || {
+            tail -n 60 /tmp/fpc-ios-rtl.log
+            echo "::error title=FPC iOS RTL::$(grep -E 'Error|Fatal|error:' /tmp/fpc-ios-rtl.log | head -n 6 | tr '\n' ' ' | cut -c1-900)"
+            exit 1
+          }
+          tail -n 3 /tmp/fpc-ios-rtl.log
+
+      - name: Save FPC iOS runtime library
+        if: steps.fpc-ios-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/fpc-ios
+          key: ${{ steps.fpc-ios-cache.outputs.cache-primary-key }}
+
+      # iOS binaries cannot run on the runner, so the static packaging (one
+      # prelinked object, RTL started from __mod_init_func) is proven on
+      # macOS arm64 with the identical pipeline, then built for iOS devices.
+      - name: Run the bridge suite on the statically linked Pascal core (macOS arm64)
+        shell: bash
+        run: |
+          set -euo pipefail
+          realms/pascal/build_core.sh macos-arm64-static build/realms-macos-static > /tmp/pascal-static.log 2>&1 || {
+            tail -n 40 /tmp/pascal-static.log
+            echo "::error title=Pascal static core (macOS)::$(grep -E 'Error|Fatal|error' /tmp/pascal-static.log | head -n 6 | tr '\n' ' ' | cut -c1-900)"
+            exit 1
+          }
+          tail -n 2 /tmp/pascal-static.log
+          if ! clang++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic -Irealms/include -DREALMS_PASCAL_STATIC \
+            tests/realms/realms_bridge_test.cpp realms/src/Engine.cpp realms/src/NativeCore.cpp realms/src/NativeCModel.cpp realms/src/SandboxBoot.cpp realms/src/MeshMap.cpp realms/src/MapGeometry.cpp realms/src/MapWalker.cpp \
+            build/realms-macos-static/librealms_core.a -Wl,-no_fixup_chains -o /tmp/realms-bridge-static > /tmp/realms-static-link.log 2>&1; then
+            cat /tmp/realms-static-link.log
+            echo "::error title=Pascal static core (link)::$(grep -v '^ *$' /tmp/realms-static-link.log | head -n 24 | tr '\n' ' ' | cut -c1-2000)"
+            exit 1
+          fi
+          cat /tmp/realms-static-link.log
+          rc=0
+          /tmp/realms-bridge-static --pascal static > /tmp/realms-static.log 2>&1 || rc=$?
+          cat /tmp/realms-static.log
+          if [ "$rc" -ne 0 ] || ! grep -Eq '^\[realms\] [0-9]+ checks, 0 failures \(pascal-quake2\)$' /tmp/realms-static.log; then
+            echo "::error title=Pascal static core (exit $rc)::$(tail -n 8 /tmp/realms-static.log | tr '\n' ' ' | cut -c1-900)"
+            exit 1
+          fi
+
+      - name: Compile librealms_core.a (Free Pascal core) for iOS devices
+        shell: bash
+        run: |
+          set -euo pipefail
+          realms/pascal/build_core.sh ios-arm64 > /tmp/pascal-ios.log 2>&1 || {
+            tail -n 40 /tmp/pascal-ios.log
+            echo "::error title=Pascal core (iOS)::$(grep -E 'Error|Fatal|error' /tmp/pascal-ios.log | head -n 6 | tr '\n' ' ' | cut -c1-900)"
+            exit 1
+          }
+          tail -n 3 /tmp/pascal-ios.log
+          lipo -info build/realms-ios/librealms_core.a
+          otool -l build/realms-ios/librealms_core.a | grep -A4 LC_BUILD_VERSION | head -n 5
+          cat build/realms-ios/RealmsPascal.generated.xcconfig
 
       - name: Build and archive unsigned iOS app
         shell: bash
@@ -133,6 +241,17 @@ jobs:
           fi
           test -f "$APP_BUNDLE/models/abandoned_city_street_for_games.glb"
           test -f "$APP_BUNDLE/default.metallib"
+
+          # The device build must run on the Free Pascal core.
+          if ! grep -q 'librealms_core.a' /tmp/ios-build.log; then
+            echo "::error title=Pascal core (iOS)::librealms_core.a was not on the app link line"
+            exit 1
+          fi
+          if ! strings -a "$APP_BUNDLE/realms" | grep 'pascal-quake2' >/dev/null; then
+            echo "::error title=Pascal core (iOS)::the app binary does not contain the Pascal core"
+            exit 1
+          fi
+          echo "realms.app links the Free Pascal core (librealms_core.a)"
 
           cp -R "$APP_BUNDLE" "$IPA_DIR/Payload/"
           (cd "$IPA_DIR" && zip -qry /tmp/ekron-native-sandbox-debug.ipa Payload)
