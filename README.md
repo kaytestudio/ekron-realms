@@ -12,6 +12,7 @@
 
 ## Key Features
 
+- **Realms Engine (Quake 2 stack, Free Pascal + C++ bridges)**: The sandbox runs on [Realms](realms/README.md) on every platform. Realms takes the Quake 2 `qcommon` stack (console variables, command buffer and aliases, `exec`/`writeconfig` configs, the PAK filesystem), runs it as a Free Pascal core and exposes it to the C++ sandbox through one C ABI. A C++ reference core takes over when the Pascal library isn't present. Desktop, Android and iOS share the same boot sequence, cvars (`sensitivity`, `m_invert`, `name`…) and `config/realms.cfg`.
 - **Shared Native C++17 Simulation Core**: Zero-duplication world state, continuous collision detection (CCD), multi-contact rigid-body solver, player movement/facade collisions, and glTF 2.0 model loading (`tinygltf` + `stb_image`) shared across Desktop, Android, and iOS.
 - **3D Urban Environment**: Freely explorable wartime/abandoned city street (`abandoned_city_street_for_games.glb`) with accessible interiors, seamless procedural `sRGB` material texture arrays with mipmaps, directional lighting, exponential fog, and procedural sky gradient.
 - **Building & World Persistence**: Four-tab build and equipment catalog (*Materials*, *Construction*, *Furniture*, *Tech/Vehicles* — walls, floors, windows, doors, tables, chairs, wardrobes, sofas, props, and FPV drone) with raycast holographic preview, 90° snap rotation, object removal, and automatic local persistence (`city-glb-v1.txt`).
@@ -145,6 +146,7 @@ xcodebuild archive \
 | `V` / `H` | Toggle FPV/chase drone camera / Return FPV drone home |
 | `N` / `P` / `F11` / `Esc` | Toggle `noclip` flight / Copy `spawn.json` / Fullscreen / Pause menu |
 | `G` / `L` | Open the in-game store / Cycle UI language (English → Русский → Português) |
+| `` ` `` | Realms console (Quake 2 style: `set`, `seta`, `alias`, `exec`, `cvarlist`, `cmdlist`, `noclip`, `respawn`, `quit`…) |
 
 ### Command-Line Flags
 
@@ -156,15 +158,20 @@ xcodebuild archive \
 --online-port <port>   Presence relay port (default: 38475)
 --online-name <name>   Player display name (default: Player)
 --lang <code>          UI language: en, ru or pt-PT (also EKRON_LANG; default: saved choice, then system locale)
+--engine-info          Show which Realms core is active (Free Pascal or C++) and exit
++<command> [args]      Quake 2 style console commands, e.g. +set sensitivity 4 +exec my.cfg
 --help                 Show CLI usage and controls
 ```
+
+The `REALMS_CORE=pascal|native|auto` environment variable selects the Realms core. With `pascal`, startup fails if `librealms_core` is missing.
 
 ---
 
 ## Testing & Verification
 
 ```bash
-# Run desktop CTest suite (HUD layout, shop, localization, --version, and --headless-smoke)
+# Run desktop CTest suite (HUD layout, shop, localization, Realms bridge conformance
+# for the C++ and Free Pascal cores, console, --engine-info, --version, --headless-smoke)
 ctest --test-dir build --output-on-failure -V
 
 # Validate Android and iOS translations (English, Russian, Portuguese (Portugal))
@@ -188,6 +195,7 @@ Standalone native C++17 unit tests covering rigid-body physics, swept floor/CCD 
 ekron-realms/
 ├── CMakeLists.txt              # Desktop CMake build, CTest smoke suite, and CPack (.deb / .app) packaging
 ├── cmake/                      # CMake find-modules (SDL2, SDL3, FPC, Lazarus, KayteIDE, KCC)
+├── realms/                     # Realms Engine: C ABI + C++ facade (include/, src/) and Free Pascal Quake 2 core (pascal/)
 ├── Resources/                  # macOS Info.plist and Linux .desktop launcher entry
 ├── sys/
 │   ├── android/                # Native Android sandbox (GameActivity + OpenGL ES 3.0 + shared C++17 core & assets)
@@ -197,13 +205,14 @@ ekron-realms/
 │   └── ...                     # Additional legacy platform ports
 ├── server/                     # Experimental Python TLS 1.2+ online presence relay
 ├── Projects/                   # Free Pascal launcher (realms_launcher.lpr) and Lazarus / Delphi projects
-├── tests/                      # C++17 simulation/physics unit tests (tests/native) & TLS relay tests (tests/network)
+├── tests/                      # C++17 simulation/physics tests (tests/native), Realms bridge tests (tests/realms) & TLS relay tests (tests/network)
 ├── tools/                      # Procedural texture generator, catalog icon renderer, and shader validators
 └── docs/                       # Sandbox design notes and cross-platform HUD verification guide
 ```
 
 ### Further Reading
 
+- [`realms/README.md`](realms/README.md) — Realms Engine architecture, Pascal ⇄ C++ bridge ABI, backend selection, and building the Pascal core
 - [`sys/desktop/README.md`](sys/desktop/README.md) — Native Linux & macOS desktop client guide (Russian)
 - [`sys/android/README.md`](sys/android/README.md) — Native Android sandbox architecture & build notes (Russian)
 - [`sys/ios/README.md`](sys/ios/README.md) — Native iOS Metal sandbox & unsigned IPA instructions (Russian)

@@ -382,6 +382,28 @@ cmake -DFPC_TARGET_CPU=aarch64 ..
 
 ---
 
+## Realms Engine (Pascal core + C++ bridge)
+
+The sandbox runs on the Realms Engine (see [`realms/README.md`](realms/README.md)). It is built as follows:
+
+- `realms_engine` is a static C++ library and is always built. It contains the bridge, the `realms::Engine` facade and the C++ reference core.
+- `realms_pascal_core` is built when `fpc` is found and `-DENABLE_PASCAL_CORE=ON` (the default). It compiles `realms/pascal/realms_core.lpr` into `librealms_core.so`/`.dylib`:
+  - in a build-tree run, next to `ekron-realms`;
+  - in the macOS `.app`, in `EkronRealms.app/Contents/Frameworks/`;
+  - in the `.deb`, under `/usr/lib/ekron-realms/`.
+
+```bash
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_PASCAL_CORE=ON
+cmake --build build
+./build/ekron-realms --engine-info                    # which core is active
+REALMS_CORE=pascal ./build/ekron-realms --headless-smoke
+ctest --test-dir build -R realms --output-on-failure  # bridge conformance (C++ and Pascal)
+```
+
+For Android `jniLibs` and the iOS static archive, use `realms/pascal/build_core.sh android-aarch64|android-armv7|android-x86_64|ios-arm64`. Without a Pascal core, every platform falls back to the C++ reference core.
+
+---
+
 ## Testing
 
 The project includes CTest support:

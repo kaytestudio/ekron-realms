@@ -22,6 +22,8 @@
 #include "LevelPlacement.h"
 #include "DebugPlayer.h"
 #include "GltfScene.h"
+#include "realms/Engine.h"
+#include "realms/SandboxBoot.h"
 
 #define STBI_NO_STDIO
 #define STBI_MAX_DIMENSIONS 8192
@@ -505,6 +507,45 @@ struct PreparedAssets {
     sandbox::RemotePlayers remotePlayers_;
 }
 
+// Realms Engine (Quake 2 stack: cvars, command buffer, PAK filesystem) shared
+// with Desktop and Android. One engine per process; the bridge may be recreated.
+// Link librealms_core.a (realms/pascal/build_core.sh ios-arm64) and define
+// REALMS_PASCAL_STATIC=1 to run the Free Pascal core; otherwise the C++
+// reference core runs.
+static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const std::string &supportDir) {
+    static realms::Engine engine;
+    if (engine.initialized()) return engine;
+    realms::EngineConfig cfg;
+    cfg.searchRoots = {supportDir, bundleRoot};
+    cfg.writableRoot = supportDir;
+    cfg.printSink = [](int level, const std::string &text) {
+        if (level == REALMS_PRINT_DEVELOPER) return;
+        NSLog(@"[Realms] %s", text.c_str());
+    };
+    if (!engine.init(cfg)) {
+        NSLog(@"[Realms] engine failed to start");
+        return engine;
+    }
+    realms::sandbox::BootOptions boot;
+    boot.platform = "ios";
+    boot.fileExists = [bundleRoot, supportDir](const std::string &path) {
+        if (path.empty() || path[0] == '/' || path.find("..") != std::string::npos) return false;
+        NSFileManager *fm = [NSFileManager defaultManager];
+        for (const std::string &root : {supportDir, bundleRoot}) {
+            NSString *full = [NSString stringWithUTF8String:(root + "/" + path).c_str()];
+            if (full && [fm fileExistsAtPath:full]) return true;
+        }
+        return false;
+    };
+    realms::sandbox::boot(engine, boot);
+    NSLog(@"[Realms] engine ready: core=%s", engine.backendName().c_str());
+    return engine;
+}
+
+- (realms::Engine &)realms {
+    return RealmsSharedEngine(bundleRoot_, supportDir_);
+}
+
 - (nullable instancetype)initWithMetalKitView:(MTKView *)view {
     self = [super init];
     if (!self) return nil;
@@ -554,6 +595,19 @@ struct PreparedAssets {
     world_.load(savePath_);
     tools_.tool = sandbox::HandTool::HAND_EMPTY;
     building_ = false;
+
+    {
+        realms::Engine &engine = [self realms];
+        __weak SandboxBridge *weakSelf = self;
+        engine.addCommand("noclip", [weakSelf](const realms::CommandArgs &) {
+            SandboxBridge *strongSelf = weakSelf;
+            if (strongSelf) [strongSelf realmsToggleNoclip];
+        });
+        engine.addCommand("respawn", [weakSelf](const realms::CommandArgs &) {
+            SandboxBridge *strongSelf = weakSelf;
+            if (strongSelf) [strongSelf respawnPlayer];
+        });
+    }
 
     currentSelection_ = world_.selected;
     currentSurface_ = world_.surface;
@@ -640,6 +694,15 @@ struct PreparedAssets {
         assetsJob_.wait();
     }
     [self flushSave];
+    realms::Engine &engine = [self realms];
+    engine.removeCommand("noclip");
+    engine.removeCommand("respawn");
+}
+
+- (void)realmsToggleNoclip {
+    if (drone_.piloting() || seatedCar_ >= 0) return;
+    flying_ = !flying_;
+    player_.reset(world_.x, world_.y, world_.z);
 }
 
 - (BOOL)buildPipelinesForView:(MTKView *)view {
@@ -951,8 +1014,10 @@ struct PreparedAssets {
             if (drone_.mode == sandbox::FpvDrone::Flying) {
                 drone_.look(lookDx_, lookDy_);
             } else if (!drone_.piloting()) {
-                world_.yaw -= lookDx_ * 0.004f;
-                world_.pitch = std::clamp(world_.pitch - lookDy_ * 0.004f, -1.3f, 1.3f);
+                realms::Engine &engine = [self realms];
+                const float look = 0.004f * realms::sandbox::lookScale(engine);
+                world_.yaw -= lookDx_ * look;
+                world_.pitch = std::clamp(world_.pitch - realms::sandbox::pitchSign(engine) * lookDy_ * look, -1.3f, 1.3f);
             }
         }
         lookDx_ = 0.0f;
@@ -1368,6 +1433,7 @@ struct PreparedAssets {
     const auto now = std::chrono::steady_clock::now();
     const float dt = std::clamp(std::chrono::duration<float>(now - lastTime_).count(), 0.0f, 0.05f);
     lastTime_ = now;
+    [self realms].frame(dt);
 
     if (gameplayReady_ && cityModel_.ready()) {
         const size_t countBefore = world_.objects.size();
@@ -1967,6 +2033,7 @@ struct PreparedAssets {
         saved.save(savePath_);
         saveDirty_ = false;
     }
+    realms::sandbox::saveUserConfig([self realms]);
 }
 
 @end
