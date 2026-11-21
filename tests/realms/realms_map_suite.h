@@ -449,16 +449,23 @@ inline void runMapChecks(const RealmsCoreApi *api) {
     CHECK(api->map_load("") == 1);
 }
 
+#include "realms_vis_mesh_suite.h"
+
 inline void runMapSuite(const RealmsCoreApi *api) {
     const bool complete = api->map_load && api->map_info && api->map_entities && api->map_model &&
                           api->map_headnode_for_box && api->map_point_contents && api->map_box_trace &&
-                          api->map_point_leaf && api->map_leaf_info;
+                          api->map_point_leaf && api->map_leaf_info && api->map_cluster_pvs &&
+                          api->map_cluster_phs && api->map_set_area_portal && api->map_area_portal_open &&
+                          api->map_areas_connected && api->map_write_area_bits && api->map_box_leafs &&
+                          api->map_headnode_visible && api->map_load_mesh;
     CHECK(complete);
     if (!complete) return;
     gHost = FakeHost{};
     const RealmsHostApi host = makeHost(true);
     CHECK(api->init(&host) == 1);
     runMapChecks(api);
+    runVisChecks(api);
+    runMeshChecks(api);
     // shutdown drops the map
     CHECK(api->map_load("maps/test.bsp") == 1);
     api->shutdown();

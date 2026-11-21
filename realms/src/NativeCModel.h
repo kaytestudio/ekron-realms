@@ -31,6 +31,17 @@ void cmBoxTrace(const float *start, const float *end, const float *mins, const f
 int32_t cmPointLeaf(const float *p);
 int32_t cmLeafInfo(int32_t leaf, int32_t *contents, int32_t *cluster, int32_t *area);
 
+bool cmLoadMesh(const RealmsMeshDesc *desc, std::string &error);
+int32_t cmClusterPVS(int32_t cluster, uint8_t *buffer, int32_t size);
+int32_t cmClusterPHS(int32_t cluster, uint8_t *buffer, int32_t size);
+void cmSetAreaPortal(int32_t portal, int32_t open);
+int32_t cmAreaPortalOpen(int32_t portal);
+int32_t cmAreasConnected(int32_t area1, int32_t area2);
+int32_t cmWriteAreaBits(int32_t area, uint8_t *buffer, int32_t size);
+int32_t cmBoxLeafs(const float *mins, const float *maxs, int32_t *list, int32_t listSize, int32_t headnode,
+                   int32_t *topnode);
+int32_t cmHeadnodeVisible(int32_t headnode, const uint8_t *visbits, int32_t size);
+
 uint32_t crc32(const unsigned char *data, size_t size);
 
 } // namespace realms_native

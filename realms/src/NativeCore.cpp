@@ -801,6 +801,31 @@ int32_t coreMapPointLeaf(const float *p) { return realms_native::cmPointLeaf(p);
 int32_t coreMapLeafInfo(int32_t leaf, int32_t *contents, int32_t *cluster, int32_t *area) {
     return realms_native::cmLeafInfo(leaf, contents, cluster, area);
 }
+int32_t coreMapClusterPvs(int32_t cluster, uint8_t *buffer, int32_t size) {
+    return realms_native::cmClusterPVS(cluster, buffer, size);
+}
+int32_t coreMapClusterPhs(int32_t cluster, uint8_t *buffer, int32_t size) {
+    return realms_native::cmClusterPHS(cluster, buffer, size);
+}
+void coreMapSetAreaPortal(int32_t portal, int32_t open) { realms_native::cmSetAreaPortal(portal, open); }
+int32_t coreMapAreaPortalOpen(int32_t portal) { return realms_native::cmAreaPortalOpen(portal); }
+int32_t coreMapAreasConnected(int32_t a, int32_t b) { return realms_native::cmAreasConnected(a, b); }
+int32_t coreMapWriteAreaBits(int32_t area, uint8_t *buffer, int32_t size) {
+    return realms_native::cmWriteAreaBits(area, buffer, size);
+}
+int32_t coreMapBoxLeafs(const float *mins, const float *maxs, int32_t *list, int32_t size, int32_t headnode,
+                        int32_t *topnode) {
+    return realms_native::cmBoxLeafs(mins, maxs, list, size, headnode, topnode);
+}
+int32_t coreMapHeadnodeVisible(int32_t headnode, const uint8_t *visbits, int32_t size) {
+    return realms_native::cmHeadnodeVisible(headnode, visbits, size);
+}
+int32_t coreMapLoadMesh(const RealmsMeshDesc *desc) {
+    std::string error;
+    if (realms_native::cmLoadMesh(desc, error)) return 1;
+    comWarning("map_load_mesh: " + std::string(desc && desc->name ? desc->name : "?") + ": " + error);
+    return 0;
+}
 
 const RealmsCoreApi kNativeApi = {
     sizeof(RealmsCoreApi),
@@ -837,6 +862,15 @@ const RealmsCoreApi kNativeApi = {
     coreMapBoxTrace,
     coreMapPointLeaf,
     coreMapLeafInfo,
+    coreMapClusterPvs,
+    coreMapClusterPhs,
+    coreMapSetAreaPortal,
+    coreMapAreaPortalOpen,
+    coreMapAreasConnected,
+    coreMapWriteAreaBits,
+    coreMapBoxLeafs,
+    coreMapHeadnodeVisible,
+    coreMapLoadMesh,
 };
 
 } // namespace

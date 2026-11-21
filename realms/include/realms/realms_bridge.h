@@ -35,7 +35,7 @@ extern "C" {
 #endif
 
 /* 2: collision model (map_*) appended to RealmsCoreApi. */
-#define REALMS_BRIDGE_VERSION 2u
+#define REALMS_BRIDGE_VERSION 3u
 
 /* Symbol exported by the Free Pascal core (librealms_core / realms_core.a). */
 #define REALMS_PASCAL_ENTRY_SYMBOL "realms_pascal_get_api"
@@ -142,6 +142,33 @@ typedef struct RealmsMapInfo {
     char name[64];        /* VFS path the map was loaded from */
 } RealmsMapInfo;
 
+/* One surface of a triangle mesh map (RealmsCoreApi::map_load_mesh). */
+typedef struct RealmsMeshSurface {
+    char name[32];    /* reported as RealmsTrace::surface_name */
+    int32_t flags;    /* REALMS_SURF_* */
+    int32_t value;
+    int32_t contents; /* REALMS_CONTENTS_*; 0 = no collision */
+} RealmsMeshSurface;
+
+/* Triangle mesh map (glTF levels, see realms::Engine::loadMap). The core
+ * copies everything; each triangle becomes a beveled brush (a slab of
+ * `thickness` units behind its front face, counter-clockwise winding) in a
+ * kd-tree, so traces, point contents and box hulls behave like BSP maps. */
+typedef struct RealmsMeshDesc {
+    uint32_t struct_size;            /* sizeof(RealmsMeshDesc) */
+    uint32_t checksum;               /* reported by map_info (e.g. CRC-32 of the .glb) */
+    const char *name;                /* reported by map_info */
+    const float *vertices;           /* xyz triples in map units, Z up */
+    int32_t num_vertices;
+    const int32_t *indices;          /* 3 per triangle */
+    int32_t num_triangles;
+    const int32_t *triangle_surfaces; /* per triangle surface index; NULL = surface 0 */
+    const RealmsMeshSurface *surfaces;
+    int32_t num_surfaces;            /* at least 1 */
+    float thickness;                 /* <= 0 selects 2 units */
+    const char *entities;            /* entity lump text, may be NULL */
+} RealmsMeshDesc;
+
 /* Services the C++ host provides to the core. */
 typedef struct RealmsHostApi {
     uint32_t struct_size;
@@ -244,6 +271,31 @@ typedef struct RealmsCoreApi {
     /* World leaf containing point (0 without a map) and its properties. */
     int32_t (*map_point_leaf)(const float *point3);
     int32_t (*map_leaf_info)(int32_t leaf, int32_t *contents, int32_t *cluster, int32_t *area);
+
+    /* Visibility (CM_ClusterPVS / CM_ClusterPHS): copies the decompressed
+     * row ((num_clusters + 7) / 8 bytes, bit c = cluster c) and returns the
+     * row size, or 0 without a map. Cluster -1 (or out of range) gives an
+     * empty row; maps without visibility data see everything. */
+    int32_t (*map_cluster_pvs)(int32_t cluster, uint8_t *buffer, int32_t buffer_size);
+    int32_t (*map_cluster_phs)(int32_t cluster, uint8_t *buffer, int32_t buffer_size);
+    /* Area portals (CM_SetAreaPortalState / CM_AreasConnected /
+     * CM_WriteAreaBits). Portals start closed when a map loads. */
+    void (*map_set_area_portal)(int32_t portal, int32_t open);
+    int32_t (*map_area_portal_open)(int32_t portal); /* 1 open, 0 closed, -1 invalid */
+    int32_t (*map_areas_connected)(int32_t area1, int32_t area2);
+    /* Bit a = area a reachable from `area` (area 0 or invalid: all bits).
+     * Returns the byte count ((num_areas + 7) / 8), 0 without a map. */
+    int32_t (*map_write_area_bits)(int32_t area, uint8_t *buffer, int32_t buffer_size);
+    /* CM_BoxLeafnums under headnode: writes up to list_size leafs and
+     * returns how many were written; *topnode (may be NULL) receives the
+     * first node that splits the box, or -1. */
+    int32_t (*map_box_leafs)(const float *mins3, const float *maxs3, int32_t *list, int32_t list_size,
+                             int32_t headnode, int32_t *topnode);
+    /* CM_HeadnodeVisible: 1 if any leaf under headnode is in visbits. */
+    int32_t (*map_headnode_visible)(int32_t headnode, const uint8_t *visbits, int32_t visbits_size);
+    /* Loads a triangle mesh map (see RealmsMeshDesc); 1 on success.
+     * Invalid descriptions are rejected and leave no map loaded. */
+    int32_t (*map_load_mesh)(const RealmsMeshDesc *desc);
 } RealmsCoreApi;
 
 typedef const RealmsCoreApi *(*RealmsGetApiFn)(uint32_t requested_version);

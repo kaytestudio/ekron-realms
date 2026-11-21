@@ -15,7 +15,7 @@ uses
   ctypes;
 
 const
-  REALMS_BRIDGE_VERSION = 2;
+  REALMS_BRIDGE_VERSION = 3;
 
   REALMS_PRINT_INFO = 0;
   REALMS_PRINT_WARNING = 1;
@@ -110,6 +110,32 @@ type
     name: array[0..63] of AnsiChar;
   end;
 
+  { RealmsMeshSurface (44 bytes). }
+  PRealmsMeshSurface = ^TRealmsMeshSurface;
+  TRealmsMeshSurface = record
+    name: array[0..31] of AnsiChar;
+    flags: cint32;
+    value: cint32;
+    contents: cint32;
+  end;
+
+  { RealmsMeshDesc (80 bytes on 64-bit targets). }
+  PRealmsMeshDesc = ^TRealmsMeshDesc;
+  TRealmsMeshDesc = record
+    struct_size: cuint32;
+    checksum: cuint32;
+    name: PChar;
+    vertices: pcfloat;
+    num_vertices: cint32;
+    indices: pcint32;
+    num_triangles: cint32;
+    triangle_surfaces: pcint32;
+    surfaces: PRealmsMeshSurface;
+    num_surfaces: cint32;
+    thickness: cfloat;
+    entities: PChar;
+  end;
+
   THostPrint = procedure(user: Pointer; level: cint32; text: PChar); cdecl;
   THostReadFile = function(user: Pointer; path: PChar; out_data: PPointer;
     out_size: pcint32): cint32; cdecl;
@@ -170,6 +196,15 @@ type
     out_trace: PRealmsTrace); cdecl;
   TCoreMapPointLeaf = function(point: pcfloat): cint32; cdecl;
   TCoreMapLeafInfo = function(leaf: cint32; contents, cluster, area: pcint32): cint32; cdecl;
+  TCoreMapClusterRow = function(cluster: cint32; buffer: PByte; buffer_size: cint32): cint32; cdecl;
+  TCoreMapSetAreaPortal = procedure(portal, open: cint32); cdecl;
+  TCoreMapAreaPortalOpen = function(portal: cint32): cint32; cdecl;
+  TCoreMapAreasConnected = function(area1, area2: cint32): cint32; cdecl;
+  TCoreMapWriteAreaBits = function(area: cint32; buffer: PByte; buffer_size: cint32): cint32; cdecl;
+  TCoreMapBoxLeafs = function(mins, maxs: pcfloat; list: pcint32; list_size: cint32;
+    headnode: cint32; topnode: pcint32): cint32; cdecl;
+  TCoreMapHeadnodeVisible = function(headnode: cint32; visbits: PByte; visbits_size: cint32): cint32; cdecl;
+  TCoreMapLoadMesh = function(desc: PRealmsMeshDesc): cint32; cdecl;
 
   PRealmsCoreApi = ^TRealmsCoreApi;
   TRealmsCoreApi = record
@@ -214,6 +249,15 @@ type
     map_box_trace: TCoreMapBoxTrace;
     map_point_leaf: TCoreMapPointLeaf;
     map_leaf_info: TCoreMapLeafInfo;
+    map_cluster_pvs: TCoreMapClusterRow;
+    map_cluster_phs: TCoreMapClusterRow;
+    map_set_area_portal: TCoreMapSetAreaPortal;
+    map_area_portal_open: TCoreMapAreaPortalOpen;
+    map_areas_connected: TCoreMapAreasConnected;
+    map_write_area_bits: TCoreMapWriteAreaBits;
+    map_box_leafs: TCoreMapBoxLeafs;
+    map_headnode_visible: TCoreMapHeadnodeVisible;
+    map_load_mesh: TCoreMapLoadMesh;
   end;
 
 implementation

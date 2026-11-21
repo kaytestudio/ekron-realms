@@ -1,9 +1,11 @@
 { ----------------------------------------------------------------------------
   Realms Engine - collision model (Pascal core)
 
-  Quake 2 qcommon/cmodel.c for the Realms bridge (version 2): loads IBSP v38
+  Quake 2 qcommon/cmodel.c for the Realms bridge (version 3): loads IBSP v38
   maps from the virtual filesystem, validates every index before use and
-  answers point contents / box trace / leaf queries. The algorithms follow
+  answers point contents / box trace / leaf queries, the PVS / PHS and area
+  portal connectivity. Triangle meshes (.glb maps) are turned into slab
+  brushes under an axial kd-tree so they use the same trace code. The algorithms follow
   game/qcommon/CModel.pas (the original Delphi port) with its 64-bit pointer
   casts, fixed-size tables and Com_Error exits replaced by dynamic arrays and
   a clean rejection path: a malformed map leaves no map loaded.
@@ -35,6 +37,18 @@ procedure CM_BoxTrace(start, end_, mins, maxs: pcfloat; headnode, brushmask: cin
   origin, angles: pcfloat; out_trace: PRealmsTrace);
 function CM_PointLeaf(p: pcfloat): cint32;
 function CM_LeafInfo(leaf: cint32; contents, cluster, area: pcint32): cint32;
+
+{ Bridge version 3. }
+function CM_LoadMesh(desc: PRealmsMeshDesc; out error: AnsiString): Boolean;
+function CM_ClusterPVS(cluster: cint32; buffer: PByte; size: cint32): cint32;
+function CM_ClusterPHS(cluster: cint32; buffer: PByte; size: cint32): cint32;
+procedure CM_SetAreaPortal(portal, open: cint32);
+function CM_AreaPortalOpen(portal: cint32): cint32;
+function CM_AreasConnected(area1, area2: cint32): cint32;
+function CM_WriteAreaBits(area: cint32; buffer: PByte; size: cint32): cint32;
+function CM_BoxLeafs(mins, maxs: pcfloat; list: pcint32; listSize, headnode: cint32;
+  topnode: pcint32): cint32;
+function CM_HeadnodeVisible(headnode: cint32; visbits: PByte; size: cint32): cint32;
 
 { CRC-32 (IEEE 802.3, the zlib polynomial). }
 function CRC32_Block(data: PByte; size: SizeInt): cuint32;
@@ -123,6 +137,18 @@ type
     headnode: LongInt;
   end;
 
+  TArea = record
+    numPortals, firstPortal: LongInt;
+    floodnum, floodvalid: LongInt;
+  end;
+
+  TAreaPortal = record
+    portalnum, otherArea: LongInt;
+  end;
+
+  TByteArr = array of Byte;
+  TIntArr = array of LongInt;
+
   TMapState = record
     loaded: Boolean;
     name: AnsiString;
@@ -136,6 +162,13 @@ type
     sides: array of TBrushSide;
     models: array of TModel;
     entities: AnsiString;
+    visibility: TByteArr;     { compressed PVS / PHS rows (dvis_t) }
+    visOffsets: TIntArr;      { bitofs[cluster][2], flattened }
+    areas: array of TArea;
+    areaPortals: array of TAreaPortal;
+    portalOpen: array[0..MAX_MAP_AREAPORTALS - 1] of Byte;
+    floodValid: LongInt;
+    meshMap: Boolean;         { triangle mesh map: point contents test leaf brushes }
     { counts as stored in the file (the arrays also hold the box hull) }
     numPlanes, numNodes, numLeafs, numLeafBrushes, numBrushes, numSides: LongInt;
     numClusters, numAreas, numAreaPortals: LongInt;
@@ -168,6 +201,13 @@ begin
   SetLength(m.sides, 0);
   SetLength(m.models, 0);
   m.entities := '';
+  SetLength(m.visibility, 0);
+  SetLength(m.visOffsets, 0);
+  SetLength(m.areas, 0);
+  SetLength(m.areaPortals, 0);
+  FillChar(m.portalOpen, SizeOf(m.portalOpen), 0);
+  m.floodValid := 0;
+  m.meshMap := False;
   m.numPlanes := 0;
   m.numNodes := 0;
   m.numLeafs := 0;
@@ -456,10 +496,43 @@ begin
   end;
 end;
 
+{ FloodAreaConnections. Area 0 is the solid / unused area. }
+procedure FloodArea(var m: TMapState; area, floodnum: LongInt);
+var
+  i, pidx: LongInt;
+begin
+  if m.areas[area].floodvalid = m.floodValid then
+    Exit; { already flooded (Quake 2 errors on "reflooded") }
+  m.areas[area].floodnum := floodnum;
+  m.areas[area].floodvalid := m.floodValid;
+  for i := 0 to m.areas[area].numPortals - 1 do
+  begin
+    pidx := m.areas[area].firstPortal + i;
+    if m.portalOpen[m.areaPortals[pidx].portalnum] <> 0 then
+      FloodArea(m, m.areaPortals[pidx].otherArea, floodnum);
+  end;
+end;
+
+procedure FloodAreaConnections(var m: TMapState);
+var
+  i, floodnum: LongInt;
+begin
+  Inc(m.floodValid);
+  floodnum := 0;
+  for i := 1 to m.numAreas - 1 do
+  begin
+    if m.areas[i].floodvalid = m.floodValid then
+      Continue;
+    Inc(floodnum);
+    FloodArea(m, i, floodnum);
+  end;
+end;
+
 function LoadInto(var m: TMapState): Boolean;
 var
   n, i, j, numSurfaces, num, first, portal, other, areaLimit, entLen, used: LongInt;
-  p, ent: PByte;
+  visLen, visClusters, ofs: LongInt;
+  p, ent, vis: PByte;
 begin
   Result := False;
   if not ReadHeader then
@@ -618,6 +691,7 @@ begin
     Exit;
   if not CountLump(LUMP_AREAPORTALS, 8, MAX_MAP_AREAPORTALS, 0, 'area portals', m.numAreaPortals) then
     Exit;
+  SetLength(m.areas, m.numAreas);
   for i := 0 to m.numAreas - 1 do
   begin
     p := LumpAt(LUMP_AREAS, i, 8);
@@ -625,7 +699,12 @@ begin
     first := RD32(p + 4);
     if (num < 0) or (first < 0) or (Int64(first) + num > m.numAreaPortals) then
       Exit(Fail('bad area portals'));
+    m.areas[i].numPortals := num;
+    m.areas[i].firstPortal := first;
+    m.areas[i].floodnum := 0;
+    m.areas[i].floodvalid := 0;
   end;
+  SetLength(m.areaPortals, m.numAreaPortals);
   for i := 0 to m.numAreaPortals - 1 do
   begin
     p := LumpAt(LUMP_AREAPORTALS, i, 8);
@@ -633,6 +712,8 @@ begin
     other := RD32(p + 4);
     if (portal < 0) or (portal >= MAX_MAP_AREAPORTALS) or (other < 0) or (other >= m.numAreas) then
       Exit(Fail('bad area portal'));
+    m.areaPortals[i].portalnum := portal;
+    m.areaPortals[i].otherArea := other;
   end;
   if m.numAreas > 0 then
     areaLimit := m.numAreas
@@ -642,9 +723,33 @@ begin
     if (m.leafs[i].area < 0) or (m.leafs[i].area >= areaLimit) then
       Exit(Fail('bad leaf area'));
 
-  { Visibility (kept for the PVS; only the size is checked here). }
-  if Lumps[LUMP_VISIBILITY].len > MAX_MAP_VISIBILITY then
+  { Visibility: dvis_t header (numclusters, bitofs[numclusters][2]) and the
+    run-length compressed rows. Rows are decompressed with bounds checks. }
+  visLen := Lumps[LUMP_VISIBILITY].len;
+  if visLen > MAX_MAP_VISIBILITY then
     Exit(Fail('visibility lump is too large'));
+  if visLen > 0 then
+  begin
+    vis := Lumps[LUMP_VISIBILITY].data;
+    if visLen < 4 then
+      Exit(Fail('visibility lump is truncated'));
+    visClusters := RD32(vis);
+    if (visClusters < 0) or (visClusters > MAX_MAP_LEAFS) or (4 + Int64(visClusters) * 8 > visLen) then
+      Exit(Fail('bad visibility cluster count'));
+    SetLength(m.visOffsets, visClusters * 2);
+    for i := 0 to visClusters * 2 - 1 do
+    begin
+      ofs := RD32(vis + 4 + 4 * i);
+      if (ofs < 0) or (ofs > visLen) then
+        Exit(Fail('bad visibility offset'));
+      m.visOffsets[i] := ofs;
+    end;
+    if m.numClusters > visClusters then
+      Exit(Fail('leaf cluster out of range for visibility'));
+    m.numClusters := visClusters;
+    SetLength(m.visibility, visLen);
+    Move(vis^, m.visibility[0], visLen);
+  end;
 
   { Entity string, up to the first NUL. }
   entLen := Lumps[LUMP_ENTITIES].len;
@@ -657,6 +762,493 @@ begin
   SetString(m.entities, PAnsiChar(ent), used);
 
   InitBoxHull(m);
+  FloodAreaConnections(m);
+  Result := True;
+end;
+
+{ -------------------------------------------------------- triangle meshes }
+
+const
+  MAX_MESH_VERTICES = 1 shl 24;
+  MAX_MESH_TRIANGLES = 1 shl 20;
+  MAX_MESH_SURFACES = 65536;
+  MESH_LEAF_BRUSHES = 8;
+  MESH_MAX_DEPTH = 40;
+  MESH_EDGES: array[0..8, 0..1] of Integer =
+    ((0, 1), (1, 2), (2, 0), (3, 4), (4, 5), (5, 3), (0, 3), (1, 4), (2, 5));
+
+  MESH_MAX_COORD: Single = 1e6;
+  MESH_NORM_EPS: Single = 1e-6;
+  MESH_DUP_DOT: Single = 0.99999;
+  MESH_DUP_DIST: Single = 0.01;
+  MESH_BEHIND_EPS: Single = 0.01;
+  MESH_SPLIT_EPS: Single = 0.001;
+  MESH_HALF: Single = 0.5;
+  MESH_BIG: Single = 1e30;
+
+type
+  TMeshBrush = record
+    mins, maxs, center: TVec3;
+  end;
+
+var
+  { builder state: element counts of the growing map arrays }
+  MPlanes, MNodes, MLeafs, MLeafBrushes, MBrushes, MSides: LongInt;
+  MBounds: array of TMeshBrush;
+  MBoundsCount: LongInt;
+
+function FiniteF(x: Single): Boolean;
+var
+  bits: LongWord;
+begin
+  Move(x, bits, 4);
+  Result := (bits and $7F800000) <> $7F800000;
+end;
+
+function VSub(const a, b: TVec3): TVec3;
+begin
+  Result[0] := a[0] - b[0];
+  Result[1] := a[1] - b[1];
+  Result[2] := a[2] - b[2];
+end;
+
+function VCross(const a, b: TVec3): TVec3;
+begin
+  Result[0] := a[1] * b[2] - a[2] * b[1];
+  Result[1] := a[2] * b[0] - a[0] * b[2];
+  Result[2] := a[0] * b[1] - a[1] * b[0];
+end;
+
+function VNormalize(var a: TVec3): Boolean;
+var
+  len: Single;
+begin
+  len := Sqrt(Dot(a, a));
+  if not (len > MESH_NORM_EPS) then
+    Exit(False);
+  a[0] := a[0] / len;
+  a[1] := a[1] / len;
+  a[2] := a[2] / len;
+  Result := True;
+end;
+
+{ Plane type as Quake 2 stores it: exact positive axes are axial (0..2) and
+  everything else is 3 + the dominant axis. }
+function MeshPlaneType(const n: TVec3): LongInt;
+var
+  a, major: Integer;
+begin
+  for a := 0 to 2 do
+    if (n[a] = 1) and (n[(a + 1) mod 3] = 0) and (n[(a + 2) mod 3] = 0) then
+      Exit(a);
+  major := 0;
+  for a := 1 to 2 do
+    if Abs(n[a]) > Abs(n[major]) then
+      major := a;
+  Result := 3 + major;
+end;
+
+function MeshAddPlane(var m: TMapState; const n: TVec3; dist: Single): LongInt;
+begin
+  if MPlanes = Length(m.planes) then
+    SetLength(m.planes, MPlanes * 2 + 256);
+  m.planes[MPlanes].normal := n;
+  m.planes[MPlanes].dist := dist;
+  m.planes[MPlanes].ptype := MeshPlaneType(n);
+  Result := MPlanes;
+  Inc(MPlanes);
+end;
+
+{ Triangle (a, b, c), counter-clockwise seen from the front, becomes a slab
+  brush: front face, back face thick units behind, three edge planes, plus
+  Quake 2 axial and edge bevels so box traces stay tight. }
+function MeshAddTriangle(var m: TMapState; const a, b, c: TVec3; thick: Single;
+  surface, contents: LongInt): Boolean;
+var
+  n, back, en, dir, ax, bn, pos, neg: TVec3;
+  pts: array[0..5] of TVec3;
+  normals: array[0..71] of TVec3;
+  dists: array[0..71] of Single;
+  count, i, j, e, axis, sign, k: Integer;
+  d: Single;
+  behind: Boolean;
+  mb: TMeshBrush;
+
+  procedure AddSide(const pn: TVec3; dd: Single);
+  var
+    q: Integer;
+  begin
+    for q := 0 to count - 1 do { skip duplicates }
+      if (Dot(normals[q], pn) > MESH_DUP_DOT) and (Abs(dists[q] - dd) < MESH_DUP_DIST) then
+        Exit;
+    normals[count] := pn;
+    dists[count] := dd;
+    Inc(count);
+  end;
+
+begin
+  Result := False;
+  count := 0;
+  n := VCross(VSub(b, a), VSub(c, a));
+  if not VNormalize(n) then
+    Exit; { degenerate }
+  pts[0] := a;
+  pts[1] := b;
+  pts[2] := c;
+  for k := 0 to 2 do
+    for j := 0 to 2 do
+      pts[3 + k][j] := pts[k][j] - n[j] * thick;
+  AddSide(n, Dot(n, a));
+  for j := 0 to 2 do
+    back[j] := -n[j];
+  AddSide(back, Dot(back, pts[3]));
+  for e := 0 to 2 do
+  begin
+    en := VCross(VSub(pts[(e + 1) mod 3], pts[e]), n);
+    if not VNormalize(en) then
+      Exit;
+    AddSide(en, Dot(en, pts[e]));
+  end;
+  { axial bevels: the brush bounds }
+  for i := 0 to 2 do
+  begin
+    mb.mins[i] := pts[0][i];
+    mb.maxs[i] := pts[0][i];
+    for k := 0 to 5 do
+    begin
+      if pts[k][i] < mb.mins[i] then
+        mb.mins[i] := pts[k][i];
+      if pts[k][i] > mb.maxs[i] then
+        mb.maxs[i] := pts[k][i];
+    end;
+    mb.center[i] := (mb.mins[i] + mb.maxs[i]) * MESH_HALF;
+  end;
+  for i := 0 to 2 do
+  begin
+    for j := 0 to 2 do
+    begin
+      pos[j] := 0;
+      neg[j] := 0;
+    end;
+    pos[i] := 1;
+    neg[i] := -1;
+    AddSide(pos, mb.maxs[i]);
+    AddSide(neg, -mb.mins[i]);
+  end;
+  { edge bevels: edge direction x axis, kept when every vertex is behind }
+  for e := 0 to 8 do
+  begin
+    dir := VSub(pts[MESH_EDGES[e, 1]], pts[MESH_EDGES[e, 0]]);
+    for axis := 0 to 2 do
+    begin
+      sign := -1;
+      while sign <= 1 do
+      begin
+        for j := 0 to 2 do
+          ax[j] := 0;
+        ax[axis] := sign;
+        bn := VCross(dir, ax);
+        if VNormalize(bn) then
+        begin
+          d := Dot(bn, pts[MESH_EDGES[e, 0]]);
+          behind := True;
+          for k := 0 to 5 do
+            if Dot(bn, pts[k]) - d > MESH_BEHIND_EPS then
+              behind := False;
+          if behind then
+            AddSide(bn, d);
+        end;
+        Inc(sign, 2);
+      end;
+    end;
+  end;
+
+  if MBrushes = Length(m.brushes) then
+    SetLength(m.brushes, MBrushes * 2 + 256);
+  m.brushes[MBrushes].contents := contents;
+  m.brushes[MBrushes].firstSide := MSides;
+  m.brushes[MBrushes].numSides := count;
+  m.brushes[MBrushes].checkcount := 0;
+  Inc(MBrushes);
+  for i := 0 to count - 1 do
+  begin
+    k := MeshAddPlane(m, normals[i], dists[i]);
+    if MSides = Length(m.sides) then
+      SetLength(m.sides, MSides * 2 + 1024);
+    m.sides[MSides].plane := k;
+    m.sides[MSides].surface := surface;
+    Inc(MSides);
+  end;
+  if MBoundsCount = Length(MBounds) then
+    SetLength(MBounds, MBoundsCount * 2 + 256);
+  MBounds[MBoundsCount] := mb;
+  Inc(MBoundsCount);
+  Result := True;
+end;
+
+{ Axial kd-tree; leafs list every brush whose bounds touch them. }
+function MeshBuild(var m: TMapState; var ids: TIntArr; depth: Integer): LongInt;
+var
+  cmin, cmax, nrm: TVec3;
+  i, k, n, axis, nf, nb, index, f, b, id: LongInt;
+  split: Single;
+  front, back: TIntArr;
+begin
+  n := Length(ids);
+  front := nil;
+  back := nil;
+  for i := 0 to 2 do
+  begin
+    cmin[i] := MESH_BIG;
+    cmax[i] := -MESH_BIG;
+  end;
+  for k := 0 to n - 1 do
+    for i := 0 to 2 do
+    begin
+      if MBounds[ids[k]].center[i] < cmin[i] then
+        cmin[i] := MBounds[ids[k]].center[i];
+      if MBounds[ids[k]].center[i] > cmax[i] then
+        cmax[i] := MBounds[ids[k]].center[i];
+    end;
+  axis := 0;
+  for i := 1 to 2 do
+    if cmax[i] - cmin[i] > cmax[axis] - cmin[axis] then
+      axis := i;
+  split := (cmin[axis] + cmax[axis]) * MESH_HALF;
+  if (n > MESH_LEAF_BRUSHES) and (depth < MESH_MAX_DEPTH) and (cmax[axis] - cmin[axis] > MESH_SPLIT_EPS) then
+  begin
+    SetLength(front, n);
+    SetLength(back, n);
+    nf := 0;
+    nb := 0;
+    for k := 0 to n - 1 do
+    begin
+      id := ids[k];
+      if MBounds[id].maxs[axis] >= split then
+      begin
+        front[nf] := id;
+        Inc(nf);
+      end;
+      if MBounds[id].mins[axis] <= split then
+      begin
+        back[nb] := id;
+        Inc(nb);
+      end;
+    end;
+    { splits that duplicate too many brushes stop here, and a node budget
+      bounds the whole tree }
+    if (nf < n) and (nb < n) and (nf + nb <= n + n div 2) and
+       (Int64(MNodes) < 4 * Int64(MBoundsCount) + 64) then
+    begin
+      SetLength(front, nf);
+      SetLength(back, nb);
+      SetLength(ids, 0);
+      if MNodes = Length(m.nodes) then
+        SetLength(m.nodes, MNodes * 2 + 256);
+      index := MNodes;
+      Inc(MNodes);
+      for i := 0 to 2 do
+        nrm[i] := 0;
+      nrm[axis] := 1;
+      m.nodes[index].plane := MeshAddPlane(m, nrm, split);
+      f := MeshBuild(m, front, depth + 1);
+      b := MeshBuild(m, back, depth + 1);
+      m.nodes[index].children[0] := f;
+      m.nodes[index].children[1] := b;
+      Exit(index);
+    end;
+    SetLength(front, 0);
+    SetLength(back, 0);
+  end;
+  if MLeafs = Length(m.leafs) then
+    SetLength(m.leafs, MLeafs * 2 + 256);
+  m.leafs[MLeafs].contents := 0;
+  m.leafs[MLeafs].cluster := 0;
+  m.leafs[MLeafs].area := 1;
+  m.leafs[MLeafs].firstLeafBrush := MLeafBrushes;
+  m.leafs[MLeafs].numLeafBrushes := n;
+  for k := 0 to n - 1 do
+  begin
+    if MLeafBrushes = Length(m.leafBrushes) then
+      SetLength(m.leafBrushes, MLeafBrushes * 2 + 1024);
+    m.leafBrushes[MLeafBrushes] := ids[k];
+    Inc(MLeafBrushes);
+    m.leafs[MLeafs].contents := m.leafs[MLeafs].contents or m.brushes[ids[k]].contents;
+  end;
+  Result := -1 - MLeafs;
+  Inc(MLeafs);
+end;
+
+function LoadMeshInto(var m: TMapState; const d: TRealmsMeshDesc): Boolean;
+var
+  i, j, k, t, surface, contents, nIds: LongInt;
+  thick: Single;
+  v: array[0..2] of TVec3;
+  ids: TIntArr;
+  mins, maxs, nrm: TVec3;
+  world: TModel;
+begin
+  Result := False;
+  if (d.num_vertices < 0) or (d.num_vertices > MAX_MESH_VERTICES) then
+    Exit(Fail('bad mesh vertex count'));
+  if (d.num_triangles < 0) or (d.num_triangles > MAX_MESH_TRIANGLES) then
+    Exit(Fail('too many mesh triangles'));
+  if (d.num_surfaces < 1) or (d.num_surfaces > MAX_MESH_SURFACES) or (d.surfaces = nil) then
+    Exit(Fail('bad mesh surfaces'));
+  if ((d.num_vertices > 0) and (d.vertices = nil)) or ((d.num_triangles > 0) and (d.indices = nil)) then
+    Exit(Fail('missing mesh data'));
+  for i := 0 to d.num_vertices * 3 - 1 do
+    if not FiniteF(d.vertices[i]) or (Abs(d.vertices[i]) > MESH_MAX_COORD) then
+      Exit(Fail('bad mesh vertex'));
+  for i := 0 to d.num_triangles * 3 - 1 do
+    if (d.indices[i] < 0) or (d.indices[i] >= d.num_vertices) then
+      Exit(Fail('bad mesh index'));
+  if d.triangle_surfaces <> nil then
+    for i := 0 to d.num_triangles - 1 do
+      if (d.triangle_surfaces[i] < 0) or (d.triangle_surfaces[i] >= d.num_surfaces) then
+        Exit(Fail('bad mesh triangle surface'));
+  if (d.entities <> nil) and (StrLen(d.entities) > MAX_MAP_ENTSTRING) then
+    Exit(Fail('entity lump is too large'));
+  if FiniteF(d.thickness) and (d.thickness > 0) then
+    thick := d.thickness
+  else
+    thick := 2;
+
+  SetLength(m.surfaces, d.num_surfaces);
+  for i := 0 to d.num_surfaces - 1 do
+  begin
+    FillChar(m.surfaces[i], SizeOf(TSurface), 0);
+    j := 0;
+    while (j < 31) and (d.surfaces[i].name[j] <> #0) do
+    begin
+      m.surfaces[i].name[j] := d.surfaces[i].name[j];
+      Inc(j);
+    end;
+    m.surfaces[i].flags := d.surfaces[i].flags;
+    m.surfaces[i].value := d.surfaces[i].value;
+  end;
+
+  MPlanes := 0;
+  MNodes := 0;
+  MLeafBrushes := 0;
+  MBrushes := 0;
+  MSides := 0;
+  MBoundsCount := 0;
+  { leaf 0: the solid dummy leaf; leaf 1: the empty leaf the box hull uses }
+  SetLength(m.leafs, 256);
+  m.leafs[0].contents := REALMS_CONTENTS_SOLID;
+  m.leafs[0].cluster := -1;
+  m.leafs[0].area := 0;
+  m.leafs[0].firstLeafBrush := 0;
+  m.leafs[0].numLeafBrushes := 0;
+  m.leafs[1].contents := 0;
+  m.leafs[1].cluster := 0;
+  m.leafs[1].area := 1;
+  m.leafs[1].firstLeafBrush := 0;
+  m.leafs[1].numLeafBrushes := 0;
+  MLeafs := 2;
+  m.emptyLeaf := 1;
+
+  ids := nil;
+  SetLength(ids, d.num_triangles);
+  nIds := 0;
+  for t := 0 to d.num_triangles - 1 do
+  begin
+    if d.triangle_surfaces <> nil then
+      surface := d.triangle_surfaces[t]
+    else
+      surface := 0;
+    contents := d.surfaces[surface].contents;
+    if contents = 0 then
+      Continue;
+    for k := 0 to 2 do
+      for j := 0 to 2 do
+        v[k][j] := d.vertices[SizeInt(d.indices[t * 3 + k]) * 3 + j];
+    if MeshAddTriangle(m, v[0], v[1], v[2], thick, surface, contents) then
+    begin
+      ids[nIds] := nIds;
+      Inc(nIds);
+    end;
+  end;
+  SetLength(ids, nIds);
+  for j := 0 to 2 do
+  begin
+    mins[j] := 0;
+    maxs[j] := 0;
+  end;
+  for i := 0 to MBoundsCount - 1 do
+    for j := 0 to 2 do
+      if i = 0 then
+      begin
+        mins[j] := MBounds[i].mins[j];
+        maxs[j] := MBounds[i].maxs[j];
+      end
+      else
+      begin
+        if MBounds[i].mins[j] < mins[j] then
+          mins[j] := MBounds[i].mins[j];
+        if MBounds[i].maxs[j] > maxs[j] then
+          maxs[j] := MBounds[i].maxs[j];
+      end;
+
+  if nIds = 0 then
+    world.headnode := -1 - m.emptyLeaf
+  else
+    world.headnode := MeshBuild(m, ids, 0);
+  if world.headnode < 0 then
+  begin
+    { headnode 0 must be the world (CM_PointContents(p, 0)), so tiny meshes
+      still get a root node; both sides lead to the same leaf }
+    for j := 0 to 2 do
+      nrm[j] := 0;
+    nrm[2] := 1;
+    if MNodes = Length(m.nodes) then
+      SetLength(m.nodes, MNodes * 2 + 16);
+    m.nodes[MNodes].plane := MeshAddPlane(m, nrm, 0);
+    m.nodes[MNodes].children[0] := world.headnode;
+    m.nodes[MNodes].children[1] := world.headnode;
+    Inc(MNodes);
+    world.headnode := 0;
+  end;
+  for j := 0 to 2 do
+  begin
+    world.mins[j] := mins[j] - 1;
+    world.maxs[j] := maxs[j] + 1;
+    world.origin[j] := 0;
+  end;
+  SetLength(m.models, 1);
+  m.models[0] := world;
+
+  SetLength(m.planes, MPlanes);
+  SetLength(m.nodes, MNodes);
+  SetLength(m.leafs, MLeafs);
+  SetLength(m.leafBrushes, MLeafBrushes);
+  SetLength(m.brushes, MBrushes);
+  SetLength(m.sides, MSides);
+  m.numPlanes := MPlanes;
+  m.numNodes := MNodes;
+  m.numLeafs := MLeafs;
+  m.numLeafBrushes := MLeafBrushes;
+  m.numBrushes := MBrushes;
+  m.numSides := MSides;
+  m.numClusters := 1;
+  m.numAreas := 2;
+  m.numAreaPortals := 0;
+  SetLength(m.areas, 2);
+  for i := 0 to 1 do
+  begin
+    m.areas[i].numPortals := 0;
+    m.areas[i].firstPortal := 0;
+    m.areas[i].floodnum := 0;
+    m.areas[i].floodvalid := 0;
+  end;
+  if d.entities <> nil then
+    m.entities := StrPas(d.entities)
+  else
+    m.entities := '';
+  m.meshMap := True;
+  InitBoxHull(m);
+  FloodAreaConnections(m);
   Result := True;
 end;
 
@@ -727,9 +1319,11 @@ end;
 
 var
   LeafMins, LeafMaxs: TVec3;
-  LeafList: array[0..MAX_BOX_LEAFS - 1] of LongInt;
-  LeafCount: LongInt;
+  LeafBuf: array[0..MAX_BOX_LEAFS - 1] of LongInt;
+  LeafList: pcint32;  { output of BoxLeafnums }
+  LeafMax, LeafCount, LeafTop: LongInt;
 
+{ CM_BoxLeafnums_r }
 procedure BoxLeafnums(num: LongInt);
 var
   s: Integer;
@@ -738,7 +1332,7 @@ begin
   begin
     if num < 0 then
     begin
-      if LeafCount < MAX_BOX_LEAFS then
+      if LeafCount < LeafMax then
       begin
         LeafList[LeafCount] := -1 - num;
         Inc(LeafCount);
@@ -751,10 +1345,97 @@ begin
     else if s = 2 then
       num := Map.nodes[num].children[1]
     else
-    begin
+    begin { go down both }
+      if LeafTop = -1 then
+        LeafTop := num;
       BoxLeafnums(Map.nodes[num].children[0]);
       num := Map.nodes[num].children[1];
     end;
+  end;
+end;
+
+{ CM_DecompressVis with bounds checks on the compressed input. }
+procedure DecompressVis(cluster, which: LongInt; var row: TByteArr);
+var
+  rowBytes, inp, len, outp, c: LongInt;
+  b: Byte;
+begin
+  rowBytes := (Map.numClusters + 7) shr 3;
+  SetLength(row, rowBytes);
+  if rowBytes = 0 then
+    Exit;
+  FillChar(row[0], rowBytes, 0);
+  if Length(Map.visibility) = 0 then
+  begin { no vis info, so make all visible }
+    FillChar(row[0], rowBytes, $FF);
+    Exit;
+  end;
+  if (cluster < 0) or (cluster >= Map.numClusters) then
+    Exit;
+  inp := Map.visOffsets[cluster * 2 + which];
+  len := Length(Map.visibility);
+  outp := 0;
+  while outp < rowBytes do
+  begin
+    if inp >= len then
+      Break; { truncated row: the rest stays invisible }
+    b := Map.visibility[inp];
+    if b <> 0 then
+    begin
+      row[outp] := b;
+      Inc(outp);
+      Inc(inp);
+      Continue;
+    end;
+    if inp + 1 >= len then
+      Break;
+    c := Map.visibility[inp + 1];
+    Inc(inp, 2);
+    if c > rowBytes - outp then
+      c := rowBytes - outp; { "Vis decompression overrun" }
+    Inc(outp, c);
+  end;
+end;
+
+function HeadnodeVisible(num: LongInt; visbits: PByte; size: LongInt): Boolean;
+var
+  cluster: LongInt;
+begin
+  if num < 0 then
+  begin
+    cluster := Map.leafs[-1 - num].cluster;
+    if (cluster < 0) or ((cluster shr 3) >= size) then
+      Exit(False);
+    Exit((visbits[cluster shr 3] and (1 shl (cluster and 7))) <> 0);
+  end;
+  Result := HeadnodeVisible(Map.nodes[num].children[0], visbits, size) or
+    HeadnodeVisible(Map.nodes[num].children[1], visbits, size);
+end;
+
+{ Point contents for mesh maps: their kd-tree leafs are not convex cells, so
+  the brushes listed in the leaf decide. }
+function LeafPointContents(leafnum: LongInt; const p: TVec3): LongInt;
+var
+  k, i, b, pl: LongInt;
+  inside: Boolean;
+begin
+  if not Map.meshMap or (leafnum < 2) or (leafnum >= Map.numLeafs) then
+    Exit(Map.leafs[leafnum].contents);
+  Result := 0;
+  for k := 0 to Map.leafs[leafnum].numLeafBrushes - 1 do
+  begin
+    b := Map.leafBrushes[Map.leafs[leafnum].firstLeafBrush + k];
+    inside := True;
+    i := 0;
+    while (i < Map.brushes[b].numSides) and inside do
+    begin
+      pl := Map.sides[Map.brushes[b].firstSide + i].plane;
+      if Dot(Map.planes[pl].normal, p) - Map.planes[pl].dist > 0 then
+        inside := False;
+      Inc(i);
+    end;
+    if inside then
+      Result := Result or Map.brushes[b].contents;
   end;
 end;
 
@@ -1037,11 +1718,14 @@ begin
       LeafMins[i] := start[i] + mins[i] - 1;
       LeafMaxs[i] := start[i] + maxs[i] + 1;
     end;
+    LeafList := @LeafBuf[0];
+    LeafMax := MAX_BOX_LEAFS;
     LeafCount := 0;
+    LeafTop := -1;
     BoxLeafnums(headnode);
     for i := 0 to LeafCount - 1 do
     begin
-      ForLeafBrushes(LeafList[i], @TestBoxInBrush);
+      ForLeafBrushes(LeafBuf[i], @TestBoxInBrush);
       if T.allsolid then
         Break;
     end;
@@ -1256,7 +1940,7 @@ begin
     AngleVectors(angles, f, r, u);
     RotateInto(local, f, r, u);
   end;
-  Result := Map.leafs[PointLeafnum(local, headnode)].contents;
+  Result := LeafPointContents(PointLeafnum(local, headnode), local);
 end;
 
 procedure CM_BoxTrace(start, end_, mins, maxs: pcfloat; headnode, brushmask: cint32;
@@ -1359,6 +2043,162 @@ begin
   if area <> nil then
     area^ := Map.leafs[leaf].area;
   Result := 1;
+end;
+
+{ ------------------------------------------------------- bridge version 3 }
+
+function CM_LoadMesh(desc: PRealmsMeshDesc; out error: AnsiString): Boolean;
+var
+  m: TMapState;
+  ok: Boolean;
+begin
+  error := '';
+  CM_UnloadMap;
+  if (desc = nil) or (desc^.struct_size < SizeOf(TRealmsMeshDesc)) then
+  begin
+    error := 'bad mesh description';
+    Exit(False);
+  end;
+  ClearMap(m);
+  LError := '';
+  try
+    ok := LoadMeshInto(m, desc^);
+  finally
+    SetLength(MBounds, 0);
+    MBoundsCount := 0;
+  end;
+  if not ok then
+  begin
+    error := LError;
+    Exit(False);
+  end;
+  m.loaded := True;
+  if desc^.name <> nil then
+    m.name := StrPas(desc^.name)
+  else
+    m.name := '';
+  m.checksum := desc^.checksum;
+  Map := m;
+  Result := True;
+end;
+
+function CopyRow(const row: TByteArr; buffer: PByte; size: cint32): cint32;
+var
+  n: LongInt;
+begin
+  n := Length(row);
+  if n > size then
+    n := size;
+  if (buffer <> nil) and (n > 0) then
+    Move(row[0], buffer^, n);
+  Result := Length(row);
+end;
+
+function CM_ClusterPVS(cluster: cint32; buffer: PByte; size: cint32): cint32;
+var
+  row: TByteArr;
+begin
+  if not Map.loaded then
+    Exit(0);
+  row := nil;
+  DecompressVis(cluster, 0, row);
+  Result := CopyRow(row, buffer, size);
+end;
+
+function CM_ClusterPHS(cluster: cint32; buffer: PByte; size: cint32): cint32;
+var
+  row: TByteArr;
+begin
+  if not Map.loaded then
+    Exit(0);
+  row := nil;
+  DecompressVis(cluster, 1, row);
+  Result := CopyRow(row, buffer, size);
+end;
+
+procedure CM_SetAreaPortal(portal, open: cint32);
+begin
+  if not Map.loaded or (portal < 0) or (portal >= MAX_MAP_AREAPORTALS) then
+    Exit;
+  if open <> 0 then
+    Map.portalOpen[portal] := 1
+  else
+    Map.portalOpen[portal] := 0;
+  FloodAreaConnections(Map);
+end;
+
+function CM_AreaPortalOpen(portal: cint32): cint32;
+begin
+  if not Map.loaded or (portal < 0) or (portal >= MAX_MAP_AREAPORTALS) then
+    Exit(-1);
+  Result := Map.portalOpen[portal];
+end;
+
+function CM_AreasConnected(area1, area2: cint32): cint32;
+begin
+  if not Map.loaded or (area1 < 0) or (area2 < 0) or (area1 >= Map.numAreas) or
+     (area2 >= Map.numAreas) then
+    Exit(0);
+  if Map.areas[area1].floodnum = Map.areas[area2].floodnum then
+    Result := 1
+  else
+    Result := 0;
+end;
+
+function CM_WriteAreaBits(area: cint32; buffer: PByte; size: cint32): cint32;
+var
+  row: TByteArr;
+  i, floodnum: LongInt;
+  all: Boolean;
+begin
+  if not Map.loaded then
+    Exit(0);
+  row := nil;
+  SetLength(row, (Map.numAreas + 7) shr 3);
+  if Length(row) > 0 then
+    FillChar(row[0], Length(row), 0);
+  all := (area <= 0) or (area >= Map.numAreas);
+  if all then
+    floodnum := 0
+  else
+    floodnum := Map.areas[area].floodnum;
+  for i := 0 to Map.numAreas - 1 do
+    if all or (Map.areas[i].floodnum = floodnum) then
+      row[i shr 3] := row[i shr 3] or Byte(1 shl (i and 7));
+  Result := CopyRow(row, buffer, size);
+end;
+
+function CM_BoxLeafs(mins, maxs: pcfloat; list: pcint32; listSize, headnode: cint32;
+  topnode: pcint32): cint32;
+begin
+  if topnode <> nil then
+    topnode^ := -1;
+  if (mins = nil) or (maxs = nil) or not ValidHeadnode(headnode) then
+    Exit(0);
+  LeafMins := Vec(mins);
+  LeafMaxs := Vec(maxs);
+  LeafList := list;
+  if (list = nil) or (listSize < 0) then
+    LeafMax := 0
+  else
+    LeafMax := listSize;
+  LeafCount := 0;
+  LeafTop := -1;
+  BoxLeafnums(headnode);
+  LeafList := nil;
+  if topnode <> nil then
+    topnode^ := LeafTop;
+  Result := LeafCount;
+end;
+
+function CM_HeadnodeVisible(headnode: cint32; visbits: PByte; size: cint32): cint32;
+begin
+  if (visbits = nil) or (size <= 0) or not ValidHeadnode(headnode) then
+    Exit(0);
+  if HeadnodeVisible(headnode, visbits, size) then
+    Result := 1
+  else
+    Result := 0;
 end;
 
 end.

@@ -88,6 +88,15 @@ struct Model {
     int32_t headnode = 0;
 };
 
+struct Area {
+    int32_t numPortals = 0, firstPortal = 0;
+    int32_t floodnum = 0, floodvalid = 0;
+};
+
+struct AreaPortal {
+    int32_t portalnum = 0, otherArea = 0;
+};
+
 struct MapState {
     bool loaded = false;
     std::string name;
@@ -101,6 +110,13 @@ struct MapState {
     std::vector<BrushSide> sides;
     std::vector<Model> models;
     std::string entities;
+    std::vector<uint8_t> visibility;  // compressed PVS/PHS rows (dvis_t)
+    std::vector<int32_t> visOffsets;  // bitofs[cluster][2], flattened
+    std::vector<Area> areas;
+    std::vector<AreaPortal> areaPortals;
+    std::vector<uint8_t> portalOpen = std::vector<uint8_t>(size_t(kMaxAreaPortals), 0);
+    int32_t floodValid = 0;
+    bool meshMap = false; // triangle mesh map: point contents test the leaf's brushes
     // Counts as stored in the file (the vectors also hold the box hull).
     int32_t numPlanes = 0, numNodes = 0, numLeafs = 0, numLeafBrushes = 0, numBrushes = 0, numSides = 0;
     int32_t numClusters = 0, numAreas = 0, numAreaPortals = 0;
@@ -306,6 +322,8 @@ void initBoxHull(MapState &m) {
     }
 }
 
+void floodAreaConnections(MapState &m);
+
 bool loadInto(MapState &m, const unsigned char *data, size_t size, std::string &error) {
     Loader in(data, size, error);
     if (!in.header()) return false;
@@ -430,23 +448,47 @@ bool loadInto(MapState &m, const unsigned char *data, size_t size, std::string &
     // Areas and area portals.
     if (!in.count(kLumpAreas, 8, kMaxAreas, 0, "areas", m.numAreas)) return false;
     if (!in.count(kLumpAreaPortals, 8, kMaxAreaPortals, 0, "area portals", m.numAreaPortals)) return false;
+    m.areas.resize(size_t(m.numAreas));
     for (int32_t i = 0; i < m.numAreas; ++i) {
         const unsigned char *p = in.at(kLumpAreas, i, 8);
         const int32_t num = rd32(p), first = rd32(p + 4);
         if (num < 0 || first < 0 || int64_t(first) + num > m.numAreaPortals) return in.fail("bad area portals");
+        m.areas[size_t(i)].numPortals = num;
+        m.areas[size_t(i)].firstPortal = first;
     }
+    m.areaPortals.resize(size_t(m.numAreaPortals));
     for (int32_t i = 0; i < m.numAreaPortals; ++i) {
         const unsigned char *p = in.at(kLumpAreaPortals, i, 8);
         const int32_t portal = rd32(p), other = rd32(p + 4);
         if (portal < 0 || portal >= kMaxAreaPortals || other < 0 || other >= m.numAreas)
             return in.fail("bad area portal");
+        m.areaPortals[size_t(i)].portalnum = portal;
+        m.areaPortals[size_t(i)].otherArea = other;
     }
     const int32_t areaLimit = m.numAreas > 0 ? m.numAreas : 1;
     for (const Leaf &l : m.leafs)
         if (l.area < 0 || l.area >= areaLimit) return in.fail("bad leaf area");
 
-    // Visibility (kept for the PVS; only the size is checked here).
-    if (in.lumpLen(kLumpVisibility) > kMaxVisibility) return in.fail("visibility lump is too large");
+    // Visibility: dvis_t header (numclusters, bitofs[numclusters][2]) and the
+    // run-length compressed rows. Rows are decompressed with bounds checks.
+    const int32_t visLen = in.lumpLen(kLumpVisibility);
+    if (visLen > kMaxVisibility) return in.fail("visibility lump is too large");
+    if (visLen > 0) {
+        const unsigned char *vis = in.at(kLumpVisibility, 0, 1);
+        if (visLen < 4) return in.fail("visibility lump is truncated");
+        const int32_t visClusters = rd32(vis);
+        if (visClusters < 0 || visClusters > kMaxLeafs || 4 + int64_t(visClusters) * 8 > visLen)
+            return in.fail("bad visibility cluster count");
+        m.visOffsets.resize(size_t(visClusters) * 2);
+        for (int32_t i = 0; i < visClusters * 2; ++i) {
+            const int32_t ofs = rd32(vis + 4 + 4 * i);
+            if (ofs < 0 || ofs > visLen) return in.fail("bad visibility offset");
+            m.visOffsets[size_t(i)] = ofs;
+        }
+        if (m.numClusters > visClusters) return in.fail("leaf cluster out of range for visibility");
+        m.numClusters = visClusters;
+        m.visibility.assign(vis, vis + visLen);
+    }
 
     // Entity string, up to the first NUL.
     const int32_t entLen = in.lumpLen(kLumpEntities);
@@ -457,6 +499,288 @@ bool loadInto(MapState &m, const unsigned char *data, size_t size, std::string &
     m.entities.assign(reinterpret_cast<const char *>(ent), size_t(used));
 
     initBoxHull(m);
+    floodAreaConnections(m);
+    return true;
+}
+
+// ------------------------------------------------------- triangle meshes ---
+
+constexpr int32_t kMaxMeshVertices = 1 << 24;
+constexpr int32_t kMaxMeshTriangles = 1 << 20;
+constexpr int32_t kMaxMeshSurfaces = 65536;
+constexpr int32_t kMeshLeafBrushes = 8;
+constexpr int32_t kMeshMaxDepth = 40;
+
+struct Vec {
+    float v[3];
+};
+
+Vec vsub(const Vec &a, const Vec &b) { return Vec{{a.v[0] - b.v[0], a.v[1] - b.v[1], a.v[2] - b.v[2]}}; }
+Vec vcross(const Vec &a, const Vec &b) {
+    return Vec{{a.v[1] * b.v[2] - a.v[2] * b.v[1], a.v[2] * b.v[0] - a.v[0] * b.v[2], a.v[0] * b.v[1] - a.v[1] * b.v[0]}};
+}
+float vdot(const Vec &a, const Vec &b) { return a.v[0] * b.v[0] + a.v[1] * b.v[1] + a.v[2] * b.v[2]; }
+bool vnormalize(Vec &a) {
+    const float len = std::sqrt(vdot(a, a));
+    if (!(len > 1e-6f)) return false;
+    for (float &x : a.v) x /= len;
+    return true;
+}
+
+// Plane type as Quake 2 stores it: exact positive axes are axial (0..2) and
+// everything else is 3 + the dominant axis (only axial node planes take the
+// fast path, brush sides always use the full dot product).
+int32_t meshPlaneType(const Vec &n) {
+    for (int a = 0; a < 3; ++a)
+        if (n.v[a] == 1.0f && n.v[(a + 1) % 3] == 0.0f && n.v[(a + 2) % 3] == 0.0f) return a;
+    int major = 0;
+    for (int a = 1; a < 3; ++a)
+        if (std::fabs(n.v[a]) > std::fabs(n.v[major])) major = a;
+    return 3 + major;
+}
+
+struct MeshBrush {
+    float mins[3], maxs[3], center[3];
+};
+
+class MeshBuilder {
+public:
+    explicit MeshBuilder(MapState &m) : m_(m) {}
+
+    int32_t addPlane(const Vec &n, float dist) {
+        Plane p;
+        for (int i = 0; i < 3; ++i) p.normal[i] = n.v[i];
+        p.dist = dist;
+        p.type = meshPlaneType(n);
+        m_.planes.push_back(p);
+        return int32_t(m_.planes.size()) - 1;
+    }
+
+    // Triangle (a, b, c), counter-clockwise seen from the front, becomes a
+    // slab brush: front face, back face `thick` units behind, three edge
+    // planes, plus Quake 2 axial and edge bevels so box traces stay tight.
+    bool addTriangle(const Vec &a, const Vec &b, const Vec &c, float thick, int32_t surface, int32_t contents) {
+        Vec n = vcross(vsub(b, a), vsub(c, a));
+        if (!vnormalize(n)) return false; // degenerate
+        const Vec pts[6] = {a, b, c, Vec{{a.v[0] - n.v[0] * thick, a.v[1] - n.v[1] * thick, a.v[2] - n.v[2] * thick}},
+                            Vec{{b.v[0] - n.v[0] * thick, b.v[1] - n.v[1] * thick, b.v[2] - n.v[2] * thick}},
+                            Vec{{c.v[0] - n.v[0] * thick, c.v[1] - n.v[1] * thick, c.v[2] - n.v[2] * thick}}};
+        std::vector<Vec> normals;
+        std::vector<float> dists;
+        auto addSide = [&](Vec pn, float d) {
+            for (size_t i = 0; i < normals.size(); ++i) // skip duplicates
+                if (vdot(normals[i], pn) > 0.99999f && std::fabs(dists[i] - d) < 0.01f) return;
+            normals.push_back(pn);
+            dists.push_back(d);
+        };
+        addSide(n, vdot(n, a));
+        const Vec back{{-n.v[0], -n.v[1], -n.v[2]}};
+        addSide(back, vdot(back, pts[3]));
+        const Vec *tri[3] = {&a, &b, &c};
+        for (int e = 0; e < 3; ++e) {
+            const Vec &p = *tri[e], &q = *tri[(e + 1) % 3];
+            Vec en = vcross(vsub(q, p), n);
+            if (!vnormalize(en)) return false;
+            addSide(en, vdot(en, p));
+        }
+        // Axial bevels: the brush bounds.
+        MeshBrush mb;
+        for (int i = 0; i < 3; ++i) {
+            mb.mins[i] = mb.maxs[i] = pts[0].v[i];
+            for (const Vec &p : pts) {
+                mb.mins[i] = std::min(mb.mins[i], p.v[i]);
+                mb.maxs[i] = std::max(mb.maxs[i], p.v[i]);
+            }
+            mb.center[i] = (mb.mins[i] + mb.maxs[i]) * 0.5f;
+        }
+        for (int i = 0; i < 3; ++i) {
+            Vec pos{{0, 0, 0}}, neg{{0, 0, 0}};
+            pos.v[i] = 1;
+            neg.v[i] = -1;
+            addSide(pos, mb.maxs[i]);
+            addSide(neg, -mb.mins[i]);
+        }
+        // Edge bevels: edge direction x axis, kept when every vertex is behind.
+        static const int edges[9][2] = {{0, 1}, {1, 2}, {2, 0}, {3, 4}, {4, 5}, {5, 3}, {0, 3}, {1, 4}, {2, 5}};
+        for (const auto &e : edges) {
+            const Vec dir = vsub(pts[e[1]], pts[e[0]]);
+            for (int axis = 0; axis < 3; ++axis) {
+                for (int sign = -1; sign <= 1; sign += 2) {
+                    Vec ax{{0, 0, 0}};
+                    ax.v[axis] = float(sign);
+                    Vec bn = vcross(dir, ax);
+                    if (!vnormalize(bn)) continue;
+                    const float d = vdot(bn, pts[e[0]]);
+                    bool behind = true;
+                    for (const Vec &p : pts)
+                        if (vdot(bn, p) - d > 0.01f) behind = false;
+                    if (behind) addSide(bn, d);
+                }
+            }
+        }
+        Brush brush;
+        brush.contents = contents;
+        brush.firstSide = int32_t(m_.sides.size());
+        brush.numSides = int32_t(normals.size());
+        for (size_t i = 0; i < normals.size(); ++i) {
+            BrushSide side;
+            side.plane = addPlane(normals[i], dists[i]);
+            side.surface = surface;
+            m_.sides.push_back(side);
+        }
+        m_.brushes.push_back(brush);
+        bounds_.push_back(mb);
+        return true;
+    }
+
+    // Axial kd-tree; leafs list every brush whose bounds touch them.
+    int32_t build(std::vector<int32_t> &ids, int depth) {
+        float cmin[3], cmax[3];
+        for (int i = 0; i < 3; ++i) {
+            cmin[i] = 1e30f;
+            cmax[i] = -1e30f;
+        }
+        for (int32_t id : ids) {
+            for (int i = 0; i < 3; ++i) {
+                cmin[i] = std::min(cmin[i], bounds_[size_t(id)].center[i]);
+                cmax[i] = std::max(cmax[i], bounds_[size_t(id)].center[i]);
+            }
+        }
+        int axis = 0;
+        for (int i = 1; i < 3; ++i)
+            if (cmax[i] - cmin[i] > cmax[axis] - cmin[axis]) axis = i;
+        const float split = (cmin[axis] + cmax[axis]) * 0.5f;
+        if (int32_t(ids.size()) > kMeshLeafBrushes && depth < kMeshMaxDepth && cmax[axis] - cmin[axis] > 0.001f) {
+            std::vector<int32_t> front, back;
+            for (int32_t id : ids) {
+                if (bounds_[size_t(id)].maxs[axis] >= split) front.push_back(id);
+                if (bounds_[size_t(id)].mins[axis] <= split) back.push_back(id);
+            }
+            // Splits that duplicate too many brushes (large overlapping
+            // triangles) stop here, and a node budget bounds the whole tree.
+            if (front.size() < ids.size() && back.size() < ids.size() &&
+                front.size() + back.size() <= ids.size() + ids.size() / 2 &&
+                int64_t(m_.nodes.size()) < 4 * int64_t(bounds_.size()) + 64) {
+                std::vector<int32_t>().swap(ids);
+                const int32_t index = int32_t(m_.nodes.size());
+                m_.nodes.push_back(Node{});
+                Vec n{{0, 0, 0}};
+                n.v[axis] = 1;
+                m_.nodes[size_t(index)].plane = addPlane(n, split);
+                const int32_t f = build(front, depth + 1);
+                const int32_t b = build(back, depth + 1);
+                m_.nodes[size_t(index)].children[0] = f;
+                m_.nodes[size_t(index)].children[1] = b;
+                return index;
+            }
+        }
+        Leaf leaf;
+        leaf.cluster = 0;
+        leaf.area = 1;
+        leaf.firstLeafBrush = int32_t(m_.leafBrushes.size());
+        leaf.numLeafBrushes = int32_t(ids.size());
+        for (int32_t id : ids) {
+            leaf.contents |= m_.brushes[size_t(id)].contents;
+            m_.leafBrushes.push_back(id);
+        }
+        m_.leafs.push_back(leaf);
+        return -1 - (int32_t(m_.leafs.size()) - 1);
+    }
+
+    const std::vector<MeshBrush> &bounds() const { return bounds_; }
+
+private:
+    MapState &m_;
+    std::vector<MeshBrush> bounds_;
+};
+
+bool loadMeshInto(MapState &m, const RealmsMeshDesc &d, std::string &error) {
+    auto fail = [&](const char *msg) {
+        error = msg;
+        return false;
+    };
+    if (d.num_vertices < 0 || d.num_vertices > kMaxMeshVertices) return fail("bad mesh vertex count");
+    if (d.num_triangles < 0 || d.num_triangles > kMaxMeshTriangles) return fail("too many mesh triangles");
+    if (d.num_surfaces < 1 || d.num_surfaces > kMaxMeshSurfaces || !d.surfaces) return fail("bad mesh surfaces");
+    if ((d.num_vertices > 0 && !d.vertices) || (d.num_triangles > 0 && !d.indices)) return fail("missing mesh data");
+    for (int32_t i = 0; i < d.num_vertices * 3; ++i)
+        if (!std::isfinite(d.vertices[i]) || std::fabs(d.vertices[i]) > 1e6f) return fail("bad mesh vertex");
+    for (int32_t i = 0; i < d.num_triangles * 3; ++i)
+        if (d.indices[i] < 0 || d.indices[i] >= d.num_vertices) return fail("bad mesh index");
+    if (d.triangle_surfaces)
+        for (int32_t i = 0; i < d.num_triangles; ++i)
+            if (d.triangle_surfaces[i] < 0 || d.triangle_surfaces[i] >= d.num_surfaces)
+                return fail("bad mesh triangle surface");
+    if (d.entities && std::strlen(d.entities) > size_t(kMaxEntString)) return fail("entity lump is too large");
+    const float thick = d.thickness > 0 && std::isfinite(d.thickness) ? d.thickness : 2.0f;
+
+    m.surfaces.resize(size_t(d.num_surfaces));
+    for (int32_t i = 0; i < d.num_surfaces; ++i) {
+        Surface &s = m.surfaces[size_t(i)];
+        for (int j = 0; j < 31 && d.surfaces[i].name[j]; ++j) s.name[j] = d.surfaces[i].name[j];
+        s.flags = d.surfaces[i].flags;
+        s.value = d.surfaces[i].value;
+    }
+    // Leaf 0: the solid dummy leaf; leaf 1: the empty leaf the box hull uses.
+    Leaf solid;
+    solid.contents = REALMS_CONTENTS_SOLID;
+    solid.cluster = -1;
+    solid.area = 0;
+    Leaf empty;
+    empty.cluster = 0;
+    empty.area = 1;
+    m.leafs = {solid, empty};
+    m.emptyLeaf = 1;
+
+    MeshBuilder b(m);
+    std::vector<int32_t> ids;
+    float mins[3] = {0, 0, 0}, maxs[3] = {0, 0, 0};
+    for (int32_t t = 0; t < d.num_triangles; ++t) {
+        const int32_t surface = d.triangle_surfaces ? d.triangle_surfaces[t] : 0;
+        const int32_t contents = d.surfaces[surface].contents;
+        if (!contents) continue;
+        Vec v[3];
+        for (int k = 0; k < 3; ++k)
+            for (int j = 0; j < 3; ++j) v[k].v[j] = d.vertices[size_t(d.indices[t * 3 + k]) * 3 + size_t(j)];
+        if (b.addTriangle(v[0], v[1], v[2], thick, surface, contents)) ids.push_back(int32_t(ids.size()));
+    }
+    for (size_t i = 0; i < b.bounds().size(); ++i) {
+        for (int j = 0; j < 3; ++j) {
+            mins[j] = i == 0 ? b.bounds()[i].mins[j] : std::min(mins[j], b.bounds()[i].mins[j]);
+            maxs[j] = i == 0 ? b.bounds()[i].maxs[j] : std::max(maxs[j], b.bounds()[i].maxs[j]);
+        }
+    }
+    Model world;
+    world.headnode = ids.empty() ? -1 - m.emptyLeaf : b.build(ids, 0);
+    if (world.headnode < 0) {
+        // Headnode 0 must be the world (CM_PointContents(p, 0)), so tiny
+        // meshes still get a root node; both sides lead to the same leaf.
+        Node root;
+        Vec n{{0, 0, 1}};
+        root.plane = b.addPlane(n, 0);
+        root.children[0] = root.children[1] = world.headnode;
+        m.nodes.push_back(root);
+        world.headnode = 0;
+    }
+    for (int j = 0; j < 3; ++j) {
+        world.mins[j] = mins[j] - 1;
+        world.maxs[j] = maxs[j] + 1;
+    }
+    m.models = {world};
+    m.numPlanes = int32_t(m.planes.size());
+    m.numNodes = int32_t(m.nodes.size());
+    m.numLeafs = int32_t(m.leafs.size());
+    m.numLeafBrushes = int32_t(m.leafBrushes.size());
+    m.numBrushes = int32_t(m.brushes.size());
+    m.numSides = int32_t(m.sides.size());
+    m.numClusters = 1;
+    m.numAreas = 2;
+    m.numAreaPortals = 0;
+    m.areas.assign(2, Area{});
+    m.entities = d.entities ? d.entities : "";
+    m.meshMap = true;
+    initBoxHull(m);
+    floodAreaConnections(m);
     return true;
 }
 
@@ -505,15 +829,18 @@ int boxOnPlaneSide(const float *mins, const float *maxs, const Plane &p) {
 
 struct BoxLeafs {
     const float *mins, *maxs;
-    int32_t list[kMaxBoxLeafs];
+    int32_t *list;
+    int32_t max = 0;
     int32_t count = 0;
+    int32_t topnode = -1;
 };
 
+// CM_BoxLeafnums_r
 void boxLeafnums(BoxLeafs &q, int32_t num) {
     const MapState &m = M();
     for (;;) {
         if (num < 0) {
-            if (q.count < kMaxBoxLeafs) q.list[q.count++] = -1 - num;
+            if (q.count < q.max) q.list[q.count++] = -1 - num;
             return;
         }
         const Node &node = m.nodes[size_t(num)];
@@ -522,11 +849,92 @@ void boxLeafnums(BoxLeafs &q, int32_t num) {
             num = node.children[0];
         } else if (s == 2) {
             num = node.children[1];
-        } else {
+        } else { // go down both
+            if (q.topnode == -1) q.topnode = num;
             boxLeafnums(q, node.children[0]);
             num = node.children[1];
         }
     }
+}
+
+// FloodAreaConnections. Area 0 is the solid/unused area.
+void floodArea(MapState &m, int32_t area, int32_t floodnum) {
+    Area &a = m.areas[size_t(area)];
+    if (a.floodvalid == m.floodValid) return; // already flooded (Quake 2 errors on "reflooded")
+    a.floodnum = floodnum;
+    a.floodvalid = m.floodValid;
+    for (int32_t i = 0; i < a.numPortals; ++i) {
+        const AreaPortal &p = m.areaPortals[size_t(a.firstPortal + i)];
+        if (m.portalOpen[size_t(p.portalnum)]) floodArea(m, p.otherArea, floodnum);
+    }
+}
+
+void floodAreaConnections(MapState &m) {
+    ++m.floodValid;
+    int32_t floodnum = 0;
+    for (int32_t i = 1; i < m.numAreas; ++i) {
+        if (m.areas[size_t(i)].floodvalid == m.floodValid) continue;
+        ++floodnum;
+        floodArea(m, i, floodnum);
+    }
+}
+
+// CM_DecompressVis with bounds checks on the compressed input.
+void decompressVis(const MapState &m, int32_t cluster, int which, std::vector<uint8_t> &row) {
+    const size_t rowBytes = size_t((m.numClusters + 7) >> 3);
+    row.assign(rowBytes, 0);
+    if (m.visibility.empty()) { // no vis info, so make all visible
+        std::fill(row.begin(), row.end(), uint8_t(0xff));
+        return;
+    }
+    if (cluster < 0 || cluster >= m.numClusters) return;
+    size_t in = size_t(m.visOffsets[size_t(cluster) * 2 + size_t(which)]);
+    const size_t len = m.visibility.size();
+    size_t out = 0;
+    while (out < rowBytes) {
+        if (in >= len) break; // truncated row: the rest stays invisible
+        const uint8_t b = m.visibility[in];
+        if (b) {
+            row[out++] = b;
+            ++in;
+            continue;
+        }
+        if (in + 1 >= len) break;
+        size_t c = m.visibility[in + 1];
+        in += 2;
+        if (c > rowBytes - out) c = rowBytes - out; // "Vis decompression overrun"
+        out += c;
+    }
+}
+
+bool headnodeVisible(int32_t num, const uint8_t *visbits, int32_t size) {
+    const MapState &m = M();
+    if (num < 0) {
+        const int32_t cluster = m.leafs[size_t(-1 - num)].cluster;
+        if (cluster < 0 || (cluster >> 3) >= size) return false;
+        return (visbits[cluster >> 3] & (1 << (cluster & 7))) != 0;
+    }
+    const Node &node = m.nodes[size_t(num)];
+    return headnodeVisible(node.children[0], visbits, size) || headnodeVisible(node.children[1], visbits, size);
+}
+
+// Point contents for mesh maps: their kd-tree leafs are not convex cells, so
+// the brushes listed in the leaf decide.
+int32_t leafPointContents(int32_t leafnum, const float *p) {
+    const MapState &m = M();
+    const Leaf &leaf = m.leafs[size_t(leafnum)];
+    if (!m.meshMap || leafnum < 2 || leafnum >= m.numLeafs) return leaf.contents;
+    int32_t contents = 0;
+    for (int32_t k = 0; k < leaf.numLeafBrushes; ++k) {
+        const Brush &b = m.brushes[size_t(m.leafBrushes[size_t(leaf.firstLeafBrush + k)])];
+        bool inside = true;
+        for (int32_t i = 0; i < b.numSides && inside; ++i) {
+            const Plane &pl = m.planes[size_t(m.sides[size_t(b.firstSide + i)].plane)];
+            if (dot(pl.normal, p) - pl.dist > 0) inside = false;
+        }
+        if (inside) contents |= b.contents;
+    }
+    return contents;
 }
 
 struct TraceWork {
@@ -701,7 +1109,10 @@ void boxTrace(const float *start, const float *end, const float *mins, const flo
     }
     // check for position test special case
     if (start[0] == end[0] && start[1] == end[1] && start[2] == end[2]) {
+        int32_t leafs[kMaxBoxLeafs];
         BoxLeafs q;
+        q.list = leafs;
+        q.max = kMaxBoxLeafs;
         float c1[3], c2[3];
         for (int i = 0; i < 3; ++i) {
             c1[i] = start[i] + mins[i] - 1;
@@ -847,7 +1258,7 @@ int32_t cmPointContents(const float *p, int32_t headnode, const float *origin, c
         angleVectors(angles, f, r, u);
         rotateInto(local, f, r, u);
     }
-    return m.leafs[size_t(pointLeafnum(local, headnode))].contents;
+    return leafPointContents(pointLeafnum(local, headnode), local);
 }
 
 void cmBoxTrace(const float *start, const float *end, const float *mins, const float *maxs, int32_t headnode,
@@ -906,6 +1317,93 @@ void cmBoxTrace(const float *start, const float *end, const float *mins, const f
     } else {
         for (int i = 0; i < 3; ++i) out->endpos[i] = endpos[i];
     }
+}
+
+bool cmLoadMesh(const RealmsMeshDesc *desc, std::string &error) {
+    cmUnloadMap();
+    if (!desc || desc->struct_size < sizeof(RealmsMeshDesc)) {
+        error = "bad mesh description";
+        return false;
+    }
+    MapState m;
+    if (!loadMeshInto(m, *desc, error)) return false;
+    m.loaded = true;
+    m.name = desc->name ? desc->name : "";
+    m.checksum = desc->checksum;
+    M() = std::move(m);
+    return true;
+}
+
+namespace {
+int32_t copyRow(const std::vector<uint8_t> &row, uint8_t *buffer, int32_t size) {
+    if (buffer && size > 0) std::memcpy(buffer, row.data(), std::min(row.size(), size_t(size)));
+    return int32_t(row.size());
+}
+} // namespace
+
+int32_t cmClusterPVS(int32_t cluster, uint8_t *buffer, int32_t size) {
+    const MapState &m = M();
+    if (!m.loaded) return 0;
+    std::vector<uint8_t> row;
+    decompressVis(m, cluster, 0, row);
+    return copyRow(row, buffer, size);
+}
+
+int32_t cmClusterPHS(int32_t cluster, uint8_t *buffer, int32_t size) {
+    const MapState &m = M();
+    if (!m.loaded) return 0;
+    std::vector<uint8_t> row;
+    decompressVis(m, cluster, 1, row);
+    return copyRow(row, buffer, size);
+}
+
+void cmSetAreaPortal(int32_t portal, int32_t open) {
+    MapState &m = M();
+    if (!m.loaded || portal < 0 || portal >= kMaxAreaPortals) return;
+    m.portalOpen[size_t(portal)] = open ? 1 : 0;
+    floodAreaConnections(m);
+}
+
+int32_t cmAreaPortalOpen(int32_t portal) {
+    const MapState &m = M();
+    if (!m.loaded || portal < 0 || portal >= kMaxAreaPortals) return -1;
+    return m.portalOpen[size_t(portal)];
+}
+
+int32_t cmAreasConnected(int32_t area1, int32_t area2) {
+    const MapState &m = M();
+    if (!m.loaded || area1 < 0 || area2 < 0 || area1 >= m.numAreas || area2 >= m.numAreas) return 0;
+    return m.areas[size_t(area1)].floodnum == m.areas[size_t(area2)].floodnum ? 1 : 0;
+}
+
+int32_t cmWriteAreaBits(int32_t area, uint8_t *buffer, int32_t size) {
+    const MapState &m = M();
+    if (!m.loaded) return 0;
+    std::vector<uint8_t> row(size_t((m.numAreas + 7) >> 3), 0);
+    const bool all = area <= 0 || area >= m.numAreas;
+    const int32_t floodnum = all ? 0 : m.areas[size_t(area)].floodnum;
+    for (int32_t i = 0; i < m.numAreas; ++i)
+        if (all || m.areas[size_t(i)].floodnum == floodnum) row[size_t(i >> 3)] |= uint8_t(1 << (i & 7));
+    return copyRow(row, buffer, size);
+}
+
+int32_t cmBoxLeafs(const float *mins, const float *maxs, int32_t *list, int32_t listSize, int32_t headnode,
+                   int32_t *topnode) {
+    if (topnode) *topnode = -1;
+    if (!mins || !maxs || !validHeadnode(headnode)) return 0;
+    BoxLeafs q;
+    q.mins = mins;
+    q.maxs = maxs;
+    q.list = list;
+    q.max = list ? std::max(listSize, 0) : 0;
+    boxLeafnums(q, headnode);
+    if (topnode) *topnode = q.topnode;
+    return q.count;
+}
+
+int32_t cmHeadnodeVisible(int32_t headnode, const uint8_t *visbits, int32_t size) {
+    if (!visbits || size <= 0 || !validHeadnode(headnode)) return 0;
+    return headnodeVisible(headnode, visbits, size) ? 1 : 0;
 }
 
 int32_t cmPointLeaf(const float *p) {
