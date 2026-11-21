@@ -90,6 +90,10 @@ class GameViewController: UIViewController {
     private var flyingNow = false
     private var latestPosition: [Float] = [0.0, 1.7, 0.0]
     private var latestYawDegrees: Float = 0
+    /// Realms map mode (status slot 17): the sandbox HUD steps aside while a map is walked.
+    private var mapMode = false
+    private var mapTexturesLoading = false
+    private var mapName = ""
 
     private var pollTimer: Timer?
     private var toastHideWorkItem: DispatchWorkItem?
@@ -255,7 +259,7 @@ class GameViewController: UIViewController {
         hudOverlay.addSubview(pauseButton)
 
         switchWeaponButton.onWheelBegin = { [weak self] in
-            guard let self = self, self.worldReady, self.appActive, !self.isPausedMenu else { return }
+            guard let self = self, self.worldReady, self.appActive, !self.isPausedMenu, !self.mapMode else { return }
             self.closeCatalogPopup()
             self.lookControl.reset()
             self.hudOverlay.bringSubviewToFront(self.toolWheel)
@@ -592,12 +596,28 @@ class GameViewController: UIViewController {
         weaponArt.tickAnimation()
         guard let bridge = bridge else { return }
 
-        var state = [Float](repeating: 0, count: 17)
+        var state = [Float](repeating: 0, count: 18)
         let count = state.withUnsafeMutableBufferPointer { buf -> Int in
             guard let base = buf.baseAddress else { return 0 }
-            return Int(bridge.pollStatus(base, count: 17))
+            return Int(bridge.pollStatus(base, count: 18))
         }
         guard count >= 14 else { return }
+        let nowMap = count >= 18 && state[17] > 0.5
+        mapTexturesLoading = count >= 18 && state[17] > 1.5
+        // Re-read every poll: picking another map keeps map mode on.
+        if nowMap {
+            let name = (bridge.currentMapPath() as NSString).lastPathComponent
+            if !name.isEmpty { mapName = name }
+        }
+        if nowMap != mapMode {
+            mapMode = nowMap
+            if nowMap {
+                closeCatalogPopup()
+                toolWheel.cancel()
+            } else {
+                mapName = ""
+            }
+        }
         if count >= 17 { online.updatePose(state) }
         if count >= 15 { crouchButton.isSelected = Int(state[14]) == 1 }
         if count >= 16 { latestYawDegrees = state[15] * 180.0 / .pi }
@@ -673,8 +693,9 @@ class GameViewController: UIViewController {
         }
         loadingStatusLabel.text = (0...5).contains(stage) ? "\(stageText) \(pct)%" : stageText
 
-        let noticeCode = Int(state[5])
+        let noticeCode = mapMode ? 0 : Int(state[5])
         switch noticeCode {
+        case 7: noticeLabel.text = loc("notice_map_failed")
         case 1: noticeLabel.text = loc("notice_spawn_moved_short")
         case 2: noticeLabel.text = loc("notice_spawn_unavailable_short")
         case 3: noticeLabel.text = loc("notice_no_parking_short")
@@ -683,6 +704,8 @@ class GameViewController: UIViewController {
         default:
             if flyingNow {
                 noticeLabel.text = loc("notice_flying")
+            } else if mapMode {
+                noticeLabel.text = mapTexturesLoading ? locF("notice_map_textures", mapName) : locF("notice_map_mode", mapName)
             } else {
                 switch toolsState.tool {
                 case .handEmpty:
@@ -736,7 +759,7 @@ class GameViewController: UIViewController {
             crosshairLabel.isHidden = false
             joystick.isHidden = false
             pauseButton.isHidden = false
-            switchWeaponButton.isHidden = false
+            switchWeaponButton.isHidden = mapMode
             jumpButton.isHidden = false
             crouchButton.isHidden = false
             altitudeContainer.isHidden = !flyingNow
@@ -745,7 +768,9 @@ class GameViewController: UIViewController {
 
     private func renderToolControls() {
         guard !wasInFpvMode else { return }
-        let seated = (interactionCode == 4)
+        // Seated in a car or walking a Realms map: no sandbox tools.
+        let seated = (interactionCode == 4) || mapMode
+        switchWeaponButton.isHidden = mapMode
         weaponArt.tool = toolsState.tool
         weaponArt.isHidden = !(toolsState.viewmodelVisible && !seated)
 
@@ -772,7 +797,7 @@ class GameViewController: UIViewController {
     }
 
     private func showToolActionSheet() {
-        guard worldReady, appActive, !isPausedMenu else { return }
+        guard worldReady, appActive, !isPausedMenu, !mapMode else { return }
         setMenuPaused(true)
         let alert = UIAlertController(title: loc("tool_picker_title"), message: nil, preferredStyle: .alert)
         for (idx, title) in SandboxToolWheelMath.names.enumerated() {
@@ -792,7 +817,7 @@ class GameViewController: UIViewController {
             closeCatalogPopup()
             return
         }
-        guard worldReady, appActive, !isPausedMenu, interactionCode != 4 else { return }
+        guard worldReady, appActive, !isPausedMenu, interactionCode != 4, !mapMode else { return }
         let popup = BuildCatalogPopupView()
         popup.selectedCatalogIndex = selectedCatalogIndex
         popup.onClose = { [weak self] in
@@ -839,6 +864,10 @@ class GameViewController: UIViewController {
 
     private func showPauseMenu() {
         guard worldReady else { return }
+        if mapMode {
+            showMapPauseMenu()
+            return
+        }
         setMenuPaused(true)
         let flyTitle = flyingNow ? loc("pause_flight_off") : loc("pause_flight_on")
         let alert = UIAlertController(title: loc("pause"), message: nil, preferredStyle: .alert)
@@ -872,6 +901,80 @@ class GameViewController: UIViewController {
         alert.addAction(UIAlertAction(title: loc("pause_language"), style: .default) { [weak self] _ in
             self?.setMenuPaused(false)
             self?.openLanguageSettings()
+        })
+        alert.addAction(UIAlertAction(title: loc("pause_maps"), style: .default) { [weak self] _ in
+            self?.setMenuPaused(false)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { self?.showMapPicker() }
+        })
+        present(alert, animated: true)
+    }
+
+    /// Pause menu while walking a Realms map: movement options, other maps and the way back.
+    private func showMapPauseMenu() {
+        setMenuPaused(true)
+        let alert = UIAlertController(title: locF("notice_map_mode", mapName), message: nil, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: loc("pause_resume"), style: .cancel) { [weak self] _ in
+            self?.setMenuPaused(false)
+        })
+        alert.addAction(UIAlertAction(title: flyingNow ? loc("pause_noclip_off") : loc("pause_noclip_on"), style: .default) { [weak self] _ in
+            self?.setMenuPaused(false)
+            self?.bridge?.sendCommand(6)
+        })
+        alert.addAction(UIAlertAction(title: loc("pause_spawn"), style: .default) { [weak self] _ in
+            self?.setMenuPaused(false)
+            self?.bridge?.sendCommand(35)
+        })
+        alert.addAction(UIAlertAction(title: loc("pause_maps"), style: .default) { [weak self] _ in
+            self?.setMenuPaused(false)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { self?.showMapPicker() }
+        })
+        alert.addAction(UIAlertAction(title: loc("pause_leave_map"), style: .destructive) { [weak self] _ in
+            self?.setMenuPaused(false)
+            self?.bridge?.sendCommand(50)
+        })
+        present(alert, animated: true)
+    }
+
+    /// Quake 2 BSPs and glTF scenes from the app bundle (maps/, models/) and the
+    /// writable support directory (maps/), as paths relative to those roots.
+    private func availableMaps() -> [String] {
+        let extensions: Set<String> = ["bsp", "glb", "gltf"]
+        let fm = FileManager.default
+        var found: [String] = []
+        func scan(_ root: String, _ folder: String) {
+            let names = (try? fm.contentsOfDirectory(atPath: (root as NSString).appendingPathComponent(folder))) ?? []
+            for name in names.sorted() where extensions.contains((name as NSString).pathExtension.lowercased()) {
+                let path = "\(folder)/\(name)"
+                if !found.contains(path) { found.append(path) }
+            }
+        }
+        if let bundle = Bundle.main.resourcePath {
+            scan(bundle, "maps")
+            scan(bundle, "models")
+        }
+        if let support = NSSearchPathForDirectoriesInDomains(.applicationSupportDirectory, .userDomainMask, true).first {
+            scan((support as NSString).appendingPathComponent("EkronSandbox"), "maps")
+        }
+        // The sandbox's own street first.
+        let city = found.filter { $0.hasSuffix("abandoned_city_street_for_games.glb") }
+        return city + found.filter { !$0.hasSuffix("abandoned_city_street_for_games.glb") }
+    }
+
+    private func showMapPicker() {
+        guard worldReady, appActive, presentedViewController == nil else { return }
+        let maps = availableMaps()
+        setMenuPaused(true)
+        let alert = UIAlertController(title: loc("maps_title"), message: maps.isEmpty ? loc("maps_empty") : nil, preferredStyle: .alert)
+        for path in maps {
+            let name = (path as NSString).lastPathComponent
+            alert.addAction(UIAlertAction(title: name, style: .default) { [weak self] _ in
+                self?.setMenuPaused(false)
+                self?.showToast(locF("map_loading", name))
+                self?.bridge?.loadMap(path)
+            })
+        }
+        alert.addAction(UIAlertAction(title: loc("cancel"), style: .cancel) { [weak self] _ in
+            self?.setMenuPaused(false)
         })
         present(alert, animated: true)
     }

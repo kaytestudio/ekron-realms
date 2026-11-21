@@ -121,9 +121,18 @@ On desktop, `map` swaps the sandbox for the loaded map (`sys/desktop/DesktopMapM
 - **BSPs** are drawn from their face lump (sky and nodraw skipped). Maps without faces are drawn from their brush windings. Texture names pick the sandbox material layer (brick, metal, wood, glass, water…).
 - **glTF maps** are drawn with the textured model through the regular glTF pipeline, in the file's own space. `tests/realms/map_render_alignment_test.cpp` (CTest `realms_map_render_alignment`) checks that the drawn model and the collision coincide for every `.glb` shipped in `assets/models`.
 
-### Android map mode
+### Android and iOS map mode
 
-On Android, **pause menu → Maps…** lists every `.bsp`, `.glb` and `.gltf` under `maps/` and `models/` in the APK, plus `maps/` in the app's internal storage. Picking one runs `map "<path>"`; any other `map` command (a script, `autoexec.cfg`) switches over the same way. The code is in `sys/android/app/src/main/cpp/AndroidMapMode.*`, with hooks in `Renderer.cpp` and `MainActivity.kt`.
+On both phones, **pause menu → Maps…** lists every `.bsp`, `.glb` and `.gltf` under `maps/` and `models/` in the app package, plus `maps/` in the app's writable storage:
+- **Android:** internal storage (`filesDir`).
+- **iOS:** `Application Support/EkronSandbox`, the engine's first search root.
+
+Picking one runs `map "<path>"`; any other `map` command (a script, `autoexec.cfg`) switches over the same way. Names from the pickers go through `mapview::safeMapName` before they reach the command line.
+
+Where the code lives:
+- **Android:** `sys/android/app/src/main/cpp/AndroidMapMode.*`, with hooks in `Renderer.cpp` and `MainActivity.kt`.
+- **iOS:** `MetalMapMode` in `sys/ios/realms/realms iOS/SandboxBridge.mm` is the Metal twin of `AndroidMapMode`. The bridge exposes `loadMap(_:)`, `currentMapPath()` and status slot 17, and the UI is in `GameViewController.swift`.
+- **Both:** the shared `MapSession.cpp`.
 
 - **Controls:** the move stick and look area walk with `realms::MapWalker`. Jump and crouch work as in the sandbox. The map's pause menu toggles noclip (↑ / ↓ for altitude), respawns, opens another map, or leaves the map (`killserver`).
 - **HUD:** the sandbox tools, catalogue and tool wheel hide while you're on a map. The sandbox world stays as it was and comes back when you leave.
@@ -131,7 +140,7 @@ On Android, **pause menu → Maps…** lists every `.bsp`, `.glb` and `.gltf` un
   - **The sandbox street:** when the map is that file, the city model already on the GPU is reused rather than a second 14 MB copy. That model is a rescaled, recentred "level" scene. `city::Scene` records how it relates to the file (`sourceScale`, `sourceOffset`), and the camera moves into that space. `realms_map_render_alignment` checks the relation, vertex by vertex, on every shipped `.glb`.
   - **Other glTF maps:** the textured file is prepared on a worker thread and uploaded a few steps per frame. Until then the map's own triangles are drawn.
   - **BSPs:** the map's triangles with the sandbox material layers.
-- **Lifecycle:** if Android recreates the EGL surface, the map stays loaded in the engine and map mode reopens where you were standing.
+- **Lifecycle:** if Android recreates the EGL surface (or iOS recreates the bridge), the map stays loaded in the engine and map mode reopens where you were standing.
 - **Failure:** if a map fails to load, the sandbox stays and shows "The map could not be loaded."
 
 ## Shared boot (every platform)

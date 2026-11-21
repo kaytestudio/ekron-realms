@@ -100,6 +100,20 @@ physics::Vec3 toRender(const realms::Vec3 &p, float unitsPerMetre) {
 
 float renderYawFromMap(float mapYawDegrees) { return (mapYawDegrees - 90.0f) * kPi / 180.0f; }
 
+bool safeMapName(const std::string &name) {
+    if (name.empty() || name.size() > 240 || name[0] == '/' || name.find("..") != std::string::npos) return false;
+    for (char c : name) {
+        if (!(std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '-' || c == '.' || c == '/' || c == ' '))
+            return false;
+    }
+    return true;
+}
+
+physics::Vec3 toLevelScene(const physics::Vec3 &source, float sourceScale, const std::array<float, 3> &sourceOffset) {
+    return {(source.x - sourceOffset[0]) * sourceScale, (source.y - sourceOffset[1]) * sourceScale,
+            (source.z - sourceOffset[2]) * sourceScale};
+}
+
 bool MapSession::open(realms::Engine &engine, realms::MapGeometry &geometry, std::string &error) {
     close();
     error.clear();
@@ -142,5 +156,10 @@ void MapSession::update(const realms::Engine &engine, const realms::WalkInput &i
 }
 
 bool MapSession::respawn(const realms::Engine &engine) { return active_ && walker_.spawn(engine); }
+
+void MapSession::toggleNoclip() {
+    walker_.noclip = !walker_.noclip;
+    walker_.velocity = {0.0f, 0.0f, 0.0f};
+}
 
 } // namespace mapview

@@ -18,6 +18,7 @@
 #include "realms/MapGeometry.h"
 #include "realms/MapWalker.h"
 
+#include <array>
 #include <string>
 #include <vector>
 
@@ -39,6 +40,15 @@ realms::WalkInput walkInput(const realms::WalkInput &input, float renderYaw, flo
 physics::Vec3 toRender(const realms::Vec3 &mapPoint, float unitsPerMetre);
 float renderYawFromMap(float mapYawDegrees);
 
+// Map names from a platform UI (asset / storage relative paths, quoted on
+// the "map" command line): letters, digits, "_-./" and spaces; no quotes,
+// absolute paths or parent references.
+bool safeMapName(const std::string &name);
+
+// A point in a level-mode city::Scene built from the same file (the
+// sandbox city): level = (source - sourceOffset) * sourceScale.
+physics::Vec3 toLevelScene(const physics::Vec3 &source, float sourceScale, const std::array<float, 3> &sourceOffset);
+
 // One loaded map being walked: geometry source, units and the walker.
 class MapSession {
 public:
@@ -53,6 +63,8 @@ public:
     void update(const realms::Engine &engine, const realms::WalkInput &input, float renderYaw, float renderPitch,
                 float dt);
     bool respawn(const realms::Engine &engine);
+    // Noclip on / off (stops the walker either way).
+    void toggleNoclip();
 
     physics::Vec3 eye() const { return toRender(walker_.eye(), unitsPerMetre_); }
     float spawnRenderYaw() const { return renderYawFromMap(walker_.spawnYaw); }

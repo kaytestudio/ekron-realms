@@ -172,10 +172,10 @@ void checkAsset(const std::filesystem::path &file) {
         }
         for (size_t i = 0; i < a.size(); i += 7) {
             ++compared;
-            const float e[3] = {(a[i].x - level.sourceOffset[0]) * k, (a[i].y - level.sourceOffset[1]) * k,
-                                (a[i].z - level.sourceOffset[2]) * k};
-            if (std::fabs(e[0] - l[i].x) > levelTol || std::fabs(e[1] - l[i].y) > levelTol ||
-                std::fabs(e[2] - l[i].z) > levelTol)
+            // The conversion map mode uses for its camera (mapview::toLevelScene).
+            const physics::Vec3 e = mapview::toLevelScene({a[i].x, a[i].y, a[i].z}, k, level.sourceOffset);
+            if (std::fabs(e.x - l[i].x) > levelTol || std::fabs(e.y - l[i].y) > levelTol ||
+                std::fabs(e.z - l[i].z) > levelTol)
                 ++off;
         }
     }
@@ -205,6 +205,14 @@ void checkMapSession() {
     CHECK(mapview::materialLayer("e1u1/WATER1", 0, 0) == 4 && mapview::materialLayer("x", 0, REALMS_CONTENTS_LAVA) == 4);
     CHECK(mapview::materialLayer("city/Brick_wall", 0, 0) == 2 && mapview::materialLayer("glass", 0, 0) == 7);
     CHECK(mapview::materialLayer("concrete", 0, 0) == 1 && mapview::materialLayer("Road", 0, 0) == 0);
+
+    // Names the Android / iOS map pickers may send ("map \"<name>\"").
+    for (const char *ok : {"maps/base1.bsp", "models/abandoned_city_street_for_games.glb", "maps/My Map-2.gltf"})
+        CHECK(mapview::safeMapName(ok));
+    for (const char *bad : {"", "/etc/passwd", "maps/../x.bsp", "maps/a\"b.bsp", "maps/a;quit", "maps\\a.bsp",
+                            "maps/a\nquit"})
+        CHECK(!mapview::safeMapName(bad));
+    CHECK(!mapview::safeMapName(std::string(241, 'a')));
 
     // Room mesh geometry in render space equals the source-space scene.
     const std::string room = gltf_builder::roomGlb();

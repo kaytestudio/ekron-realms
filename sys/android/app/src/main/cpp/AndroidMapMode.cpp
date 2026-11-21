@@ -122,9 +122,7 @@ void AndroidMapMode::advance() {
 
 physics::Vec3 AndroidMapMode::drawEye() const {
     const physics::Vec3 e = session_.eye();
-    if (!reuseCity_) return e;
-    return {(e.x - cityOffset_[0]) * cityScale_, (e.y - cityOffset_[1]) * cityScale_,
-            (e.z - cityOffset_[2]) * cityScale_};
+    return reuseCity_ ? mapview::toLevelScene(e, cityScale_, cityOffset_) : e;
 }
 
 void AndroidMapMode::draw(GLuint program, const city::GltfRenderer &sandboxCity) const {

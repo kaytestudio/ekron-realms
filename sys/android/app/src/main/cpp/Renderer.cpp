@@ -57,13 +57,6 @@ void showMapPath(const std::string &path){std::lock_guard<std::mutex> lock(mapPa
 // Walker state kept across EGL surface recreation (like retainedWorld).
 struct RetainedMap {std::string path;realms::MapWalker walker;float yaw=0,pitch=0;bool crouch=false;};
 std::optional<RetainedMap> retainedMap;
-// Map names from the UI: asset / storage relative paths, quoted for the
-// command line, so no quotes, separators or parent references.
-bool safeMapName(const std::string &name){
- if(name.empty()||name.size()>240||name[0]=='/'||name.find("..")!=std::string::npos)return false;
- for(char c:name)if(!(std::isalnum(static_cast<unsigned char>(c))||c=='_'||c=='-'||c=='.'||c=='/'||c==' '))return false;
- return true;
-}
 struct LoadGuard {bool complete=false;~LoadGuard(){if(!complete)loadStage=-1;}};
 city::SpawnConfig readSpawnConfig(android_app *app){
  city::SpawnConfig config;std::string text,error;
@@ -210,7 +203,7 @@ extern "C" JNIEXPORT void JNICALL Java_com_example_realms_MainActivity_nativeLoa
  if(!path)return;
  const char *chars=env->GetStringUTFChars(path,nullptr);if(!chars)return;
  std::string name(chars);env->ReleaseStringUTFChars(path,chars);
- if(!safeMapName(name)){__android_log_print(ANDROID_LOG_WARN,"Realms","map: rejected name");return;}
+ if(!mapview::safeMapName(name)){__android_log_print(ANDROID_LOG_WARN,"Realms","map: rejected name");return;}
  std::lock_guard<std::mutex> lock(mapRequestMutex);if(mapRequests.size()<4)mapRequests.push_back(name);
 }
 extern "C" JNIEXPORT jstring JNICALL Java_com_example_realms_MainActivity_nativeMapPath(JNIEnv *env,jobject){
@@ -243,8 +236,8 @@ extern "C" JNIEXPORT void JNICALL Java_com_example_realms_MainActivity_nativeVer
 Renderer::Renderer(android_app *app):app_(app),last_(std::chrono::steady_clock::now()){
  // Realms Engine (Quake 2 stack): cvars, command buffer and config are shared with Desktop/iOS.
  auto &engine=realms_android::ensureEngine(app);
- engine.addCommand("noclip",[this](const realms::CommandArgs&){if(drone_.piloting()||seatedCar_>=0)return;flying_=!flying_;player_.reset(world_.x,world_.y,world_.z);});
- engine.addCommand("respawn",[this](const realms::CommandArgs&){if(mapMode_.active())mapMode_.respawn(realms_android::ensureEngine(app_));else respawnPlayer();});
+ engine.addCommand("noclip",[this](const realms::CommandArgs&){if(mapMode_.active()){mapMode_.session().toggleNoclip();verticalInput=0;return;}if(drone_.piloting()||seatedCar_>=0)return;flying_=!flying_;player_.reset(world_.x,world_.y,world_.z);});
+ engine.addCommand("respawn",[this](const realms::CommandArgs&){if(!mapMode_.active()){respawnPlayer();return;}if(mapMode_.respawn(realms_android::ensureEngine(app_))){mapYaw_=mapMode_.session().spawnRenderYaw();mapPitch_=0;}});
  // A map still loaded in the engine (surface recreated) reopens once the sandbox is up.
  {std::string ignored;while(realms_android::takeMapChange(ignored)){}}
  if(engine.mapLoaded()){pendingMap_=engine.mapPath();mapChangePending_=true;}else{retainedMap.reset();mapState=0;showMapPath("");}
@@ -366,7 +359,7 @@ void Renderer::handleInput(){
   if(mapMode_.active()||mapChangePending_){
    // Map mode: movement commands only; sandbox tools wait for killserver.
    for(int command:pending){
-    if(command==6){auto &w=mapMode_.session().walker();w.noclip=!w.noclip;w.velocity={0,0,0};verticalInput=0;}
+    if(command==6){mapMode_.session().toggleNoclip();verticalInput=0;}
     else if(command==8)mapJump_=.2f;
     else if(command==9)mapCrouch_=!mapCrouch_;
     else if(command==35&&mapMode_.respawn(engine)){mapYaw_=mapMode_.session().spawnRenderYaw();mapPitch_=0;resetInput();}
