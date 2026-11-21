@@ -11,6 +11,7 @@ option(ENABLE_DESKTOP_SANDBOX "Build the native C++17 SDL2/OpenGL desktop sandbo
 option(ENABLE_FPC_CLIENT "Build the Free Pascal desktop launcher when fpc is installed" ON)
 option(ENABLE_PASCAL_CORE "Build the Free Pascal Realms core (librealms_core, Quake 2 stack) when fpc is installed" ON)
 option(ENABLE_EXTERNAL_TOOLS "Fetch and build external KayteIDE and KCC repositories" OFF)
+option(ENABLE_KCC "Build the KCC compiler from tools/kcc (cloned from kaytestudio/kcc when missing)" OFF)
 
 set(SHARED_CPP_DIR "${CMAKE_CURRENT_SOURCE_DIR}/sys/android/app/src/main/cpp")
 set(SHARED_ASSETS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/sys/android/app/src/main/assets")
@@ -53,6 +54,8 @@ endif()
 # =============================================================================
 if(ENABLE_EXTERNAL_TOOLS)
     find_package(KayteIDE REQUIRED)
+endif()
+if(ENABLE_EXTERNAL_TOOLS OR ENABLE_KCC)
     find_package(KCC REQUIRED)
 endif()
 
@@ -375,6 +378,8 @@ endif()
 if(REALMS_PASCAL_CORE_BUILT)
     add_dependencies(realms_bridge_test realms_pascal_core)
     add_test(NAME realms_bridge_pascal COMMAND realms_bridge_test --pascal "${REALMS_PASCAL_CORE_PATH}")
+    add_dependencies(ekron_sound_test realms_pascal_core)
+    add_test(NAME ekron_sound_pascal COMMAND ekron_sound_test "${SHARED_ASSETS_DIR}" --pascal "${REALMS_PASCAL_CORE_PATH}")
 endif()
 
 if(TARGET ekron-realms)

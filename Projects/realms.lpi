@@ -608,7 +608,7 @@
     <SearchPaths>
       <IncludeFiles Value="../game/Jedi;../game/qcommon;../game;../engine/client;../game/server;$(ProjOutDir)"/>
       <Libraries Value="../jedi"/>
-      <OtherUnitFiles Value="../game;/Users/pedro/fpc-units/;../engine;../sys"/>
+      <OtherUnitFiles Value="../game;../tools/SDL2-for-Pascal/units;../engine;../sys"/>
       <UnitOutputDirectory Value="build"/>
       <ObjectPath Value="../jedi"/>
     </SearchPaths>
@@ -632,9 +632,7 @@
     <Other>
       <CustomOptions Value="-dBorland -dVer150 -dDelphi7 -dCompiler6_Up -dPUREPASCAL
 -vw -vm5024 -Fuengine
--Fugame
--Fu/Users/pedro/Projects/SB_MMO/ekron-realms/tools/SDL3-for-Pascal/units
--Fu/Users/pedro/Projects/SB_MMO/ekron-realms/tools/SDL2-for-Pascal/units/sdl2.pas"/>
+-Fugame"/>
     </Other>
   </CompilerOptions>
   <Debugging>

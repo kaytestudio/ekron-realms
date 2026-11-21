@@ -208,7 +208,7 @@ ekron-realms/
 ├── server/                     # Experimental Python TLS 1.2+ online presence relay
 ├── Projects/                   # Free Pascal launcher (realms_launcher.lpr) and Lazarus / Delphi projects
 ├── tests/                      # C++17 simulation/physics tests (tests/native), Realms bridge tests (tests/realms) & TLS relay tests (tests/network)
-├── tools/                      # Procedural texture generator, catalog icon renderer, sound pack builder, and shader validators
+├── tools/                      # Texture generator, catalog icon renderer, sound pack builder, shader validators; SDL2/SDL3-for-Pascal submodules; tools/kcc (-DENABLE_KCC=ON)
 └── docs/                       # Sandbox design notes and cross-platform HUD verification guide
 ```
 

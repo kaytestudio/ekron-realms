@@ -338,6 +338,41 @@ If CMake can't find FPC automatically:
 cmake -DFPC_EXECUTABLE=/path/to/fpc ..
 ```
 
+### Pascal SDL2 Units and Other Submodules
+
+The Free Pascal sys layer (`sys/mac/sys_mac.pas`, `Projects/realms.lpi`) uses the SDL2 units in `tools/SDL2-for-Pascal`. That folder, `tools/SDL3-for-Pascal` and `ide` (KayteIDE) are git submodules. The desktop C++ client, the launcher and the Realms core don't need them. Fetch the SDL2 units with:
+
+```bash
+git submodule update --init tools/SDL2-for-Pascal
+# or everything: git submodule update --init
+```
+
+Units listed with `in '...'` resolve from the directory fpc runs in. `Projects/realms.lpr` and `realms.lpi` compile from `Projects/`. `tests/pascal/sdl2_sys_smoke.lpr` uses SDL2 the same way `sys_mac.pas` does, and the desktop CI builds and runs it:
+
+```bash
+cd Projects
+fpc -Mobjfpc -FU/tmp/sdl2u -FE/tmp/sdl2u ../tests/pascal/sdl2_sys_smoke.lpr   # macOS: add -Fl$(brew --prefix sdl2)/lib
+/tmp/sdl2u/sdl2_sys_smoke
+```
+
+### KCC (Kayte C Compiler)
+
+`-DENABLE_KCC=ON` builds [KCC](https://github.com/kaytestudio/kcc) as part of the build. CMake uses `tools/kcc` if you already cloned it there:
+
+```bash
+git clone https://github.com/kaytestudio/kcc.git tools/kcc
+```
+
+Otherwise it clones it there for you. Only the `kcc` compiler is built, in `<build>/kcc/bin/kcc`, with KCC's GCC SH-2 cross-compiler and Saturn tools switched off. `-DENABLE_EXTERNAL_TOOLS=ON` also fetches KayteIDE.
+
+```bash
+cmake -S . -B build -DENABLE_KCC=ON
+cmake --build build --target kcc
+build/kcc/bin/kcc --version
+```
+
+`KCC_REPO`, `KCC_GIT_TAG` (default `main`) and `KCC_SOURCE_DIR` override the source. The `clean-kcc` target deletes the checkout and the build.
+
 ### Custom Install Prefix
 
 ```bash

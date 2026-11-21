@@ -18,6 +18,9 @@ on:
       - 'tests/native/shop_catalog_test.cpp'
       - 'tests/native/sound_test.cpp'
       - 'sys/mac/**'
+      - 'tests/pascal/**'
+      - '.gitmodules'
+      - 'tools/SDL2-for-Pascal'
       - 'sys/android/app/src/main/cpp/**'
       - 'sys/android/app/src/main/assets/**'
       - '.github/workflows/desktop-macos.yml'
@@ -37,6 +40,9 @@ on:
       - 'tests/native/shop_catalog_test.cpp'
       - 'tests/native/sound_test.cpp'
       - 'sys/mac/**'
+      - 'tests/pascal/**'
+      - '.gitmodules'
+      - 'tools/SDL2-for-Pascal'
       - 'sys/android/app/src/main/cpp/**'
       - 'sys/android/app/src/main/assets/**'
       - '.github/workflows/desktop-macos.yml'
@@ -84,6 +90,17 @@ jobs:
             done
             exit 1
           }
+
+      - name: Pascal SDL2 bindings for the sys layer (tools/SDL2-for-Pascal submodule)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # sys/mac/sys_mac.pas and Projects/realms.lpi use these units (issue #1).
+          git submodule update --init --depth 1 tools/SDL2-for-Pascal
+          mkdir -p /tmp/sdl2u
+          cd Projects
+          fpc -Mobjfpc -FU/tmp/sdl2u -FE/tmp/sdl2u "-Fl$(brew --prefix sdl2)/lib" ../tests/pascal/sdl2_sys_smoke.lpr
+          /tmp/sdl2u/sdl2_sys_smoke
 
       - name: Bundle SDL2 framework library and ad-hoc sign .app
         shell: bash

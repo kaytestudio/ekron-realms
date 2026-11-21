@@ -18,6 +18,9 @@ on:
       - 'tests/native/shop_catalog_test.cpp'
       - 'tests/native/sound_test.cpp'
       - 'sys/linux/**'
+      - 'tests/pascal/**'
+      - '.gitmodules'
+      - 'tools/SDL2-for-Pascal'
       - 'sys/android/app/src/main/cpp/**'
       - 'sys/android/app/src/main/assets/**'
       - '.github/workflows/desktop-debian.yml'
@@ -37,6 +40,9 @@ on:
       - 'tests/native/shop_catalog_test.cpp'
       - 'tests/native/sound_test.cpp'
       - 'sys/linux/**'
+      - 'tests/pascal/**'
+      - '.gitmodules'
+      - 'tools/SDL2-for-Pascal'
       - 'sys/android/app/src/main/cpp/**'
       - 'sys/android/app/src/main/assets/**'
       - '.github/workflows/desktop-debian.yml'
@@ -100,6 +106,16 @@ jobs:
         run: |
           set -euo pipefail
           ctest --test-dir build --output-on-failure -V
+
+      - name: Pascal SDL2 bindings for the sys layer (tools/SDL2-for-Pascal submodule)
+        shell: bash
+        run: |
+          set -euo pipefail
+          git submodule update --init --depth 1 tools/SDL2-for-Pascal
+          mkdir -p /tmp/sdl2u
+          cd Projects
+          fpc -Mobjfpc -FU/tmp/sdl2u -FE/tmp/sdl2u ../tests/pascal/sdl2_sys_smoke.lpr
+          /tmp/sdl2u/sdl2_sys_smoke
 
       - name: Build and verify Debian package
         shell: bash

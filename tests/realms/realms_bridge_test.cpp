@@ -13,6 +13,7 @@
 #include "realms/SandboxBoot.h"
 #include "realms/realms_bridge.h"
 
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -342,7 +343,10 @@ void runAbiSuite(const RealmsCoreApi *api, bool rangeReads) {
 
 void runEngineSuite(const std::string &pascalLibrary) {
     namespace fs = std::filesystem;
-    const fs::path tmp = fs::temp_directory_path() / "realms-engine-test";
+    // Unique per run: ctest -j runs the C++ and Pascal suites side by side.
+    const fs::path tmp = fs::temp_directory_path() /
+        ("realms-engine-test-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + "-" +
+         (pascalLibrary.empty() ? "native" : "pascal"));
     std::error_code ec;
     fs::remove_all(tmp, ec);
     fs::create_directories(tmp / "assets" / "config", ec);
