@@ -52,12 +52,30 @@ jobs:
           clang++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic \
             -c sys/android/app/src/main/cpp/ImageDecode.cpp -o /tmp/ekron-ImageDecode.o
 
+          # Run every test even if one fails, and surface each failure as an
+          # annotation (test name, exit code and the tail of its output) so it
+          # is visible from the PR checks without downloading the raw log.
+          failed=()
           run_test() {
             local out="$1"
             local opt="$2"
             shift 2
-            clang++ -std=c++17 "$opt" -Wall -Wextra -Werror -pedantic "$@" -o "/tmp/$out"
-            "/tmp/$out"
+            local rc=0
+            echo "::group::$out"
+            if ! clang++ -std=c++17 "$opt" -Wall -Wextra -Werror -pedantic "$@" -o "/tmp/$out" 2> "/tmp/$out.build.log"; then
+              cat "/tmp/$out.build.log"
+              echo "::error title=$out (compile)::$(tail -n 6 "/tmp/$out.build.log" | tr '\n' ' ' | cut -c1-900)"
+              failed+=("$out")
+              echo "::endgroup::"
+              return 0
+            fi
+            "/tmp/$out" > "/tmp/$out.log" 2>&1 || rc=$?
+            cat "/tmp/$out.log"
+            if [ "$rc" -ne 0 ]; then
+              echo "::error title=$out (exit $rc)::$(tail -n 8 "/tmp/$out.log" | tr '\n' ' ' | cut -c1-900)"
+              failed+=("$out")
+            fi
+            echo "::endgroup::"
           }
 
           run_test ekron-contact-energy -O2 tests/native/contact_energy_test.cpp
@@ -90,6 +108,11 @@ jobs:
           run_test ekron-texture-test -O2 tests/native/texture_mesh_test.cpp
           run_test ekron-gltf-test -O1 tests/native/gltf_scene_test.cpp /tmp/ekron-GltfScene.o /tmp/ekron-ImageDecode.o
           run_test realms-bridge-test -O2 -Irealms/include tests/realms/realms_bridge_test.cpp realms/src/Engine.cpp realms/src/NativeCore.cpp realms/src/SandboxBoot.cpp
+
+          if [ "${#failed[@]}" -ne 0 ]; then
+            echo "::error title=native tests::${#failed[@]} failing: ${failed[*]}"
+            exit 1
+          fi
 
       - name: Validate translations (English, Russian, Portuguese (Portugal))
         run: python3 tools/validate_i18n.py
