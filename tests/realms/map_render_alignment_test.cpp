@@ -23,6 +23,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <utility>
 #include <string>
 #include <vector>
 
@@ -213,6 +214,45 @@ void checkMapSession() {
                             "maps/a\nquit"})
         CHECK(!mapview::safeMapName(bad));
     CHECK(!mapview::safeMapName(std::string(241, 'a')));
+
+    // Imported file names: cleaned, loadable as maps/<name>, or rejected.
+    const std::pair<const char *, const char *> names[] = {
+        {"base1.bsp", "base1.bsp"},
+        {"/storage/emulated/0/Download/My Map (2).glb", "My Map _2_.glb"},
+        {"C:\\maps\\q2dm1.BSP", "q2dm1.BSP"},
+        {"..hidden.glb", "hidden.glb"},
+        {"a..b...gltf", "a.b.gltf"},
+        {"scene.bin", "scene.bin"},
+        {"Tex.PNG", "Tex.PNG"},
+        {"walls.jpeg", "walls.jpeg"},
+        {"\xd0\xba\xd0\xb0.glb", "____.glb"}, // UTF-8 letters: one "_" per byte
+        {"notes.txt", ""},
+        {"noextension", ""},
+        {".glb", ""},
+        {"   ", ""},
+        {"script.glb.sh", ""},
+    };
+    for (const auto &[picked, expected] : names) {
+        const std::string got = mapview::importFileName(picked);
+        CHECK(got == expected);
+        if (!got.empty()) CHECK(mapview::safeMapName("maps/" + got));
+        if (got != expected) std::printf("    importFileName(%s) = [%s]\n", picked, got.c_str());
+    }
+    CHECK(mapview::importFileName(std::string(117, 'a') + ".glb").empty());
+    CHECK(!mapview::importFileName(std::string(116, 'a') + ".glb").empty());
+    CHECK(mapview::isMapFileName("a.GLB") && mapview::isMapFileName("b.bsp") && mapview::isMapFileName("c.gltf"));
+    CHECK(!mapview::isMapFileName("a.bin") && !mapview::isMapFileName("a.png") && !mapview::isMapFileName("glb"));
+
+    // Header checks against the real formats.
+    auto headerOk = [](const char *name, const std::string &bytes) {
+        return mapview::importHeaderOk(name, reinterpret_cast<const unsigned char *>(bytes.data()), bytes.size());
+    };
+    const std::string glb = gltf_builder::roomGlb();
+    CHECK(headerOk("room.glb", glb) && !headerOk("room.bsp", glb) && !headerOk("room.gltf", glb));
+    CHECK(headerOk("m.bsp", std::string("IBSP\x26\0\0\0", 8)) && !headerOk("m.bsp", "IBS"));
+    CHECK(headerOk("m.gltf", "  \n{\"asset\":{}}") && headerOk("m.gltf", "\xef\xbb\xbf{}") && !headerOk("m.gltf", "<html>"));
+    CHECK(headerOk("t.png", "\x89PNG\r\n\x1a\n") && headerOk("t.JPG", "\xff\xd8\xff") && !headerOk("t.png", "\xff\xd8"));
+    CHECK(headerOk("b.bin", "") && headerOk("b.bin", "anything") && !headerOk("x.txt", "IBSP") && !headerOk("m.glb", ""));
 
     // Room mesh geometry in render space equals the source-space scene.
     const std::string room = gltf_builder::roomGlb();

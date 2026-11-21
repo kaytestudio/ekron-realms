@@ -6,6 +6,7 @@
 import UIKit
 import MetalKit
 import AVFoundation
+import UniformTypeIdentifiers
 
 class GameViewController: UIViewController {
 
@@ -952,8 +953,8 @@ class GameViewController: UIViewController {
             scan(bundle, "maps")
             scan(bundle, "models")
         }
-        if let support = NSSearchPathForDirectoriesInDomains(.applicationSupportDirectory, .userDomainMask, true).first {
-            scan((support as NSString).appendingPathComponent("EkronSandbox"), "maps")
+        for name in importedMaps() where !found.contains("maps/\(name)") {
+            found.append("maps/\(name)")
         }
         // The sandbox's own street first.
         let city = found.filter { $0.hasSuffix("abandoned_city_street_for_games.glb") }
@@ -971,6 +972,101 @@ class GameViewController: UIViewController {
                 self?.setMenuPaused(false)
                 self?.showToast(locF("map_loading", name))
                 self?.bridge?.loadMap(path)
+            })
+        }
+        alert.addAction(UIAlertAction(title: loc("maps_import"), style: .default) { [weak self] _ in
+            self?.setMenuPaused(false)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { self?.showMapImporter() }
+        })
+        if !importedMaps().isEmpty {
+            alert.addAction(UIAlertAction(title: loc("maps_remove"), style: .destructive) { [weak self] _ in
+                self?.setMenuPaused(false)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { self?.showRemoveMapPicker() }
+            })
+        }
+        alert.addAction(UIAlertAction(title: loc("cancel"), style: .cancel) { [weak self] _ in
+            self?.setMenuPaused(false)
+        })
+        present(alert, animated: true)
+    }
+
+    /// Imported maps live in the engine's writable root (Application Support/EkronSandbox/maps).
+    private func importedMapsDirectory() -> URL? {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("EkronSandbox", isDirectory: true)
+            .appendingPathComponent("maps", isDirectory: true)
+    }
+
+    private func importedMaps() -> [String] {
+        guard let dir = importedMapsDirectory() else { return [] }
+        return ((try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []).filter(isMapFileName).sorted()
+    }
+
+    /// "Import map…": the system file picker; a .gltf may be picked together with its .bin and textures.
+    private func showMapImporter() {
+        guard worldReady, appActive, presentedViewController == nil else { return }
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.data], asCopy: true)
+        picker.allowsMultipleSelection = true
+        picker.delegate = self
+        setMenuPaused(true)
+        present(picker, animated: true)
+    }
+
+    /// Copies picked files into the imported maps folder off the main thread, then loads the first map among them.
+    fileprivate func importMapFiles(_ urls: [URL]) {
+        guard let dir = importedMapsDirectory() else { return }
+        let limit = SandboxBridge.mapImportLimit()
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            var firstMap: String?
+            var imported = 0
+            var rejected = 0
+            for url in urls {
+                let name = SandboxBridge.mapImportFileName(url.lastPathComponent)
+                if name.isEmpty || !copyPickedMapFile(url, to: dir.appendingPathComponent(name), name: name, limit: limit) {
+                    rejected += 1
+                    continue
+                }
+                imported += 1
+                if firstMap == nil && isMapFileName(name) { firstMap = name }
+            }
+            let map = firstMap
+            let added = imported
+            let failed = rejected
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                if let map = map, self.worldReady, self.appActive {
+                    self.showToast(locF("map_loading", map))
+                    self.bridge?.loadMap("maps/\(map)")
+                } else if added > 0 && failed == 0 {
+                    self.showToast(loc("maps_imported_files"))
+                }
+                if failed > 0 && self.presentedViewController == nil {
+                    let alert = UIAlertController(title: loc("maps_title"), message: loc("maps_import_failed"), preferredStyle: .alert)
+                    alert.addAction(UIAlertAction(title: loc("ok"), style: .default) { [weak self] _ in
+                        self?.setMenuPaused(false)
+                    })
+                    self.setMenuPaused(true)
+                    self.present(alert, animated: true)
+                }
+            }
+        }
+    }
+
+    /// Imported maps other than the one being walked.
+    private func showRemoveMapPicker() {
+        guard worldReady, appActive, presentedViewController == nil, let dir = importedMapsDirectory() else { return }
+        let current = mapMode ? (bridge?.currentMapPath() ?? "") : ""
+        let maps = importedMaps().filter { "maps/\($0)" != current }
+        guard !maps.isEmpty else { return }
+        setMenuPaused(true)
+        let alert = UIAlertController(title: loc("maps_remove_title"), message: nil, preferredStyle: .alert)
+        for name in maps {
+            alert.addAction(UIAlertAction(title: name, style: .destructive) { [weak self] _ in
+                self?.setMenuPaused(false)
+                if (try? FileManager.default.removeItem(at: dir.appendingPathComponent(name))) != nil {
+                    self?.showToast(locF("maps_removed", name))
+                }
             })
         }
         alert.addAction(UIAlertAction(title: loc("cancel"), style: .cancel) { [weak self] _ in
@@ -1035,4 +1131,54 @@ class GameViewController: UIViewController {
         toastHideWorkItem = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.8, execute: work)
     }
+}
+
+extension GameViewController: UIDocumentPickerDelegate {
+    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        setMenuPaused(false)
+        importMapFiles(urls)
+    }
+
+    func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+        setMenuPaused(false)
+    }
+}
+
+/// .bsp, .glb or .gltf: the files the map list shows and loads.
+private func isMapFileName(_ name: String) -> Bool {
+    ["bsp", "glb", "gltf"].contains((name as NSString).pathExtension.lowercased())
+}
+
+/// Header-checked (shared mapview rules), size-capped copy through a .part file,
+/// so a map is never half-written. Runs off the main thread.
+private func copyPickedMapFile(_ source: URL, to target: URL, name: String, limit: Int64) -> Bool {
+    let fm = FileManager.default
+    let part = target.appendingPathExtension("part")
+    defer { try? fm.removeItem(at: part) }
+    let scoped = source.startAccessingSecurityScopedResource()
+    defer { if scoped { source.stopAccessingSecurityScopedResource() } }
+    guard let input = try? FileHandle(forReadingFrom: source) else { return false }
+    defer { try? input.close() }
+    let head = (try? input.read(upToCount: 64)) ?? Data()
+    guard !head.isEmpty, SandboxBridge.mapImportHeaderOk(head, fileName: name) else { return false }
+    guard fm.createFile(atPath: part.path, contents: nil), let output = try? FileHandle(forWritingTo: part) else { return false }
+    defer { try? output.close() }
+    var total = Int64(head.count)
+    do {
+        try output.write(contentsOf: head)
+        while let chunk = try input.read(upToCount: 1 << 16), !chunk.isEmpty {
+            total += Int64(chunk.count)
+            if total > limit { return false }
+            try output.write(contentsOf: chunk)
+        }
+        try output.synchronize()
+        if fm.fileExists(atPath: target.path) {
+            _ = try fm.replaceItemAt(target, withItemAt: part)
+        } else {
+            try fm.moveItem(at: part, to: target)
+        }
+    } catch {
+        return false
+    }
+    return true
 }

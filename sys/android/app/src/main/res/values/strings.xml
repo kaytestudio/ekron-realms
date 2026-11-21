@@ -133,9 +133,14 @@
     <string name="pause_noclip_on">Enable noclip</string>
     <string name="pause_noclip_off">Disable noclip</string>
     <string name="maps_title">Maps</string>
-    <string name="maps_empty">No maps found. Put .bsp, .glb or .gltf files in maps/.</string>
     <string name="map_loading">Loading %1$s…</string>
     <string name="notice_map_mode">Map: %1$s · pause → Leave the map</string>
     <string name="notice_map_textures">Map: %1$s · loading textures…</string>
     <string name="notice_map_failed">The map could not be loaded.</string>
+    <string name="maps_import">Import map…</string>
+    <string name="maps_remove">Remove an imported map…</string>
+    <string name="maps_remove_title">Remove imported map</string>
+    <string name="maps_removed">Removed %1$s</string>
+    <string name="maps_import_failed">Some files could not be imported. A map is a .bsp, .glb or .gltf file (with its .bin and textures), up to 128 MB.</string>
+    <string name="maps_imported_files">Files added to maps/.</string>
 </resources>

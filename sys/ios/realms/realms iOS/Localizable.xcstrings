@@ -1525,19 +1525,157 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No maps found. Put .bsp, .glb or .gltf files in maps/."
+            "value" : "No maps yet. Import a .bsp, .glb or .gltf file."
           }
         },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Nenhum mapa encontrado. Coloque ficheiros .bsp, .glb ou .gltf em maps/."
+            "value" : "Ainda não há mapas. Importe um ficheiro .bsp, .glb ou .gltf."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Карты не найдены. Положите файлы .bsp, .glb или .gltf в maps/."
+            "value" : "Карт пока нет. Импортируйте файл .bsp, .glb или .gltf."
+          }
+        }
+      }
+    },
+    "maps_import" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Import map…"
+          }
+        },
+        "pt-PT" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importar mapa…"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Импортировать карту…"
+          }
+        }
+      }
+    },
+    "maps_import_failed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Some files could not be imported. A map is a .bsp, .glb or .gltf file (with its .bin and textures), up to 128 MB."
+          }
+        },
+        "pt-PT" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Não foi possível importar alguns ficheiros. Um mapa é um ficheiro .bsp, .glb ou .gltf (com o respetivo .bin e texturas), até 128 MB."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Некоторые файлы не удалось импортировать. Карта — это файл .bsp, .glb или .gltf (с его .bin и текстурами) размером до 128 МБ."
+          }
+        }
+      }
+    },
+    "maps_imported_files" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Files added to maps/."
+          }
+        },
+        "pt-PT" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ficheiros adicionados a maps/."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Файлы добавлены в maps/."
+          }
+        }
+      }
+    },
+    "maps_remove" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove an imported map…"
+          }
+        },
+        "pt-PT" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remover um mapa importado…"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Удалить импортированную карту…"
+          }
+        }
+      }
+    },
+    "maps_remove_title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove imported map"
+          }
+        },
+        "pt-PT" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remover mapa importado"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Удалить импортированную карту"
+          }
+        }
+      }
+    },
+    "maps_removed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Removed %1$@"
+          }
+        },
+        "pt-PT" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Removido: %1$@"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Удалено: %1$@"
           }
         }
       }
@@ -1929,6 +2067,29 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Безопасная точка недоступна — освободите спавн."
+          }
+        }
+      }
+    },
+    "ok" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OK"
+          }
+        },
+        "pt-PT" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OK"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ОК"
           }
         }
       }

@@ -19,6 +19,7 @@
 #include "realms/MapWalker.h"
 
 #include <array>
+#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -44,6 +45,22 @@ float renderYawFromMap(float mapYawDegrees);
 // the "map" command line): letters, digits, "_-./" and spaces; no quotes,
 // absolute paths or parent references.
 bool safeMapName(const std::string &name);
+
+// Maps imported through the platform file pickers (Android
+// OpenMultipleDocuments, iOS UIDocumentPicker) are copied into the writable
+// root's maps/ folder, where the pickers list them and "map" finds them.
+// A .gltf may come with its .bin buffers and .png / .jpg textures (same
+// folder only: the copies are flat).
+constexpr std::size_t kMaxImportBytes = std::size_t(128) << 20;
+// The stored file name for a picked file ("" = not importable): the last
+// path component, characters outside safeMapName's set replaced by "_",
+// no "..", one of .bsp .glb .gltf .bin .png .jpg .jpeg, at most 120 bytes.
+std::string importFileName(const std::string &pickedName);
+// The first bytes of a picked file match its extension (glTF / IBSP / JSON
+// object / PNG / JPEG signature; .bin is free-form).
+bool importHeaderOk(const std::string &fileName, const unsigned char *head, std::size_t size);
+// .bsp, .glb or .gltf (the files the pickers list and load).
+bool isMapFileName(const std::string &fileName);
 
 // A point in a level-mode city::Scene built from the same file (the
 // sandbox city): level = (source - sourceOffset) * sourceScale.

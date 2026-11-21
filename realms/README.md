@@ -129,6 +129,16 @@ On both phones, **pause menu → Maps…** lists every `.bsp`, `.glb` and `.gltf
 
 Picking one runs `map "<path>"`; any other `map` command (a script, `autoexec.cfg`) switches over the same way. Names from the pickers go through `mapview::safeMapName` before they reach the command line.
 
+**Import map…** at the bottom of the list opens the system file picker (Android `OpenMultipleDocuments`, iOS `UIDocumentPickerViewController`). The picked files are copied into that writable `maps/` folder and the first map among them loads.
+- **Several files at once:** pick a `.gltf` together with its `.bin` buffers and `.png` / `.jpg` textures. The copies are flat, so URIs into subfolders won't resolve.
+- **Shared rules** (`mapview::importFileName` / `importHeaderOk`, tested in `realms_map_render_alignment`):
+  - names are cleaned to the `safeMapName` character set;
+  - only `.bsp .glb .gltf .bin .png .jpg .jpeg` are accepted;
+  - the first bytes must match the type (`IBSP`, `glTF`, a JSON object, PNG / JPEG signatures);
+  - files are capped at 128 MB.
+- **Safe copies:** each copy goes through a `.part` file, so a cancelled or oversized import never leaves a broken map.
+- **Removing:** **Remove an imported map…** deletes one, except the map being walked.
+
 Where the code lives:
 - **Android:** `sys/android/app/src/main/cpp/AndroidMapMode.*`, with hooks in `Renderer.cpp` and `MainActivity.kt`.
 - **iOS:** `MetalMapMode` in `sys/ios/realms/realms iOS/SandboxBridge.mm` is the Metal twin of `AndroidMapMode`. The bridge exposes `loadMap(_:)`, `currentMapPath()` and status slot 17, and the UI is in `GameViewController.swift`.

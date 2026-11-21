@@ -206,6 +206,21 @@ extern "C" JNIEXPORT void JNICALL Java_com_example_realms_MainActivity_nativeLoa
  if(!mapview::safeMapName(name)){__android_log_print(ANDROID_LOG_WARN,"Realms","map: rejected name");return;}
  std::lock_guard<std::mutex> lock(mapRequestMutex);if(mapRequests.size()<4)mapRequests.push_back(name);
 }
+// Map import rules (mapview, shared with iOS); stateless, any thread.
+extern "C" JNIEXPORT jstring JNICALL Java_com_example_realms_MainActivity_nativeMapImportName(JNIEnv *env,jobject,jstring picked){
+ std::string name;
+ if(picked){const char *chars=env->GetStringUTFChars(picked,nullptr);if(chars){name=mapview::importFileName(chars);env->ReleaseStringUTFChars(picked,chars);}}
+ return env->NewStringUTF(name.c_str());
+}
+extern "C" JNIEXPORT jboolean JNICALL Java_com_example_realms_MainActivity_nativeMapImportHeader(JNIEnv *env,jobject,jstring fileName,jbyteArray head){
+ if(!fileName||!head)return JNI_FALSE;
+ const char *chars=env->GetStringUTFChars(fileName,nullptr);if(!chars)return JNI_FALSE;
+ const std::string name(chars);env->ReleaseStringUTFChars(fileName,chars);
+ const jsize size=std::min<jsize>(env->GetArrayLength(head),64);
+ std::array<jbyte,64> bytes{};env->GetByteArrayRegion(head,0,size,bytes.data());
+ return mapview::importHeaderOk(name,reinterpret_cast<const unsigned char*>(bytes.data()),size_t(size))?JNI_TRUE:JNI_FALSE;
+}
+extern "C" JNIEXPORT jlong JNICALL Java_com_example_realms_MainActivity_nativeMapImportLimit(JNIEnv*,jobject){return jlong(mapview::kMaxImportBytes);}
 extern "C" JNIEXPORT jstring JNICALL Java_com_example_realms_MainActivity_nativeMapPath(JNIEnv *env,jobject){
  std::string path;{std::lock_guard<std::mutex> lock(mapPathMutex);path=mapPathShown;}
  return env->NewStringUTF(path.c_str());

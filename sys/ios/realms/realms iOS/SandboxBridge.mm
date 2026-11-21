@@ -2393,6 +2393,23 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
     return [NSString stringWithUTF8String:path.c_str()] ?: @"";
 }
 
++ (NSString *)mapImportFileName:(NSString *)pickedName {
+    const char *chars = pickedName.UTF8String;
+    if (!chars) return @"";
+    const std::string name = mapview::importFileName(chars);
+    return [NSString stringWithUTF8String:name.c_str()] ?: @"";
+}
+
++ (BOOL)mapImportHeaderOk:(NSData *)head fileName:(NSString *)fileName {
+    const char *chars = fileName.UTF8String;
+    if (!chars || !head) return NO;
+    return mapview::importHeaderOk(chars, static_cast<const unsigned char *>(head.bytes), head.length) ? YES : NO;
+}
+
++ (int64_t)mapImportLimit {
+    return static_cast<int64_t>(mapview::kMaxImportBytes);
+}
+
 #pragma mark - Control Bridge
 
 - (void)setGameplayReady:(BOOL)ready {

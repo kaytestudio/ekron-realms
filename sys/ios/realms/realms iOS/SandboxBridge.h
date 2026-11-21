@@ -24,6 +24,11 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)loadMap:(NSString *)path NS_SWIFT_NAME(loadMap(_:));
 // The map being walked ("" in the sandbox).
 - (NSString *)currentMapPath NS_SWIFT_NAME(currentMapPath());
+// Map import rules shared with Android (mapview::importFileName,
+// importHeaderOk, kMaxImportBytes); stateless, any thread.
++ (NSString *)mapImportFileName:(NSString *)pickedName NS_SWIFT_NAME(mapImportFileName(_:));
++ (BOOL)mapImportHeaderOk:(NSData *)head fileName:(NSString *)fileName NS_SWIFT_NAME(mapImportHeaderOk(_:fileName:));
++ (int64_t)mapImportLimit NS_SWIFT_NAME(mapImportLimit());
 // Status slots 0...13 retain their original meaning; 14 is stance,
 // 15 and 16 are player yaw and pitch in radians, 17 is Realms map mode
 // (0 sandbox, 1 walking a map, 2 the map's textures are still loading).

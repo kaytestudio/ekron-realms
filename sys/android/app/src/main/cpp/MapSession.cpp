@@ -1,6 +1,7 @@
 // Realms map mode, renderer independent (see MapSession.h).
 #include "MapSession.h"
 
+#include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <cstdint>
@@ -107,6 +108,60 @@ bool safeMapName(const std::string &name) {
             return false;
     }
     return true;
+}
+
+namespace {
+
+std::string lowerExtension(const std::string &name) {
+    const size_t dot = name.rfind('.');
+    if (dot == std::string::npos) return {};
+    std::string ext = name.substr(dot + 1);
+    for (char &ch : ext) ch = char(std::tolower(static_cast<unsigned char>(ch)));
+    return ext;
+}
+
+} // namespace
+
+std::string importFileName(const std::string &picked) {
+    const size_t slash = picked.find_last_of("/\\");
+    std::string name = slash == std::string::npos ? picked : picked.substr(slash + 1);
+    for (char &ch : name) {
+        if (!(std::isalnum(static_cast<unsigned char>(ch)) || ch == '_' || ch == '-' || ch == '.' || ch == ' '))
+            ch = '_';
+    }
+    for (size_t at; (at = name.find("..")) != std::string::npos;) name.erase(at, 1);
+    while (!name.empty() && (name.front() == ' ' || name.front() == '.')) name.erase(0, 1);
+    while (!name.empty() && name.back() == ' ') name.pop_back();
+    const size_t dot = name.rfind('.');
+    if (name.size() > 120 || dot == std::string::npos || dot == 0) return {};
+    const std::string ext = lowerExtension(name);
+    for (const char *allowed : {"bsp", "glb", "gltf", "bin", "png", "jpg", "jpeg"}) {
+        if (ext == allowed) return name;
+    }
+    return {};
+}
+
+bool importHeaderOk(const std::string &fileName, const unsigned char *head, std::size_t size) {
+    const std::string ext = lowerExtension(fileName);
+    auto starts = [&](const char *magic, std::size_t n) {
+        return size >= n && head && std::equal(head, head + n, reinterpret_cast<const unsigned char *>(magic));
+    };
+    if (ext == "glb") return starts("glTF", 4);
+    if (ext == "bsp") return starts("IBSP", 4);
+    if (ext == "png") return starts("\x89PNG", 4);
+    if (ext == "jpg" || ext == "jpeg") return starts("\xff\xd8", 2);
+    if (ext == "gltf") {
+        std::size_t i = 0;
+        if (starts("\xef\xbb\xbf", 3)) i = 3; // UTF-8 byte order mark
+        while (i < size && std::isspace(head[i])) ++i;
+        return i < size && head[i] == '{';
+    }
+    return ext == "bin";
+}
+
+bool isMapFileName(const std::string &fileName) {
+    const std::string ext = lowerExtension(fileName);
+    return ext == "bsp" || ext == "glb" || ext == "gltf";
 }
 
 physics::Vec3 toLevelScene(const physics::Vec3 &source, float sourceScale, const std::array<float, 3> &sourceOffset) {

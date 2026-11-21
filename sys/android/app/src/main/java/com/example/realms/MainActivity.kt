@@ -18,6 +18,7 @@ import android.content.ClipboardManager
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.provider.OpenableColumns
 import android.provider.Settings
 import android.graphics.Color
 import android.view.Gravity
@@ -26,7 +27,9 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.*
 import java.util.Locale
+import androidx.activity.result.contract.ActivityResultContracts
 import com.google.androidgamesdk.GameActivity
+import java.io.File
 
 /** Android HUD over the native GLES scene; loading remains visible until its first frame. */
 class MainActivity : GameActivity() {
@@ -46,6 +49,15 @@ class MainActivity : GameActivity() {
     private external fun nativeRemotePlayers(values: FloatArray)
     private external fun nativeLoadMap(path: String)
     private external fun nativeMapPath(): String
+    // Map import rules shared with iOS (mapview::importFileName / importHeaderOk).
+    private external fun nativeMapImportName(picked: String): String
+    private external fun nativeMapImportHeader(fileName: String, head: ByteArray): Boolean
+    private external fun nativeMapImportLimit(): Long
+    private val mapImportExecutor = Executors.newSingleThreadExecutor()
+    /** "Import map…": the system file picker; a .gltf may be picked together with its .bin and textures. */
+    private val pickMapFiles = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isNotEmpty()) importMapFiles(uris)
+    }
     /** Realms map mode (status slot 17): the sandbox HUD steps aside while a map is walked. */
     private var mapMode = false
     private var mapTexturesLoading = false
@@ -581,30 +593,121 @@ class MainActivity : GameActivity() {
         dialog.show()
     }
     /** Quake 2 BSPs and glTF scenes from the APK (maps/, models/) and internal storage (maps/). */
+    private fun isMapName(name: String)=listOf(".bsp",".glb",".gltf").any { name.lowercase(Locale.ROOT).endsWith(it) }
+    private fun importedMapDir()=File(filesDir,"maps")
+    private fun importedMaps(): List<String> = importedMapDir().list()?.filter(::isMapName)?.sorted().orEmpty()
     private fun availableMaps(): List<String> {
-        val extensions=listOf(".bsp",".glb",".gltf")
-        fun mapFile(name: String)=extensions.any { name.lowercase(Locale.ROOT).endsWith(it) }
         val found=linkedSetOf<String>()
         for(dir in listOf("maps","models"))
-            try { assets.list(dir)?.sorted()?.filter(::mapFile)?.forEach { found.add("$dir/$it") } } catch(_: Exception) {}
-        java.io.File(filesDir,"maps").list()?.sorted()?.filter(::mapFile)?.forEach { found.add("maps/$it") }
+            try { assets.list(dir)?.sorted()?.filter(::isMapName)?.forEach { found.add("$dir/$it") } } catch(_: Exception) {}
+        importedMaps().forEach { found.add("maps/$it") }
         // The sandbox's own street first.
         return found.sortedBy { if(it.endsWith("abandoned_city_street_for_games.glb")) 0 else 1 }
     }
     private fun showMapPicker() {
         if (!worldReady || !active) return
         val maps=availableMaps()
+        val canRemove=importedMaps().isNotEmpty()
+        val labels=maps.map { it.substringAfterLast('/') } + getString(R.string.maps_import) +
+            (if(canRemove) listOf(getString(R.string.maps_remove)) else emptyList())
         setPaused(true)
-        val builder=AlertDialog.Builder(this).setTitle(R.string.maps_title).setNegativeButton(R.string.cancel, null)
-        if(maps.isEmpty()) builder.setMessage(R.string.maps_empty)
-        else builder.setItems(maps.map { it.substringAfterLast('/') }.toTypedArray()) { _, which ->
-            setPaused(false)
-            Toast.makeText(this, getString(R.string.map_loading, maps[which].substringAfterLast('/')), Toast.LENGTH_SHORT).show()
-            nativeLoadMap(maps[which])
-        }
-        val dialog=builder.create()
+        val dialog=AlertDialog.Builder(this).setTitle(R.string.maps_title).setNegativeButton(R.string.cancel, null)
+            .setItems(labels.toTypedArray()) { _, which ->
+                setPaused(false)
+                when {
+                    which < maps.size -> {
+                        Toast.makeText(this, getString(R.string.map_loading, maps[which].substringAfterLast('/')), Toast.LENGTH_SHORT).show()
+                        nativeLoadMap(maps[which])
+                    }
+                    which == maps.size -> try { pickMapFiles.launch(arrayOf("*/*")) } catch(_: Exception) {}
+                    else -> handler.post { showRemoveMapPicker() }
+                }
+            }.create()
         dialog.setOnDismissListener { setPaused(false);hideSystemUi() }
         dialog.show()
+    }
+    /** Imported maps (internal storage maps/) other than the one being walked. */
+    private fun showRemoveMapPicker() {
+        if (!worldReady || !active) return
+        val current=if(mapMode) nativeMapPath() else ""
+        val maps=importedMaps().filter { "maps/$it" != current }
+        if(maps.isEmpty()) return
+        setPaused(true)
+        val dialog=AlertDialog.Builder(this).setTitle(R.string.maps_remove_title).setNegativeButton(R.string.cancel, null)
+            .setItems(maps.toTypedArray()) { _, which ->
+                setPaused(false)
+                if(File(importedMapDir(), maps[which]).delete())
+                    Toast.makeText(this, getString(R.string.maps_removed, maps[which]), Toast.LENGTH_SHORT).show()
+            }.create()
+        dialog.setOnDismissListener { setPaused(false);hideSystemUi() }
+        dialog.show()
+    }
+    /** Copies picked files into internal storage maps/ off the UI thread, then loads the first map among them. */
+    private fun importMapFiles(uris: List<Uri>) {
+        val dir=importedMapDir()
+        val limit=nativeMapImportLimit()
+        mapImportExecutor.execute {
+            var firstMap: String?=null
+            var imported=0
+            var rejected=0
+            dir.mkdirs()
+            for(uri in uris) {
+                val name=pickedFileName(uri)?.let { nativeMapImportName(it) }.orEmpty()
+                if(name.isEmpty() || !copyPickedFile(uri, File(dir, name), name, limit)) { rejected++; continue }
+                imported++
+                if(firstMap==null && isMapName(name)) firstMap=name
+            }
+            handler.post {
+                if(rejected>0) Toast.makeText(this, R.string.maps_import_failed, Toast.LENGTH_LONG).show()
+                val map=firstMap
+                if(map!=null && worldReady && active) {
+                    Toast.makeText(this, getString(R.string.map_loading, map), Toast.LENGTH_SHORT).show()
+                    nativeLoadMap("maps/$map")
+                } else if(imported>0 && rejected==0) {
+                    Toast.makeText(this, R.string.maps_imported_files, Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+    private fun pickedFileName(uri: Uri): String? {
+        val shown=try {
+            contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                if(c.moveToFirst()) c.getString(0) else null
+            }
+        } catch(_: Exception) { null }
+        return shown ?: uri.lastPathSegment
+    }
+    /** Header-checked, size-capped copy through a .part file (never a half-written map). */
+    private fun copyPickedFile(uri: Uri, target: File, name: String, limit: Long): Boolean {
+        val part=File(target.path + ".part")
+        var ok=false
+        try {
+            contentResolver.openInputStream(uri)?.use { input ->
+                val head=ByteArray(64)
+                var got=0
+                while(got<head.size) { val n=input.read(head, got, head.size-got); if(n<0) break; got+=n }
+                if(got>0 && nativeMapImportHeader(name, head.copyOf(got))) {
+                    part.outputStream().use { out ->
+                        out.write(head, 0, got)
+                        var total=got.toLong()
+                        val buffer=ByteArray(64*1024)
+                        while(total<=limit) {
+                            val n=input.read(buffer)
+                            if(n<0) break
+                            total+=n
+                            out.write(buffer, 0, n)
+                        }
+                        ok=total<=limit
+                    }
+                }
+            }
+            ok=ok && part.renameTo(target)
+        } catch(_: Exception) {
+            ok=false
+        } finally {
+            if(part.exists()) part.delete()
+        }
+        return ok
     }
     /** English, Russian and Portuguese (Portugal) follow the system or per-app language (res/xml/locales_config.xml). */
     private fun openLanguageSettings() {
@@ -682,7 +785,7 @@ class MainActivity : GameActivity() {
         videoEndedAt = SystemClock.elapsedRealtime()
         player?.release(); player = null; video?.visibility = View.GONE
     }
-    override fun onDestroy() { catalogExecutor.shutdownNow();nativeReady(false); player?.release(); player = null; handler.removeCallbacks(poll); super.onDestroy() }
+    override fun onDestroy() { catalogExecutor.shutdownNow();mapImportExecutor.shutdown();nativeReady(false); player?.release(); player = null; handler.removeCallbacks(poll); super.onDestroy() }
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) hideSystemUi() else { nativeVertical(0f); if (::joystick.isInitialized) joystick.reset();if (::lookArea.isInitialized)lookArea.reset() }
