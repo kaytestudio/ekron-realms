@@ -1,10 +1,12 @@
+// Ekron Realms - Jenkins pipeline: builds the Docker image (CMake build +
+// CTest + .deb, see Dockerfile) and archives the products from /app/dist.
 pipeline {
   agent any
 
   stages {
     stage('Checkout') {
       steps {
-        git 'https://github.com/ringsce/ekron-realms.git'
+        checkout scm
       }
     }
 
@@ -16,7 +18,7 @@ pipeline {
 
     stage('Extract Binaries') {
       steps {
-        sh 'docker run --rm -v $PWD/output:/output ekron-builder cp -r /app/output /output'
+        sh 'mkdir -p output && docker run --rm -v "$PWD/output:/output" ekron-builder cp -r /app/dist/. /output/'
       }
     }
   }
@@ -27,4 +29,3 @@ pipeline {
     }
   }
 }
-

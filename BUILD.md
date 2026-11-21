@@ -354,18 +354,27 @@ build/realms-pascal --engine-info     # Core: pascal-quake2 (Free Pascal) / Orig
 build/realms-pascal                   # the game
 ```
 
-To build it by hand once `libekron_sandbox` exists, from `Projects/`: `fpc -Mobjfpc -Sh -O2 -Fu../realms/pascal -Fi../realms/pascal -Fl../build realms.lpr`. The old Quake 2 client graph that used to be `realms.lpr` is kept as `Projects/realms_q2legacy.lpr`. It does not build: six `sys/linux` units it names don't exist, and the engine units don't compile together yet.
+The other ways to build it all produce the same `build/realms-pascal`. Each one first builds `libekron_sandbox` with CMake in `<repo>/build`; `Projects/build_sandbox.sh` does that and configures the build directory if needed:
+
+| Entry point | Command |
+| :--- | :--- |
+| Lazarus | Open `Projects/realms.lpi` (or the root `realms.lpi`) and press Build, or run `lazbuild Projects/realms.lpi`. Its "Execute before" step runs `Projects/build_sandbox.sh`. |
+| Makefile | `make pascal` (or `make lazarus` for lazbuild). `make`, `make test`, `make run`, `make run-pascal`, `make package` and `make install` wrap the CMake build. |
+| Plain fpc | `Projects/build_sandbox.sh && fpc @realms-fpc.cfg Projects/realms.lpr` |
+| Docker / Jenkins | `docker build -t ekron-builder .` runs the CMake build, CTest and CPack on Ubuntu 24.04. `docker compose up` (or the `Jenkinsfile`) copies the `.deb` and the binaries to `./output`. |
+
+The CI workflow `build-entry-points.yml` runs all of them. The old Quake 2 client is kept as `Projects/realms_q2legacy.lpr` / `Projects/realms_q2legacy.lpi`, which used to be `realms.lpr` / `realms.lpi`. It does not build: six `sys/linux` units it names don't exist, and the engine units don't compile together yet.
 
 ### Pascal SDL2 Units and Other Submodules
 
-The legacy Free Pascal sys layer (`sys/mac/sys_mac.pas`, `Projects/realms.lpi`) uses the SDL2 units in `tools/SDL2-for-Pascal`. That folder, `tools/SDL3-for-Pascal` and `ide` (KayteIDE) are git submodules. The desktop C++ client, `realms-pascal`, the launcher and the Realms core don't need them. Fetch the SDL2 units with:
+The legacy Free Pascal sys layer (`sys/mac/sys_mac.pas`, `Projects/realms_q2legacy.lpi`) uses the SDL2 units in `tools/SDL2-for-Pascal`. That folder, `tools/SDL3-for-Pascal` and `ide` (KayteIDE) are git submodules. The desktop C++ client, `realms-pascal`, the launcher and the Realms core don't need them. Fetch the SDL2 units with:
 
 ```bash
 git submodule update --init tools/SDL2-for-Pascal
 # or everything: git submodule update --init
 ```
 
-Units listed with `in '...'` resolve from the directory fpc runs in. `Projects/realms_q2legacy.lpr` and `realms.lpi` compile from `Projects/`. `tests/pascal/sdl2_sys_smoke.lpr` uses SDL2 the same way `sys_mac.pas` does, and the desktop CI builds and runs it:
+Units listed with `in '...'` resolve from the directory fpc runs in. `Projects/realms_q2legacy.lpr` and `realms_q2legacy.lpi` compile from `Projects/`. `tests/pascal/sdl2_sys_smoke.lpr` uses SDL2 the same way `sys_mac.pas` does, and the desktop CI builds and runs it:
 
 ```bash
 cd Projects

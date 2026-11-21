@@ -170,6 +170,8 @@ The `REALMS_CORE=pascal|native|auto` environment variable selects the Realms cor
 
 With `fpc` installed and `-DENABLE_FPC_CLIENT=ON`, the build also produces `realms-pascal` (`Projects/realms.lpr`). It is a Free Pascal program with the Pascal Realms core compiled in. It runs the C++ desktop sandbox (window, input, OpenGL, audio, world) from `libekron_sandbox`, so SDL2 is used from C++ and no Pascal SDL units are needed. It takes the same flags as `ekron-realms`. `--engine-info` reports `Core: pascal-quake2 (Free Pascal)` and `Origin: linked`. It is installed as `/usr/bin/realms-pascal` by the `.deb` and as `EkronRealms.app/Contents/MacOS/realms-pascal` on macOS.
 
+You can also build it from the Lazarus project `Projects/realms.lpi` (`lazbuild Projects/realms.lpi`), with `make pascal`, or with `fpc @realms-fpc.cfg Projects/realms.lpr`. The top-level `Makefile` (`make`, `make test`, `make run`, `make package`) and the `Dockerfile` / `docker compose up` / `Jenkinsfile` wrap the same CMake build. See [BUILD.md](BUILD.md#free-pascal-client-realms-pascal).
+
 ---
 
 ## Testing & Verification

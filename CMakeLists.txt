@@ -8,7 +8,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 option(ENABLE_DESKTOP_SANDBOX "Build the native C++17 SDL2/OpenGL desktop sandbox client" ON)
-option(ENABLE_FPC_CLIENT "Build the Free Pascal desktop launcher when fpc is installed" ON)
+option(ENABLE_FPC_CLIENT "Build the Free Pascal client (realms-pascal + libekron_sandbox) and launcher when fpc is installed" ON)
 option(ENABLE_PASCAL_CORE "Build the Free Pascal Realms core (librealms_core, Quake 2 stack) when fpc is installed" ON)
 option(ENABLE_EXTERNAL_TOOLS "Fetch and build external KayteIDE and KCC repositories" OFF)
 option(ENABLE_KCC "Build the KCC compiler from tools/kcc (cloned from kaytestudio/kcc when missing)" OFF)

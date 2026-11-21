@@ -1,5 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <CONFIG>
+  <!--
+    Ekron Realms - Free Pascal client (realms-pascal), Lazarus project.
+    The Pascal Realms core (realms/pascal) is compiled in; the window, input,
+    OpenGL, audio and world come from the C++ SDL2 sandbox, libekron_sandbox,
+    which "Execute before" builds with CMake (Projects/build_sandbox.sh).
+    Output: build/realms-pascal. The old Quake 2 client project is
+    Projects/realms_q2legacy.lpi.
+  -->
   <ProjectOptions>
     <Version Value="12"/>
     <General>
@@ -9,13 +17,10 @@
         <MainUnitHasScaledStatement Value="False"/>
       </Flags>
       <SessionStorage Value="InProjectDir"/>
-      <Title Value="realms"/>
+      <Title Value="realms-pascal"/>
       <UseAppBundle Value="False"/>
       <ResourceType Value="res"/>
     </General>
-    <i18n>
-      <EnableI18N Value="True"/>
-    </i18n>
     <BuildModes>
       <Item Name="Default" Default="True"/>
     </BuildModes>
@@ -26,368 +31,50 @@
     <RunParams>
       <FormatVersion Value="2"/>
     </RunParams>
-    <RequiredPackages>
-      <Item>
-        <PackageName Value="LCL"/>
-      </Item>
-    </RequiredPackages>
     <Units>
       <Unit>
-        <Filename Value="realms.dpr"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../qcommon/qfiles.pas"/>
-        <IsPartOfProject Value="True"/>
-        <UnitName Value="QFiles"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../qcommon/crc.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../qcommon/CPas.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../qcommon/Common.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../qcommon/CVar.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../qcommon/Files.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../qcommon/CModel.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../qcommon/md4.pas"/>
-        <IsPartOfProject Value="True"/>
-        <UnitName Value="MD4"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../qcommon/PMoveUnit.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../qcommon/net_chan.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../qcommon/delphi_cdecl_printf.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../game/q_shared.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../game/m_flash.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../game/GameUnit.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../client/cl_main.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../client/Client.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../client/ref.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../client/menu.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../client/Sound_h.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../client/Console.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../client/cl_scrn.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../client/vid_h.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../client/keys.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../client/snd_loc.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../client/cl_input.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../client/cl_cin.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../client/snd_dma.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../client/cl_ents.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../client/cl_pred.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../client/cl_view.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../client/cl_parse.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../client/Qmenu.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../client/cl_tent.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../client/cl_fx.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../client/cl_newfx.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../client/snd_mix.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../client/snd_mem.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../client/cl_inv.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../server/server.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../server/sv_game.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../server/sv_init.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../server/sv_ccmds.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../server/sv_main.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../server/sv_send.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../server/sv_ents.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../server/sv_user.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../server/sv_world.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../qcommon/DelphiTypes.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../game/q_shared_add.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../game/game_add.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../vulkan/vulkanutils.pas"/>
-        <IsPartOfProject Value="True"/>
-        <UnitName Value="VulkanUtils"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../vulkan/vulkanrender.pas"/>
-        <IsPartOfProject Value="True"/>
-        <UnitName Value="VulkanRender"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../vulkan/vulkan.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../launcher.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="cmd.pas"/>
-        <IsPartOfProject Value="True"/>
-        <UnitName Value="Cmd"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../debuggermain.pas"/>
-        <IsPartOfProject Value="True"/>
-        <ComponentName Value="Form1"/>
-        <HasResources Value="True"/>
-        <ResourceBaseClass Value="Form"/>
-        <UnitName Value="DebuggerMain"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../DebuggerMain.lfm"/>
-        <IsPartOfProject Value="True"/>
-        <ComponentName Value="Form1"/>
-        <ResourceBaseClass Value="Form"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../qcommon/gzio.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../mac/net_udp.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../game/platformasm.pas"/>
-        <IsPartOfProject Value="True"/>
-        <UnitName Value="PlatformASM"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../kayte/kayte.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../mac/sys_mac.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../mac/vid_macos.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../mac/snd_mac.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../mac/q_shmac.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../mac/in_mac.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../mac/cd_sdl.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../mac/vid_menu.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../mac/glob.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../mac/rw_mac_h.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../mac/MoltenVK.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../server/realmsstats.pas"/>
-        <IsPartOfProject Value="True"/>
-        <UnitName Value="RealmsStats"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../client/input.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="../mac/input.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
-        <Filename Value="ekron.pas"/>
+        <Filename Value="Projects/realms.lpr"/>
         <IsPartOfProject Value="True"/>
       </Unit>
     </Units>
   </ProjectOptions>
   <CompilerOptions>
     <Version Value="11"/>
+    <Target>
+      <Filename Value="build/realms-pascal"/>
+    </Target>
     <SearchPaths>
-      <IncludeFiles Value="../jedi;../qcommon;../game;../client;../server;$(ProjOutDir)"/>
-      <Libraries Value="../jedi"/>
-      <OtherUnitFiles Value="../jedi;../qcommon;../game;../client;../server;../vulkan;..;../mac;tools/SDL2-for-Pascal/units"/>
-      <UnitOutputDirectory Value="build"/>
-      <ObjectPath Value="../jedi"/>
+      <IncludeFiles Value="realms/pascal;$(ProjOutDir)"/>
+      <OtherUnitFiles Value="realms/pascal"/>
+      <Libraries Value="build;build/EkronRealms.app/Contents/Frameworks"/>
+      <UnitOutputDirectory Value="build/lazarus-units/$(TargetCPU)-$(TargetOS)"/>
     </SearchPaths>
+    <Conditionals Value="// libekron_sandbox sits next to the program (Linux) or in the app bundle (macOS).
+if TargetOS = 'darwin' then
+  LinkerOptions += ' -rpath @executable_path/EkronRealms.app/Contents/Frameworks'
+else
+  LinkerOptions += ' -rpath $ORIGIN';"/>
     <Parsing>
       <SyntaxOptions>
-        <SyntaxMode Value="Delphi"/>
+        <SyntaxMode Value="ObjFPC"/>
       </SyntaxOptions>
     </Parsing>
+    <CodeGeneration>
+      <Optimizations>
+        <OptimizationLevel Value="2"/>
+      </Optimizations>
+    </CodeGeneration>
     <Linking>
       <Options>
-        <Win32>
-          <GraphicApplication Value="True"/>
-        </Win32>
+        <PassLinkerOptions Value="True"/>
       </Options>
     </Linking>
     <Other>
-      <CustomOptions Value="-dBorland -dVer150 -dDelphi7 -dCompiler6_Up -dPUREPASCAL
--vw -vm5024"/>
+      <CustomOptions Value="-Sh"/>
+      <ExecuteBefore>
+        <Command Value="sh &quot;$(ProjPath)Projects/build_sandbox.sh&quot;"/>
+        <ShowAllMessages Value="True"/>
+      </ExecuteBefore>
     </Other>
   </CompilerOptions>
-  <Debugging>
-    <Exceptions>
-      <Item>
-        <Name Value="EAbort"/>
-      </Item>
-      <Item>
-        <Name Value="ECodetoolError"/>
-      </Item>
-      <Item>
-        <Name Value="EFOpenError"/>
-      </Item>
-    </Exceptions>
-  </Debugging>
 </CONFIG>

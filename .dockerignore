@@ -1,0 +1,12 @@
+# Keep the Docker build context to what the CMake build needs.
+.git
+build
+output
+dist
+tools/kcc
+game-source
+/*.zip
+/*.glb
+/*.blend
+/*.blend1
+/intro.mp4
