@@ -92,8 +92,9 @@ void prepare(Scene &s,const LoadOptions &options){
  Vec lo{1e20f,1e20f,1e20f},hi{-1e20f,-1e20f,-1e20f};size_t count=0;
  for(auto &b:s.batches)for(auto &v:b.vertices){Vec p{v.x,v.y,v.z};for(int i=0;i<3;i++){lo[i]=std::min(lo[i],p[i]);hi[i]=std::max(hi[i],p[i]);}count++;}
  if(!count)throw std::runtime_error("No triangle geometry");
+ s.sourceMapped=false;s.sourceScale=1;s.sourceOffset={0,0,0};
  if(options.keepSourceSpace){
-  s.minimum=lo;s.maximum=hi;
+  s.minimum=lo;s.maximum=hi;s.sourceMapped=true;
   applyFallbackUV(s);
   if(options.buildPhysics){buildSceneCollision(s);}
   return;
@@ -122,6 +123,7 @@ void prepare(Scene &s,const LoadOptions &options){
  float floor=lo[1];double weight=0;for(auto [key,value]:ground)if(value>weight){weight=value;floor=key/(10*scale);}
  for(auto &b:s.batches)for(auto &v:b.vertices){v.x=(v.x-cx)*scale;v.z=(v.z-cz)*scale;v.y=(v.y-floor)*scale;}
  s.minimum={(lo[0]-cx)*scale,(lo[1]-floor)*scale,(lo[2]-cz)*scale};s.maximum={(hi[0]-cx)*scale,(hi[1]-floor)*scale,(hi[2]-cz)*scale};
+ s.sourceMapped=true;s.sourceScale=scale;s.sourceOffset={cx,floor,cz};
  // Only physical building wall slices block walking. Ground is the existing
  // continuous y=0 walking plane: missing/uneven mesh coverage must NOT become a wall.
  for(const auto &batch:s.batches){

@@ -127,4 +127,15 @@
     <string name="fpv_switch_view">Смена вида</string>
     <string name="fpv_switch_view_description">Сменить вид: FPV или орбитальная камера</string>
     <string name="fpv_exit">Выйти из FPV</string>
+    <!-- Realms map mode (pause menu > Maps) -->
+    <string name="pause_maps">Карты…</string>
+    <string name="pause_leave_map">Покинуть карту</string>
+    <string name="pause_noclip_on">Включить noclip</string>
+    <string name="pause_noclip_off">Выключить noclip</string>
+    <string name="maps_title">Карты</string>
+    <string name="maps_empty">Карты не найдены. Положите файлы .bsp, .glb или .gltf в maps/.</string>
+    <string name="map_loading">Загрузка %1$s…</string>
+    <string name="notice_map_mode">Карта: %1$s · пауза → Покинуть карту</string>
+    <string name="notice_map_textures">Карта: %1$s · загрузка текстур…</string>
+    <string name="notice_map_failed">Не удалось загрузить карту.</string>
 </resources>

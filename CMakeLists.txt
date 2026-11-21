@@ -111,6 +111,7 @@ if(ENABLE_DESKTOP_SANDBOX)
         "${DESKTOP_SRC_DIR}/Localization.cpp"
         "${DESKTOP_SRC_DIR}/DesktopConsole.cpp"
         "${DESKTOP_SRC_DIR}/DesktopMapMode.cpp"
+        "${SHARED_CPP_DIR}/MapSession.cpp"
         "${SHARED_CPP_DIR}/GltfScene.cpp"
         "${SHARED_CPP_DIR}/ImageDecode.cpp"
     )
@@ -328,6 +329,7 @@ set_tests_properties(realms_bridge_native PROPERTIES ENVIRONMENT "REALMS_CORE=")
 add_executable(realms_map_render_alignment_test
     tests/realms/map_render_alignment_test.cpp
     "${SHARED_CPP_DIR}/GltfScene.cpp"
+    "${SHARED_CPP_DIR}/MapSession.cpp"
     "${SHARED_CPP_DIR}/ImageDecode.cpp"
 )
 target_include_directories(realms_map_render_alignment_test PRIVATE tests/realms "${SHARED_CPP_DIR}")

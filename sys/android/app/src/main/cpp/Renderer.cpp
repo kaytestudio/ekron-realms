@@ -14,6 +14,9 @@
 #include "LevelPlacement.h"
 #include "DebugPlayer.h"
 #include <atomic>
+#include <algorithm>
+#include <cctype>
+#include <string>
 #include <fstream>
 #include <android/asset_manager.h>
 #include "RealmsAndroid.h"
@@ -42,6 +45,25 @@ std::mutex snapshotMutex;
 // Status slots 14, 15 and 16 expose stance, yaw and pitch respectively.
 std::array<float,7> snapshot{0,1.7f,0,0,0,0,0};
 sandbox::RemotePlayers remotePlayers;
+// Realms map mode. Requests come from the Java UI thread; everything else
+// lives on the native game thread.
+constexpr const char *kCityAsset="models/abandoned_city_street_for_games.glb";
+std::mutex mapRequestMutex;
+std::vector<std::string> mapRequests;
+std::atomic<int> mapState{0}; // status slot 17: 0 sandbox, 1 map, 2 map with its textured model loading
+std::mutex mapPathMutex;
+std::string mapPathShown;
+void showMapPath(const std::string &path){std::lock_guard<std::mutex> lock(mapPathMutex);mapPathShown=path;}
+// Walker state kept across EGL surface recreation (like retainedWorld).
+struct RetainedMap {std::string path;realms::MapWalker walker;float yaw=0,pitch=0;bool crouch=false;};
+std::optional<RetainedMap> retainedMap;
+// Map names from the UI: asset / storage relative paths, quoted for the
+// command line, so no quotes, separators or parent references.
+bool safeMapName(const std::string &name){
+ if(name.empty()||name.size()>240||name[0]=='/'||name.find("..")!=std::string::npos)return false;
+ for(char c:name)if(!(std::isalnum(static_cast<unsigned char>(c))||c=='_'||c=='-'||c=='.'||c=='/'||c==' '))return false;
+ return true;
+}
 struct LoadGuard {bool complete=false;~LoadGuard(){if(!complete)loadStage=-1;}};
 city::SpawnConfig readSpawnConfig(android_app *app){
  city::SpawnConfig config;std::string text,error;
@@ -184,8 +206,19 @@ extern "C" JNIEXPORT void JNICALL Java_com_example_realms_MainActivity_nativeCom
  std::lock_guard<std::mutex> lock(commandMutex);if(commands.size()<64)commands.push_back(command);
 }
 
+extern "C" JNIEXPORT void JNICALL Java_com_example_realms_MainActivity_nativeLoadMap(JNIEnv *env,jobject,jstring path){
+ if(!path)return;
+ const char *chars=env->GetStringUTFChars(path,nullptr);if(!chars)return;
+ std::string name(chars);env->ReleaseStringUTFChars(path,chars);
+ if(!safeMapName(name)){__android_log_print(ANDROID_LOG_WARN,"Realms","map: rejected name");return;}
+ std::lock_guard<std::mutex> lock(mapRequestMutex);if(mapRequests.size()<4)mapRequests.push_back(name);
+}
+extern "C" JNIEXPORT jstring JNICALL Java_com_example_realms_MainActivity_nativeMapPath(JNIEnv *env,jobject){
+ std::string path;{std::lock_guard<std::mutex> lock(mapPathMutex);path=mapPathShown;}
+ return env->NewStringUTF(path.c_str());
+}
 extern "C" JNIEXPORT jfloatArray JNICALL Java_com_example_realms_MainActivity_nativeStatus(JNIEnv *env,jobject){
- std::array<float,17> values{};{std::lock_guard<std::mutex> lock(snapshotMutex);std::copy_n(snapshot.begin(),4,values.begin());values[14]=snapshot[4];values[15]=snapshot[5];values[16]=snapshot[6];}
+ std::array<float,18> values{};values[17]=float(mapState.load());{std::lock_guard<std::mutex> lock(snapshotMutex);std::copy_n(snapshot.begin(),4,values.begin());values[14]=snapshot[4];values[15]=snapshot[5];values[16]=snapshot[6];}
  values[13]=float(droneMode.load());
  values[12]=float(freezeState.load());
  values[11]=float(interactionAction.load());
@@ -211,7 +244,10 @@ Renderer::Renderer(android_app *app):app_(app),last_(std::chrono::steady_clock::
  // Realms Engine (Quake 2 stack): cvars, command buffer and config are shared with Desktop/iOS.
  auto &engine=realms_android::ensureEngine(app);
  engine.addCommand("noclip",[this](const realms::CommandArgs&){if(drone_.piloting()||seatedCar_>=0)return;flying_=!flying_;player_.reset(world_.x,world_.y,world_.z);});
- engine.addCommand("respawn",[this](const realms::CommandArgs&){respawnPlayer();});
+ engine.addCommand("respawn",[this](const realms::CommandArgs&){if(mapMode_.active())mapMode_.respawn(realms_android::ensureEngine(app_));else respawnPlayer();});
+ // A map still loaded in the engine (surface recreated) reopens once the sandbox is up.
+ {std::string ignored;while(realms_android::takeMapChange(ignored)){}}
+ if(engine.mapLoaded()){pendingMap_=engine.mapPath();mapChangePending_=true;}else{retainedMap.reset();mapState=0;showMapPath("");}
  loadStage=0;debugNotice=0;currentTool=0;holdingObject=false;LoadGuard loadGuard;flying_=retainedWorld?retainedFlying:false;
  savePath_=std::string(app->activity->internalDataPath)+"/sandbox-v1.txt";
  if(retainedWorld)world_=*retainedWorld;else world_.load(savePath_);
@@ -232,7 +268,7 @@ Renderer::Renderer(android_app *app):app_(app),last_(std::chrono::steady_clock::
  auto manager=app_->activity->assetManager;auto navigation=std::make_shared<sandbox::World>(world_);
  assetsJob_=std::async(std::launch::async,[manager,navigation](){
   PreparedAssets result;result.textures=TextureLoader::prepare(manager);loadPercent=12;loadStage=2;
-  result.valid=city::GltfRenderer::prepare(manager,"models/abandoned_city_street_for_games.glb",result.city,result.log);loadPercent=58;
+  result.valid=city::GltfRenderer::prepare(manager,kCityAsset,result.city,result.log);loadPercent=58;
   if(!result.valid)return result;
   loadStage=3;
   navigation->walls=result.city.colliders;navigation->wallSegments=result.city.wallSegments;
@@ -307,13 +343,37 @@ Renderer::~Renderer(){
  tools_.cancel(world_);
  if(saveJob_.valid())saveJob_.get();
  if(saveDirty_)world_.save(savePath_);
+ if(mapMode_.active())retainedMap=RetainedMap{mapMode_.session().path(),mapMode_.session().walker(),mapYaw_,mapPitch_,mapCrouch_};
  if(assetsInstalled_){retainedWorld=world_;retainedDrone=drone_;retainedTool=tools_.tool;retainedFlying=flying_;}
- if(display_!=EGL_NO_DISPLAY){if(context_!=EGL_NO_CONTEXT&&surface_!=EGL_NO_SURFACE&&eglMakeCurrent(display_,surface_,surface_,context_)){droneModel_.release();remote_.release();car_.release();city_.release();textures_.release();if(skyProgram_)glDeleteProgram(skyProgram_);if(buffer_)glDeleteBuffers(1,&buffer_);if(vao_)glDeleteVertexArrays(1,&vao_);if(program_)glDeleteProgram(program_);}eglMakeCurrent(display_,EGL_NO_SURFACE,EGL_NO_SURFACE,EGL_NO_CONTEXT);if(context_!=EGL_NO_CONTEXT)eglDestroyContext(display_,context_);if(surface_!=EGL_NO_SURFACE)eglDestroySurface(display_,surface_);eglTerminate(display_);}
+ if(display_!=EGL_NO_DISPLAY){if(context_!=EGL_NO_CONTEXT&&surface_!=EGL_NO_SURFACE&&eglMakeCurrent(display_,surface_,surface_,context_)){mapMode_.close();droneModel_.release();remote_.release();car_.release();city_.release();textures_.release();if(skyProgram_)glDeleteProgram(skyProgram_);if(buffer_)glDeleteBuffers(1,&buffer_);if(vao_)glDeleteVertexArrays(1,&vao_);if(program_)glDeleteProgram(program_);}eglMakeCurrent(display_,EGL_NO_SURFACE,EGL_NO_SURFACE,EGL_NO_CONTEXT);if(context_!=EGL_NO_CONTEXT)eglDestroyContext(display_,context_);if(surface_!=EGL_NO_SURFACE)eglDestroySurface(display_,surface_);eglTerminate(display_);}
 }
 void Renderer::resetInput(){verticalInput=0;leftId_=rightId_=-1;moveX_=moveY_=0;last_=std::chrono::steady_clock::now();}
 void Renderer::handleInput(){
- std::vector<int> pending;{std::lock_guard<std::mutex> lock(commandMutex);pending.swap(commands);if(gameplayReady){if(drone_.mode==sandbox::FpvDrone::Flying)drone_.look(lookDx,lookDy);else if(!drone_.piloting()){auto &engine=realms_android::ensureEngine(app_);const float look=.004f*realms::sandbox::lookScale(engine);world_.yaw-=lookDx*look;world_.pitch=std::clamp(world_.pitch-realms::sandbox::pitchSign(engine)*lookDy*look,-1.3f,1.3f);}}lookDx=lookDy=0;}
+ std::vector<int> pending;{std::lock_guard<std::mutex> lock(commandMutex);pending.swap(commands);if(gameplayReady){if(mapMode_.active()){auto &engine=realms_android::ensureEngine(app_);const float look=.004f*realms::sandbox::lookScale(engine);mapYaw_-=lookDx*look;mapPitch_=std::clamp(mapPitch_-realms::sandbox::pitchSign(engine)*lookDy*look,-1.5f,1.5f);}
+ else if(drone_.mode==sandbox::FpvDrone::Flying)drone_.look(lookDx,lookDy);else if(!drone_.piloting()){auto &engine=realms_android::ensureEngine(app_);const float look=.004f*realms::sandbox::lookScale(engine);world_.yaw-=lookDx*look;world_.pitch=std::clamp(world_.pitch-realms::sandbox::pitchSign(engine)*lookDy*look,-1.3f,1.3f);}}lookDx=lookDy=0;}
  if(!gameplayReady){pending.clear();resetInput();drone_.leave();droneThrottle=droneYawInput=dronePitchInput=droneRollInput=0;}
+ {
+  std::vector<std::string> maps;{std::lock_guard<std::mutex> lock(mapRequestMutex);maps.swap(mapRequests);}
+  auto &engine=realms_android::ensureEngine(app_);
+  for(const auto &name:maps){
+   pollMapChange();
+   engine.exec("map \""+name+"\"\n");
+   // A failed load reports "" (the previous map is gone too).
+   const bool changed=pollMapChange();
+   debugNotice=changed&&!pendingMap_.empty()?0:7;
+  }
+  if(std::find(pending.begin(),pending.end(),50)!=pending.end()){engine.exec("killserver\n");pollMapChange();}
+  if(mapMode_.active()||mapChangePending_){
+   // Map mode: movement commands only; sandbox tools wait for killserver.
+   for(int command:pending){
+    if(command==6){auto &w=mapMode_.session().walker();w.noclip=!w.noclip;w.velocity={0,0,0};verticalInput=0;}
+    else if(command==8)mapJump_=.2f;
+    else if(command==9)mapCrouch_=!mapCrouch_;
+    else if(command==35&&mapMode_.respawn(engine)){mapYaw_=mapMode_.session().spawnRenderYaw();mapPitch_=0;resetInput();}
+   }
+   pending.clear();
+  }
+ }
  if(roadJob_.valid()&&roadJob_.wait_for(std::chrono::seconds(0))==std::future_status::ready){
   auto point=roadJob_.get();if(point){world_.x=(*point)[0];world_.z=(*point)[1];
    float ground=city_.scene().collision->groundHeight(world_.x,world_.z,2,-10);
@@ -416,6 +476,9 @@ void Renderer::render(){
  eglQuerySurface(display_,surface_,EGL_WIDTH,&width_);eglQuerySurface(display_,surface_,EGL_HEIGHT,&height_);if(width_<1||height_<1)return;
  const auto now=std::chrono::steady_clock::now();float dt=std::clamp(std::chrono::duration<float>(now-last_).count(),0.f,.05f);last_=now;
  realms_android::ensureEngine(app_).frame(dt);
+ pollMapChange();
+ if(mapChangePending_&&loadStage==6)handleMapChange();
+ if(mapMode_.active()){renderMap(dt);return;}
  if(gameplayReady&&city_.ready()){
   size_t objectCountBefore=world_.objects.size();
   bool moving=dynamics_.update(world_,*city_.scene().collision,dt,tools_.held,city_.scene().minimum,city_.scene().maximum,&tools_.held,&seatedCar_);
@@ -602,4 +665,86 @@ void Renderer::respawnPlayer(){
  if(!point){debugNotice=2;return;}
  world_.x=point->x;world_.y=point->y;world_.z=point->z;world_.yaw=world_.pitch=0;flying_=false;
  player_.reset(world_.x,world_.y,world_.z);stickRight=stickForward=verticalInput=0;resetInput();debugNotice=4;
+}
+
+// ---- Realms map mode ------------------------------------------------------
+
+bool Renderer::pollMapChange(){
+ std::string path;bool changed=false;
+ while(realms_android::takeMapChange(path)){pendingMap_=path;mapChangePending_=true;changed=true;}
+ return changed;
+}
+
+void Renderer::handleMapChange(){
+ mapChangePending_=false;
+ auto &engine=realms_android::ensureEngine(app_);
+ const std::string path=pendingMap_;
+ if(mapMode_.active())mapMode_.close();
+ mapState=0;showMapPath("");
+ if(path.empty()||!engine.mapLoaded()){retainedMap.reset();resetInput();stickRight=stickForward=verticalInput=0;return;}
+ std::string error;
+ if(!mapMode_.open(engine,city_,kCityAsset,error)){
+  __android_log_print(ANDROID_LOG_ERROR,"Realms","map mode: %s: %s",path.c_str(),error.c_str());
+  retainedMap.reset();debugNotice=7;return;
+ }
+ // Sandbox interactions pause; the sandbox world itself stays as it was.
+ if(drone_.piloting())drone_.leave();
+ droneThrottle=droneYawInput=dronePitchInput=droneRollInput=0;
+ placementPreview_.reset();
+ mapYaw_=mapMode_.session().spawnRenderYaw();mapPitch_=0;mapCrouch_=false;mapJump_=0;
+ if(retainedMap&&retainedMap->path==mapMode_.session().path()){
+  mapMode_.session().walker()=retainedMap->walker;mapYaw_=retainedMap->yaw;mapPitch_=retainedMap->pitch;mapCrouch_=retainedMap->crouch;
+ }
+ retainedMap.reset();
+ mapState=mapMode_.texturedPending()?2:1;showMapPath(mapMode_.session().path());
+ debugNotice=0;resetInput();stickRight=stickForward=verticalInput=0;
+ const auto &w=mapMode_.session().walker();
+ __android_log_print(ANDROID_LOG_INFO,"Realms","map mode: %s (%s), spawn %s at %.1f %.1f %.1f",path.c_str(),
+                     mapMode_.session().summary().c_str(),w.spawnSource.c_str(),w.origin[0],w.origin[1],w.origin[2]);
+}
+
+void Renderer::renderMap(float dt){
+ auto &engine=realms_android::ensureEngine(app_);
+ mapMode_.advance();
+ if(gameplayReady){
+  realms::WalkInput input;
+  input.forward=stickForward.load();input.right=stickRight.load();input.up=verticalInput.load();
+  input.jump=mapJump_>0;input.crouch=mapCrouch_;
+  mapMode_.update(engine,input,mapYaw_,mapPitch_,dt);
+ }
+ mapJump_=std::max(0.f,mapJump_-dt);
+ mapState=mapMode_.texturedPending()?2:1;
+ interactionAction=0;freezeState=0;holdingObject=false;droneMode=0;
+ const physics::Vec3 eye=mapMode_.drawEye();
+ const float aspect=float(width_)/float(height_);
+ glViewport(0,0,width_,height_);glClearColor(.56f,.61f,.63f,1);glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
+ glBindVertexArray(vao_);
+ if(skyProgram_){glDisable(GL_DEPTH_TEST);glDepthMask(GL_FALSE);glUseProgram(skyProgram_);
+  glUniform1f(glGetUniformLocation(skyProgram_,"aspect"),aspect);
+  glUniform2f(glGetUniformLocation(skyProgram_,"angles"),mapYaw_,mapPitch_);
+  glUniform1f(glGetUniformLocation(skyProgram_,"cameraRoll"),0);
+  glDrawArrays(GL_TRIANGLES,0,3);glDepthMask(GL_TRUE);glEnable(GL_DEPTH_TEST);
+ }
+ glUseProgram(program_);
+ const float identity[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
+ glUniformMatrix4fv(glGetUniformLocation(program_,"objectTransform"),1,GL_FALSE,identity);
+ glUniform1i(glGetUniformLocation(program_,"previewPass"),0);
+ textures_.bind();glUniform1i(glGetUniformLocation(program_,"albedo"),0);
+ glUniform1i(glGetUniformLocation(program_,"texturesReady"),texturesReady_?1:0);
+ glUniform1i(glGetUniformLocation(program_,"modelPass"),0);
+ glUniform1i(glGetUniformLocation(program_,"modelAlbedo"),1);
+ glUniform3f(glGetUniformLocation(program_,"lightDirection"),-.45f,-1.f,-.25f);
+ glUniform3f(glGetUniformLocation(program_,"lightColor"),.55f,.52f,.48f);
+ glUniform3f(glGetUniformLocation(program_,"ambientColor"),.55f,.59f,.65f);
+ glUniform1f(glGetUniformLocation(program_,"cameraRoll"),0);
+ glUniform3f(glGetUniformLocation(program_,"eye"),eye.x,eye.y,eye.z);
+ glUniform2f(glGetUniformLocation(program_,"angles"),mapYaw_,mapPitch_);
+ glUniform1f(glGetUniformLocation(program_,"aspect"),aspect);
+ mapMode_.draw(program_,city_);
+ glBindVertexArray(vao_);
+ if(eglSwapBuffers(display_,surface_)==EGL_TRUE){
+  const auto &w=mapMode_.session().walker();const physics::Vec3 at=mapMode_.session().eye();
+  std::lock_guard<std::mutex> lock(snapshotMutex);
+  snapshot={at.x,at.y,at.z,w.noclip?1.f:0.f,w.ducked?1.f:0.f,mapYaw_,mapPitch_};
+ }else loadStage=-1;
 }

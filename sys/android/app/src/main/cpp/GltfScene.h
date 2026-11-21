@@ -42,6 +42,12 @@ struct Scene {
     std::shared_ptr<const physics::CollisionMesh> fenceBarriers;
     float spawnX=0,spawnZ=0;
     std::array<float,3> minimum{},maximum{};
+    // How vertices relate to the file's own (source) space: when sourceMapped,
+    // vertex = (source - sourceOffset) * sourceScale. Set for keepSourceSpace
+    // (identity) and level scenes; placed (rotated) scenes leave it false.
+    bool sourceMapped=false;
+    float sourceScale=1;
+    std::array<float,3> sourceOffset{};
     // Reads both GLB and JSON glTF from assets; external paths resolve relative to the scene.
     bool load(const std::string &path,const ReadFile &read,std::string &diagnostics,const LoadOptions &options={});
 };

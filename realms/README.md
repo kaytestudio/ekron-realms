@@ -113,13 +113,26 @@ Bridge v3 adds nine functions to `RealmsCoreApi`, implemented in both cores:
 
 ### Desktop map mode
 
-On desktop, `map` swaps the sandbox for the loaded map (`sys/desktop/DesktopMapMode.*`):
+On desktop, `map` swaps the sandbox for the loaded map (`sys/desktop/DesktopMapMode.*`). The renderer-independent part is `mapview::MapSession` (`sys/android/app/src/main/cpp/MapSession.*`), shared with Android: the map-to-render space conversion, the camera conventions, material layers and the walker.
 
 - **Movement:** you walk with `realms::MapWalker`, a port of Quake 2's pmove (`PM_StepSlideMove`, friction, acceleration, 18-unit steps, ducking, swimming, jumping). It runs on `Engine::boxTrace` against whichever core is active.
 - **Controls:** WASD, Space to jump, Ctrl to crouch, N for noclip and R to respawn. `killserver` returns to the sandbox where you left it.
 - **Spawn:** `MapWalker::spawn` uses `info_player_start`, then the deathmatch and coop spots. glTF scenes rarely have any of these, so for maps without them it searches the map. It scans a 24 × 24 grid of columns for every walkable floor and takes the map's ground level: the lowest height that a tenth of the columns share, so streets beat rooftops and a room's floor beats its roof. On that level it picks the spot with the longest walkable runs in 8 directions. A run ends at a wall or a drop, and it needs floor under the player's centre, so the void past a map's rim and the tops of walls don't count as open. The search is deterministic and uses only box traces, so both cores pick the same spot. The street .glb takes about 0.3 s. Maps with no walkable floor fall back to the map's centre (or top).
 - **BSPs** are drawn from their face lump (sky and nodraw skipped). Maps without faces are drawn from their brush windings. Texture names pick the sandbox material layer (brick, metal, wood, glass, water…).
 - **glTF maps** are drawn with the textured model through the regular glTF pipeline, in the file's own space. `tests/realms/map_render_alignment_test.cpp` (CTest `realms_map_render_alignment`) checks that the drawn model and the collision coincide for every `.glb` shipped in `assets/models`.
+
+### Android map mode
+
+On Android, **pause menu → Maps…** lists every `.bsp`, `.glb` and `.gltf` under `maps/` and `models/` in the APK, plus `maps/` in the app's internal storage. Picking one runs `map "<path>"`; any other `map` command (a script, `autoexec.cfg`) switches over the same way. The code is in `sys/android/app/src/main/cpp/AndroidMapMode.*`, with hooks in `Renderer.cpp` and `MainActivity.kt`.
+
+- **Controls:** the move stick and look area walk with `realms::MapWalker`. Jump and crouch work as in the sandbox. The map's pause menu toggles noclip (↑ / ↓ for altitude), respawns, opens another map, or leaves the map (`killserver`).
+- **HUD:** the sandbox tools, catalogue and tool wheel hide while you're on a map. The sandbox world stays as it was and comes back when you leave.
+- **Drawing:**
+  - **The sandbox street:** when the map is that file, the city model already on the GPU is reused rather than a second 14 MB copy. That model is a rescaled, recentred "level" scene. `city::Scene` records how it relates to the file (`sourceScale`, `sourceOffset`), and the camera moves into that space. `realms_map_render_alignment` checks the relation, vertex by vertex, on every shipped `.glb`.
+  - **Other glTF maps:** the textured file is prepared on a worker thread and uploaded a few steps per frame. Until then the map's own triangles are drawn.
+  - **BSPs:** the map's triangles with the sandbox material layers.
+- **Lifecycle:** if Android recreates the EGL surface, the map stays loaded in the engine and map mode reopens where you were standing.
+- **Failure:** if a map fails to load, the sandbox stays and shows "The map could not be loaded."
 
 ## Shared boot (every platform)
 

@@ -5,9 +5,14 @@
 // This test proves both importers agree under that mapping - on the
 // synthetic room and on every real .glb asset shipped with the game - so the
 // player never walks on an invisible floor or through a visible wall.
+// Android draws the sandbox's already loaded city (a "level" scene: rescaled
+// and recentred) when the map is that file, through Scene::sourceScale /
+// sourceOffset; that relation is checked on every asset too, along with
+// mapview::MapSession's space and camera conversions.
 //
 //   realms_map_render_alignment_test [assets/models]
 #include "GltfScene.h"
+#include "MapSession.h"
 #include "gltf_builder.h"
 
 #include "realms/MeshMap.h"
@@ -138,12 +143,95 @@ void checkAsset(const std::filesystem::path &file) {
     if (!aligned)
         std::fprintf(stderr, "  collision bounds %.4f..%.4f x %.4f..%.4f x %.4f..%.4f\n", lo[0], hi[0], lo[1], hi[1],
                      lo[2], hi[2]);
+
+    CHECK(scene.sourceMapped && scene.sourceScale == 1.0f);
+
+    // The sandbox's level import is the source scene scaled and recentred:
+    // level = (source - sourceOffset) * sourceScale, vertex for vertex.
+    city::Scene level;
+    city::LoadOptions levelOptions;
+    levelOptions.buildPhysics = false;
+    const bool levelLoaded = level.load(name,
+                                        [&](const std::string &p, std::vector<unsigned char> &out) {
+                                            if (p != name) return false;
+                                            out.assign(bytes.begin(), bytes.end());
+                                            return true;
+                                        },
+                                        log, levelOptions);
+    CHECK(levelLoaded && level.sourceMapped && level.sourceScale > 0.0f);
+    if (!levelLoaded) return;
+    CHECK(level.batches.size() == scene.batches.size());
+    const float k = level.sourceScale;
+    const float levelTol = tol * k * 4.0f;
+    size_t compared = 0, off = 0;
+    for (size_t b = 0; b < std::min(level.batches.size(), scene.batches.size()); ++b) {
+        const auto &a = scene.batches[b].vertices, &l = level.batches[b].vertices;
+        if (a.size() != l.size()) {
+            ++off;
+            continue;
+        }
+        for (size_t i = 0; i < a.size(); i += 7) {
+            ++compared;
+            const float e[3] = {(a[i].x - level.sourceOffset[0]) * k, (a[i].y - level.sourceOffset[1]) * k,
+                                (a[i].z - level.sourceOffset[2]) * k};
+            if (std::fabs(e[0] - l[i].x) > levelTol || std::fabs(e[1] - l[i].y) > levelTol ||
+                std::fabs(e[2] - l[i].z) > levelTol)
+                ++off;
+        }
+    }
+    CHECK(compared > 0 && off == 0);
+    for (int i = 0; i < 3; ++i)
+        CHECK(std::fabs((scene.minimum[size_t(i)] - level.sourceOffset[size_t(i)]) * k - level.minimum[size_t(i)]) <=
+              levelTol);
+    std::printf("    level import: scale %.4f, offset %.2f %.2f %.2f, %zu vertices compared%s\n", k,
+                level.sourceOffset[0], level.sourceOffset[1], level.sourceOffset[2], compared, off ? "  MISMATCH" : "");
+}
+
+// mapview::MapSession conversions: map units <-> renderer metres / camera.
+void checkMapSession() {
+    const physics::Vec3 r = mapview::toRender({32.0f, 64.0f, 96.0f}, 32.0f);
+    CHECK(r.x == 1.0f && r.y == 3.0f && r.z == -2.0f);
+    for (float yaw : {0.0f, 0.5f, 1.5707964f, -2.0f, 3.0f}) {
+        realms::WalkInput in;
+        in.forward = 1.0f;
+        const realms::WalkInput w = mapview::walkInput(in, yaw, 0.25f);
+        CHECK(w.forward == 1.0f && std::fabs(w.pitch + 0.25f * 180.0f / 3.14159265f) < 1e-3f);
+        // The walker's forward, taken to render space, is the camera's forward.
+        const float a = w.yaw * 3.14159265f / 180.0f;
+        const physics::Vec3 f = mapview::toRender({std::cos(a), std::sin(a), 0.0f}, 1.0f);
+        CHECK(std::fabs(f.x + std::sin(yaw)) < 1e-4f && std::fabs(f.z + std::cos(yaw)) < 1e-4f && f.y == 0.0f);
+        CHECK(std::fabs(mapview::renderYawFromMap(w.yaw) - yaw) < 1e-4f);
+    }
+    CHECK(mapview::materialLayer("e1u1/WATER1", 0, 0) == 4 && mapview::materialLayer("x", 0, REALMS_CONTENTS_LAVA) == 4);
+    CHECK(mapview::materialLayer("city/Brick_wall", 0, 0) == 2 && mapview::materialLayer("glass", 0, 0) == 7);
+    CHECK(mapview::materialLayer("concrete", 0, 0) == 1 && mapview::materialLayer("Road", 0, 0) == 0);
+
+    // Room mesh geometry in render space equals the source-space scene.
+    const std::string room = gltf_builder::roomGlb();
+    realms::MeshMap map;
+    std::string error, log;
+    CHECK(convert("room.glb", room, map, error));
+    realms::MapGeometry geometry;
+    realms::meshMapGeometry(map, geometry);
+    std::vector<sandbox::MeshVertex> vertices;
+    mapview::toRenderVertices(geometry, kScale, vertices);
+    CHECK(vertices.size() == 24);
+    city::Scene scene;
+    CHECK(loadScene("room.glb", room, scene, log));
+    bool inside = !vertices.empty();
+    for (const auto &v : vertices)
+        for (int i = 0; i < 3; ++i) {
+            const float c = i == 0 ? v.x : i == 1 ? v.y : v.z;
+            if (c < scene.minimum[size_t(i)] || c > scene.maximum[size_t(i)]) inside = false;
+        }
+    CHECK(inside);
 }
 
 } // namespace
 
 int main(int argc, char **argv) {
     checkRoom();
+    checkMapSession();
     if (argc > 1) {
         std::vector<std::filesystem::path> files;
         for (const auto &e : std::filesystem::directory_iterator(argv[1]))
