@@ -100,9 +100,9 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build pkg-config \
             libsdl2-dev libgl1-mesa-dev fpc fp-units-fcl
-          # Debian/Ubuntu ship lazbuild in lcl-utils(-X.Y); it needs the Lazarus
-          # directory with lcl/ (lcl-nogui pulls in lcl-units).
-          for pkg in "lcl-utils lcl-nogui" "lcl-utils-3.0 lcl-nogui-3.0" lazarus; do
+          # Debian/Ubuntu ship lazbuild in lcl-utils(-X.Y); it needs a complete
+          # Lazarus directory (lcl/, packager/globallinks: lazarus-src, lcl).
+          for pkg in "lcl-utils lcl-nogui lazarus-src" lazarus; do
             if sudo apt-get install -y --no-install-recommends $pkg > "/tmp/apt-${pkg%% *}.log" 2>&1; then
               echo "installed $pkg"; break
             fi
