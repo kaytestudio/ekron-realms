@@ -131,7 +131,14 @@ jobs:
           set -euo pipefail
           for lpi in Projects/realms.lpi realms.lpi; do
             rm -f build/realms-pascal
-            lazbuild "$lpi"
+            if ! lazbuild "$lpi" > /tmp/lazbuild.log 2>&1; then
+              cat /tmp/lazbuild.log
+              grep -iE 'error|fatal|exception|not found|unable' /tmp/lazbuild.log | tail -n 8 | while IFS= read -r line; do
+                echo "::error::[lazbuild $lpi] $line"
+              done
+              tail -n 4 /tmp/lazbuild.log | while IFS= read -r line; do echo "::error::[lazbuild $lpi] $line"; done
+              exit 1
+            fi
             build/realms-pascal --engine-info | tee /tmp/info.log
             grep -q 'Origin:   linked' /tmp/info.log
           done
