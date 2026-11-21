@@ -40,7 +40,9 @@ uses
 type
   TRealmsGetApi = function(requested_version: cuint32): PRealmsCoreApi; cdecl;
 
-{ sys/desktop/ekron_sandbox.h }
+{ sys/desktop/ekron_sandbox.h. On Darwin FPC ignores the library named by
+  `external`, so link it explicitly. }
+{$linklib ekron_sandbox}
 function ekron_sandbox_run(argc: cint; argv: PPChar; pascalCore: TRealmsGetApi): cint; cdecl;
   external 'ekron_sandbox' name 'ekron_sandbox_run';
 
