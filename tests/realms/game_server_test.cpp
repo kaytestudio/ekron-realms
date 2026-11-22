@@ -19,6 +19,7 @@
 #include "md2_builder.h"
 
 #include "realms/Engine.h"
+#include "realms/GameEffects.h"
 #include "realms/GameServer.h"
 #include "realms/GameView.h"
 #include "realms/MapGeometry.h"
@@ -542,8 +543,41 @@ void runGameChecks(realms::Engine &engine, const std::string &gameLibrary) {
         events.insert(events.end(), ev.begin(), ev.end());
     }
     bool flash = false;
-    for (const auto &e : events) flash |= e.kind == realms::GameEvent::Kind::MuzzleFlash && e.entity == 1;
+    const realms::GameEvent *impact = nullptr;
+    for (const auto &e : events) {
+        if (e.kind == realms::GameEvent::Kind::MuzzleFlash && e.entity == 1) {
+            flash = true;
+            CHECK((e.level & ~realms::GMZ_SILENCED) == realms::GMZ_SHOTGUN);
+            CHECK(near(e.angles[1], player->s.angles[1], 1e-3f));
+        }
+        if (e.kind == realms::GameEvent::Kind::TempEntity && !impact) impact = &e;
+    }
     CHECK(flash);
+    // the pellets hit the arena: TE_SHOTGUN with the wall's byte direction
+    CHECK(impact && (impact->level == realms::GTE_SHOTGUN || impact->level == realms::GTE_GUNSHOT));
+    if (impact) {
+        const float len = std::sqrt(impact->dir[0] * impact->dir[0] + impact->dir[1] * impact->dir[1] +
+                                    impact->dir[2] * impact->dir[2]);
+        CHECK(near(len, 1.0f, 1e-3f));
+        // positions travel as shorts * 1/8
+        CHECK(near(impact->origin[0] * 8, std::round(impact->origin[0] * 8), 1e-3f));
+    }
+    {
+        // ... and the client effects: the flash's light, puffs and smoke
+        realms::GameEffects fx;
+        const double t = realms::clientTimeMs(server);
+        for (const auto &e : events) fx.handleEvent(e, t);
+        CHECK(fx.dlightCount(t) >= 1);
+        CHECK(fx.particleCount() >= 20);
+        std::vector<realms::GameEffectModel> fxModels;
+        fx.models(t, fxModels);
+        bool smoke = false;
+        for (const auto &m : fxModels) smoke |= m.model == "models/objects/smoke/tris.md2";
+        CHECK(smoke);
+        bool shotSound = false;
+        for (const auto &e : fx.takeSounds()) shotSound |= e.text == "sound/weapons/shotgf1b.wav" && e.entity == 1;
+        CHECK(shotSound);
+    }
     CHECK(player->client->ps.stats[Q2_STAT_AMMO] < 10);
     // the game's cvars mirror the engine's
     engine.setCvar("skill", "3");

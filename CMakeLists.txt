@@ -141,6 +141,7 @@ if(ENABLE_DESKTOP_SANDBOX)
         "${DESKTOP_SRC_DIR}/Localization.cpp"
         "${DESKTOP_SRC_DIR}/DesktopConsole.cpp"
         "${DESKTOP_SRC_DIR}/DesktopMapMode.cpp"
+        "${DESKTOP_SRC_DIR}/DesktopGameSound.cpp"
         "${DESKTOP_SRC_DIR}/DesktopAudio.cpp"
         "${SHARED_CPP_DIR}/MapSession.cpp"
         "${SHARED_CPP_DIR}/SoundDecode.cpp"
@@ -494,6 +495,13 @@ add_executable(realms_md2_test tests/realms/md2_test.cpp)
 target_include_directories(realms_md2_test PRIVATE tests/realms)
 target_link_libraries(realms_md2_test PRIVATE realms_engine)
 add_test(NAME realms_md2 COMMAND realms_md2_test)
+
+# Quake 2 client effects (realms::GameEffects): temp entities, muzzle
+# flashes, trails, lights, explosions - no game module needed.
+add_executable(realms_game_effects_test tests/realms/game_effects_test.cpp)
+target_include_directories(realms_game_effects_test PRIVATE tests/realms)
+target_link_libraries(realms_game_effects_test PRIVATE realms_engine)
+add_test(NAME realms_game_effects COMMAND realms_game_effects_test)
 
 # Desktop map mode: entity poses and .md2 vertices in render space (the view
 # weapon follows the camera for every yaw / pitch). Header-only, no SDL / GL.

@@ -95,6 +95,11 @@ bool DesktopMapMode::startGame(realms::Engine &engine, std::string &why) {
     }
     lastPickup_ = 0;
     lerp_.reset();
+    effects_.reset();
+    gameSounds_.clear();
+    std::string palette;
+    if (!effects_.loadPalette(engine, &palette))
+        engine.print("map: effects use approximate colours (" + palette + ")\n", REALMS_PRINT_DEVELOPER);
     syncFromGame();
     return true;
 }
@@ -107,6 +112,9 @@ void DesktopMapMode::close(ekron::gl::Api &gl, DesktopRenderer &renderer) {
     poses_.clear();
     messages_.clear();
     lerp_.reset();
+    effects_.reset();
+    gameSounds_.clear();
+    renderer.clearMapEffects();
     models_.clear();
     scene_.clear();
     releaseSkins(gl);
@@ -164,7 +172,12 @@ void DesktopMapMode::syncFromGame() {
         }
         lastPickup_ = pickup;
     }
+    // Client time: the server frames plus the interpolation fraction, so
+    // effects advance smoothly between game frames.
+    const double now = realms::clientTimeMs(g);
     for (const realms::GameEvent &ev : game_->takeEvents()) {
+        effects_.handleEvent(ev, now); // temp entities, muzzle flashes, entity events
+        if (ev.kind == realms::GameEvent::Kind::Sound) gameSounds_.push_back(ev);
         if (ev.kind == realms::GameEvent::Kind::CenterPrint && !ev.text.empty()) {
             std::string t = ev.text;
             while (!t.empty() && (t.back() == '\n' || t.back() == ' ')) t.pop_back();
@@ -190,6 +203,111 @@ void DesktopMapMode::syncFromGame() {
         poses_[size_t(m)].transform = entityTransform(l.origin.data(), l.angles.data(), session_.unitsPerMetre());
     }
     for (size_t m = 1; m < poses_.size(); m++) poses_[m].visible = used[m];
+
+    // Entity effects (trails, flies, lights), laser entities, then age everything.
+    effects_.addEntityEffects(lerped, g.frameNumber(), now);
+    effects_.setBeamEntities(g.beamEntities());
+    effects_.update(now);
+    for (realms::GameEvent &ev : effects_.takeSounds()) gameSounds_.push_back(std::move(ev));
+    if (gameSounds_.size() > 256) gameSounds_.erase(gameSounds_.begin(), gameSounds_.end() - 256);
+}
+
+std::vector<realms::GameEvent> DesktopMapMode::takeGameSounds() {
+    std::vector<realms::GameEvent> out;
+    out.swap(gameSounds_);
+    return out;
+}
+
+std::vector<realms::GameLoopSound> DesktopMapMode::loopSounds() const {
+    return gameRunning() ? game_->loopSounds() : std::vector<realms::GameLoopSound>{};
+}
+
+realms::GameListener DesktopMapMode::listener() const {
+    realms::GameListener l;
+    if (!gameRunning()) return l;
+    l.origin = game_->viewOrigin();
+    l.right = realms::gameRightVector(game_->viewAngles());
+    l.entity = 1; // the local player's edict
+    return l;
+}
+
+void DesktopMapMode::buildEffects(float renderYaw, float renderPitch,
+                                  std::vector<DesktopRenderer::EffectVertex> &vertices,
+                                  std::vector<DesktopRenderer::DynamicLight> &lights) {
+    vertices.clear();
+    lights.clear();
+    if (!gameRunning()) return;
+    const double now = realms::clientTimeMs(*game_);
+    const float upm = session_.unitsPerMetre();
+    // the camera in Quake 2 space
+    const realms::WalkInput view = mapview::walkInput({}, renderYaw, renderPitch);
+    const float d2r = 3.14159265f / 180.0f;
+    const float sy = std::sin(view.yaw * d2r), cy = std::cos(view.yaw * d2r);
+    const float sp = std::sin(view.pitch * d2r), cp = std::cos(view.pitch * d2r);
+    const std::array<float, 3> forward{cp * cy, cp * sy, -sp}, right{sy, -cy, 0.0f}, up{sp * cy, sp * sy, cp};
+    const realms::Vec3 eyeQ = game_->viewOrigin();
+    auto toR = [&](const std::array<float, 3> &q) { return mapview::toRender(realms::Vec3{q[0], q[1], q[2]}, upm); };
+    auto quad = [&](const std::array<std::array<float, 3>, 4> &c, const std::array<float, 4> &col, float shape) {
+        static const float uv[4][2] = {{-1, -1}, {1, -1}, {1, 1}, {-1, 1}};
+        static const int order[6] = {0, 1, 2, 0, 2, 3};
+        for (int k : order) {
+            const physics::Vec3 r = toR(c[size_t(k)]);
+            vertices.push_back({r.x, r.y, r.z, col[0], col[1], col[2], col[3], uv[k][0], uv[k][1], shape});
+        }
+    };
+
+    effects_.particles(now, fxParticles_);
+    vertices.reserve(fxParticles_.size() * 6 + 64);
+    for (const realms::GameParticle &p : fxParticles_) {
+        // gl_rpart.c: about one unit up close, growing with distance
+        const float depth = (p.origin[0] - eyeQ[0]) * forward[0] + (p.origin[1] - eyeQ[1]) * forward[1] +
+                            (p.origin[2] - eyeQ[2]) * forward[2];
+        if (depth < 1.0f) continue; // behind the camera
+        const float scale = depth < 20.0f ? 1.0f : 1.0f + depth * 0.004f;
+        const float h = p.size > 1.0f ? p.size : 0.8f * scale;
+        std::array<std::array<float, 3>, 4> c;
+        for (int k = 0; k < 3; k++) {
+            const size_t i = size_t(k);
+            c[0][i] = p.origin[i] - right[i] * h - up[i] * h;
+            c[1][i] = p.origin[i] + right[i] * h - up[i] * h;
+            c[2][i] = p.origin[i] + right[i] * h + up[i] * h;
+            c[3][i] = p.origin[i] - right[i] * h + up[i] * h;
+        }
+        quad(c, p.color, 0.0f);
+    }
+    effects_.beams(now, fxBeams_);
+    for (const realms::GameBeam &b : fxBeams_) {
+        std::array<float, 3> dir{b.end[0] - b.start[0], b.end[1] - b.start[1], b.end[2] - b.start[2]};
+        const std::array<float, 3> mid{(b.start[0] + b.end[0]) * 0.5f - eyeQ[0], (b.start[1] + b.end[1]) * 0.5f - eyeQ[1],
+                                       (b.start[2] + b.end[2]) * 0.5f - eyeQ[2]};
+        std::array<float, 3> side{dir[1] * mid[2] - dir[2] * mid[1], dir[2] * mid[0] - dir[0] * mid[2],
+                                  dir[0] * mid[1] - dir[1] * mid[0]};
+        const float len = std::sqrt(side[0] * side[0] + side[1] * side[1] + side[2] * side[2]);
+        if (len < 1e-6f) continue;
+        for (float &v : side) v *= 0.5f * b.width / len;
+        std::array<std::array<float, 3>, 4> c;
+        for (size_t i = 0; i < 3; i++) {
+            c[0][i] = b.start[i] - side[i];
+            c[1][i] = b.start[i] + side[i];
+            c[2][i] = b.end[i] + side[i];
+            c[3][i] = b.end[i] - side[i];
+        }
+        quad(c, b.color, 1.0f);
+    }
+    // lights: the closest to the camera first
+    effects_.lights(now, fxLights_);
+    std::sort(fxLights_.begin(), fxLights_.end(), [&](const realms::GameDynamicLight &a, const realms::GameDynamicLight &b) {
+        auto d = [&](const realms::GameDynamicLight &l) {
+            const float x = l.origin[0] - eyeQ[0], y = l.origin[1] - eyeQ[1], z = l.origin[2] - eyeQ[2];
+            return x * x + y * y + z * z - l.radius * l.radius;
+        };
+        return d(a) < d(b);
+    });
+    for (const realms::GameDynamicLight &l : fxLights_) {
+        if (lights.size() >= DesktopRenderer::kMaxMapLights) break;
+        const physics::Vec3 r = toR(l.origin);
+        lights.push_back({r.x, r.y, r.z, l.radius / upm, l.color[0], l.color[1], l.color[2]});
+    }
 }
 
 void DesktopMapMode::releaseSkins(ekron::gl::Api &gl) {
@@ -237,6 +355,9 @@ void DesktopMapMode::buildEntities(realms::Engine &engine, ekron::gl::Api &gl, f
     const realms::WalkInput view = mapview::walkInput({}, renderYaw, renderPitch);
     opt.cameraAngles = {view.pitch, view.yaw, 0.0f};
     realms::buildGameScene(engine, *game_, lerp_, models_, opt, scene_);
+    // explosions, smoke, flashes and cable segments (cl_tent.c)
+    effects_.models(realms::clientTimeMs(*game_), fxModels_);
+    realms::appendEffectModels(engine, models_, fxModels_, scene_);
     for (const std::string &e : models_.takeErrors()) engine.print("map: model " + e + "\n", REALMS_PRINT_DEVELOPER);
 
     // Model space (Quake 2 units, x forward, y left, z up) to the renderer's
@@ -260,6 +381,7 @@ void DesktopMapMode::buildEntities(realms::Engine &engine, ekron::gl::Api &gl, f
         if (!out.texture && !b.fallbackBox) out.color = {0.7f * b.color[0], 0.7f * b.color[1], 0.72f * b.color[2], b.color[3]};
         out.transform = entityTransform(b.origin.data(), b.angles.data(), session_.unitsPerMetre());
         out.viewWeapon = b.viewWeapon;
+        out.fullbright = b.fullbright;
         batches.push_back(out);
     }
 }

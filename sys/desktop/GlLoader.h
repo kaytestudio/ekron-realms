@@ -146,6 +146,7 @@ using PFN_glUniform1f              = void (APIENTRYP)(GLint, GLfloat);
 using PFN_glUniform2f              = void (APIENTRYP)(GLint, GLfloat, GLfloat);
 using PFN_glUniform3f              = void (APIENTRYP)(GLint, GLfloat, GLfloat, GLfloat);
 using PFN_glUniform4f              = void (APIENTRYP)(GLint, GLfloat, GLfloat, GLfloat, GLfloat);
+using PFN_glUniform4fv             = void (APIENTRYP)(GLint, GLsizei, const GLfloat *);
 using PFN_glUniformMatrix4fv       = void (APIENTRYP)(GLint, GLsizei, GLboolean, const GLfloat *);
 using PFN_glGenFramebuffers        = void (APIENTRYP)(GLsizei, GLuint *);
 using PFN_glDeleteFramebuffers     = void (APIENTRYP)(GLsizei, const GLuint *);
@@ -206,6 +207,7 @@ struct Api {
     PFN_glUniform2f               Uniform2f = nullptr;
     PFN_glUniform3f               Uniform3f = nullptr;
     PFN_glUniform4f               Uniform4f = nullptr;
+    PFN_glUniform4fv              Uniform4fv = nullptr;
     PFN_glUniformMatrix4fv        UniformMatrix4fv = nullptr;
     PFN_glGenFramebuffers         GenFramebuffers = nullptr;
     PFN_glDeleteFramebuffers      DeleteFramebuffers = nullptr;
@@ -272,6 +274,7 @@ struct Api {
         resolve(Uniform2f, "glUniform2f");
         resolve(Uniform3f, "glUniform3f");
         resolve(Uniform4f, "glUniform4f");
+        resolve(Uniform4fv, "glUniform4fv");
         resolve(UniformMatrix4fv, "glUniformMatrix4fv");
         resolve(GenFramebuffers, "glGenFramebuffers");
         resolve(DeleteFramebuffers, "glDeleteFramebuffers");

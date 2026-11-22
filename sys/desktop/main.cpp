@@ -24,6 +24,7 @@
 #include "ShopCatalog.h"
 #include "SoundSnapshot.h"
 #include "SoundSystem.h"
+#include "DesktopGameSound.h"
 #include "GravityBeam.h"
 #include "Interaction.h"
 #include "LevelPlacement.h"
@@ -749,6 +750,10 @@ int main(int argc, char **argv)
     ekron::desktop::DesktopMapMode mapMode;
     std::vector<ekron::desktop::DesktopRenderer::EntityVertex> mapEntityVertices; // reused every frame
     std::vector<ekron::desktop::DesktopRenderer::EntityBatch> mapEntityBatches;
+    std::vector<ekron::desktop::DesktopRenderer::EffectVertex> mapEffectVertices;
+    std::vector<ekron::desktop::DesktopRenderer::DynamicLight> mapLights;
+    // Quake 2 game sounds (.wav from the VFS) on the same mixer
+    ekron::desktop::DesktopGameSound gameSound;
 
     // Game sound: assets/sounds (CC0, credited in LICENSE.md there), decoded
     // on a worker thread while the rest loads. No audio device = silence.
@@ -1523,6 +1528,8 @@ int main(int argc, char **argv)
             pendingMapChange.reset();
             const bool wasActive = mapMode.active();
             sound.director().reset();
+            if (wasActive) engine.print("map: " + gameSound.summary() + "\n", REALMS_PRINT_DEVELOPER);
+            gameSound.stop(sound.mixer());
             if (target.empty()) {
                 if (wasActive) {
                     mapMode.close(gl, renderer);
@@ -1692,6 +1699,10 @@ int main(int argc, char **argv)
         sound.syncCvars(engine);
         if (mapMode.active()) {
             sound.director().map(ekron::audio::mapFrame(!pauseOpen, engine, mapMode.walker(), world.yaw), dt, sound);
+            // the game's own sounds, the effects' and the entity loops
+            std::vector<realms::GameEvent> gameSounds = mapMode.takeGameSounds();
+            if (pauseOpen) gameSound.stop(sound.mixer());
+            else gameSound.update(engine, sound.mixer(), gameSounds, mapMode.loopSounds(), mapMode.listener(), dt);
         } else {
             ekron::audio::Listener ear;
             const physics::Vec3 earAt = drone.piloting() ? drone.camera() : physics::Vec3{world.x, world.y, world.z};
@@ -1867,6 +1878,9 @@ int main(int argc, char **argv)
             // items, monsters, projectiles and the view weapon (.md2, or boxes without id's data)
             mapMode.buildEntities(engine, gl, world.yaw, world.pitch, mapEntityVertices, mapEntityBatches);
             renderer.setMapEntities(gl, mapEntityVertices, std::move(mapEntityBatches));
+            // particles, trails, laser beams and dynamic lights (cl_fx.c / cl_tent.c)
+            mapMode.buildEffects(world.yaw, world.pitch, mapEffectVertices, mapLights);
+            renderer.setMapEffects(gl, mapEffectVertices, mapLights);
             renderer.renderMapWorld(gl, drawW, drawH, mapMode.model(), mapMode.eye(), world.yaw, world.pitch, 0.0f);
         } else renderer.renderMainWorld(
             gl, drawW, drawH,
@@ -2238,6 +2252,7 @@ int main(int argc, char **argv)
         saved.save(savePath);
     }
 
+    gameSound.stop(sound.mixer());
     audio.close();
     sound.unregisterCommands(engine);
     droneModel.release(gl);

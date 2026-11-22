@@ -15,7 +15,9 @@
 #include "MapSession.h"
 
 #include "realms/Engine.h"
+#include "realms/GameEffects.h"
 #include "realms/GameServer.h"
+#include "realms/GameSound.h"
 #include "realms/GameView.h"
 
 #include <memory>
@@ -72,6 +74,19 @@ public:
     void buildEntities(realms::Engine &engine, ekron::gl::Api &gl, float renderYaw, float renderPitch,
                        std::vector<DesktopRenderer::EntityVertex> &vertices,
                        std::vector<DesktopRenderer::EntityBatch> &batches);
+    // The client effects (realms::GameEffects) for DesktopRenderer::setMapEffects:
+    // particles and glows as camera-facing quads, laser beams, and the
+    // dynamic lights closest to the camera first. Explosion / smoke / cable
+    // models come with buildEntities. Empty without a game.
+    void buildEffects(float renderYaw, float renderPitch, std::vector<DesktopRenderer::EffectVertex> &vertices,
+                      std::vector<DesktopRenderer::DynamicLight> &lights);
+    // Sounds to start since the last call (the game's, and the effects'
+    // muzzle flash / impact sounds) and the entity loop sounds now, for
+    // DesktopGameSound; the listener is the game's view.
+    std::vector<realms::GameEvent> takeGameSounds();
+    std::vector<realms::GameLoopSound> loopSounds() const;
+    realms::GameListener listener() const;
+    const realms::GameEffects &effects() const { return effects_; }
 
 private:
     bool startGame(realms::Engine &engine, std::string &why);
@@ -90,6 +105,12 @@ private:
     void releaseSkins(ekron::gl::Api &gl);
     GLuint skinTexture(realms::Engine &engine, ekron::gl::Api &gl, const std::string &name);
     int lastPickup_ = 0;
+    realms::GameEffects effects_;
+    std::vector<realms::GameEvent> gameSounds_;
+    std::vector<realms::GameEffectModel> fxModels_;
+    std::vector<realms::GameParticle> fxParticles_;
+    std::vector<realms::GameDynamicLight> fxLights_;
+    std::vector<realms::GameBeam> fxBeams_;
 };
 
 } // namespace ekron::desktop

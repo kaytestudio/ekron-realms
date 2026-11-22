@@ -163,6 +163,38 @@ What a Quake 2 client does with the server's frames lives in `realms/` too, with
 
 On desktop, `DesktopMapMode::buildEntities` uploads the skins once, converts the vertices to render space (`sys/desktop/MapEntityTransform.h`) and hands the batches to `DesktopRenderer::setMapEntities`. The renderer draws them after the map with the textured model shader: opaque first, then translucent, then the view weapon over a cleared depth buffer (Quake 2's `RF_DEPTHHACK`).
 
+#### Client effects (`GameEffects`, `GameSound`)
+
+The parts of the Quake 2 client that are not entities are in `realms/` as well (`realms/include/realms/GameEffects.h`, `GameSound.h`):
+
+- **Messages.** `GameServer` parses `svc_temp_entity` with `CL_ParseTEnt`'s layout for every temp entity of the game API (base game, Xatrix, Rogue): positions as `short × 1/8`, directions as the 162 `bytedirs` (`gameDirToByte` / `gameByteDir`). The results are `GameEvent`s:
+  - `TempEntity` events with `origin`, `end`, `dir`, `count`, `color` and the other fields;
+  - `MuzzleFlash` events with the entity's angles;
+  - `EntityEvent` events (`EV_ITEM_RESPAWN`, teleports) next to their sounds;
+  - `Sound` events that keep their `timeofs` delay.
+- **`GameEffects`** follows `cl_fx.c`, `cl_tent.c` and `cl_ents.c`:
+  - **Particles:** up to 4096 at a time, with `PARTICLE_GRAVITY` and alpha fading. They are coloured through `pics/colormap.pcx` when it is installed, otherwise through an approximation of its colour ramps.
+  - **Temp entities:** blood, puffs, sparks, splashes, rail spirals, bubble trails, explosion bursts and teleport effects.
+  - **Dynamic lights:** muzzle flashes for the player (`MZ_*`) and for monsters (`MZ2_*`). The 211 monster flash offsets, colours and sounds are generated from `game/m_flash.pas` and `engine/client/cl_fx.pas` by `tools/gen_game_effect_tables.py` into `realms/src/GameEffectTables.inc`.
+  - **Explosion models:** poly explosions, blaster impacts, smoke and flashes. Their frames, skins and alpha follow `CL_AddExplosions`.
+  - **Beams:** parasite / medic / grapple cables, BFG lasers and `RF_BEAM` laser entities.
+  - **Entity effects:** `EF_ROCKET` / `EF_BLASTER` / `EF_GIB` / `EF_GREENGIB` / `EF_GRENADE` / `EF_FLAG*` / `EF_IONRIPPER` trails, `EF_FLIES`, `EF_BFG` particles and lights, `EF_TRAP`, and teleporter pads. `EF_QUAD` / `EF_PENT` shells and the `EF_BFG` / `EF_PLASMA` / `EF_SPHERETRANS` alpha are applied in `buildGameScene`.
+  - **Sounds:** the client-side sounds Quake 2 plays itself, such as weapon fire, impacts and ricochets.
+  - **Not drawn yet:** the Rogue sustained effects (steam, widow beams, nuke blast), heat beams, tracker effects and force walls.
+- **`GameSound`:**
+  - decodes `.wav` files (8/16-bit PCM, mono or stereo, with `cue ` loop points);
+  - spatializes like `S_SpatializeOrigin`: full volume up to 80 units, `ATTN_*` falloff, the local player's own sounds centred;
+  - delays sounds by `timeofs`;
+  - merges entity loop sounds (`s.sound`) per sound like `S_AddLoopSounds`.
+
+On desktop, `DesktopMapMode` feeds every game event into `GameEffects` at client time (server frames plus the interpolation fraction):
+- **Effect models** are drawn with the entities. `RF_FULLBRIGHT` ones skip lighting.
+- **`buildEffects`** turns particles, glows and beams into camera-facing quads, sized like `gl_rpart.c`. `DesktopRenderer::setMapEffects` blends them after the entities and before the view weapon.
+- **Dynamic lights:** the 8 lights closest to the camera light the map and the models.
+- **Sound:** `sys/desktop/DesktopGameSound` loads each `.wav` from the VFS the first time it is played and plays it on the sandbox mixer. A sound on the same entity channel replaces the previous one, as in Quake 2, and loop sounds follow their entities. Without id's data, missing sounds are skipped silently. They are listed with `developer 1`.
+
+`realms_game_effects` tests all of this without a game module. `realms_game_server_*` checks a real shotgun blast end to end: the muzzle flash and its angles, the `TE_SHOTGUN` impact with a unit byte direction, and then the light, puffs, smoke model and sound it produces.
+
 ### Android and iOS map mode
 
 On both phones, **pause menu → Maps…** lists every `.bsp`, `.glb` and `.gltf` under `maps/` and `models/` in the app package, plus `maps/` in the app's writable storage:

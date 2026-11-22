@@ -116,6 +116,8 @@ struct GameDrawBatch {
     std::array<float, 3> origin{}, angles{};
     bool viewWeapon = false;
     bool fallbackBox = false;
+    bool fullbright = false; // RF_FULLBRIGHT: not lit (explosions, flashes)
+    bool effect = false;     // from GameEffects (appendEffectModels)
 };
 
 struct GameScene {
@@ -138,7 +140,10 @@ struct GameSceneOptions {
 
 // Alias models and fallback boxes for every non-brush entity, and the view
 // weapon. Brush models ("*n") are left to the map renderer (use the lerped
-// GameLerpedEntity origins / angles for their poses).
+// GameLerpedEntity origins / angles for their poses); sprites (.sp2) are
+// left to GameEffects, which draws them as glows. EF_QUAD / EF_PENT add the
+// blue / red shell and EF_BFG / EF_PLASMA / EF_SPHERETRANS fade the model,
+// like cl_ents.c.
 void buildGameScene(const Engine &engine, const GameServer &server, const GameEntityLerp &lerp,
                     GameModelCache &models, const GameSceneOptions &options, GameScene &out);
 

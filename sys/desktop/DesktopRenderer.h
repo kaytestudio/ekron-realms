@@ -150,10 +150,31 @@ public:
         Color color{};
         std::array<float, 16> transform{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
         bool viewWeapon = false;
+        bool fullbright = false; // RF_FULLBRIGHT: not lit
     };
     void setMapEntities(ekron::gl::Api &gl, const std::vector<EntityVertex> &vertices, std::vector<EntityBatch> batches);
     void clearMapEntities() { entityBatches_.clear(); }
     size_t mapEntityBatches() const { return entityBatches_.size(); }
+
+    // Quake 2 client effects for this frame: particle / glow / beam quads
+    // (render space, two triangles each; shape 0 round with uv -1..1, 1
+    // solid), drawn blended after the entities and before the view weapon,
+    // and dynamic lights (render space, metres) that light the map and the
+    // entities - the first kMaxMapLights.
+    struct EffectVertex {
+        float x, y, z, r, g, b, a, u, v, shape;
+    };
+    struct DynamicLight {
+        float x = 0, y = 0, z = 0, radius = 0, r = 1, g = 1, b = 1;
+    };
+    static constexpr size_t kMaxMapLights = 8;
+    void setMapEffects(ekron::gl::Api &gl, const std::vector<EffectVertex> &vertices, std::vector<DynamicLight> lights);
+    void clearMapEffects() {
+        effectCount_ = 0;
+        mapLights_.clear();
+    }
+    size_t mapEffectVertices() const { return size_t(effectCount_); }
+    size_t mapLights() const { return mapLights_.size(); }
 
     void renderMapWorld(ekron::gl::Api &gl,
                         int drawableW,
@@ -207,6 +228,8 @@ private:
                        bool hologram);
 
     GLuint compileProgram(ekron::gl::Api &gl, const char *vsSrc, const char *fsSrc, std::string &errOut);
+    void applyMapLights(ekron::gl::Api &gl, GLuint prog) const;
+    void drawMapEffects(ekron::gl::Api &gl, physics::Vec3 eye, float yaw, float pitch, float roll, float aspect);
     bool loadMaterialArray(ekron::gl::Api &gl, const std::string &assetRoot);
 
     GLuint worldProg_ = 0;
@@ -230,6 +253,11 @@ private:
     GLuint entityVao_ = 0;
     GLuint entityVbo_ = 0;
     std::vector<EntityBatch> entityBatches_;
+    GLuint effectProg_ = 0;
+    GLuint effectVao_ = 0;
+    GLuint effectVbo_ = 0;
+    GLsizei effectCount_ = 0;
+    std::vector<DynamicLight> mapLights_;
 
     GLuint whiteTex_ = 0;
     GLuint materialArrayTex_ = 0;

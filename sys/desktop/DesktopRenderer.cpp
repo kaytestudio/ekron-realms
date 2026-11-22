@@ -128,6 +128,52 @@ void main() {
 }
 )GLSL";
 
+// Map mode effects (Quake 2 particles, glows and laser beams): camera-facing
+// quads built on the CPU. aShape.z 0: a round particle (uv -1..1), 1: solid.
+const char *kEffectVert = R"GLSL(#version 330 core
+layout(location = 0) in vec3 aPos;
+layout(location = 1) in vec4 aCol;
+layout(location = 2) in vec3 aShape;
+
+uniform vec3 uEye;
+uniform vec2 uAngles;
+uniform float uRoll;
+uniform float uAspect;
+
+out vec4 vCol;
+out vec3 vShape;
+
+void main() {
+    vec3 p = aPos - uEye;
+    float cy = cos(uAngles.x), sy = sin(uAngles.x);
+    float cp = cos(uAngles.y), sp = sin(uAngles.y);
+    vec3 q = vec3(cy * p.x - sy * p.z, p.y, sy * p.x + cy * p.z);
+    q = vec3(q.x, cp * q.y + sp * q.z, -sp * q.y + cp * q.z);
+    float cr = cos(uRoll), sr = sin(uRoll);
+    q.xy = vec2(cr * q.x - sr * q.y, sr * q.x + cr * q.y);
+    float f = 1.37638;
+    gl_Position = vec4(q.x * f / max(uAspect, 0.001), q.y * f, -1.000533 * q.z - 0.160043, -q.z);
+    vCol = aCol;
+    vShape = aShape;
+}
+)GLSL";
+
+const char *kEffectFrag = R"GLSL(#version 330 core
+in vec4 vCol;
+in vec3 vShape;
+out vec4 fragColor;
+
+void main() {
+    float a = vCol.a;
+    if (vShape.z < 0.5) {
+        float r = length(vShape.xy);
+        if (r > 1.0) discard;
+        a *= 1.0 - smoothstep(0.55, 1.0, r);
+    }
+    fragColor = vec4(vCol.rgb, a);
+}
+)GLSL";
+
 const char *kWorldFrag = R"GLSL(#version 330 core
 in vec3 vCol;
 in vec3 vNorm;
@@ -149,6 +195,12 @@ uniform float uAlphaCutoff;
 uniform vec3 uLightDirection;
 uniform vec3 uLightColor;
 uniform vec3 uAmbientColor;
+// Map mode: Quake 2 dynamic lights (render space, metres: xyz + radius;
+// colours) and RF_FULLBRIGHT models (explosions, flashes).
+uniform int uDlightCount;
+uniform vec4 uDlights[8];
+uniform vec4 uDlightColors[8];
+uniform int uFullbright;
 
 out vec4 fragColor;
 
@@ -186,6 +238,13 @@ void main() {
     float diffuse = max(dot(n, lightDir), 0.0);
     float sky = 0.78 + 0.22 * max(n.y, 0.0);
     vec3 lit = base * (uAmbientColor * sky + uLightColor * diffuse);
+    vec3 worldPos = vToEye + uEye;
+    for (int i = 0; i < uDlightCount && i < 8; i++) {
+        vec3 toLight = uDlights[i].xyz - worldPos;
+        float f = clamp(1.0 - length(toLight) / max(uDlights[i].w, 1e-4), 0.0, 1.0);
+        float facing = dot(toLight, toLight) > 1e-8 ? 0.35 + 0.65 * max(dot(n, normalize(toLight)), 0.0) : 1.0;
+        lit += base * uDlightColors[i].rgb * (1.6 * f * f * facing);
+    }
 
     float roughness = uModelPass != 0 ? uModelRoughness : (vLayer == 7 ? 0.18 : (vLayer == 3 ? 0.48 : 0.94));
     float strength = uModelPass != 0 ? 0.035 : (vLayer == 7 ? 0.28 : (vLayer == 3 ? 0.12 : 0.006));
@@ -193,6 +252,8 @@ void main() {
     vec3 halfVector = normalize(lightDir + viewDir);
     float shine = pow(max(dot(n, halfVector), 0.0), mix(90.0, 8.0, clamp(roughness, 0.0, 1.0)));
     lit += uLightColor * (shine * strength * diffuse);
+
+    if (uFullbright != 0) lit = base;
 
     float d = max(length(vToEye) - 22.0, 0.0);
     float fog = 1.0 - exp(-d * d * 0.00022);
@@ -297,6 +358,8 @@ void applyCommonSceneUniforms(ekron::gl::Api &gl,
     gl.Uniform3f(gl.GetUniformLocation(prog, "uLightDirection"), -0.45f, -1.0f, -0.25f);
     gl.Uniform3f(gl.GetUniformLocation(prog, "uLightColor"), 0.55f, 0.52f, 0.48f);
     gl.Uniform3f(gl.GetUniformLocation(prog, "uAmbientColor"), 0.55f, 0.59f, 0.65f);
+    gl.Uniform1i(gl.GetUniformLocation(prog, "uDlightCount"), 0);
+    gl.Uniform1i(gl.GetUniformLocation(prog, "uFullbright"), 0);
 }
 
 const std::array<float, 16> kIdentityMatrix = {
@@ -547,7 +610,8 @@ bool DesktopRenderer::init(ekron::gl::Api &gl, const std::string &assetRoot, std
     modelProg_ = compileProgram(gl, kModelVert, kWorldFrag, errorOut);
     pipProg_ = compileProgram(gl, kPipVert, kPipFrag, errorOut);
     uiProg_ = compileProgram(gl, kUiVert, kUiFrag, errorOut);
-    if (!skyProg_ || !worldProg_ || !modelProg_ || !pipProg_ || !uiProg_) {
+    effectProg_ = compileProgram(gl, kEffectVert, kEffectFrag, errorOut);
+    if (!skyProg_ || !worldProg_ || !modelProg_ || !pipProg_ || !uiProg_ || !effectProg_) {
         return false;
     }
 
@@ -667,6 +731,13 @@ void DesktopRenderer::shutdown(ekron::gl::Api &gl) {
     if (entityVao_) gl.DeleteVertexArrays(1, &entityVao_);
     entityVbo_ = entityVao_ = 0;
     entityBatches_.clear();
+    if (effectVbo_) gl.DeleteBuffers(1, &effectVbo_);
+    if (effectVao_) gl.DeleteVertexArrays(1, &effectVao_);
+    effectVbo_ = effectVao_ = 0;
+    effectCount_ = 0;
+    mapLights_.clear();
+    if (effectProg_) gl.DeleteProgram(effectProg_);
+    effectProg_ = 0;
     if (emptyVao_) gl.DeleteVertexArrays(1, &emptyVao_);
     if (uiProg_) gl.DeleteProgram(uiProg_);
     if (pipProg_) gl.DeleteProgram(pipProg_);
@@ -858,6 +929,57 @@ void DesktopRenderer::clearMapGeometry(ekron::gl::Api &gl) {
     mapRanges_.clear();
     mapPoses_.clear();
     entityBatches_.clear();
+    effectCount_ = 0;
+    mapLights_.clear();
+}
+
+void DesktopRenderer::setMapEffects(ekron::gl::Api &gl, const std::vector<EffectVertex> &vertices,
+                                    std::vector<DynamicLight> lights) {
+    // the closest ones are first (DesktopMapMode sorts them): 8 per draw
+    if (lights.size() > kMaxMapLights) lights.resize(kMaxMapLights);
+    mapLights_ = std::move(lights);
+    effectCount_ = 0;
+    if (vertices.empty()) return;
+    if (!effectVao_) {
+        gl.GenVertexArrays(1, &effectVao_);
+        gl.GenBuffers(1, &effectVbo_);
+        gl.BindVertexArray(effectVao_);
+        gl.BindBuffer(GL_ARRAY_BUFFER, effectVbo_);
+        constexpr GLsizei stride = sizeof(EffectVertex);
+        gl.EnableVertexAttribArray(0);
+        gl.VertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<const void *>(0));
+        gl.EnableVertexAttribArray(1);
+        gl.VertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<const void *>(3 * sizeof(float)));
+        gl.EnableVertexAttribArray(2);
+        gl.VertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<const void *>(7 * sizeof(float)));
+    }
+    gl.BindVertexArray(effectVao_);
+    gl.BindBuffer(GL_ARRAY_BUFFER, effectVbo_);
+    gl.BufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(vertices.size() * sizeof(EffectVertex)), vertices.data(),
+                  GL_DYNAMIC_DRAW);
+    gl.BindVertexArray(0);
+    gl.BindBuffer(GL_ARRAY_BUFFER, 0);
+    effectCount_ = static_cast<GLsizei>(vertices.size());
+}
+
+void DesktopRenderer::applyMapLights(ekron::gl::Api &gl, GLuint prog) const {
+    const GLsizei n = static_cast<GLsizei>(std::min(mapLights_.size(), kMaxMapLights));
+    gl.Uniform1i(gl.GetUniformLocation(prog, "uDlightCount"), n);
+    if (n == 0) return;
+    std::array<float, 4 * kMaxMapLights> pos{}, col{};
+    for (GLsizei i = 0; i < n; i++) {
+        const DynamicLight &l = mapLights_[size_t(i)];
+        pos[size_t(i) * 4] = l.x;
+        pos[size_t(i) * 4 + 1] = l.y;
+        pos[size_t(i) * 4 + 2] = l.z;
+        pos[size_t(i) * 4 + 3] = l.radius;
+        col[size_t(i) * 4] = l.r;
+        col[size_t(i) * 4 + 1] = l.g;
+        col[size_t(i) * 4 + 2] = l.b;
+        col[size_t(i) * 4 + 3] = 1.0f;
+    }
+    gl.Uniform4fv(gl.GetUniformLocation(prog, "uDlights"), n, pos.data());
+    gl.Uniform4fv(gl.GetUniformLocation(prog, "uDlightColors"), n, col.data());
 }
 
 void DesktopRenderer::setMapEntities(ekron::gl::Api &gl, const std::vector<EntityVertex> &vertices,
@@ -919,6 +1041,7 @@ void DesktopRenderer::renderMapWorld(ekron::gl::Api &gl,
     if (mapCount_ > 0) {
         gl.UseProgram(worldProg_);
         applyCommonSceneUniforms(gl, worldProg_, eye, yaw, pitch, roll, aspect, texturesReady_);
+        applyMapLights(gl, worldProg_);
         gl.UniformMatrix4fv(gl.GetUniformLocation(worldProg_, "uObjectTransform"), 1, GL_FALSE, kIdentityMatrix.data());
         gl.Uniform1i(gl.GetUniformLocation(worldProg_, "uModelPass"), 0);
         gl.Uniform1i(gl.GetUniformLocation(worldProg_, "uPreviewPass"), 0);
@@ -941,11 +1064,13 @@ void DesktopRenderer::renderMapWorld(ekron::gl::Api &gl,
             }
             gl.UniformMatrix4fv(transformLoc, 1, GL_FALSE, kIdentityMatrix.data());
         }
+        gl.Uniform1i(gl.GetUniformLocation(worldProg_, "uDlightCount"), 0);
     }
 
     if (mapModel && mapModel->ready()) {
         gl.UseProgram(modelProg_);
         applyCommonSceneUniforms(gl, modelProg_, eye, yaw, pitch, roll, aspect, texturesReady_);
+        applyMapLights(gl, modelProg_);
         gl.ActiveTexture(GL_TEXTURE0);
         gl.BindTexture(GL_TEXTURE_2D_ARRAY, materialArrayTex_);
         drawGltfModel(gl, *mapModel, kIdentityMatrix, eye.x, eye.z, false);
@@ -954,6 +1079,7 @@ void DesktopRenderer::renderMapWorld(ekron::gl::Api &gl,
     if (!entityBatches_.empty() && entityVao_) {
         gl.UseProgram(modelProg_);
         applyCommonSceneUniforms(gl, modelProg_, eye, yaw, pitch, roll, aspect, texturesReady_);
+        applyMapLights(gl, modelProg_);
         gl.ActiveTexture(GL_TEXTURE0);
         gl.BindTexture(GL_TEXTURE_2D_ARRAY, materialArrayTex_);
         gl.Uniform1i(gl.GetUniformLocation(modelProg_, "uModelPass"), 1);
@@ -964,10 +1090,15 @@ void DesktopRenderer::renderMapWorld(ekron::gl::Api &gl,
         const GLint texturedLoc = gl.GetUniformLocation(modelProg_, "uModelTextured");
         const GLint colorLoc = gl.GetUniformLocation(modelProg_, "uBaseColorFactor");
         const GLint alphaModeLoc = gl.GetUniformLocation(modelProg_, "uAlphaMode");
+        const GLint fullbrightLoc = gl.GetUniformLocation(modelProg_, "uFullbright");
         gl.BindVertexArray(entityVao_);
-        // opaque entities, then translucent ones, then the view weapon
+        // opaque entities, then translucent ones, then the effects (particles,
+        // beams), then the view weapon
         for (int pass = 0; pass < 3; pass++) {
             if (pass == 2) {
+                drawMapEffects(gl, eye, yaw, pitch, roll, aspect);
+                gl.UseProgram(modelProg_);
+                gl.BindVertexArray(entityVao_);
                 bool any = false;
                 for (const EntityBatch &b : entityBatches_) any |= b.viewWeapon;
                 if (!any) break;
@@ -991,16 +1122,41 @@ void DesktopRenderer::renderMapWorld(ekron::gl::Api &gl,
                 gl.Uniform1i(texturedLoc, b.texture ? 1 : 0);
                 gl.Uniform4f(colorLoc, b.color.r, b.color.g, b.color.b, b.color.a);
                 gl.Uniform1i(alphaModeLoc, translucent ? 2 : 0);
+                gl.Uniform1i(fullbrightLoc, b.fullbright ? 1 : 0);
                 gl.UniformMatrix4fv(transformLoc, 1, GL_FALSE, b.transform.data());
                 gl.DrawArrays(GL_TRIANGLES, b.first, b.count);
             }
         }
         gl.Disable(GL_BLEND);
         gl.DepthMask(GL_TRUE);
+        gl.Uniform1i(fullbrightLoc, 0);
+        gl.Uniform1i(gl.GetUniformLocation(modelProg_, "uDlightCount"), 0);
         gl.UniformMatrix4fv(transformLoc, 1, GL_FALSE, kIdentityMatrix.data());
+    } else {
+        drawMapEffects(gl, eye, yaw, pitch, roll, aspect);
     }
+    gl.UseProgram(modelProg_);
+    gl.Uniform1i(gl.GetUniformLocation(modelProg_, "uDlightCount"), 0);
     gl.BindVertexArray(0);
     gl.ActiveTexture(GL_TEXTURE0);
+}
+
+void DesktopRenderer::drawMapEffects(ekron::gl::Api &gl, physics::Vec3 eye, float yaw, float pitch, float roll,
+                                     float aspect) {
+    if (effectCount_ <= 0 || !effectVao_ || !effectProg_) return;
+    gl.UseProgram(effectProg_);
+    gl.Uniform3f(gl.GetUniformLocation(effectProg_, "uEye"), eye.x, eye.y, eye.z);
+    gl.Uniform2f(gl.GetUniformLocation(effectProg_, "uAngles"), yaw, pitch);
+    gl.Uniform1f(gl.GetUniformLocation(effectProg_, "uRoll"), roll);
+    gl.Uniform1f(gl.GetUniformLocation(effectProg_, "uAspect"), aspect);
+    // like gl_rpart.c: blended over the scene, depth tested, not written
+    gl.Enable(GL_BLEND);
+    gl.BlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    gl.DepthMask(GL_FALSE);
+    gl.BindVertexArray(effectVao_);
+    gl.DrawArrays(GL_TRIANGLES, 0, effectCount_);
+    gl.Disable(GL_BLEND);
+    gl.DepthMask(GL_TRUE);
 }
 
 void DesktopRenderer::renderMonitorPass(ekron::gl::Api &gl,

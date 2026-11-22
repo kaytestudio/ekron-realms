@@ -43,14 +43,32 @@ struct GameUserCmd {
 };
 
 struct GameEvent {
-    enum class Kind { Print, CenterPrint, Sound, TempEntity, MuzzleFlash, Layout, StuffText };
+    enum class Kind { Print, CenterPrint, Sound, TempEntity, MuzzleFlash, Layout, StuffText, EntityEvent };
     Kind kind = Kind::Print;
-    int level = 0;       // Print: PRINT_*; Sound: channel; TempEntity: TE_*; MuzzleFlash: MZ_*
-    int entity = 0;      // edict number (Sound / MuzzleFlash / CenterPrint target), 0 = world
-    Vec3 origin{};       // Sound / TempEntity position
+    // Print: PRINT_*; Sound: channel (CHAN_*); TempEntity: TE_*;
+    // MuzzleFlash: MZ_* (with MZ_SILENCED), 1000 + MZ2_* for monsters;
+    // EntityEvent: EV_*.
+    int level = 0;
+    int entity = 0;      // edict number (Sound / MuzzleFlash / CenterPrint target, EntityEvent), 0 = world
+    Vec3 origin{};       // Sound / TempEntity position, MuzzleFlash / EntityEvent entity origin
     float volume = 1.0f; // Sound
     float attenuation = 1.0f;
+    float delay = 0.0f;  // Sound: seconds after the event (timeofs)
     std::string text;    // Print / CenterPrint / Layout / StuffText text, Sound file ("sound/" + name)
+    // Sound from an entity event (EV_FOOTSTEP...), 0 otherwise.
+    int entityEvent = 0;
+    // MuzzleFlash / EntityEvent: the entity's angles (degrees).
+    Vec3 angles{};
+    // TempEntity, as CL_ParseTEnt reads it (unused fields stay 0):
+    Vec3 end{};          // second position: trails, beams, lasers, force walls
+    Vec3 dir{};          // impact direction (a byte direction, unit length)
+    Vec3 offset{};       // TE_GRAPPLE_CABLE beam offset
+    int count = 0;       // particle count (TE_SPLASH, *_SPARKS, TE_STEAM)
+    int color = 0;       // palette index or splash type (TE_SPLASH: SPLASH_*)
+    int entity2 = 0;     // TE_LIGHTNING destination entity
+    int magnitude = 0;   // TE_STEAM
+    int id = 0;          // TE_STEAM / TE_WIDOWBEAMOUT sustain id
+    int durationMs = 0;  // sustained TE_STEAM
 };
 
 // An entity the client would get in its frame (SV_BuildClientFrame, minus
@@ -70,6 +88,25 @@ struct GameRenderEntity {
     int renderfx = 0;
     int svflags = 0;
     int solid = 0; // q2solid_t
+    std::string sound; // looping sound (s.sound), "" if none
+};
+
+// An RF_BEAM entity (target_laser): a beam from `origin` to `oldOrigin`,
+// `frame` units wide, `skinnum` packs four palette colours (one is picked
+// at random each frame, like cl_ents.c).
+struct GameBeamEntity {
+    int number = 0;
+    std::array<float, 3> origin{}, oldOrigin{};
+    int frame = 0;
+    int skinnum = 0;
+};
+
+// A looping entity sound (s.sound: machinery, target_speaker loops, the
+// rocket's whine), at the entity (brush models: their centre).
+struct GameLoopSound {
+    int entity = 0;
+    std::string name; // "sound/" + config string
+    std::array<float, 3> origin{};
 };
 
 struct GameServerConfig {
@@ -141,6 +178,10 @@ public:
     // Inline model number for a "*n" modelindex, 0 otherwise.
     int inlineModel(int modelindex) const;
     std::vector<GameEvent> takeEvents();
+    // RF_BEAM entities (lasers), which renderEntities leaves out.
+    std::vector<GameBeamEntity> beamEntities() const;
+    // Every entity with a looping sound, the local player's own included.
+    std::vector<GameLoopSound> loopSounds() const;
 
     // ---- game_import_t, used by the static thunks (public for the tests)
     q2trace_t trace(const float *start, const float *mins, const float *maxs, const float *end, q2edict_t *passent,
@@ -180,7 +221,8 @@ private:
     void syncCvars();
     void tokenize(const std::string &line);
     void flushMessage(const float *origin, int entity);
-    void queueSound(const float *origin, q2edict_t *ent, int channel, int soundindex, float volume, float attenuation);
+    void queueSound(const float *origin, q2edict_t *ent, int channel, int soundindex, float volume, float attenuation,
+                    float timeofs);
     void print(int level, const std::string &text, GameEvent::Kind kind, int entity);
     void gameError(const std::string &text);
     void prepWorldFrame();

@@ -211,15 +211,28 @@ std::array<float, 4> fallbackColor(const GameRenderEntity &e, bool projectile) {
     return {0.62f, 0.62f, 0.66f, 1.0f};
 }
 
-// RF_SHELL_* / RF_TRANSLUCENT, the way gl_mesh.c colours and fades models
-std::array<float, 4> modelColor(int renderfx) {
+// RF_SHELL_* / RF_TRANSLUCENT, the way gl_mesh.c colours and fades models;
+// cl_ents.c turns EF_QUAD / EF_PENT into shells and sets the alpha of
+// EF_BFG / EF_PLASMA / EF_SPHERETRANS models.
+std::array<float, 4> modelColor(int renderfx, uint32_t effects = 0) {
+    if (effects & Q2_EF_QUAD) renderfx |= Q2_RF_SHELL_BLUE;
+    if (effects & Q2_EF_PENT) renderfx |= Q2_RF_SHELL_RED;
     std::array<float, 4> c{1, 1, 1, 1};
     if (renderfx & (Q2_RF_SHELL_RED | Q2_RF_SHELL_GREEN | Q2_RF_SHELL_BLUE)) {
         c = {(renderfx & Q2_RF_SHELL_RED) ? 1.0f : 0.35f, (renderfx & Q2_RF_SHELL_GREEN) ? 1.0f : 0.35f,
              (renderfx & Q2_RF_SHELL_BLUE) ? 1.0f : 0.35f, 1.0f};
     }
     if (renderfx & Q2_RF_TRANSLUCENT) c[3] = 0.3f;
+    if (effects & (Q2_EF_BFG | Q2_EF_SPHERETRANS)) c[3] = 0.3f;
+    if (effects & Q2_EF_PLASMA) c[3] = 0.6f;
     return c;
+}
+
+bool endsWithSp2(const std::string &name) {
+    if (name.size() < 4) return false;
+    std::string ext = name.substr(name.size() - 4);
+    for (char &c : ext) c = char(std::tolower(static_cast<unsigned char>(c)));
+    return ext == ".sp2";
 }
 
 } // namespace
@@ -230,7 +243,7 @@ void buildGameScene(const Engine &engine, const GameServer &server, const GameEn
     if (!server.running()) return;
     for (const GameLerpedEntity &l : lerp.entities(server)) {
         const GameRenderEntity *e = l.entity;
-        if (!e || e->inlineModel > 0) continue;
+        if (!e || e->inlineModel > 0 || endsWithSp2(e->model)) continue;
         const Md2Model *md2 = endsWithMd2(e->model) ? models.model(engine, e->model) : nullptr;
         GameDrawBatch b;
         b.entity = e->number;
@@ -242,7 +255,8 @@ void buildGameScene(const Engine &engine, const GameServer &server, const GameEn
             const auto &skins = md2->skins();
             if (!skins.empty())
                 b.skin = skins[size_t(e->skinnum >= 0 && size_t(e->skinnum) < skins.size() ? e->skinnum : 0)];
-            b.color = modelColor(e->renderfx);
+            b.color = modelColor(e->renderfx, e->effects);
+            b.fullbright = (e->renderfx & Q2_RF_FULLBRIGHT) != 0;
             b.angles = {-l.angles[0], l.angles[1], l.angles[2]}; // alias models: pitch negated
         } else if (options.fallbackBoxes) {
             std::array<float, 3> mn = e->mins, mx = e->maxs;

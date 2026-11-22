@@ -6,6 +6,7 @@
 // sv_user.c, GPL (c) 1997-2001 id Software. The collision model calls go
 // through realms::Engine, i.e. to the Pascal or the C++ core.
 #include "realms/GameServer.h"
+#include "realms/GameEffects.h"
 
 #include "realms/Q2Pmove.h"
 
@@ -40,9 +41,7 @@ constexpr int kMaxTotalEntLeafs = 128;
 // svc_ops_e (qcommon.h): the ops the game writes.
 enum { svc_muzzleflash = 1, svc_muzzleflash2 = 2, svc_temp_entity = 3, svc_layout = 4, svc_inventory = 5, svc_stufftext = 11 };
 // temp_event_t values whose first field is not a position.
-enum { TE_SPLASH = 10, TE_LASER_SPARKS = 15, TE_PARASITE_ATTACK = 16, TE_MEDIC_CABLE_ATTACK = 19, TE_GRAPPLE_CABLE = 24,
-       TE_WELDING_SPARKS = 25, TE_TUNNEL_SPARKS = 29, TE_FLASHLIGHT = 36, TE_FORCEWALL = 37, TE_HEATBEAM = 38,
-       TE_MONSTER_HEATBEAM = 39, TE_STEAM = 40, TE_WIDOWBEAMOUT = 50 };
+
 // entity_event_t
 enum { EV_ITEM_RESPAWN = 1, EV_FOOTSTEP = 2, EV_FALLSHORT = 3, EV_FALL = 4, EV_FALLFAR = 5, EV_PLAYER_TELEPORT = 6,
        EV_OTHER_TELEPORT = 7 };
@@ -218,12 +217,13 @@ struct GameImports {
         va_end(ap);
         if (gServer) gServer->gameError(text); // longjmps when inside a game call
     }
-    static void sound(q2edict_t *ent, int32_t channel, int32_t soundindex, float volume, float attenuation, float) {
-        if (gServer) gServer->queueSound(nullptr, ent, channel, soundindex, volume, attenuation);
+    static void sound(q2edict_t *ent, int32_t channel, int32_t soundindex, float volume, float attenuation,
+                      float timeofs) {
+        if (gServer) gServer->queueSound(nullptr, ent, channel, soundindex, volume, attenuation, timeofs);
     }
     static void positionedSound(q2vec3_t origin, q2edict_t *ent, int32_t channel, int32_t soundindex, float volume,
-                                float attenuation, float) {
-        if (gServer) gServer->queueSound(origin, ent, channel, soundindex, volume, attenuation);
+                                float attenuation, float timeofs) {
+        if (gServer) gServer->queueSound(origin, ent, channel, soundindex, volume, attenuation, timeofs);
     }
     static void configstring(int32_t num, const char *string) {
         if (!gServer) return;
@@ -332,9 +332,8 @@ struct GameImports {
     static void writePosition(q2vec3_t pos) {
         for (int i = 0; i < 3; i++) writeShort(int(pos[i] * 8));
     }
-    // MSG_WriteDir sends the index of the closest of the 162 anorms; the
-    // sandbox doesn't decode directions, so the byte is 0 (anorm 0).
-    static void writeDir(q2vec3_t) { writeByte(0); }
+    // MSG_WriteDir: the index of the closest of the 162 anorms.
+    static void writeDir(q2vec3_t dir) { writeByte(gameDirToByte(dir)); }
     static void writeAngle(float f) { writeByte(int(f * 256 / 360) & 255); }
     static void *tagMalloc(int32_t size, int32_t tag) { return gServer ? gServer->tagMalloc(size, tag) : nullptr; }
     static void tagFree(void *block) {
@@ -686,25 +685,45 @@ void GameServer::stop() {
 
 void GameServer::prepWorldFrame() {
     // SV_PrepWorldFrame clears entity events after they were sent; the
-    // sandbox gets them as sounds (CL_EntityEvent) first.
+    // sandbox gets each one as an EntityEvent (for the particles) and the
+    // sound CL_EntityEvent plays first.
     static const char *footsteps[4] = {"player/step1.wav", "player/step2.wav", "player/step3.wav", "player/step4.wav"};
     for (int i = 1; i < numEdicts(); i++) {
         q2edict_t *ent = edictNum(i);
         if (!ent->inuse || !ent->s.event) continue;
+        GameEvent ee;
+        ee.kind = GameEvent::Kind::EntityEvent;
+        ee.level = ent->s.event;
+        ee.entity = i;
+        ee.origin = V(ent->s.origin);
+        ee.angles = V(ent->s.angles);
         GameEvent ev;
         ev.kind = GameEvent::Kind::Sound;
         ev.entity = i;
-        ev.origin = V(ent->s.origin);
+        ev.origin = ee.origin;
+        ev.entityEvent = ent->s.event;
         switch (ent->s.event) {
-        case EV_ITEM_RESPAWN: ev.text = "sound/items/respawn1.wav"; break;
-        case EV_FOOTSTEP: ev.text = std::string("sound/") + footsteps[(frameNum_ + i) & 3]; break;
+        case EV_ITEM_RESPAWN:
+            ev.text = "sound/items/respawn1.wav";
+            ev.level = Q2_CHAN_WEAPON;
+            ev.attenuation = 2; // ATTN_IDLE
+            break;
+        case EV_FOOTSTEP:
+            ev.text = std::string("sound/") + footsteps[(frameNum_ + i) & 3];
+            ev.level = Q2_CHAN_BODY;
+            break;
         case EV_FALLSHORT: ev.text = "sound/player/land1.wav"; break;
         case EV_FALL: ev.text = "players/male/fall2.wav"; break;
         case EV_FALLFAR: ev.text = "players/male/fall1.wav"; break;
         case EV_PLAYER_TELEPORT:
-        case EV_OTHER_TELEPORT: ev.text = "sound/misc/tele1.wav"; break;
+        case EV_OTHER_TELEPORT:
+            ev.text = "sound/misc/tele1.wav";
+            ev.level = Q2_CHAN_WEAPON;
+            ev.attenuation = 2;
+            break;
         default: break;
         }
+        events_.push_back(std::move(ee));
         if (!ev.text.empty()) events_.push_back(std::move(ev));
         ent->s.event = 0;
     }
@@ -952,7 +971,51 @@ std::vector<GameRenderEntity> GameServer::renderEntities(bool withInline) const 
         r.renderfx = e->s.renderfx;
         r.svflags = e->svflags;
         r.solid = int(e->solid);
+        if (e->s.sound > 0 && e->s.sound < Q2_MAX_SOUNDS) {
+            const std::string &snd = configString(Q2_CS_SOUNDS + e->s.sound);
+            if (!snd.empty()) r.sound = "sound/" + snd;
+        }
         out.push_back(std::move(r));
+    }
+    return out;
+}
+
+std::vector<GameBeamEntity> GameServer::beamEntities() const {
+    std::vector<GameBeamEntity> out;
+    if (!running_) return out;
+    for (int i = 1; i < numEdicts(); i++) {
+        const q2edict_t *e = edict(i);
+        if (!e || !e->inuse || (e->svflags & Q2_SVF_NOCLIENT) || !(e->s.renderfx & Q2_RF_BEAM)) continue;
+        if (e->s.modelindex <= 0) continue; // SV_BuildClientFrame: not sent without a model
+        GameBeamEntity b;
+        b.number = i;
+        for (int k = 0; k < 3; k++) {
+            b.origin[size_t(k)] = e->s.origin[k];
+            b.oldOrigin[size_t(k)] = e->s.old_origin[k];
+        }
+        b.frame = e->s.frame;
+        b.skinnum = e->s.skinnum;
+        out.push_back(b);
+    }
+    return out;
+}
+
+std::vector<GameLoopSound> GameServer::loopSounds() const {
+    std::vector<GameLoopSound> out;
+    if (!running_) return out;
+    for (int i = 1; i < numEdicts(); i++) {
+        const q2edict_t *e = edict(i);
+        if (!e || !e->inuse || (e->svflags & Q2_SVF_NOCLIENT)) continue;
+        if (e->s.sound <= 0 || e->s.sound >= Q2_MAX_SOUNDS) continue;
+        const std::string &name = configString(Q2_CS_SOUNDS + e->s.sound);
+        if (name.empty()) continue;
+        GameLoopSound l;
+        l.entity = i;
+        l.name = "sound/" + name;
+        for (int k = 0; k < 3; k++)
+            l.origin[size_t(k)] = e->solid == Q2_SOLID_BSP ? e->s.origin[k] + 0.5f * (e->mins[k] + e->maxs[k])
+                                                           : e->s.origin[k];
+        out.push_back(std::move(l));
     }
     return out;
 }
@@ -977,7 +1040,7 @@ void GameServer::print(int level, const std::string &text, GameEvent::Kind kind,
 }
 
 void GameServer::queueSound(const float *origin, q2edict_t *ent, int channel, int soundindex, float volume,
-                            float attenuation) {
+                            float attenuation, float timeofs) {
     // SV_StartSound
     if (soundindex <= 0 || soundindex >= Q2_MAX_SOUNDS) return;
     const std::string &name = configString(Q2_CS_SOUNDS + soundindex);
@@ -988,6 +1051,7 @@ void GameServer::queueSound(const float *origin, q2edict_t *ent, int channel, in
     ev.entity = edictIndex(ent);
     ev.volume = volume;
     ev.attenuation = attenuation;
+    ev.delay = std::isfinite(timeofs) ? std::clamp(timeofs, 0.0f, 0.255f) : 0.0f; // sent as a byte of ms
     if (origin) {
         ev.origin = V(origin);
     } else if (ent) {
@@ -1003,6 +1067,95 @@ void GameServer::queueSound(const float *origin, q2edict_t *ent, int channel, in
     events_.push_back(std::move(ev));
     if (events_.size() > 1024) events_.pop_front();
 }
+
+namespace {
+
+// CL_ParseTEnt's layouts, for every temp entity of the game API (base game,
+// Xatrix and Rogue). False for an unknown type (the client would drop).
+template <class Byte, class Short, class Pos>
+bool readTempEntity(GameEvent &ev, Byte byte, Short shortv, Pos pos) {
+    auto dir = [&]() {
+        const int b = byte();
+        return b < 162 ? gameByteDir(b) : Vec3{0, 0, 0};
+    };
+    switch (ev.level) {
+    case GTE_BLOOD: case GTE_GUNSHOT: case GTE_SPARKS: case GTE_BULLET_SPARKS: case GTE_SCREEN_SPARKS:
+    case GTE_SHIELD_SPARKS: case GTE_SHOTGUN: case GTE_BLASTER: case GTE_GREENBLOOD: case GTE_BLASTER2:
+    case GTE_FLECHETTE: case GTE_HEATBEAM_SPARKS: case GTE_HEATBEAM_STEAM: case GTE_MOREBLOOD:
+    case GTE_ELECTRIC_SPARKS:
+        ev.origin = pos();
+        ev.dir = dir();
+        break;
+    case GTE_SPLASH: case GTE_LASER_SPARKS: case GTE_WELDING_SPARKS: case GTE_TUNNEL_SPARKS:
+        ev.count = byte();
+        ev.origin = pos();
+        ev.dir = dir();
+        ev.color = byte();
+        break;
+    case GTE_BLUEHYPERBLASTER: // the "direction" is a position
+        ev.origin = pos();
+        ev.dir = pos();
+        break;
+    case GTE_RAILTRAIL: case GTE_BUBBLETRAIL: case GTE_BFG_LASER: case GTE_DEBUGTRAIL: case GTE_BUBBLETRAIL2:
+        ev.origin = pos();
+        ev.end = pos();
+        break;
+    case GTE_EXPLOSION1: case GTE_EXPLOSION2: case GTE_ROCKET_EXPLOSION: case GTE_GRENADE_EXPLOSION:
+    case GTE_ROCKET_EXPLOSION_WATER: case GTE_GRENADE_EXPLOSION_WATER: case GTE_BFG_EXPLOSION:
+    case GTE_BFG_BIGEXPLOSION: case GTE_BOSSTPORT: case GTE_PLASMA_EXPLOSION: case GTE_PLAIN_EXPLOSION:
+    case GTE_CHAINFIST_SMOKE: case GTE_TRACKER_EXPLOSION: case GTE_TELEPORT_EFFECT: case GTE_DBALL_GOAL:
+    case GTE_NUKEBLAST: case GTE_WIDOWSPLASH: case GTE_EXPLOSION1_BIG: case GTE_EXPLOSION1_NP:
+        ev.origin = pos();
+        break;
+    case GTE_PARASITE_ATTACK: case GTE_MEDIC_CABLE_ATTACK: case GTE_HEATBEAM: case GTE_MONSTER_HEATBEAM:
+        ev.entity = shortv();
+        ev.origin = pos();
+        ev.end = pos();
+        break;
+    case GTE_GRAPPLE_CABLE:
+        ev.entity = shortv();
+        ev.origin = pos();
+        ev.end = pos();
+        ev.offset = pos();
+        break;
+    case GTE_LIGHTNING:
+        ev.entity = shortv();
+        ev.entity2 = shortv();
+        ev.origin = pos();
+        ev.end = pos();
+        break;
+    case GTE_FLASHLIGHT:
+        ev.origin = pos();
+        ev.entity = shortv();
+        break;
+    case GTE_FORCEWALL:
+        ev.origin = pos();
+        ev.end = pos();
+        ev.color = byte();
+        break;
+    case GTE_STEAM:
+        ev.id = shortv();
+        ev.count = byte();
+        ev.origin = pos();
+        ev.dir = dir();
+        ev.color = byte();
+        ev.magnitude = shortv();
+        if (ev.id != -1) { // sustained: the duration in ms follows
+            const int lo = shortv() & 0xffff, hi = shortv() & 0xffff;
+            ev.durationMs = int32_t(uint32_t(lo) | (uint32_t(hi) << 16));
+        }
+        break;
+    case GTE_WIDOWBEAMOUT:
+        ev.id = shortv();
+        ev.origin = pos();
+        break;
+    default:
+        return false;
+    }
+    return true;
+}
+
+} // namespace
 
 void GameServer::flushMessage(const float *origin, int entity) {
     std::vector<unsigned char> m;
@@ -1035,30 +1188,16 @@ void GameServer::flushMessage(const float *origin, int entity) {
         ev.entity = shortv();
         ev.level = byte();
         if (m[0] == svc_muzzleflash2) ev.level += 1000; // monster flash (MZ2_*)
-        if (const q2edict_t *e = edict(ev.entity)) ev.origin = V(e->s.origin);
+        if (const q2edict_t *e = edict(ev.entity)) {
+            ev.origin = V(e->s.origin);
+            ev.angles = V(e->s.angles);
+        }
         break;
-    case svc_temp_entity: {
+    case svc_temp_entity:
         ev.kind = GameEvent::Kind::TempEntity;
         ev.level = byte();
-        switch (ev.level) {
-        case TE_SPLASH:
-        case TE_LASER_SPARKS:
-        case TE_WELDING_SPARKS:
-        case TE_TUNNEL_SPARKS: byte(); break; // count
-        case TE_PARASITE_ATTACK:
-        case TE_MEDIC_CABLE_ATTACK:
-        case TE_GRAPPLE_CABLE:
-        case TE_FLASHLIGHT:
-        case TE_HEATBEAM:
-        case TE_MONSTER_HEATBEAM:
-        case TE_WIDOWBEAMOUT: shortv(); break; // entity
-        case TE_STEAM: shortv(); byte(); break;
-        case TE_FORCEWALL: break;
-        default: break;
-        }
-        ev.origin = pos();
+        if (!readTempEntity(ev, byte, shortv, pos)) return;
         break;
-    }
     case svc_layout:
         ev.kind = GameEvent::Kind::Layout;
         ev.text = str();
