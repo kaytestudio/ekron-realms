@@ -234,7 +234,9 @@ The Quake 2 stack is one static library, `realms_quake2` (`realms/CMakeLists.txt
 | Android | `AndroidMapMode` + `Quake2Gles` (GLES 3) | `jniLibs/<abi>/librealms_game.so` in the APK (`build_core.sh game-android-aarch64` / `-x86_64`), found by `dlopen` |
 | iOS | `MetalMapMode` (Metal: `quakeMapVertex` / `quakeMapFragment`, `quakeEffectVertex` / `quakeEffectFragment`) | device builds link `librealms_game.a` (`build_core.sh ios-arm64`, `REALMS_GAME_STATIC=1`) and call `GameServer::setLinkedGame(&GetGameAPI)`; the simulator has no Free Pascal target and walks maps |
 
-Without a game module (or with `sv_game 0`, or on a glTF map) the map is walked with `MapWalker`, exactly as before. The iOS archive keeps only `_GetGameAPI` global (`ld -r -exported_symbol`, or `nmedit -s`), so the game's Free Pascal RTL stays private and links next to the core's; each starts from its own `__mod_init_func` entry.
+Without a game module (or with `sv_game 0`, or on a glTF map) the map is walked with `MapWalker`, exactly as before.
+
+On Android both loaders `dlopen` through `realms/src/FpcLibraryEnviron.h`. FPC 3.2.2's Android RTL finds `argc`/`argv` by scanning backwards from `environ`, which reads out of bounds once `setenv()` has moved `environ` to the heap; the guard installs a copy laid out like the startup block first. Tested by `realms_fpc_library_environ`.
 
 `realms_quake2_module_test` (CTest `realms_quake2_module_native` / `_pascal`) runs `Quake2View` on a generated, lightmapped arena: lightmaps and their coordinates in draw order, triangles grouped by model, the walker without a game; then, with the game module, the player as the game's client, the door's pose, the armour shard pickup (message and sound), entities / the view weapon / effects in render space, light styles, the blaster's muzzle flash and its dynamic light, respawn and noclip. Without a game module it exits 77 (skipped). CI also runs it on the Android emulator with the Android `librealms_game.so` on both cores, and on macOS arm64 with the static core and game linked into one binary (`--game linked --pascal static`), the iOS packaging.
 
@@ -317,7 +319,7 @@ All of these run against:
 
 - the C++ core (CTest `realms_bridge_native`; Android/iOS CI);
 - the Pascal core (CTest `realms_bridge_pascal`, i.e. `realms_bridge_test --pascal <lib>`, when `fpc` is available);
-- both cores on an Android x86_64 emulator (API 30), using the Android-built `librealms_core.so` (`realms/pascal/android_device_test.sh`, CI job `realms-pascal-device`).
+- both cores on an Android x86_64 emulator (API 30), using the Android-built `librealms_core.so` (`realms/pascal/android_device_test.sh`, CI job `realms-pascal-device`). The Quake 2 module test runs 10 times per core there, against an unstripped game module so crashes can be symbolized.
 - the real debug APK on that emulator (`realms/pascal/android_app_smoke.sh`, CI job `realms-apk-smoke`). The app must log `Realms engine ready: core=pascal-quake2` and keep running.
 - the statically linked Pascal core on macOS arm64. This is `build_core.sh macos-arm64-static` plus `realms_bridge_test --pascal static` built with `-DREALMS_PASCAL_STATIC`, the same packaging as iOS. CI then builds the iOS device app and requires it to link `librealms_core.a`.
 

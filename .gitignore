@@ -87,3 +87,4 @@ tests/native/.bin/
 
 # KCC checkout (cmake -DENABLE_KCC=ON or git clone ... tools/kcc)
 /tools/kcc/
+a.out

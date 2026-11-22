@@ -58,6 +58,9 @@ namespace fs = std::filesystem;
 
 bool near(float a, float b, float eps) { return std::fabs(a - b) <= eps; }
 
+// shows how far a crashed run got (stdout is line buffered)
+void step(const char *what) { std::printf("[module] step: %s\n", what); }
+
 // A stand-in for id's blaster view model (the shard stays a fallback box).
 void writeBlaster(const fs::path &dir) {
     auto gun = md2_builder::boxModel({{{0, -4, -4}, {24, 4, 4}}});
@@ -223,6 +226,7 @@ void viewWithGame(realms::Engine &engine) {
     mapview::Quake2ViewOptions options; // startGame
     realms::MapGeometry geometry;
     std::string error;
+    step("open with game");
     CHECK(view.open(engine, options, geometry, error));
     CHECK(view.gameRunning());
     if (!view.gameRunning()) return;
@@ -245,6 +249,7 @@ void viewWithGame(realms::Engine &engine) {
     }
 
     // entities: the shard (no model data: a fallback box) and the view weapon
+    step("entities");
     const float yaw = view.spawnRenderYaw();
     std::vector<mapview::EntityVertex> ev;
     std::vector<mapview::EntityBatch> eb;
@@ -264,6 +269,7 @@ void viewWithGame(realms::Engine &engine) {
     view.entities(engine, yaw, 0.0f, false, ev, eb);
     for (const auto &b : eb) CHECK(!b.viewWeapon); // cl_gun 0
 
+    step("walk");
     // walk +X: pick up the shard (message + sound), then open the door
     realms::WalkInput in;
     in.forward = 1.0f;
@@ -283,6 +289,7 @@ void viewWithGame(realms::Engine &engine) {
     CHECK(q2.stats().armor == 2);
 
     // firing: the blaster's muzzle flash lights the view, its sound plays
+    step("fire");
     view.update(engine, {}, yaw, 0.0f, 0.1f, true);
     std::vector<mapview::EffectVertex> quads;
     std::vector<mapview::DynamicLight> lights;
@@ -295,6 +302,7 @@ void viewWithGame(realms::Engine &engine) {
     CHECK(listener.entity == 1 && near(listener.origin[0], view.session().walker().origin[0], 0.5f));
 
     // noclip through the game (spectator pmove), and back
+    step("noclip");
     view.toggleNoclip();
     view.update(engine, {}, yaw, 0.0f, 0.1f, false);
     CHECK(view.noclip() && view.session().walker().noclip);
@@ -302,11 +310,13 @@ void viewWithGame(realms::Engine &engine) {
     view.update(engine, {}, yaw, 0.0f, 0.1f, false);
     CHECK(!view.noclip());
 
+    step("respawn");
     // respawn: the game restarts on the same map (the shard is back)
     CHECK(view.respawn(engine));
     CHECK(view.gameRunning());
     CHECK(near(view.session().walker().origin[0], -320, 0.2f));
     CHECK(q2.stats().armor == 0);
+    step("close");
     view.close();
     CHECK(!view.active() && !view.gameRunning());
 }
@@ -314,6 +324,7 @@ void viewWithGame(realms::Engine &engine) {
 } // namespace
 
 int main(int argc, char **argv) {
+    std::setvbuf(stdout, nullptr, _IOLBF, 0);
     std::string pascalLibrary, gameLibrary;
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
@@ -340,7 +351,9 @@ int main(int argc, char **argv) {
     const std::string backend = engine.backendName();
     if (!pascalLibrary.empty()) CHECK(engine.pascalBackend());
 
+    step("module without game");
     moduleWithoutGame(engine);
+    step("view without game");
     viewWithoutGame(engine);
 
     if (gameLibrary == "linked") {
@@ -367,7 +380,9 @@ int main(int argc, char **argv) {
         std::printf("[module] %d checks, %d failures; game module skipped: %s\n", gChecks, gFailures, why.c_str());
         status = gFailures ? 1 : 77;
     }
+    step("shutdown");
     engine.shutdown();
     fs::remove_all(tmp, ec);
+    step("exit");
     return status;
 }

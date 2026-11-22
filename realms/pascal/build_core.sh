@@ -90,10 +90,12 @@ build_android() {
     fi
     mkdir -p "$out"
     if [ "${BUILD_GAME:-0}" = 1 ]; then
-        # the game module: Delphi mode like the desktop build (CMakeLists.txt)
+        # REALMS_GAME_STRIP=0 keeps symbols for crash backtraces
+        local strip=(-Xs)
+        [ "${REALMS_GAME_STRIP:-1}" = 0 ] && strip=(-gl)
         "$compiler" "${rtl[@]}" -Tandroid "-P$cpu" "$@" -Cg "-XP$binutils" "-Fl$sysroot_lib" \
             -k-z -kmax-page-size=16384 ${FPC_ANDROID_FLAGS:-} \
-            -Mdelphi -dGAMEDLL -O2 -Xs "-FU$units" "-FE$out" "$ROOT/game/realms_game.lpr"
+            -Mdelphi -dGAMEDLL -O2 "${strip[@]}" "-FU$units" "-FE$out" "$ROOT/game/realms_game.lpr"
         rm -rf "$units"
         echo "built $out/librealms_game.so"
         return

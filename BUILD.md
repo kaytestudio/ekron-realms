@@ -13,6 +13,7 @@ This document describes how to build the Realms project using CMake on Windows, 
 - [Build Types](#build-types)
 - [Build Targets](#build-targets)
 - [Advanced Configuration](#advanced-configuration)
+- [Android and iOS](#android-and-ios)
 - [Troubleshooting](#troubleshooting)
 
 ---
@@ -53,14 +54,13 @@ Alternatively, install FPC standalone from [FreePascal.org](https://www.freepasc
 #### Linux (Debian/Ubuntu)
 
 ```bash
-sudo apt update
-sudo apt install cmake build-essential
-sudo apt install fpc
-sudo apt install lazarus
-
-# Or from source
-# https://www.freepascal.org/download.html
+sudo apt-get update
+sudo apt-get install -y build-essential cmake ninja-build pkg-config \
+  libsdl2-dev libgl1-mesa-dev libssl-dev fpc fp-units-fcl file dpkg-dev
+sudo apt-get install -y lazarus   # optional, for lazbuild
 ```
+
+`fpc` is only needed for the Pascal core, the game module and `realms-pascal`; `libssl-dev` only for the online presence client.
 
 #### Linux (Fedora/RHEL)
 
@@ -440,6 +440,26 @@ cmake -DCMAKE_SYSTEM_NAME=Windows ..
 # For specific architectures
 cmake -DFPC_TARGET_CPU=x86_64 ..
 cmake -DFPC_TARGET_CPU=aarch64 ..
+```
+
+---
+
+## Android and iOS
+
+Android needs JDK 17, Android SDK 34 (`build-tools;34.0.0`), NDK `26.1.10909125` and CMake `3.22.1`:
+
+```bash
+cd sys/android && ./gradlew :app:assembleDebug
+# -> sys/android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+iOS: open `sys/ios/realms/realms.xcodeproj` in Xcode and build the `realms iOS` scheme. An unsigned archive from the command line:
+
+```bash
+xcodebuild archive -project sys/ios/realms/realms.xcodeproj -scheme "realms iOS" \
+  -configuration Debug -destination generic/platform=iOS -sdk iphoneos \
+  -archivePath /tmp/ekron-ios-sandbox.xcarchive DEVELOPMENT_TEAM= CODE_SIGN_STYLE=Manual \
+  CODE_SIGN_IDENTITY= CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO AD_HOC_CODE_SIGNING_ALLOWED=YES
 ```
 
 ---

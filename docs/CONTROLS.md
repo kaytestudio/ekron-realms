@@ -1,0 +1,60 @@
+# Desktop controls and options
+
+## Sandbox
+
+| Input | Action |
+| :--- | :--- |
+| `W A S D` | Move player (or FPV drone throttle & yaw) |
+| `Mouse` | Look around (or FPV drone pitch & roll; Arrow keys also supported) |
+| `Space` / `C` / `Z` | Jump (ascend in flight) / Crouch (descend in flight) / Prone |
+| `1` / `2` / `3` | Equip **Gravity Gun** / **FPV Remote** / **Empty Hands** |
+| `Q` / `Tab` / `B` | Open or close Build & Equipment Catalog |
+| `Left Click` | Grab/drop object (Gravity Gun), place selected item (Build), or connect FPV drone |
+| `Right Click` / `F` | Freeze/unfreeze object or cancel Build preview |
+| `R` / `Mouse Wheel` | Rotate build preview or held object by `90°` |
+| `X` / `Delete` | Remove aimed placed object |
+| `E` | Contextual interaction (doors, UAZ-469, sofa, FPV drone) |
+| `V` / `H` | Toggle FPV/chase drone camera / Return FPV drone home |
+| `N` / `P` / `F11` / `Esc` | Toggle `noclip` flight / Copy `spawn.json` / Fullscreen / Pause menu |
+| `G` / `L` | Open the in-game store / Cycle UI language (English → Русский → Português) |
+| `` ` `` | Realms console (Quake 2 style: `set`, `seta`, `alias`, `exec`, `cvarlist`, `cmdlist`, `noclip`, `respawn`, `play`, `soundlist`, `s_volume`, `quit`…) |
+
+## Command line
+
+```text
+--version              Print client version and target architecture
+--headless-smoke       Verify assets, GLB scenes, textures, physics, and save/load without opening a window
+--assets <dir>         Override path to the shared Ekron assets directory
+--online-host <host>   Connect to an experimental TLS presence relay (requires EKRON_JOIN_TOKEN env var)
+--online-port <port>   Presence relay port (default: 38475)
+--online-name <name>   Player display name (default: Player)
+--lang <code>          UI language: en, ru or pt-PT (also EKRON_LANG; default: saved choice, then system locale)
+--engine-info          Show which Realms core is active (Free Pascal or C++) and exit
++<command> [args]      Quake 2 style console commands, e.g. +set sensitivity 4 +exec my.cfg
+--help                 Show CLI usage and controls
+```
+
+The `REALMS_CORE=pascal|native|auto` environment variable selects the Realms core. With `pascal`, startup fails if `librealms_core` is missing.
+
+## Quake 2 maps
+
+`map <name>` (console) or `+map <name>` (command line) opens `maps/<name>.bsp`, loose or from a `pak0.pak`, or a `.glb` / `.gltf` scene. `killserver` returns to the sandbox.
+
+When the build finds `fpc` it also builds `librealms_game.so` / `.dylib`, the Free Pascal port of the Quake 2 game code in `game/`. `realms::GameServer` runs it, so BSP maps play as in Quake 2: spawn points, items, doors, lifts, triggers, monsters and weapons. Models, skins and sounds come from your `pak0.pak`; without it, entities are drawn as boxes. Maps built with `qrad3` use their lightmaps (`r_lightmaps 0` turns them off).
+
+| Input (in a map) | Action |
+| :--- | :--- |
+| `W A S D` / `Space` / `Ctrl` | Move / Jump / Crouch |
+| `Left Click` | Fire the current weapon (with the mouse captured) |
+| `N` / `R` | Noclip / Restart the map (respawn without the game) |
+| `` ` `` | Console: Quake 2 client commands such as `give all`, `give shotgun`, `use blaster`, `god`, `notarget`, `kill`, `weapnext`, `cmd <command>`, server commands with `sv <command>`, and `killserver` |
+
+- `sv_game 0`: walk maps without the game.
+- `cl_gun 0`: hide the view weapon.
+- `REALMS_GAME_LIBRARY=/path/to/librealms_game.so`: use another game build.
+
+The Android APK and iOS device builds include the game too; there a Fire button appears above jump. More detail in [realms/README.md](../realms/README.md#the-quake-2-module-realms_quake2).
+
+## realms-pascal
+
+With `fpc` and `-DENABLE_FPC_CLIENT=ON` the build also produces `realms-pascal` (`Projects/realms.lpr`): the Pascal core linked into a Free Pascal program that runs the C++ sandbox from `libekron_sandbox`. It takes the same flags as `ekron-realms`. It can also be built with `lazbuild Projects/realms.lpi`, `make pascal` or `fpc @realms-fpc.cfg Projects/realms.lpr`; see [BUILD.md](../BUILD.md#free-pascal-client-realms-pascal).
