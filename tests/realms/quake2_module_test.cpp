@@ -10,6 +10,7 @@
 #include "Quake2View.h"
 
 #include "realms/Engine.h"
+#include "realms/MapTextures.h"
 #include "realms/Quake2Module.h"
 
 #include <chrono>
@@ -53,6 +54,75 @@ void writeBlaster(const fs::path &dir) {
     std::error_code ec;
     fs::create_directories(path.parent_path(), ec);
     std::ofstream(path, std::ios::binary).write(reinterpret_cast<const char *>(bytes.data()), std::streamsize(bytes.size()));
+}
+
+// A .wal (miptex_t header, then mip 0 only) whose texel (x, y) has palette
+// index pixel(x, y).
+template <class F> std::vector<unsigned char> walBytes(uint32_t w, uint32_t h, F pixel) {
+    std::vector<unsigned char> bytes(100 + size_t(w) * h, 0);
+    auto put32 = [&](size_t at, uint32_t v) {
+        for (int i = 0; i < 4; i++) bytes[at + size_t(i)] = uint8_t(v >> (8 * i));
+    };
+    put32(32, w);
+    put32(36, h);
+    put32(40, 100);
+    for (uint32_t y = 0; y < h; y++)
+        for (uint32_t x = 0; x < w; x++) bytes[100 + size_t(y) * w + x] = uint8_t(pixel(x, y));
+    return bytes;
+}
+
+template <class F> void writeWal(const fs::path &dir, const std::string &name, uint32_t w, uint32_t h, F pixel) {
+    const std::vector<unsigned char> bytes = walBytes(w, h, pixel);
+    const fs::path path = dir / "textures" / (name + ".wal");
+    std::error_code ec;
+    fs::create_directories(path.parent_path(), ec);
+    std::ofstream(path, std::ios::binary).write(reinterpret_cast<const char *>(bytes.data()), std::streamsize(bytes.size()));
+}
+
+bool rgbIs(const uint8_t *p, int r, int g, int b, int tolerance = 0) {
+    return std::abs(p[0] - r) <= tolerance && std::abs(p[1] - g) <= tolerance && std::abs(p[2] - b) <= tolerance &&
+           p[3] == 255;
+}
+
+// decodeWal and resampleTiled on their own.
+void walDecoding() {
+    const realms::Quake2Palette &pal = realms::builtinQuake2Palette();
+    CHECK(pal[0xd0 * 3] == 0 && pal[0xd0 * 3 + 1] == 255 && pal[0xd0 * 3 + 2] == 0);
+    realms::RgbaImage img;
+    std::string error;
+    const auto wal = walBytes(4, 2, [](uint32_t x, uint32_t y) { return y == 0 ? (x == 0 ? 0xd0 : 0x0f) : 0xf0; });
+    CHECK(realms::decodeWal(wal.data(), wal.size(), pal, img, error));
+    CHECK(img.width == 4 && img.height == 2 && img.rgba.size() == 4 * 2 * 4);
+    if (img.rgba.size() == 32) {
+        CHECK(rgbIs(&img.rgba[0], 0, 255, 0));      // 0xd0
+        CHECK(rgbIs(&img.rgba[4], 235, 235, 235));  // 0x0f
+        CHECK(rgbIs(&img.rgba[16], 239, 0, 0));     // 0xf0, second row
+    }
+    CHECK(!realms::decodeWal(wal.data(), 99, pal, img, error) && !error.empty() && img.rgba.empty());
+    CHECK(!realms::decodeWal(wal.data(), wal.size() - 1, pal, img, error)); // pixels cut short
+    auto zero = wal;
+    zero[32] = 0; // width 0
+    CHECK(!realms::decodeWal(zero.data(), zero.size(), pal, img, error));
+    auto far = wal;
+    far[41] = 1; // mip 0 at 356, past the end
+    CHECK(!realms::decodeWal(far.data(), far.size(), pal, img, error));
+
+    // enlarging wraps: 2 x 1 (black, white) to 4 x 4, texel centres at 0.25,
+    // 0.75 of a source texel; the left column is 3/4 black, 1/4 white (wrapped)
+    const uint8_t two[8] = {0, 0, 0, 255, 255, 255, 255, 255};
+    std::vector<uint8_t> big(4 * 4 * 4);
+    realms::resampleTiled(two, 2, 1, 4, big.data());
+    CHECK(rgbIs(&big[0], 64, 64, 64, 1) && rgbIs(&big[4], 64, 64, 64, 1));
+    CHECK(rgbIs(&big[8], 191, 191, 191, 1) && rgbIs(&big[12], 191, 191, 191, 1));
+    CHECK(rgbIs(&big[3 * 16], 64, 64, 64, 1)); // every row the same
+    // shrinking averages: 4 x 4 columns 0, 100, 200, 40 to 2 x 2
+    std::vector<uint8_t> four(4 * 4 * 4);
+    const int cols[4] = {0, 100, 200, 40};
+    for (int i = 0; i < 16; i++) four[size_t(i) * 4] = four[size_t(i) * 4 + 1] = four[size_t(i) * 4 + 2] = uint8_t(cols[i % 4]),
+                                  four[size_t(i) * 4 + 3] = 255;
+    std::vector<uint8_t> small(2 * 2 * 4);
+    realms::resampleTiled(four.data(), 4, 4, 2, small.data());
+    CHECK(rgbIs(&small[0], 50, 50, 50) && rgbIs(&small[4], 120, 120, 120) && rgbIs(&small[8], 50, 50, 50));
 }
 
 // The floor's light: red 128, green 64, blue 32 everywhere (style slot 0,
@@ -149,10 +219,36 @@ void moduleWithoutGame(realms::Engine &engine) {
     CHECK(near(realms::Quake2Module::userCmd(in, false).up, -400, 1e-3f));
     CHECK(near(realms::Quake2Module::userCmd(in, false).forward, 400, 1e-3f));
 
+    // the map's textures: floor and wall have a .wal, the door doesn't
+    const realms::MapTextures &tex = q2.textures();
+    CHECK(tex.count() == 2 && tex.missing() == 1 && !tex.fromGamePalette());
+    CHECK(tex.layerSize() == 128); // the wall's 128, a power of two
+    const int floor = tex.find("e1u1/floor"), wall = tex.find("e1u1/wall");
+    CHECK(floor >= 0 && wall >= 0 && floor != wall && tex.find("e1u1/door") == -1);
+    CHECK(tex.pixels().size() == 2 * 128 * 128 * 4);
+    if (floor >= 0 && wall >= 0 && tex.pixels().size() == 2 * 128 * 128 * 4) {
+        CHECK(tex.texture(size_t(floor)).width == 64 && tex.texture(size_t(floor)).height == 64);
+        CHECK(tex.texture(size_t(wall)).width == 32 && tex.texture(size_t(wall)).height == 128);
+        const uint8_t *f = tex.pixels().data() + size_t(floor) * 128 * 128 * 4;
+        CHECK(rgbIs(f, 0, 255, 0) && rgbIs(f + (128 * 128 - 1) * 4, 0, 255, 0)); // all 0xd0
+        // the wall: red rows 0..63, white 64..127, stretched across
+        const uint8_t *w = tex.pixels().data() + size_t(wall) * 128 * 128 * 4;
+        CHECK(rgbIs(w + (10 * 128 + 70) * 4, 239, 0, 0) && rgbIs(w + (100 * 128 + 3) * 4, 235, 235, 235));
+    }
+
     q2.disableLightmaps();
     CHECK(!q2.lightmapped() && q2.lightmap().empty() && !q2.lightmapUvs(geometry, uvs) && uvs.empty());
+    q2.disableTextures();
+    CHECK(q2.textures().empty() && q2.textures().find("e1u1/floor") == -1);
     q2.close();
     CHECK(!q2.lightmapped());
+
+    realms::Quake2ModuleConfig plain;
+    plain.startGame = false;
+    plain.textures = false;
+    q2.open(engine, geometry, plain, why);
+    CHECK(q2.textures().empty() && q2.lightmapped());
+    q2.close();
 }
 
 void viewWithoutGame(realms::Engine &engine) {
@@ -175,6 +271,39 @@ void viewWithoutGame(realms::Engine &engine) {
         CHECK(ranges[1].count == 36); // the door: a box, 12 triangles
     }
     CHECK(lightUvs.size() == vertices.size() * 2);
+
+    // floor and wall faces sample the map's textures (mapTextureLayer, white,
+    // coordinates over the texture size); the door keeps its material layer
+    std::vector<sandbox::MeshVertex> plain;
+    std::vector<mapview::ModelRange> plainRanges;
+    std::vector<float> plainUvs;
+    const realms::MapTextures &tex = view.module().textures();
+    const int floorIndex = tex.find("e1u1/floor"), wallIndex = tex.find("e1u1/wall");
+    CHECK(floorIndex >= 0 && wallIndex >= 0);
+    view.disableTextures();
+    view.triangles(geometry, plain, plainRanges, plainUvs);
+    CHECK(plain.size() == vertices.size());
+    size_t textured = 0, layerOk = 0, uvOk = 0, doorPlain = 0;
+    for (size_t i = 0; i < vertices.size() && i < plain.size(); i++) {
+        const int layer = int(vertices[i].layer + 0.5f);
+        CHECK(plain[i].layer < mapview::kMapTextureLayer);
+        if (layer < mapview::kMapTextureLayer) {
+            if (ranges.size() == 2 && i >= size_t(ranges[1].first)) doorPlain++;
+            continue;
+        }
+        textured++;
+        const int index = (layer >> 3) - 1;
+        if ((layer & 7) == int(plain[i].layer + 0.5f) && (index == floorIndex || index == wallIndex) &&
+            vertices[i].r == 1.0f && vertices[i].g == 1.0f && vertices[i].b == 1.0f)
+            layerOk++;
+        // plain: texels / 64; textured: texels / the texture's size
+        const float w = index == wallIndex ? 32.0f : 64.0f, h = index == wallIndex ? 128.0f : 64.0f;
+        if (near(vertices[i].u * w, plain[i].u * 64.0f, 1e-2f) && near(vertices[i].v * h, plain[i].v * 64.0f, 1e-2f))
+            uvOk++;
+    }
+    CHECK(textured > 0 && layerOk == textured && uvOk == textured);
+    CHECK(ranges.size() == 2 && doorPlain == size_t(ranges.size() == 2 ? ranges[1].count : 0));
+    CHECK(tex.empty());
 
     // walking: the walker moves the camera (render space: map +X is render +X)
     const physics::Vec3 start = view.eye();
@@ -341,6 +470,8 @@ int main(int argc, char **argv) {
         std::ofstream(tmp / "maps" / "arena.bsp", std::ios::binary).write(bsp.data(), std::streamsize(bsp.size()));
     }
     writeBlaster(tmp);
+    writeWal(tmp, "e1u1/floor", 64, 64, [](uint32_t, uint32_t) { return 0xd0; });
+    writeWal(tmp, "e1u1/wall", 32, 128, [](uint32_t, uint32_t y) { return y < 64 ? 0xf0 : 0x0f; });
     realms::EngineConfig cfg;
     cfg.backend = pascalLibrary.empty() ? realms::BackendPreference::Native : realms::BackendPreference::Pascal;
     cfg.pascalLibrary = pascalLibrary;
@@ -351,6 +482,8 @@ int main(int argc, char **argv) {
     const std::string backend = engine.backendName();
     if (!pascalLibrary.empty()) CHECK(engine.pascalBackend());
 
+    step("wal decoding");
+    walDecoding();
     step("module without game");
     moduleWithoutGame(engine);
     step("view without game");

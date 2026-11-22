@@ -59,6 +59,11 @@ bool AndroidMapMode::open(realms::Engine &engine, const city::GltfRenderer &sand
 
     std::vector<sandbox::MeshVertex> vertices;
     std::vector<float> lightUvs;
+    const realms::MapTextures &textures = view_->module().textures();
+    if (session().mesh() || !uploadMapTextures(textures))
+        view_->disableTextures();
+    else if (fresh)
+        session().summary() += ", " + std::to_string(textures.count()) + " textures";
     view_->triangles(geometry, vertices, ranges_, lightUvs);
     if (!vertices.empty()) {
         glGenVertexArrays(1, &vao_);
@@ -135,12 +140,42 @@ bool AndroidMapMode::open(realms::Engine &engine, const city::GltfRenderer &sand
     return true;
 }
 
+bool AndroidMapMode::uploadMapTextures(const realms::MapTextures &textures) {
+    if (textures.empty()) return false;
+    const GLsizei size = textures.layerSize(), count = GLsizei(textures.count());
+    int levels = 1;
+    while ((size >> levels) > 0) levels++;
+    while (glGetError() != GL_NO_ERROR) {
+    }
+    glGenTextures(1, &mapTextures_);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, mapTextures_);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    // sRGB like the material layers (TextureLoader)
+    glTexStorage3D(GL_TEXTURE_2D_ARRAY, levels, GL_SRGB8_ALPHA8, size, size, count);
+    glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, 0, size, size, count, GL_RGBA, GL_UNSIGNED_BYTE,
+                    textures.pixels().data());
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glGenerateMipmap(GL_TEXTURE_2D_ARRAY);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+    const GLenum error = glGetError();
+    if (error == GL_NO_ERROR) return true;
+    __android_log_print(ANDROID_LOG_WARN, "Realms", "map: %d textures of %d: GL error 0x%x", int(count), int(size),
+                        unsigned(error));
+    glDeleteTextures(1, &mapTextures_);
+    mapTextures_ = 0;
+    return false;
+}
+
 void AndroidMapMode::releaseTriangles() {
     if (vbo_) glDeleteBuffers(1, &vbo_);
     if (lightUvVbo_) glDeleteBuffers(1, &lightUvVbo_);
     if (vao_) glDeleteVertexArrays(1, &vao_);
     if (lightmapTexture_) glDeleteTextures(1, &lightmapTexture_);
-    vbo_ = lightUvVbo_ = vao_ = lightmapTexture_ = 0;
+    if (mapTextures_) glDeleteTextures(1, &mapTextures_);
+    vbo_ = lightUvVbo_ = vao_ = lightmapTexture_ = mapTextures_ = 0;
     count_ = 0;
     ranges_.clear();
 }
@@ -241,6 +276,12 @@ void AndroidMapMode::draw(GLuint program, const city::GltfRenderer &sandboxCity,
             glActiveTexture(GL_TEXTURE0);
             glUniform1i(glGetUniformLocation(program, "mapLightmap"), engine.cvarBool("r_lightmaps", true) ? 1 : 0);
         }
+        if (mapTextures_) {
+            glActiveTexture(GL_TEXTURE3);
+            glBindTexture(GL_TEXTURE_2D_ARRAY, mapTextures_);
+            glActiveTexture(GL_TEXTURE0);
+            glUniform1i(glGetUniformLocation(program, "mapTextured"), 1);
+        }
         float pos[mapview::kMaxDynamicLights * 4] = {}, col[mapview::kMaxDynamicLights * 4] = {};
         const int lightCount = int(std::min(lights_.size(), mapview::kMaxDynamicLights));
         for (int i = 0; i < lightCount; i++) {
@@ -270,6 +311,7 @@ void AndroidMapMode::draw(GLuint program, const city::GltfRenderer &sandboxCity,
         }
         glBindVertexArray(0);
         glUniform1i(glGetUniformLocation(program, "mapLightmap"), 0);
+        glUniform1i(glGetUniformLocation(program, "mapTextured"), 0);
         glUniform1i(glGetUniformLocation(program, "dlightCount"), 0);
     }
     if (!view_->gameRunning()) return;

@@ -8,6 +8,32 @@
 
 namespace mapview {
 
+namespace {
+
+// Faces whose material has a texture: white, coordinates over the texture's
+// size (texinfo texels / width, height), mapTextureLayer.
+void applyTextures(const realms::MapGeometry &g, const realms::MapTextures &textures,
+                   std::vector<sandbox::MeshVertex> &vertices) {
+    size_t at = 0;
+    for (const auto &b : g.batches) {
+        const size_t n = b.positions.size() / 3;
+        const int index = textures.find(b.material);
+        if (index >= 0 && b.uvs.size() == n * 2 && at + n <= vertices.size()) {
+            const realms::MapTextures::Texture &t = textures.texture(size_t(index));
+            for (size_t i = 0; i < n; i++) {
+                sandbox::MeshVertex &v = vertices[at + i];
+                v.u = b.uvs[i * 2] / float(t.width);
+                v.v = b.uvs[i * 2 + 1] / float(t.height);
+                v.r = v.g = v.b = 1.0f;
+                v.layer = float(mapTextureLayer(index, int(v.layer + 0.5f)));
+            }
+        }
+        at += n;
+    }
+}
+
+} // namespace
+
 realms::Vec3 Quake2View::cameraAngles(float renderYaw, float renderPitch) {
     const realms::WalkInput view = walkInput({}, renderYaw, renderPitch);
     return {view.pitch, view.yaw, 0.0f};
@@ -54,6 +80,7 @@ void Quake2View::triangles(const realms::MapGeometry &geometry, std::vector<sand
     for (auto &[model, g] : byModel) {
         toRenderVertices(g, session_.unitsPerMetre(), part);
         if (part.empty()) continue;
+        applyTextures(g, q2_.textures(), part);
         ranges.push_back({model, int(vertices.size()), int(part.size())});
         vertices.insert(vertices.end(), part.begin(), part.end());
         if (lit && q2_.lightmapUvs(g, uvs) && uvs.size() == part.size() * 2)

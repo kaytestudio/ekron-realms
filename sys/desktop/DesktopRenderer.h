@@ -145,6 +145,12 @@ public:
     void updateMapLightmap(ekron::gl::Api &gl, const std::vector<uint8_t> &rgba);
     void setMapLightmapEnabled(bool on) { lightmapEnabled_ = on; }
     bool mapLightmapped() const { return lightmapTex_ != 0 && lightmapEnabled_; }
+    // The map's own textures (realms::MapTextures::pixels(): `count` RGBA
+    // layers of size x size) for faces with mapview::mapTextureLayer;
+    // false when they can't be uploaded (those faces fall back to the
+    // material layers). Kept until clearMapGeometry.
+    bool setMapTextures(ekron::gl::Api &gl, int size, int count, const std::vector<uint8_t> &rgba);
+    bool mapTextured() const { return mapTexturesTex_ != 0; }
 
     // Game entities for this frame (Quake 2 .md2 models, fallback boxes),
     // drawn by renderMapWorld after the map with the textured model shader.
@@ -266,6 +272,8 @@ private:
     GLuint mapLightVbo_ = 0; // attribute 5 of mapVao_: lightmap coordinates
     GLuint lightmapTex_ = 0;
     int lightmapW_ = 0, lightmapH_ = 0;
+    GLuint mapTexturesTex_ = 0; // unit 3: the map's own textures
+    void releaseMapTextures(ekron::gl::Api &gl);
     bool lightmapEnabled_ = true;
     void uploadMapLightUvs(ekron::gl::Api &gl, const std::vector<float> &uvs);
     std::vector<MapDrawRange> mapRanges_;

@@ -178,7 +178,9 @@ static SandboxShade shadeSandbox(SandboxVaryings in,
                                  constant SandboxDrawUniforms &draw,
                                  texture2d_array<float> albedoArray,
                                  texture2d<float> modelAlbedo,
-                                 sampler modelSampler)
+                                 sampler modelSampler,
+                                 texture2d_array<float> mapTextures,
+                                 bool mapTextured)
 {
     SandboxShade out;
     out.discarded = false;
@@ -196,17 +198,23 @@ static SandboxShade shadeSandbox(SandboxVaryings in,
     const float modelRoughness = draw.materialParams.x;
     const float alphaCutoff = draw.materialParams.y;
 
+    // Map faces with the map's own texture: layer = 8 + 8 * slice of
+    // mapTextures + material class (mapview::mapTextureLayer).
+    const bool mapTexture = !modelPass && in.layer >= 8;
+    const int layer = mapTexture ? (in.layer & 7) : in.layer;
     float3 base = pow(max(in.tint, float3(0.0f)), float3(2.2f));
-    if (!modelPass && texturesReady) {
-        uint slice = uint(clamp(in.layer, 0, 7));
+    if (mapTexture && mapTextured) {
+        base *= mapTextures.sample(arraySampler, in.texUV, uint((in.layer >> 3) - 1)).rgb;
+    } else if (!modelPass && texturesReady) {
+        uint slice = uint(clamp(layer, 0, 7));
         base *= albedoArray.sample(arraySampler, in.texUV, slice).rgb;
     }
-    if (!modelPass && in.layer != 4) {
+    if (!modelPass && layer != 4 && !mapTexture) {
         float3 world = in.toEye + scene.eyeAspect.xyz;
         base *= 0.94f + 0.035f * sin(world.x * 0.21f + world.z * 0.17f)
                       + 0.025f * sin(world.y * 0.33f - world.x * 0.13f);
     }
-    if (!modelPass && in.layer == 7) {
+    if (!modelPass && layer == 7) {
         float pattern = fmod(floor(in.position.x) + floor(in.position.y) * 2.0f, 4.0f);
         if (pattern > 0.0f) {
             out.discarded = true;
@@ -242,8 +250,8 @@ static SandboxShade shadeSandbox(SandboxVaryings in,
     float sky = 0.78f + 0.22f * max(n.y, 0.0f);
     float3 lit = base * (scene.ambientColor.xyz * sky + scene.lightColor.xyz * diffuse);
 
-    float roughness = modelPass ? modelRoughness : (in.layer == 7 ? 0.18f : (in.layer == 3 ? 0.48f : 0.94f));
-    float strength = modelPass ? 0.035f : (in.layer == 7 ? 0.28f : (in.layer == 3 ? 0.12f : 0.006f));
+    float roughness = modelPass ? modelRoughness : (layer == 7 ? 0.18f : (layer == 3 ? 0.48f : 0.94f));
+    float strength = modelPass ? 0.035f : (layer == 7 ? 0.28f : (layer == 3 ? 0.12f : 0.006f));
     float3 viewDir = length_squared(in.toEye) > 1e-12f ? -normalize(in.toEye) : float3(0.0f, 0.0f, 1.0f);
     float3 halfVector = normalize(lightDir + viewDir);
     float shine = pow(max(dot(n, halfVector), 0.0f), mix(90.0f, 8.0f, clamp(roughness, 0.0f, 1.0f)));
@@ -273,7 +281,8 @@ fragment float4 sandboxFragment(SandboxVaryings in [[stage_in]],
                                 texture2d<float> modelAlbedo [[texture(1)]],
                                 sampler modelSampler [[sampler(0)]])
 {
-    SandboxShade s = shadeSandbox(in, frontFacing, scene, draw, albedoArray, modelAlbedo, modelSampler);
+    SandboxShade s = shadeSandbox(in, frontFacing, scene, draw, albedoArray, modelAlbedo, modelSampler, albedoArray,
+                                  false);
     if (s.discarded) {
         discard_fragment();
     }
@@ -284,7 +293,8 @@ fragment float4 sandboxFragment(SandboxVaryings in [[stage_in]],
 // Renderer.cpp / Quake2Gles.cpp): the lightmap atlas replaces the sun and sky
 // light on the world like ref_gl, base * (2 * lightmap)^2.2; entities take
 // the Quake 2 light at their origin; dynamic lights (muzzle flashes,
-// rockets...) add on top; effect models are fullbright.
+// rockets...) add on top; effect models are fullbright. Faces with the map's
+// own texture sample texture(3) (quake.modeCount.z = 1 when it is bound).
 fragment float4 quakeMapFragment(SandboxVaryings in [[stage_in]],
                                  bool frontFacing [[front_facing]],
                                  constant SandboxSceneUniforms &scene [[buffer(1)]],
@@ -293,13 +303,15 @@ fragment float4 quakeMapFragment(SandboxVaryings in [[stage_in]],
                                  texture2d_array<float> albedoArray [[texture(0)]],
                                  texture2d<float> modelAlbedo [[texture(1)]],
                                  texture2d<float> lightmap [[texture(2)]],
+                                 texture2d_array<float> mapTextures [[texture(3)]],
                                  sampler modelSampler [[sampler(0)]])
 {
     constexpr sampler lightmapSampler(coord::normalized,
                                       address::clamp_to_edge,
                                       mag_filter::linear,
                                       min_filter::linear);
-    SandboxShade s = shadeSandbox(in, frontFacing, scene, draw, albedoArray, modelAlbedo, modelSampler);
+    SandboxShade s = shadeSandbox(in, frontFacing, scene, draw, albedoArray, modelAlbedo, modelSampler, mapTextures,
+                                  quake.modeCount.z != 0);
     if (s.discarded) {
         discard_fragment();
     }

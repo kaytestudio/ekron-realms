@@ -47,6 +47,12 @@ bool DesktopMapMode::open(realms::Engine &engine, ekron::gl::Api &gl, DesktopRen
     std::vector<sandbox::MeshVertex> vertices;
     std::vector<mapview::ModelRange> ranges;
     std::vector<float> lightUvs;
+    const realms::MapTextures &textures = quake2().textures();
+    if (model_ || textures.empty() ||
+        !renderer.setMapTextures(gl, textures.layerSize(), int(textures.count()), textures.pixels()))
+        view_.disableTextures();
+    else
+        session.summary() += ", " + std::to_string(textures.count()) + " textures";
     if (!model_) view_.triangles(geometry, vertices, ranges, lightUvs);
     std::vector<DesktopRenderer::MapDrawRange> drawRanges;
     for (const mapview::ModelRange &r : ranges) drawRanges.push_back({r.model, GLint(r.first), GLsizei(r.count)});

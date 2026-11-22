@@ -92,7 +92,7 @@ uniform float aspect;
 out vec3 tint;
 out vec3 worldNormal;
 out vec2 texUV;
-flat out int layer;
+flat out int vertexLayer;
 out vec3 toEye;
 out vec2 lmUV;
 void main(){
@@ -103,7 +103,7 @@ void main(){
  q.xy=mat2(cos(cameraRoll),sin(cameraRoll),-sin(cameraRoll),cos(cameraRoll))*q.xy;
  float f=1.37638;
  gl_Position=vec4(q.x*f/aspect,q.y*f,-1.001334*q.z-.200134,-q.z);
- tint=color;worldNormal=mat3(objectTransform)*normal;texUV=uv;layer=int(material+.5);toEye=p;lmUV=lightUV;
+ tint=color;worldNormal=mat3(objectTransform)*normal;texUV=uv;vertexLayer=int(material+.5);toEye=p;lmUV=lightUV;
 })";
 const char *fragment=R"(#version 300 es
 precision highp float;
@@ -113,10 +113,14 @@ precision highp int;
 in vec3 tint;
 in vec3 worldNormal;
 in vec2 texUV;
-flat in int layer;
+flat in int vertexLayer;
 in vec3 toEye;
 in vec2 lmUV;
 uniform sampler2DArray albedo;
+// The map's own textures on unit 3 (map mode): vertexLayer = 8 + 8 * layer
+// + material class (mapview::mapTextureLayer).
+uniform bool mapTextured;
+uniform sampler2DArray mapTextures;
 // Quake 2 BSP lightmaps (map mode, realms::Quake2Module): the atlas on unit 2
 // replaces the sun and sky light, like ref_gl (base * (2 * lightmap)^2.2).
 uniform bool mapLightmap;
@@ -140,9 +144,12 @@ uniform vec3 lightColor;
 uniform vec3 ambientColor;
 out vec4 outColor;
 void main(){
+ bool mapTexture=!modelPass&&vertexLayer>=8;
+ int layer=mapTexture?(vertexLayer&7):vertexLayer;
  vec3 base=pow(tint,vec3(2.2));
- if(texturesReady)base*=texture(albedo,vec3(texUV,float(layer))).rgb;
- if(!modelPass && layer!=4){
+ if(mapTexture&&mapTextured)base*=texture(mapTextures,vec3(texUV,float((vertexLayer>>3)-1))).rgb;
+ else if(texturesReady)base*=texture(albedo,vec3(texUV,float(layer))).rgb;
+ if(!modelPass && layer!=4 && !mapTexture){
   vec3 world=toEye+eye;
   base*=.94+.035*sin(world.x*.21+world.z*.17)+.025*sin(world.y*.33-world.x*.13);
  }
@@ -301,8 +308,8 @@ Renderer::Renderer(android_app *app):app_(app),last_(std::chrono::steady_clock::
  const EGLint contextAttributes[]={EGL_CONTEXT_CLIENT_VERSION,3,EGL_NONE};context_=eglCreateContext(display_,config,EGL_NO_CONTEXT,contextAttributes);
  if(surface_==EGL_NO_SURFACE||context_==EGL_NO_CONTEXT||!eglMakeCurrent(display_,surface_,surface_,context_))return;
  program_=link(vertex,fragment);skyProgram_=link(skyVertex,skyFragment);if(!program_)return;
- // Each sampler type keeps its own unit: albedo array 0, model 1, lightmap 2.
- glUseProgram(program_);glUniform1i(glGetUniformLocation(program_,"lightmap"),2);glUniform1i(glGetUniformLocation(program_,"mapLightmap"),0);glUniform1i(glGetUniformLocation(program_,"dlightCount"),0);
+ // Each sampler keeps its own unit: albedo array 0, model 1, lightmap 2, map textures 3.
+ glUseProgram(program_);glUniform1i(glGetUniformLocation(program_,"lightmap"),2);glUniform1i(glGetUniformLocation(program_,"mapLightmap"),0);glUniform1i(glGetUniformLocation(program_,"mapTextures"),3);glUniform1i(glGetUniformLocation(program_,"mapTextured"),0);glUniform1i(glGetUniformLocation(program_,"dlightCount"),0);
  loadStage=1;loadPercent=2;
  auto manager=app_->activity->assetManager;auto navigation=std::make_shared<sandbox::World>(world_);
  assetsJob_=std::async(std::launch::async,[manager,navigation](){

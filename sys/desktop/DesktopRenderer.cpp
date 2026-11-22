@@ -189,6 +189,10 @@ in vec3 vToEye;
 uniform vec3 uEye;
 uniform sampler2DArray uAlbedoArray;
 uniform int uTexturesReady;
+// Map faces with the map's own texture: vLayer = 8 + 8 * layer of
+// uMapTextures + material class (mapview::mapTextureLayer).
+uniform sampler2DArray uMapTextures;
+uniform int uMapTextured;
 uniform int uModelPass;
 uniform int uPreviewPass;
 uniform sampler2D uModelAlbedo;
@@ -219,16 +223,20 @@ uniform vec3 uEntityLight;
 out vec4 fragColor;
 
 void main() {
+    bool mapTexture = uModelPass == 0 && vLayer >= 8;
+    int layer = mapTexture ? (vLayer & 7) : vLayer;
     vec3 base = pow(max(vCol, vec3(0.0)), vec3(2.2));
-    if (uModelPass == 0 && uTexturesReady != 0) {
-        base *= texture(uAlbedoArray, vec3(vUV, clamp(vLayer, 0, 7))).rgb;
+    if (mapTexture && uMapTextured != 0) {
+        base *= texture(uMapTextures, vec3(vUV, float((vLayer >> 3) - 1))).rgb;
+    } else if (uModelPass == 0 && uTexturesReady != 0) {
+        base *= texture(uAlbedoArray, vec3(vUV, clamp(layer, 0, 7))).rgb;
     }
-    if (uModelPass == 0 && vLayer != 4) {
+    if (uModelPass == 0 && layer != 4 && !mapTexture) {
         vec3 world = vToEye + uEye;
         base *= 0.94 + 0.035 * sin(world.x * 0.21 + world.z * 0.17)
                      + 0.025 * sin(world.y * 0.33 - world.x * 0.13);
     }
-    if (uModelPass == 0 && vLayer == 7) {
+    if (uModelPass == 0 && layer == 7) {
         float pattern = mod(floor(gl_FragCoord.x) + floor(gl_FragCoord.y) * 2.0, 4.0);
         if (pattern > 0.0) discard;
     }
@@ -271,8 +279,8 @@ void main() {
         lit += base * uDlightColors[i].rgb * (1.6 * f * f * facing);
     }
 
-    float roughness = uModelPass != 0 ? uModelRoughness : (vLayer == 7 ? 0.18 : (vLayer == 3 ? 0.48 : 0.94));
-    float strength = uModelPass != 0 ? 0.035 : (vLayer == 7 ? 0.28 : (vLayer == 3 ? 0.12 : 0.006));
+    float roughness = uModelPass != 0 ? uModelRoughness : (layer == 7 ? 0.18 : (layer == 3 ? 0.48 : 0.94));
+    float strength = uModelPass != 0 ? 0.035 : (layer == 7 ? 0.28 : (layer == 3 ? 0.12 : 0.006));
     vec3 viewDir = dot(vToEye, vToEye) > 1e-12 ? -normalize(vToEye) : vec3(0.0, 0.0, 1.0);
     vec3 halfVector = normalize(lightDir + viewDir);
     float shine = pow(max(dot(n, halfVector), 0.0), mix(90.0, 8.0, clamp(roughness, 0.0, 1.0)));
@@ -387,6 +395,8 @@ void applyCommonSceneUniforms(ekron::gl::Api &gl,
     gl.Uniform1i(gl.GetUniformLocation(prog, "uFullbright"), 0);
     gl.Uniform1i(gl.GetUniformLocation(prog, "uLightmap"), 2);
     gl.Uniform1i(gl.GetUniformLocation(prog, "uLightmapped"), 0);
+    gl.Uniform1i(gl.GetUniformLocation(prog, "uMapTextures"), 3);
+    gl.Uniform1i(gl.GetUniformLocation(prog, "uMapTextured"), 0);
     gl.Uniform1i(gl.GetUniformLocation(prog, "uEntityLit"), 0);
 }
 
@@ -763,6 +773,7 @@ void DesktopRenderer::shutdown(ekron::gl::Api &gl) {
     if (mapVao_) gl.DeleteVertexArrays(1, &mapVao_);
     if (lightmapTex_) gl.DeleteTextures(1, &lightmapTex_);
     mapLightVbo_ = lightmapTex_ = 0;
+    releaseMapTextures(gl);
     mapCount_ = 0;
     if (entityVbo_) gl.DeleteBuffers(1, &entityVbo_);
     if (entityVao_) gl.DeleteVertexArrays(1, &entityVao_);
@@ -997,6 +1008,37 @@ void DesktopRenderer::setMapLightmap(ekron::gl::Api &gl, const std::vector<float
     lightmapH_ = height;
 }
 
+void DesktopRenderer::releaseMapTextures(ekron::gl::Api &gl) {
+    if (mapTexturesTex_) gl.DeleteTextures(1, &mapTexturesTex_);
+    mapTexturesTex_ = 0;
+}
+
+bool DesktopRenderer::setMapTextures(ekron::gl::Api &gl, int size, int count, const std::vector<uint8_t> &rgba) {
+    releaseMapTextures(gl);
+    if (size <= 0 || count <= 0 || rgba.size() != size_t(size) * size_t(size) * 4 * size_t(count)) return false;
+    while (gl.GetError() != GL_NO_ERROR) {
+    }
+    gl.GenTextures(1, &mapTexturesTex_);
+    gl.ActiveTexture(GL_TEXTURE3);
+    gl.BindTexture(GL_TEXTURE_2D_ARRAY, mapTexturesTex_);
+    gl.PixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    // sRGB like the material layers: sampled in linear space
+    gl.TexImage3D(GL_TEXTURE_2D_ARRAY, 0, static_cast<GLint>(GL_SRGB8_ALPHA8), size, size, count, 0, GL_RGBA,
+                  GL_UNSIGNED_BYTE, rgba.data());
+    gl.GenerateMipmap(GL_TEXTURE_2D_ARRAY);
+    gl.TexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, static_cast<GLint>(GL_LINEAR_MIPMAP_LINEAR));
+    gl.TexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, static_cast<GLint>(GL_LINEAR));
+    gl.TexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, static_cast<GLint>(GL_REPEAT));
+    gl.TexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, static_cast<GLint>(GL_REPEAT));
+    gl.BindTexture(GL_TEXTURE_2D_ARRAY, 0);
+    gl.ActiveTexture(GL_TEXTURE0);
+    if (gl.GetError() != GL_NO_ERROR) { // too many layers for this GL, out of memory
+        releaseMapTextures(gl);
+        return false;
+    }
+    return true;
+}
+
 void DesktopRenderer::updateMapLightmap(ekron::gl::Api &gl, const std::vector<uint8_t> &rgba) {
     if (!lightmapTex_ || rgba.size() != size_t(lightmapW_) * size_t(lightmapH_) * 4) return;
     gl.ActiveTexture(GL_TEXTURE2);
@@ -1015,6 +1057,7 @@ void DesktopRenderer::clearMapGeometry(ekron::gl::Api &gl) {
     }
     mapCount_ = 0;
     uploadMapLightUvs(gl, {});
+    releaseMapTextures(gl);
     if (lightmapTex_) gl.DeleteTextures(1, &lightmapTex_);
     lightmapTex_ = 0;
     lightmapW_ = lightmapH_ = 0;
@@ -1146,6 +1189,11 @@ void DesktopRenderer::renderMapWorld(ekron::gl::Api &gl,
             gl.BindTexture(GL_TEXTURE_2D, lightmapTex_);
             gl.Uniform1i(gl.GetUniformLocation(worldProg_, "uLightmapped"), 1);
         }
+        if (mapTexturesTex_) {
+            gl.ActiveTexture(GL_TEXTURE3);
+            gl.BindTexture(GL_TEXTURE_2D_ARRAY, mapTexturesTex_);
+            gl.Uniform1i(gl.GetUniformLocation(worldProg_, "uMapTextured"), 1);
+        }
         gl.BindVertexArray(mapVao_);
         if (mapRanges_.empty()) {
             gl.DrawArrays(GL_TRIANGLES, 0, mapCount_);
@@ -1163,6 +1211,9 @@ void DesktopRenderer::renderMapWorld(ekron::gl::Api &gl,
         }
         gl.Uniform1i(gl.GetUniformLocation(worldProg_, "uDlightCount"), 0);
         gl.Uniform1i(gl.GetUniformLocation(worldProg_, "uLightmapped"), 0);
+        gl.Uniform1i(gl.GetUniformLocation(worldProg_, "uMapTextured"), 0);
+        gl.ActiveTexture(GL_TEXTURE3);
+        gl.BindTexture(GL_TEXTURE_2D_ARRAY, 0);
         gl.ActiveTexture(GL_TEXTURE2);
         gl.BindTexture(GL_TEXTURE_2D, 0);
         gl.ActiveTexture(GL_TEXTURE0);

@@ -468,6 +468,7 @@ struct MetalMapPipelines {
     id<MTLDepthStencilState> depthWrite = nil;
     id<MTLDepthStencilState> depthRead = nil;
     id<MTLTexture> white = nil;
+    id<MTLTexture> whiteArray = nil; // texture(3) of quakeMapFragment without map textures
 };
 
 class MetalMapMode {
@@ -487,6 +488,7 @@ public:
     // worker - never through the engine, which belongs to the render thread.
     bool open(realms::Engine &engine,
               id<MTLDevice> device,
+              id<MTLCommandQueue> queue,
               const MetalGltfModel &sandboxCity,
               const std::string &sandboxCityPath,
               const std::vector<std::string> &roots,
@@ -530,6 +532,11 @@ public:
 
         std::vector<sandbox::MeshVertex> vertices;
         std::vector<float> lightUvs;
+        const realms::MapTextures &textures = view_->module().textures();
+        if (session().mesh() || !uploadMapTextures(device, queue, textures))
+            view_->disableTextures();
+        else if (fresh_)
+            session().summary() += ", " + std::to_string(textures.count()) + " textures";
         view_->triangles(geometry, vertices, ranges_, lightUvs);
         if (!vertices.empty()) {
             triangles_ = [device newBufferWithBytes:vertices.data()
@@ -693,7 +700,8 @@ public:
             quake.lights[i] = simd_make_float4(l.x, l.y, l.z, l.radius);
             quake.lightColors[i] = simd_make_float4(l.r, l.g, l.b, 1.0f);
         }
-        quake.modeCount = simd_make_int4(0, lightCount, 0, 0);
+        quake.modeCount = simd_make_int4(0, lightCount, mapTextures_ ? 1 : 0, 0);
+        [encoder setFragmentTexture:(mapTextures_ ? mapTextures_ : p.whiteArray) atIndex:3];
 
         if (model_.ready()) {
             model_.draw(encoder, p.modelOpaque, p.modelBlended, p.depthWrite, p.depthRead, samplers, p.white,
@@ -763,6 +771,7 @@ private:
         triangles_ = nil;
         lightUvs_ = nil;
         lightmap_ = nil;
+        mapTextures_ = nil;
         count_ = 0;
         ranges_.clear();
         skins_.clear();
@@ -780,6 +789,42 @@ private:
                      mipmapLevel:0
                        withBytes:q2.lightmap().data()
                      bytesPerRow:NSUInteger(w) * 4];
+    }
+
+    // The map's textures as an sRGB 2D array with mipmaps; false (nil) when
+    // there are none or Metal refuses them.
+    bool uploadMapTextures(id<MTLDevice> device, id<MTLCommandQueue> queue, const realms::MapTextures &textures) {
+        mapTextures_ = nil;
+        if (textures.empty() || !device || !queue) return false;
+        const NSUInteger size = NSUInteger(textures.layerSize()), count = NSUInteger(textures.count());
+        MTLTextureDescriptor *desc = [[MTLTextureDescriptor alloc] init];
+        desc.textureType = MTLTextureType2DArray;
+        desc.pixelFormat = MTLPixelFormatRGBA8Unorm_sRGB;
+        desc.width = size;
+        desc.height = size;
+        desc.arrayLength = count;
+        desc.mipmapLevelCount = mipCountForDimensions(size, size);
+        desc.usage = MTLTextureUsageShaderRead;
+        id<MTLTexture> tex = [device newTextureWithDescriptor:desc];
+        if (!tex) return false;
+        const size_t layerBytes = size_t(size) * size_t(size) * 4;
+        for (NSUInteger i = 0; i < count; ++i) {
+            [tex replaceRegion:MTLRegionMake2D(0, 0, size, size)
+                   mipmapLevel:0
+                         slice:i
+                     withBytes:textures.pixels().data() + i * layerBytes
+                   bytesPerRow:size * 4
+                 bytesPerImage:layerBytes];
+        }
+        if (desc.mipmapLevelCount > 1) {
+            id<MTLCommandBuffer> cmd = [queue commandBuffer];
+            id<MTLBlitCommandEncoder> blit = [cmd blitCommandEncoder];
+            [blit generateMipmapsForTexture:tex];
+            [blit endEncoding];
+            [cmd commit];
+        }
+        mapTextures_ = tex;
+        return true;
     }
 
     // A skin from the game's files (.pcx / .wal through the VFS), uploaded
@@ -894,6 +939,7 @@ private:
     id<MTLBuffer> triangles_ = nil;
     id<MTLBuffer> lightUvs_ = nil;
     id<MTLTexture> lightmap_ = nil;
+    id<MTLTexture> mapTextures_ = nil; // texture(3): the map's own textures
     NSUInteger count_ = 0;
     std::vector<mapview::ModelRange> ranges_;
     MetalGltfModel model_;
@@ -2745,7 +2791,7 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
     std::unique_ptr<mapview::Quake2View> retainedGame;
     if (gRetainedMap) retainedGame = std::move(gRetainedMap->game);
     mapAttack_ = false;
-    if (!mapMode_.open(engine, device_, cityModel_, kCityAsset, {supportDir_, bundleRoot_}, error,
+    if (!mapMode_.open(engine, device_, commandQueue_, cityModel_, kCityAsset, {supportDir_, bundleRoot_}, error,
                        std::move(retainedGame))) {
         NSLog(@"[Realms] map mode: %s: %s", path.c_str(), error.c_str());
         gRetainedMap.reset();
@@ -2850,6 +2896,7 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
         pipelines.depthWrite = depthWriteState_;
         pipelines.depthRead = depthReadOnlyState_;
         pipelines.white = whiteTexture_;
+        pipelines.whiteArray = fallbackArrayTexture_;
         mapMode_.draw(encoder, pipelines, gltfSamplers_, cityModel_, engine, device_, commandQueue_, mapYaw_, mapPitch_,
                       drawSize);
         [encoder endEncoding];

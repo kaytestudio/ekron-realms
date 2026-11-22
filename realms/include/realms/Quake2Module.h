@@ -1,6 +1,6 @@
-// Quake 2 game, entities, effects, sounds and lightmaps for one map, with no
-// renderer or audio code. Each sandbox (DesktopMapMode, AndroidMapMode,
-// MetalMapMode) owns one and draws/plays what it returns.
+// Quake 2 game, entities, effects, sounds, lightmaps and textures for one
+// map, with no renderer or audio code. Each sandbox (DesktopMapMode,
+// AndroidMapMode, MetalMapMode) owns one and draws/plays what it returns.
 // Everything is in Quake 2 map space: units, Z up, angles in degrees.
 #pragma once
 
@@ -11,6 +11,7 @@
 #include "realms/GameView.h"
 #include "realms/MapGeometry.h"
 #include "realms/MapLighting.h"
+#include "realms/MapTextures.h"
 #include "realms/MapWalker.h"
 
 #include <array>
@@ -25,6 +26,7 @@ struct Quake2ModuleConfig {
     std::string executableDir; // where librealms_game is looked for
     bool startGame = true;     // false: lightmaps only (sv_game 0)
     bool lightmaps = true;
+    bool textures = true; // the map's .wal textures (MapTextures)
 };
 
 // Where an inline model is drawn: rotate by `angles` (Quake 2 degrees,
@@ -117,6 +119,11 @@ public:
     // Light styles from the game's CS_LIGHTS at client time; true when the
     // atlas changed (re-upload lightmap()).
     bool updateLightStyles();
+    // ---- textures
+    // The .wal textures of the map's faces (empty without id's data).
+    const MapTextures &textures() const { return textures_; }
+    void disableTextures() { textures_.clear(); }
+
     // R_LightPoint at a map point: the lightmap under it plus the game's
     // dynamic lights, at least RF_MINLIGHT's 0.1; false (and white) without
     // lightmaps.
@@ -144,6 +151,7 @@ private:
     std::vector<GameBeam> fxBeams_;
     std::vector<GameDynamicLight> fxLights_;
     MapLighting lighting_;
+    MapTextures textures_;
     MapLightStyles lightStyles_;
     std::vector<uint8_t> lightmapRgba_;
 };

@@ -3,6 +3,7 @@
 // (byte directions, monster muzzle flashes) are generated from the copies
 // in this repository by tools/gen_game_effect_tables.py.
 #include "realms/GameEffects.h"
+#include "realms/MapTextures.h"
 
 #include <algorithm>
 #include <cctype>
@@ -13,7 +14,6 @@ namespace realms {
 namespace {
 
 #include "GameEffectTables.inc"
-#include "Quake2Palette.inc"
 
 using A3 = std::array<float, 3>;
 
@@ -70,11 +70,9 @@ A3 dirAngles(const A3 &dir) {
     return a;
 }
 
-// Quake 2's palette, for when pics/colormap.pcx isn't installed.
-std::array<std::array<float, 3>, 256> builtinPalette() {
+std::array<std::array<float, 3>, 256> toFloat(const uint8_t *rgb768) {
     std::array<std::array<float, 3>, 256> p{};
-    for (size_t i = 0; i < 256; i++)
-        p[i] = {kQuake2Palette[i * 3] / 255.0f, kQuake2Palette[i * 3 + 1] / 255.0f, kQuake2Palette[i * 3 + 2] / 255.0f};
+    for (size_t i = 0; i < 256; i++) p[i] = {rgb768[i * 3] / 255.0f, rgb768[i * 3 + 1] / 255.0f, rgb768[i * 3 + 2] / 255.0f};
     return p;
 }
 
@@ -118,7 +116,7 @@ double clientTimeMs(const GameServer &server) {
 }
 
 GameEffects::GameEffects() {
-    palette_ = builtinPalette();
+    palette_ = toFloat(builtinQuake2Palette().data());
     reset();
 }
 
@@ -148,31 +146,15 @@ int GameEffects::rand15() {
 }
 
 void GameEffects::setPalette(const uint8_t *rgb768) {
-    if (!rgb768) {
-        palette_ = builtinPalette();
-        paletteFromGame_ = false;
-        return;
-    }
-    for (int i = 0; i < 256; i++)
-        palette_[size_t(i)] = {rgb768[i * 3] / 255.0f, rgb768[i * 3 + 1] / 255.0f, rgb768[i * 3 + 2] / 255.0f};
-    paletteFromGame_ = true;
+    palette_ = toFloat(rgb768 ? rgb768 : builtinQuake2Palette().data());
+    paletteFromGame_ = rgb768 != nullptr;
 }
 
 bool GameEffects::loadPalette(const Engine &engine, std::string *error) {
-    std::vector<unsigned char> bytes;
-    if (!engine.loadFile("pics/colormap.pcx", bytes)) {
-        if (error) *error = "pics/colormap.pcx not found";
-        setPalette(nullptr);
-        return false;
-    }
-    // an 8-bit PCX ends with 0x0c and the 768-byte palette
-    if (bytes.size() < 128 + 769 || bytes[0] != 0x0a || bytes[bytes.size() - 769] != 0x0c) {
-        if (error) *error = "pics/colormap.pcx: no 256-colour palette";
-        setPalette(nullptr);
-        return false;
-    }
-    setPalette(bytes.data() + bytes.size() - 768);
-    return true;
+    Quake2Palette palette;
+    const bool fromGame = loadQuake2Palette(engine, palette, error);
+    setPalette(fromGame ? palette.data() : nullptr);
+    return fromGame;
 }
 
 std::array<float, 3> GameEffects::paletteColor(int index) const { return palette_[size_t(index & 255)]; }

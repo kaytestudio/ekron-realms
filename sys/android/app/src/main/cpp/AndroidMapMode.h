@@ -80,6 +80,8 @@ private:
     float cityScale_ = 1.0f;
     std::array<float, 3> cityOffset_{};
     GLuint vao_ = 0, vbo_ = 0, lightUvVbo_ = 0, lightmapTexture_ = 0;
+    GLuint mapTextures_ = 0; // unit 3: the map's own textures (Quake2Module::textures())
+    bool uploadMapTextures(const realms::MapTextures &textures);
     GLsizei count_ = 0;
     std::vector<mapview::ModelRange> ranges_;
     city::GltfRenderer model_;

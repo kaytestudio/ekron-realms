@@ -60,6 +60,15 @@ struct DynamicLight {
 // Quake 2's MAX_DLIGHTS; the map mode shaders' light arrays have this size.
 constexpr size_t kMaxDynamicLights = 32;
 
+// Map faces drawn with the map's own texture (Quake2Module::textures()) have
+// layer kMapTextureLayer + 8 * texture + material class (0..7), white tint
+// and coordinates over the texture's size. The shaders take the class from
+// the low 3 bits and sample layer (layer >> 3) - 1 of the map texture array.
+constexpr int kMapTextureLayer = 8;
+constexpr int mapTextureLayer(int texture, int materialClass) {
+    return kMapTextureLayer + 8 * texture + (materialClass & 7);
+}
+
 class Quake2View {
 public:
     // Opens the engine's loaded map: the session, then the module (lightmaps
@@ -72,11 +81,14 @@ public:
 
     // The map's triangles grouped by BSP model (ranges: empty when there is
     // only the world) and their lightmap coordinates (u, v per vertex, -1 =
-    // none; empty without lightmaps).
+    // none; empty without lightmaps). Faces with a texture from the map use
+    // mapTextureLayer.
     void triangles(const realms::MapGeometry &geometry, std::vector<sandbox::MeshVertex> &vertices,
                    std::vector<ModelRange> &ranges, std::vector<float> &lightUvs) const;
     // The platform can't draw lightmaps for this map (textured model...).
     void disableLightmaps() { q2_.disableLightmaps(); }
+    // ... or the map's textures (call before triangles()).
+    void disableTextures() { q2_.disableTextures(); }
 
     // One frame: the game with this input (attack fires), or the walker.
     void update(realms::Engine &engine, const realms::WalkInput &input, float renderYaw, float renderPitch,

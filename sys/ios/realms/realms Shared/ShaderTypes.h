@@ -67,7 +67,8 @@ typedef struct
     simd_float4 lightColors[SANDBOX_MAX_DLIGHTS]; // xyz = linear RGB
     simd_int4   modeCount;      // x = mode (0 sandbox sun, 1 lightmapped world,
                                 //      2 entity lit by `light`, 3 fullbright),
-                                // y = dynamic lights in use (0...SANDBOX_MAX_DLIGHTS)
+                                // y = dynamic lights in use (0...SANDBOX_MAX_DLIGHTS),
+                                // z = 1: the map's textures are on texture(3)
     simd_float4 light;          // xyz = Quake 2 light value at the entity (mode 2)
 } SandboxQuakeUniforms;
 

@@ -83,6 +83,8 @@ constexpr GLenum GL_MIRRORED_REPEAT        = 0x8370;
 constexpr GLenum GL_TEXTURE0               = 0x84C0;
 constexpr GLenum GL_TEXTURE1               = 0x84C1;
 constexpr GLenum GL_TEXTURE2               = 0x84C2;
+constexpr GLenum GL_TEXTURE3               = 0x84C3;
+constexpr GLenum GL_NO_ERROR               = 0;
 constexpr GLenum GL_ARRAY_BUFFER           = 0x8892;
 constexpr GLenum GL_STATIC_DRAW            = 0x88E4;
 constexpr GLenum GL_DYNAMIC_DRAW           = 0x88E8;
@@ -119,6 +121,7 @@ using PFN_glTexImage2D             = void (APIENTRYP)(GLenum, GLint, GLint, GLsi
 using PFN_glTexImage3D             = void (APIENTRYP)(GLenum, GLint, GLint, GLsizei, GLsizei, GLsizei, GLint, GLenum, GLenum, const void *);
 using PFN_glTexSubImage3D          = void (APIENTRYP)(GLenum, GLint, GLint, GLint, GLint, GLsizei, GLsizei, GLsizei, GLenum, GLenum, const void *);
 using PFN_glGenerateMipmap         = void (APIENTRYP)(GLenum);
+using PFN_glGetError               = GLenum (APIENTRYP)(void);
 using PFN_glGenBuffers             = void (APIENTRYP)(GLsizei, GLuint *);
 using PFN_glDeleteBuffers          = void (APIENTRYP)(GLsizei, const GLuint *);
 using PFN_glBindBuffer             = void (APIENTRYP)(GLenum, GLuint);
@@ -180,6 +183,7 @@ struct Api {
     PFN_glTexImage3D              TexImage3D = nullptr;
     PFN_glTexSubImage3D           TexSubImage3D = nullptr;
     PFN_glGenerateMipmap          GenerateMipmap = nullptr;
+    PFN_glGetError                GetError = nullptr;
     PFN_glGenBuffers              GenBuffers = nullptr;
     PFN_glDeleteBuffers           DeleteBuffers = nullptr;
     PFN_glBindBuffer              BindBuffer = nullptr;
@@ -247,6 +251,7 @@ struct Api {
         resolve(TexImage3D, "glTexImage3D");
         resolve(TexSubImage3D, "glTexSubImage3D");
         resolve(GenerateMipmap, "glGenerateMipmap");
+        resolve(GetError, "glGetError");
         resolve(GenBuffers, "glGenBuffers");
         resolve(DeleteBuffers, "glDeleteBuffers");
         resolve(BindBuffer, "glBindBuffer");
