@@ -1,9 +1,2 @@
-//
-//  SharedSoundSystem.cpp
-//  realms iOS
-//
-//  Game sound: the sound catalog, background loading, play / soundlist / stopsound and s_volume,
-//  shared with the desktop client and Android.
-//
-
+// Compiles sys/android/app/src/main/cpp/SoundSystem.cpp into the iOS app target.
 #include "SoundSystem.cpp"

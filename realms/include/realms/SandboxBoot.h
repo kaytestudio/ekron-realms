@@ -1,16 +1,12 @@
-// Realms Engine - shared sandbox boot sequence for Desktop, Android and iOS.
+// Boot sequence shared by desktop, Android and iOS:
 //
-// Every host registers the same cvars and runs the same Quake 2 style
-// start-up so a setting behaves identically on all platforms:
-//
-//   1. pak0.pak ... pak9.pak mounted from the asset roots (if present)
-//   2. exec config/realms.cfg   (defaults shipped with the assets)
-//   3. exec config.cfg          (archived user settings, writeconfig)
+//   1. pak0.pak ... pak9.pak from the asset roots
+//   2. exec config/realms.cfg   (shipped defaults)
+//   3. exec config.cfg          (saved settings)
 //   4. exec autoexec.cfg        (user overrides)
-//   5. command line "+set x y +cmd" script
+//   5. "+set x y +cmd" from the command line
 //
-// boot() also registers the map console commands (registerMapCommands), so
-// "+map base1" works from the command line on every platform.
+// boot() also registers the map commands, so "+map base1" works everywhere.
 #pragma once
 
 #include "realms/Engine.h"

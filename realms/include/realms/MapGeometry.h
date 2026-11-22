@@ -1,21 +1,7 @@
-// Realms Engine - drawable geometry of the loaded map.
-//
-// The collision core (Pascal CModel or the C++ reference) only answers
-// traces; renderers need polygons. This module extracts them straight from
-// the map file:
-//
-//   * Quake 2 BSP with a face lump (any qbsp-compiled map): every face
-//     (vertexes / edges / surfedges / faces / texinfo), sky and nodraw faces
-//     skipped by default.
-//   * BSP without faces (hand-built or tool-generated collision maps):
-//     brush windings - each brush side clipped by the other sides, like
-//     qbsp's CreateBrushWindings.
-//   * glTF mesh maps: the triangles realms::MeshMap handed to the core.
-//
-// Output is in map space (Quake 2 axes, Z up, map units) grouped by
-// material, three vertices per triangle, counter-clockwise around the
-// normal. Malformed input never reads out of bounds: bad lumps fail with an
-// error, bad faces / brushes are skipped and counted.
+// Drawable triangles for the loaded map, read from the map file: BSP faces
+// (sky and nodraw skipped), brush windings for BSPs without faces, or the
+// glTF triangles. Map space, grouped by material, counter-clockwise.
+// Bad lumps fail with an error; bad faces/brushes are skipped and counted.
 #pragma once
 
 #include <array>

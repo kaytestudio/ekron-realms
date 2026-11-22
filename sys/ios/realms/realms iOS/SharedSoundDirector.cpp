@@ -1,9 +1,2 @@
-//
-//  SharedSoundDirector.cpp
-//  realms iOS
-//
-//  Game sound: game events to sounds (footsteps, tools, car, drone, ambience, music),
-//  shared with the desktop client and Android.
-//
-
+// Compiles sys/android/app/src/main/cpp/SoundDirector.cpp into the iOS app target.
 #include "SoundDirector.cpp"

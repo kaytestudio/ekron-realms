@@ -1,16 +1,5 @@
-{ ----------------------------------------------------------------------------
-  Realms Engine - Free Pascal core library
-
-  Builds the Quake 2 derived core (cvars, command buffer, PAK filesystem,
-  BSP collision model) as
-    - librealms_core.so     (Linux desktop, Android jniLibs)
-    - librealms_core.dylib  (macOS .app bundle)
-    - librealms_core.a      (iOS, static: see realms/pascal/build_core.sh)
-  and exports a single C entry point, realms_pascal_get_api, that returns the
-  RealmsCoreApi function table defined in realms/include/realms/realms_bridge.h.
-
-  No Pascal exception may unwind into C++: every exported function is wrapped.
-  ---------------------------------------------------------------------------- }
+{ librealms_core (.so, .dylib, or .a for iOS). Exports realms_pascal_get_api,
+  which returns the RealmsCoreApi table from realms_bridge.h. }
 library realms_core;
 
 {$mode objfpc}{$H+}

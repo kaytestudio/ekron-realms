@@ -1,21 +1,16 @@
 # Ekron Realms
 
-[![Desktop client (Debian)](https://github.com/kaytestudio/ekron-realms/actions/workflows/desktop-debian.yml/badge.svg)](https://github.com/kaytestudio/ekron-realms/actions/workflows/desktop-debian.yml)
-[![Desktop client (macOS)](https://github.com/kaytestudio/ekron-realms/actions/workflows/desktop-macos.yml/badge.svg)](https://github.com/kaytestudio/ekron-realms/actions/workflows/desktop-macos.yml)
-[![Native Android sandbox](https://github.com/kaytestudio/ekron-realms/actions/workflows/android-sandbox.yml/badge.svg)](https://github.com/kaytestudio/ekron-realms/actions/workflows/android-sandbox.yml)
-[![Native iOS sandbox](https://github.com/kaytestudio/ekron-realms/actions/workflows/ios-sandbox.yml/badge.svg)](https://github.com/kaytestudio/ekron-realms/actions/workflows/ios-sandbox.yml)
-
 A first-person city sandbox: walk an abandoned street, build with walls, furniture and props, carry things with a gravity gun, drive a UAZ-469 and fly an FPV drone. The game runs from the same C++17 code on Linux, macOS, Android and iOS.
 
-Under it is [Realms](realms/README.md), the Quake 2 `qcommon` layer (cvars, commands, configs, PAK files) as a Free Pascal library behind a C ABI, with a C++ fallback. It also loads Quake 2 BSP maps and runs the Pascal port of the Quake 2 game code on them (`game/`).
+Under it is [Realms](realms/README.md): Quake 2's `qcommon` layer as a Free Pascal library behind a C ABI (with a C++ fallback), which also loads Quake 2 maps and runs the Pascal port of the Quake 2 game code (`game/`).
 
-Other parts:
+Also:
 
 - sounds and music: CC0 `.ogg`, one mixer for SDL2, AAudio and AVAudioEngine ([credits](sys/android/app/src/main/assets/sounds/LICENSE.md))
 - English, Russian and European Portuguese UI
 - `realms-pascal`, a Free Pascal program running the sandbox, and `realms-launcher`
-- an experimental TLS presence relay (`server/`) that shows other players; nothing else is synced yet
-- a shop for cosmetic items paid with coins earned in game (server-side when connected to the relay)
+- an experimental presence relay (`server/`) that shows other players
+- a cosmetics shop paid with in-game coins
 
 ## Platforms
 
@@ -49,7 +44,7 @@ python3 tools/validate_android_shaders.py && python3 tools/validate_ios_shaders.
 python3 -m unittest discover -s tests/network
 ```
 
-`tests/native/` has the physics, glTF, drone, sound and HUD tests; `tests/realms/` the Realms and Quake 2 tests. CI also runs the Realms tests on an Android emulator and with the static iOS libraries on macOS.
+CI also runs the Realms tests on an Android emulator and with the static iOS libraries on macOS.
 
 ## Layout
 
@@ -64,4 +59,4 @@ The platform READMEs under `sys/` are in Russian.
 
 ## License
 
-AGPL-3.0, see [LICENSE](LICENSE). Vendored libraries (`stb_image`, `stb_vorbis`, `tinygltf`) keep their own licenses. See [CONTRIBUTING.md](CONTRIBUTING.md) before sending changes.
+AGPL-3.0, see [LICENSE](LICENSE). Vendored `stb_image`, `stb_vorbis` and `tinygltf` keep their own licenses. See [CONTRIBUTING.md](CONTRIBUTING.md).

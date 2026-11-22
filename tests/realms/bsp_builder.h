@@ -1,11 +1,6 @@
-// Builds valid Quake 2 IBSP v38 maps from axis-aligned brushes, for tests.
-//
-// No id Software map can ship with the repository, so the conformance suite
-// generates its own. The builder emits a real BSP tree (a kd split on brush
-// faces, nodes in pre-order like qbsp), solid leaf 0, clusters/areas, brush
-// sides with texinfo, inline models and the entity lump - everything the
-// collision model reads. Faces (emitFaces) and qrad-style lightmaps
-// (MapDef::light) are optional; other lumps are empty.
+// Writes Quake 2 IBSP v38 maps from axis-aligned brushes for tests, since
+// no id maps can ship with the repo. Emits a real BSP tree, leafs, clusters,
+// brush sides, inline models and entities; faces and lightmaps optional.
 #pragma once
 
 #include <algorithm>

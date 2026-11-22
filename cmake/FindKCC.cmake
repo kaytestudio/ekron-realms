@@ -1,11 +1,8 @@
 # FindKCC.cmake - KCC (Kayte C Compiler, https://github.com/kaytestudio/kcc)
 #
-# Uses tools/kcc when it is already there (for example after
-#   git clone https://github.com/kaytestudio/kcc.git tools/kcc
-# ), otherwise clones it there, and builds the `kcc` compiler as a separate
-# CMake project (ExternalProject) in <build>/kcc. KCC's own CMakeLists is
-# never added to this build: by default it would also build a GCC SH-2
-# cross-compiler from source, which the Ekron tools do not need.
+# Builds tools/kcc (cloned if missing) as an ExternalProject in <build>/kcc.
+# KCC's CMakeLists is not added directly because it would also build a GCC
+# SH-2 cross compiler.
 #
 # Usage:
 #   find_package(KCC)

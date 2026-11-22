@@ -1,13 +1,8 @@
-// Realms Engine bridge conformance suite.
-//
-// Runs the same Quake 2 cvar / command buffer / alias / PAK filesystem / BSP
-// collision model (realms_map_suite.h) checks
-// against a RealmsCoreApi implementation:
-//   realms_bridge_test                      -> C++ reference core
-//   realms_bridge_test --pascal <library>   -> Free Pascal core (dlopen)
-// Built with -DREALMS_PASCAL_STATIC and linked against librealms_core.a (the
-// iOS packaging), `--pascal static` uses the statically linked Pascal core.
-// and then drives the realms::Engine facade on top of the same backend.
+// Bridge conformance suite: cvars, commands, aliases, PAK files and the
+// collision model against a RealmsCoreApi, then the Engine wrapper.
+//   realms_bridge_test                     C++ reference core
+//   realms_bridge_test --pascal <library>  Free Pascal core
+//   realms_bridge_test --pascal static     linked core (-DREALMS_PASCAL_STATIC)
 
 #include "realms/Engine.h"
 #include "realms/SandboxBoot.h"

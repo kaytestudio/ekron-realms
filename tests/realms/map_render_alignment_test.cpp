@@ -1,14 +1,7 @@
-// glTF maps are drawn and collided from two independent importers:
-//   * realms::gltfToMeshMap (collision, handed to the Pascal / C++ core)
-//   * city::Scene with keepSourceSpace (the textured model the desktop draws)
-// The desktop maps core space to render space as render = (x, z, -y) / scale.
-// This test proves both importers agree under that mapping - on the
-// synthetic room and on every real .glb asset shipped with the game - so the
-// player never walks on an invisible floor or through a visible wall.
-// Android draws the sandbox's already loaded city (a "level" scene: rescaled
-// and recentred) when the map is that file, through Scene::sourceScale /
-// sourceOffset; that relation is checked on every asset too, along with
-// mapview::MapSession's space and camera conversions.
+// Checks that the glTF collision import (gltfToMeshMap) and the textured
+// import (city::Scene, keepSourceSpace) agree under render = (x, z, -y) /
+// scale, on a synthetic room and on every shipped .glb. Also checks the
+// level-scene mapping Android uses and MapSession's conversions.
 //
 //   realms_map_render_alignment_test [assets/models]
 #include "GltfScene.h"

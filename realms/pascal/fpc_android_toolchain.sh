@@ -1,25 +1,14 @@
 #!/usr/bin/env bash
-# -----------------------------------------------------------------------------
-# Realms Engine - build Free Pascal cross compilers for Android.
+# Build FPC cross compilers and RTL for Android.
 #
 #   realms/pascal/fpc_android_toolchain.sh <fpc-source-dir> <install-prefix> [cpu...]
 #
-# cpu: aarch64 (arm64-v8a, default) and/or x86_64 (emulators).
+# cpu: aarch64 (default) and/or x86_64. Needs a native fpc of the same
+# release as the sources, and GNU binutils for the target CPU
+# (binutils-aarch64-linux-gnu for aarch64); FPC 3.2 can't use the NDK's
+# LLVM tools.
 #
-# Builds only what librealms_core needs: the cross compiler and its RTL
-# ("buildbase", no packages). Requirements:
-#   - a native FPC of the same release as the sources (e.g. apt's fpc 3.2.2
-#     with https://github.com/fpc/FPCSource tag release_3_2_2)
-#   - GNU binutils for the target CPU, used as FPC's external assembler and
-#     linker (FPC 3.2 cannot drive the NDK's LLVM tools for Android):
-#       aarch64: apt install binutils-aarch64-linux-gnu  (aarch64-linux-gnu-*)
-#       x86_64:  the host binutils                        (x86_64-linux-gnu-*)
-#     The output links only against the NDK's bionic libraries, which
-#     build_core.sh passes in with -Fl.
-#
-# Result: <install-prefix>/lib/fpc/<version>/ppcross{a64,x64} and
-#         <install-prefix>/lib/fpc/<version>/units/<cpu>-android/rtl
-# -----------------------------------------------------------------------------
+# Output: <prefix>/lib/fpc/<version>/ppcross{a64,x64} and units/<cpu>-android/rtl
 set -euo pipefail
 
 SRC="$(cd "${1:?usage: $0 <fpc-source-dir> <install-prefix> [cpu...]}" && pwd)"

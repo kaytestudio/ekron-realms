@@ -1,15 +1,6 @@
-// Realms map mode on Android: the Quake 2 module's entities and effects on
-// GLES 3 (mapview::Quake2View hands them out in render space).
-//
-//   * entities: .md2 models with their PCX skins (uploaded on first use,
-//     kept until release()), fallback boxes and the view weapon (drawn in
-//     front of the world, like Quake 2's depth hack), lit by the light under
-//     them from the map's lightmaps (or the sandbox sun) and the dynamic
-//     lights; translucent ones (alpha < 1, shells) blended last;
-//   * effects: particles, glows and beams as camera-facing quads, blended.
-//
-// The projection is the sandbox program's (Renderer.cpp), so everything
-// lines up with the map drawn by that program.
+// GLES 3 drawing of Quake2View's entities (.md2 with PCX skins, fallback
+// boxes, view weapon) and effect quads. Uses the projection of the sandbox
+// program in Renderer.cpp.
 #pragma once
 
 #include "Quake2View.h"

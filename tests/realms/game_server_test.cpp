@@ -1,20 +1,10 @@
-// Realms: the Quake 2 game module (game/, Free Pascal) hosted by the C++
-// realms::GameServer on realms::Engine.
+// Q2Pmove on Engine traces, then the game module on GameServer: spawning,
+// walking, an armor shard pickup, a door, client commands, restart, and the
+// client-side entity list.
 //
 //   realms_game_server_test --game librealms_game.so [--pascal librealms_core.so]
 //
-// 1. Q2Pmove (qcommon/pmove.c) straight on Engine traces: standing, walking,
-//    stepping, walls, jumping, water - no game module needed.
-// 2. The game module: GetGameAPI / Init / SpawnEntities on a generated
-//    arena, then the local player walks (ClientThink -> gi.Pmove), picks up
-//    an armor shard (touch -> gi.sound), opens a func_door (trigger field ->
-//    door movement through SV_LinkEdict / gi.trace), runs client commands,
-//    and the server restarts on the same map. What the client draws:
-//    render entities, the interpolated door (GameEntityLerp), the spinning
-//    shard and the view weapon.
-// Every check runs on the core the engine loads (C++ or Free Pascal).
-// Without --game (and no librealms_game on the search path) part 2 is
-// skipped with exit code 77.
+// Without a game module the second part is skipped (exit code 77).
 #include "bsp_builder.h"
 #include "md2_builder.h"
 

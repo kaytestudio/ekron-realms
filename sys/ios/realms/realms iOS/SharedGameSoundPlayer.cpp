@@ -1,9 +1,2 @@
-//
-//  SharedGameSoundPlayer.cpp
-//  realms iOS
-//
-//  Quake 2 game sounds on the sandbox mixer (ekron::audio::GameSoundPlayer),
-//  shared with the desktop client and Android.
-//
-
+// Compiles sys/android/app/src/main/cpp/GameSoundPlayer.cpp into the iOS app target.
 #include "GameSoundPlayer.cpp"

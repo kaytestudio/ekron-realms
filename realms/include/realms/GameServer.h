@@ -1,22 +1,10 @@
-// Realms Engine - the Quake 2 server for the game module.
+// Server half of Quake 2 (sv_game.c, sv_world.c, parts of sv_init.c and
+// sv_user.c) on realms::Engine. Loads the game module and calls GetGameAPI
+// with a game_import_t whose traces go to the Engine, so it works on both
+// cores. One local client, RunFrame at 10 Hz.
 //
-// GameServer is the server half of Quake 2 (sv_game.c, sv_world.c and the
-// local-client parts of sv_init.c / sv_user.c) on top of realms::Engine:
-//
-//   * it loads the game module (game/, the Free Pascal port of gamex86) and
-//     calls GetGameAPI with a game_import_t whose collision functions are
-//     Engine traces (so it works the same on the Pascal and the C++ core);
-//   * world: area nodes, SV_LinkEdict (PVS clusters, areas, abs boxes),
-//     SV_AreaEdicts, SV_Trace / SV_PointContents against brush models and
-//     entity boxes, inPVS / inPHS, area portals;
-//   * config strings and the model / sound / image index tables, cvars
-//     mirrored into Quake 2 cvar_t records, tag memory, the argv tokenizer;
-//   * one local client: ClientConnect / ClientBegin, a usercmd per sandbox
-//     frame (ClientThink, i.e. Pmove), RunFrame at 10 Hz.
-//
-// Sounds, prints and temp entities the game sends are queued for the
-// sandbox (takeEvents). Only one GameServer can run at a time: the game
-// module and game_import_t are process-global, as in Quake 2.
+// Sounds, prints and temp entities from the game are queued (takeEvents).
+// Only one GameServer can run at a time; the game module is process-global.
 #pragma once
 
 #include "realms/Engine.h"

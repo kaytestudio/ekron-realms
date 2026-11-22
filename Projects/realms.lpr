@@ -1,27 +1,9 @@
-{ ----------------------------------------------------------------------------
-  Ekron Realms - Free Pascal client (`realms-pascal`)
+{ realms-pascal: the Pascal core compiled in, running the C++ desktop sandbox
+  (libekron_sandbox) with it. Takes the same options as ekron-realms.
 
-  One native program, two languages:
-    - the Realms game core is Free Pascal (realms/pascal: Quake 2 cvars,
-      command buffer, PAK filesystem, BSP and mesh collision) and is compiled
-      straight into this program;
-    - window, input, OpenGL renderer, audio and the sandbox world are the C++
-      desktop sandbox (sys/desktop), linked as libekron_sandbox. SDL2 is used
-      from C++, so this program needs no Pascal SDL bindings.
-  The sandbox gets the core through realms_pascal_get_api (origin "linked"),
-  exactly the table librealms_core exports, so the game behaves the same as
-  `ekron-realms` on the Pascal core.
-
-  Options are the sandbox's: --version, --engine-info, --headless-smoke,
-  --assets <dir>, --lang <code>, +set <cvar> <value>, ...
-
-  Build: cmake -DENABLE_FPC_CLIENT=ON builds it as <build>/realms-pascal (and
-  EkronRealms.app/Contents/MacOS/realms-pascal). By hand, from Projects/, once
-  libekron_sandbox is built in <build>:
-    fpc -Mobjfpc -Sh -O2 -Fu../realms/pascal -Fi../realms/pascal -Fl<build> realms.lpr
-
-  The old, unported Quake 2 client graph is kept in realms_q2legacy.lpr.
-  ---------------------------------------------------------------------------- }
+  Built by cmake -DENABLE_FPC_CLIENT=ON. By hand from Projects/, with
+  libekron_sandbox in <build>:
+    fpc -Mobjfpc -Sh -O2 -Fu../realms/pascal -Fi../realms/pascal -Fl<build> realms.lpr }
 program realms;
 
 {$mode objfpc}{$H+}

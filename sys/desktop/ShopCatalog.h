@@ -1,21 +1,8 @@
 #pragma once
 
-// Ekron Realms in-game store: weapon skins and gold-coin unlocks.
-//
-// This unit is intentionally free of SDL/GL dependencies so the catalog,
-// wallet and purchase rules can be unit-tested on their own (see
-// tests/native/shop_catalog_test.cpp) and reused by the desktop client.
-//
-// The catalog is split into two kinds:
-//   * Skin  -- a cosmetic tint applied to the Gravity Gun (the player's
-//              primary weapon) beam and reflected in the HUD.
-//   * Extra -- a gold-coin unlock that grants a gameplay or cosmetic
-//              bonus. Extras are active as soon as they are owned.
-//
-// Gold coins are earned while playing and spent on skins/extras. When the
-// client is connected to the online presence relay the economy is
-// server-authoritative (see DesktopOnlineClient / sandbox_relay.py); this
-// class provides the local, offline-capable fallback and persistence.
+// In-game shop: Gravity Gun skins and coin unlocks ("extras", active once
+// owned). Offline fallback and persistence; with the relay connected the
+// server owns the wallet (DesktopOnlineClient, sandbox_relay.py).
 
 #include "Localization.h"
 

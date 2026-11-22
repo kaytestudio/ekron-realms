@@ -1,12 +1,5 @@
-// Realms map modes: Quake 2 entities placed in render space
-// (sys/android/app/src/main/cpp/MapEntityTransform.h), the way the map modes
-// feed their object transforms (DesktopRenderer's uObjectTransform).
-//
-//   * the view weapon, posed like GameDrawBatch (camera angles from
-//     mapview::walkInput, alias pitch negated), points along the camera's
-//     forward / up / left axes for every yaw and pitch, at 1 m per 32 units;
-//   * a brush model (no negation) pitches like R_RotateForEntity;
-//   * translation, yaw 90 and the winding of a converted triangle.
+// MapEntityTransform.h: the view weapon points along the camera axes for
+// every yaw and pitch, brush model pitch, translation, yaw and winding.
 #include "MapEntityTransform.h"
 
 #include <cmath>

@@ -1,25 +1,9 @@
-// Realms: the Quake 2 stack as one module - realms::Quake2Module
-// (realms_quake2) and the sandboxes' shared map mode on top of it,
-// mapview::Quake2View (desktop DesktopMapMode, Android AndroidMapMode, iOS
-// MetalMapMode) - on a generated, lightmapped arena.
+// Quake2Module and Quake2View on a generated, lightmapped arena.
 //
-//   realms_quake2_module_test [--game librealms_game.so] [--pascal librealms_core.so]
+//   realms_quake2_module_test [--game librealms_game.so|linked] [--pascal librealms_core.so|static]
 //
-// Built with -DREALMS_GAME_STATIC and linked against librealms_game.a (the
-// iOS packaging, proven on macOS), "--game linked" hands the linked
-// GetGameAPI to GameServer::setLinkedGame instead; with -DREALMS_PASCAL_STATIC
-// and librealms_core.a too, both Free Pascal programs share the process.
-//
-// 1. Without the game: lightmaps (atlas, per-vertex atlas coordinates in
-//    draw order, R_LightPoint), triangles grouped by BSP model, the walker
-//    driving the camera, respawn / noclip, and nothing from the game.
-// 2. With the game module: the player is the game's client (walks, mirrors
-//    into the walker), the door's pose follows the game, the armor shard is
-//    picked up (message + sound), entities / the view weapon / effects come
-//    out in render space, light styles animate from CS_LIGHTS, firing makes
-//    a muzzle flash, respawn restarts the game, noclip goes through the game.
-// Part 2 is skipped (exit code 77 when nothing else failed) without a game
-// module.
+// "linked" needs -DREALMS_GAME_STATIC and librealms_game.a. Without a game
+// module the game part is skipped and the exit code is 77.
 #include "bsp_builder.h"
 #include "md2_builder.h"
 

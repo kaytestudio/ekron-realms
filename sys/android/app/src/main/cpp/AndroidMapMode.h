@@ -1,25 +1,12 @@
-// Realms map mode on Android: "map <name>" (pause menu > Maps, or any
-// script) swaps the sandbox for a Quake 2 BSP or glTF map loaded into the
-// Realms core and drawn with the sandbox's GLES program. The map, the walker
-// and the Quake 2 stack are mapview::Quake2View (MapSession + the
-// realms_quake2 module), shared with the desktop client and iOS.
+// "map <name>" on Android: a Quake 2 BSP or glTF map drawn with the
+// sandbox's GLES program, on top of mapview::Quake2View. Runs the game when
+// librealms_game.so is in the APK and the map has a worldspawn; otherwise
+// the map is walked.
 //
-// With the Quake 2 game module (librealms_game.so in jniLibs, built by
-// realms/pascal/build_core.sh game-android-*) and a map with a worldspawn
-// entity, the map runs the game: the player is the game's client, doors and
-// platforms move, items are picked up, the fire button attacks, and the
-// game's entities (.md2 models, the view weapon), effects (particles,
-// beams, dynamic lights) and sounds are played. Without it (or with
-// sv_game 0) the map is walked with realms::MapWalker as before.
-//
-// Drawing:
-//   * the sandbox's own city, already on the GPU, when the map is that same
-//     file - no second copy of a 14 MB model; it is a level-mode scene, so
-//     the camera moves into its space (Scene::sourceScale / sourceOffset);
-//   * other glTF maps: the textured file, prepared on a worker thread and
-//     uploaded a few steps per frame; until then, and for BSPs, the map's
-//     own triangles with the sandbox material layers, grouped by BSP model
-//     (brush entities move) and lit by the map's lightmaps when it has them.
+// When the map is the sandbox's own city file the already uploaded model is
+// reused (level-mode scene, see Scene::sourceScale/sourceOffset). Other glTF
+// maps are prepared on a worker thread; until then, and for BSPs, the map's
+// own triangles are drawn, grouped by BSP model and lightmapped.
 #pragma once
 
 #include "GameSoundPlayer.h"

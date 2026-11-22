@@ -1,9 +1,2 @@
-//
-//  SharedQuake2View.cpp
-//  realms iOS
-//
-//  Realms map mode with the Quake 2 stack, renderer independent
-//  (mapview::Quake2View), shared with the desktop client and Android.
-//
-
+// Compiles sys/android/app/src/main/cpp/Quake2View.cpp into the iOS app target.
 #include "Quake2View.cpp"

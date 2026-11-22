@@ -1,24 +1,8 @@
-// Realms map mode with the Quake 2 stack, renderer independent: shared by
-// the desktop client (DesktopMapMode), Android (AndroidMapMode) and iOS
-// (MetalMapMode).
-//
-// A mapview::MapSession (the loaded map, its units and the walker) plus a
-// realms::Quake2Module (realms_quake2: the game, entities, effects, sounds,
-// lightmaps), with everything converted to the sandboxes' render space
-// (metres, Y up, render = (x, z, -y) / unitsPerMetre, see MapSession.h) and
-// camera convention (yaw / pitch in radians, yaw 0 looks down -Z, positive
-// pitch looks up). Each platform only uploads and draws what it hands out:
-//
-//   * triangles(): the map's vertices grouped by BSP model (world first),
-//     with lightmap atlas coordinates in the same order when the map has
-//     lightmaps; modelPoses(): where each brush model is drawn this frame;
-//   * entities(): .md2 models / boxes / the view weapon / effect models as
-//     render-space vertices and batches (skin name, tint, transform, light);
-//   * effects(): particle, glow and beam quads and the nearest dynamic lights;
-//   * sounds through module() (ekron::audio::GameSoundPlayer plays them).
-//
-// Without the game module (or with sv_game 0) the map is walked with the
-// session's realms::MapWalker, exactly as before.
+// Map mode on top of Quake2Module, shared by desktop, Android and iOS.
+// Converts everything to render space: metres, Y up,
+// render = (x, z, -y) / unitsPerMetre. Camera yaw/pitch in radians; yaw 0
+// looks down -Z, positive pitch looks up. Without the game module the map is
+// walked with the session's MapWalker.
 #pragma once
 
 #include "MapSession.h"

@@ -1,10 +1,2 @@
-//
-//  RealmsMeshMap.cpp
-//  realms iOS
-//
-//  Realms Engine C++ bridge source shared with Desktop and Android
-//  (repo-root realms/src). Files in this folder join the app target
-//  automatically, so the shared source is compiled through this wrapper.
-//
-
+// Compiles realms/src/MeshMap.cpp into the iOS app target.
 #include "../../../../realms/src/MeshMap.cpp"

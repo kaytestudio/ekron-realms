@@ -416,19 +416,8 @@ struct PreparedAssets {
 
 // ---- Realms map mode ---------------------------------------------------
 //
-// "map <name>" (pause menu > Maps, or any script) swaps the sandbox for a
-// Quake 2 BSP or glTF map loaded into the Realms core. mapview::Quake2View
-// (shared with Android's AndroidMapMode and the desktop client) runs it:
-// the Quake 2 game (realms::Quake2Module; device builds link the game module
-// statically, see realms/pascal/build_core.sh ios-arm64) on maps with a
-// worldspawn, else the walker. This is the Metal twin of AndroidMapMode -
-// BSP lightmaps, brush models where the game has them, .md2 entities, the
-// view weapon, particles and dynamic lights - drawing:
-//   * the sandbox city, already on the GPU, when the map is that same file
-//     (a level-mode scene: the camera moves into its space);
-//   * other glTF maps: the textured file, prepared on a worker thread and
-//     uploaded a few steps per frame; until then, and for BSPs, the map's
-//     own triangles with the sandbox material layers.
+// Metal version of AndroidMapMode, on top of mapview::Quake2View. Device
+// builds link the game module statically; the simulator only walks maps.
 
 constexpr const char *kCityAsset = "models/abandoned_city_street_for_games.glb";
 

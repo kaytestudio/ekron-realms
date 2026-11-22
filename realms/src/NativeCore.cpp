@@ -1,12 +1,7 @@
-// Realms Engine - C++ reference core.
-//
-// Implements the exact same RealmsCoreApi contract as the Free Pascal core
-// (realms/pascal) so every host can run even when the Pascal library is not
-// packaged for a platform yet, and so both implementations can be checked
-// against one conformance suite (tests/realms). Behaviour mirrors Quake 2
-// qcommon/cvar.c, cmd.c and files.c; keep it in lock-step with rlm_cvar.pas,
-// rlm_cmd.pas and rlm_files.pas; the collision model (cmodel.c) lives in
-// NativeCModel.cpp next to rlm_cmodel.pas.
+// C++ reference core: the same RealmsCoreApi as the Free Pascal core, used
+// when the Pascal library isn't available. Follows Quake 2 cvar.c, cmd.c and
+// files.c; keep in step with rlm_cvar.pas, rlm_cmd.pas and rlm_files.pas.
+// The collision model is in NativeCModel.cpp.
 
 #include "realms/realms_bridge.h"
 
