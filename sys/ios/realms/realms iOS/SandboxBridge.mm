@@ -24,9 +24,13 @@
 #include "DebugPlayer.h"
 #include "GltfScene.h"
 #include "MapSession.h"
+#include "Quake2View.h"
+#include "GameSoundPlayer.h"
 #include "SoundSnapshot.h"
 #include "SoundSystem.h"
 #include "realms/Engine.h"
+#include "realms/GameServer.h"
+#include "realms/GameView.h"
 #include "realms/SandboxBoot.h"
 
 #define STBI_NO_STDIO
@@ -38,10 +42,12 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <fstream>
 #include <future>
 #include <iterator>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <numeric>
@@ -411,10 +417,13 @@ struct PreparedAssets {
 // ---- Realms map mode ---------------------------------------------------
 //
 // "map <name>" (pause menu > Maps, or any script) swaps the sandbox for a
-// Quake 2 BSP or glTF map loaded into the Realms core, walked with
-// realms::MapWalker. Spaces and the walker are mapview::MapSession, shared
-// with Android (AndroidMapMode) and the desktop client; this is the Metal
-// twin of AndroidMapMode:
+// Quake 2 BSP or glTF map loaded into the Realms core. mapview::Quake2View
+// (shared with Android's AndroidMapMode and the desktop client) runs it:
+// the Quake 2 game (realms::Quake2Module; device builds link the game module
+// statically, see realms/pascal/build_core.sh ios-arm64) on maps with a
+// worldspawn, else the walker. This is the Metal twin of AndroidMapMode -
+// BSP lightmaps, brush models where the game has them, .md2 entities, the
+// view weapon, particles and dynamic lights - drawing:
 //   * the sandbox city, already on the GPU, when the map is that same file
 //     (a level-mode scene: the camera moves into its space);
 //   * other glTF maps: the textured file, prepared on a worker thread and
@@ -443,60 +452,138 @@ bool takeMapChange(std::string &path) {
     return true;
 }
 
-// Walker state kept when the bridge is recreated while a map is loaded.
+// Walker state kept when the bridge is recreated while a map is loaded; a
+// running Quake 2 game is kept whole and carries on.
 struct RetainedMap {
     std::string path;
     realms::MapWalker walker;
     float yaw = 0.0f;
     float pitch = 0.0f;
     bool crouch = false;
+    std::unique_ptr<mapview::Quake2View> game;
 };
 std::optional<RetainedMap> gRetainedMap;
 
+static_assert(sizeof(mapview::EntityVertex) == 32, "EntityVertex layout must match PackedModelVertex in Shaders.metal");
+static_assert(sizeof(mapview::EffectVertex) == 40, "EffectVertex layout must match PackedEffectVertex in Shaders.metal");
+
+// Pipelines and states the map mode draws with (built by the bridge).
+struct MetalMapPipelines {
+    id<MTLRenderPipelineState> sandbox = nil;      // sandboxVertex / sandboxFragment
+    id<MTLRenderPipelineState> modelOpaque = nil;  // modelVertex / sandboxFragment
+    id<MTLRenderPipelineState> modelBlended = nil;
+    id<MTLRenderPipelineState> quakeMap = nil;     // quakeMapVertex / quakeMapFragment
+    id<MTLRenderPipelineState> quakeEntityOpaque = nil; // modelVertex / quakeMapFragment
+    id<MTLRenderPipelineState> quakeEntityBlended = nil;
+    id<MTLRenderPipelineState> quakeEffect = nil;  // quakeEffectVertex / quakeEffectFragment
+    id<MTLDepthStencilState> depthWrite = nil;
+    id<MTLDepthStencilState> depthRead = nil;
+    id<MTLTexture> white = nil;
+};
+
 class MetalMapMode {
 public:
-    MetalMapMode() = default;
+    MetalMapMode() : view_(std::make_unique<mapview::Quake2View>()) {}
     MetalMapMode(const MetalMapMode &) = delete;
     MetalMapMode &operator=(const MetalMapMode &) = delete;
     ~MetalMapMode() {
         if (prepare_.valid()) prepare_.wait();
     }
 
-    // Opens the engine's loaded map. `roots` are the engine's search roots
-    // (writable support directory first, then the bundle), read directly by
-    // the worker - never through the engine, which belongs to the render
-    // thread.
+    // Opens the engine's loaded map: mapview::Quake2View (the walker, or the
+    // Quake 2 game when the map has one and the game module is linked).
+    // `retained` is a game kept from an earlier bridge; it carries on when it
+    // runs the same map. `roots` are the engine's search roots (writable
+    // support directory first, then the bundle), read directly by the
+    // worker - never through the engine, which belongs to the render thread.
     bool open(realms::Engine &engine,
               id<MTLDevice> device,
               const MetalGltfModel &sandboxCity,
               const std::string &sandboxCityPath,
               const std::vector<std::string> &roots,
-              std::string &error) {
+              std::string &error,
+              std::unique_ptr<mapview::Quake2View> retained = nullptr) {
         close();
+        engine.registerCvar("sv_game", "1", REALMS_CVAR_ARCHIVE);
+        engine.registerCvar("cl_gun", "1", REALMS_CVAR_ARCHIVE);
+        engine.registerCvar("r_lightmaps", "1", REALMS_CVAR_ARCHIVE);
         realms::MapGeometry geometry;
-        if (!session_.open(engine, geometry, error)) return false;
+        fresh_ = true;
+        if (retained && retained->active() && retained->gameRunning() &&
+            retained->session().path() == engine.mapPath()) {
+            std::string geometryError;
+            if (realms::loadMapGeometry(engine, geometry, geometryError)) {
+                view_ = std::move(retained); // the game carries on
+                fresh_ = false;
+            } else {
+                geometry = {};
+            }
+        }
+        if (retained) retained->close();
+        if (fresh_) {
+            // Device builds link the game (GameServer::setLinkedGame); without
+            // it the map is walked.
+            mapview::Quake2ViewOptions options;
+            options.startGame = engine.cvarBool("sv_game", true);
+            if (!view_->open(engine, options, geometry, error)) return false;
+        }
 
         const city::Scene &cityScene = sandboxCity.scene();
-        if (session_.mesh() && session_.path() == sandboxCityPath && sandboxCity.ready() &&
+        if (session().mesh() && session().path() == sandboxCityPath && sandboxCity.ready() &&
             cityScene.sourceMapped && cityScene.sourceScale > 0.0f) {
             reuseCity_ = true;
             cityScale_ = cityScene.sourceScale;
             cityOffset_ = cityScene.sourceOffset;
-            session_.summary() += ", textured";
+            view_->disableLightmaps();
+            if (fresh_) session().summary() += ", textured";
             return true;
         }
 
         std::vector<sandbox::MeshVertex> vertices;
-        mapview::toRenderVertices(geometry, session_.unitsPerMetre(), vertices);
+        std::vector<float> lightUvs;
+        view_->triangles(geometry, vertices, ranges_, lightUvs);
         if (!vertices.empty()) {
             triangles_ = [device newBufferWithBytes:vertices.data()
                                              length:vertices.size() * sizeof(sandbox::MeshVertex)
                                             options:MTLResourceStorageModeShared];
             count_ = triangles_ ? static_cast<NSUInteger>(vertices.size()) : 0;
+            // BSP lightmaps: atlas coordinates per vertex and the atlas.
+            // quakeMapVertex always reads buffer 3, so maps without lightmaps
+            // get -1 (none) for every vertex.
+            const realms::Quake2Module &q2 = view_->module();
+            const bool lightmapped = !session().mesh() && q2.lightmapped() && lightUvs.size() == vertices.size() * 2;
+            if (!lightmapped) {
+                view_->disableLightmaps();
+                lightUvs.assign(vertices.size() * 2, -1.0f);
+            }
+            lightUvs_ = [device newBufferWithBytes:lightUvs.data()
+                                            length:lightUvs.size() * sizeof(float)
+                                           options:MTLResourceStorageModeShared];
+            if (lightmapped) {
+                MTLTextureDescriptor *desc =
+                    [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
+                                                                       width:NSUInteger(q2.lighting().width())
+                                                                      height:NSUInteger(q2.lighting().height())
+                                                                   mipmapped:NO];
+                desc.usage = MTLTextureUsageShaderRead;
+                lightmap_ = [device newTextureWithDescriptor:desc];
+                uploadLightmap();
+                if (lightmap_ && fresh_) {
+                    char buf[96];
+                    std::snprintf(buf, sizeof(buf), ", lightmaps (%zu faces, %dx%d)", q2.lighting().litFaces(),
+                                  q2.lighting().width(), q2.lighting().height());
+                    session().summary() += buf;
+                }
+            }
+            if (!triangles_ || !lightUvs_) {
+                triangles_ = nil;
+                lightUvs_ = nil;
+                count_ = 0;
+            }
         }
 
-        if (session_.mesh()) {
-            const std::string path = session_.path();
+        if (session().mesh()) {
+            const std::string path = session().path();
             prepare_ = std::async(std::launch::async, [path, roots]() -> std::optional<city::Scene> {
                 try {
                     city::Scene scene;
@@ -523,18 +610,21 @@ public:
     }
 
     void close() {
-        if (prepare_.valid()) prepare_.wait();
-        prepare_ = {};
-        model_.release();
-        triangles_ = nil;
-        count_ = 0;
-        reuseCity_ = false;
-        cityScale_ = 1.0f;
-        cityOffset_ = {};
-        session_.close();
+        releaseGpu();
+        view_->close();
     }
 
-    bool active() const { return session_.active(); }
+    // Hands the view (and a running game) over, e.g. to gRetainedMap, and
+    // leaves this map mode closed.
+    std::unique_ptr<mapview::Quake2View> releaseView() {
+        releaseGpu();
+        std::unique_ptr<mapview::Quake2View> out = std::move(view_);
+        view_ = std::make_unique<mapview::Quake2View>();
+        return out;
+    }
+
+    bool active() const { return view_->active(); }
+    bool gameRunning() const { return view_->gameRunning(); }
     // The textured model is still being prepared / uploaded.
     bool texturedPending() const { return prepare_.valid() || model_.uploading(); }
 
@@ -555,69 +645,277 @@ public:
             model_.uploadStep(device, queue, whiteTexture);
         }
         if (model_.ready()) {
-            triangles_ = nil; // the textured model replaces the plain triangles
+            // the textured model replaces the plain triangles
+            triangles_ = nil;
+            lightUvs_ = nil;
+            lightmap_ = nil;
             count_ = 0;
-            session_.summary() += ", textured";
+            ranges_.clear();
+            view_->disableLightmaps();
+            session().summary() += ", textured";
         }
     }
 
-    void update(const realms::Engine &engine, const realms::WalkInput &input, float renderYaw, float renderPitch,
-                float dt) {
-        session_.update(engine, input, renderYaw, renderPitch, dt);
+    // One frame: the game with this input (attack fires), or the walker.
+    void update(realms::Engine &engine, const realms::WalkInput &input, float renderYaw, float renderPitch,
+                float dt, bool attack) {
+        view_->update(engine, input, renderYaw, renderPitch, dt, attack);
     }
-    bool respawn(const realms::Engine &engine) { return session_.respawn(engine); }
+    bool respawn(realms::Engine &engine) { return view_->respawn(engine); }
+    void toggleNoclip() { view_->toggleNoclip(); }
+    float spawnRenderYaw() const { return view_->spawnRenderYaw(); }
+    realms::Quake2Module::PlayerStats stats() const { return view_->module().stats(); }
+    std::vector<std::string> takeMessages() { return view_->takeMessages(); }
 
+    // The camera in render space (the game's player, or the walker).
+    physics::Vec3 eye() const { return view_->eye(); }
     // Camera eye in the space draw() renders in.
     physics::Vec3 drawEye() const {
-        const physics::Vec3 e = session_.eye();
+        const physics::Vec3 e = view_->eye();
         return reuseCity_ ? mapview::toLevelScene(e, cityScale_, cityOffset_) : e;
     }
 
-    // Draws the map; the scene uniforms, sky and material array are already
-    // set on `encoder` (see encodeSceneSetup).
+    // Draws the map, then the game's entities and effects; the scene
+    // uniforms, sky and material array are already set on `encoder` (see
+    // encodeSceneSetup).
     void draw(id<MTLRenderCommandEncoder> encoder,
-              id<MTLRenderPipelineState> sandboxPipeline,
-              id<MTLRenderPipelineState> opaquePipeline,
-              id<MTLRenderPipelineState> blendedPipeline,
-              id<MTLDepthStencilState> depthWriteState,
-              id<MTLDepthStencilState> depthReadState,
+              const MetalMapPipelines &p,
               id<MTLSamplerState> const samplers[3][3],
-              id<MTLTexture> whiteTexture,
-              const MetalGltfModel &sandboxCity) const {
+              const MetalGltfModel &sandboxCity,
+              realms::Engine &engine,
+              id<MTLDevice> device,
+              id<MTLCommandQueue> queue,
+              float renderYaw,
+              float renderPitch,
+              CGSize drawableSize) {
         const physics::Vec3 eye = drawEye();
         const matrix_float4x4 identity = matrix_identity_float4x4;
-        if (reuseCity_ || model_.ready()) {
-            (reuseCity_ ? sandboxCity : model_).draw(encoder, opaquePipeline, blendedPipeline, depthWriteState,
-                                                     depthReadState, samplers, whiteTexture, identity, eye.x, eye.z,
-                                                     false);
+        if (reuseCity_) {
+            sandboxCity.draw(encoder, p.modelOpaque, p.modelBlended, p.depthWrite, p.depthRead, samplers, p.white,
+                             identity, eye.x, eye.z, false);
             return;
         }
-        if (!triangles_ || count_ == 0) return;
-        SandboxDrawUniforms draw{};
-        draw.objectTransform = identity;
-        draw.baseColorFactor = simd_make_float4(1.0f, 1.0f, 1.0f, 1.0f);
-        draw.materialParams = simd_make_float4(0.94f, 0.5f, 0.0f, 0.0f);
-        draw.drawFlags = simd_make_int4(0, 0, 0, 0);
-        [encoder setRenderPipelineState:sandboxPipeline];
-        [encoder setDepthStencilState:depthWriteState];
-        [encoder setVertexBuffer:triangles_ offset:0 atIndex:0];
-        [encoder setVertexBytes:&draw length:sizeof(draw) atIndex:2];
-        [encoder setFragmentBytes:&draw length:sizeof(draw) atIndex:2];
-        [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:count_];
+        // effects first: their dynamic lights light the world and the entities
+        view_->effects(renderYaw, renderPitch, 8, effectVertices_, lights_);
+        SandboxQuakeUniforms quake{};
+        const int lightCount = int(std::min<size_t>(lights_.size(), 8));
+        for (int i = 0; i < lightCount; ++i) {
+            const mapview::DynamicLight &l = lights_[size_t(i)];
+            quake.lights[i] = simd_make_float4(l.x, l.y, l.z, l.radius);
+            quake.lightColors[i] = simd_make_float4(l.r, l.g, l.b, 1.0f);
+        }
+        quake.modeCount = simd_make_int4(0, lightCount, 0, 0);
+
+        if (model_.ready()) {
+            model_.draw(encoder, p.modelOpaque, p.modelBlended, p.depthWrite, p.depthRead, samplers, p.white,
+                        identity, eye.x, eye.z, false);
+        } else if (triangles_ && lightUvs_ && count_ > 0) {
+            if (lightmap_ && view_->module().updateLightStyles()) uploadLightmap(); // animated light styles
+            quake.modeCount.x = (lightmap_ && engine.cvarBool("r_lightmaps", true)) ? 1 : 0;
+            SandboxDrawUniforms draw{};
+            draw.objectTransform = identity;
+            draw.baseColorFactor = simd_make_float4(1.0f, 1.0f, 1.0f, 1.0f);
+            draw.materialParams = simd_make_float4(0.94f, 0.5f, 0.0f, 0.0f);
+            draw.drawFlags = simd_make_int4(0, 0, 0, 0);
+            [encoder setRenderPipelineState:p.quakeMap];
+            [encoder setDepthStencilState:p.depthWrite];
+            [encoder setVertexBuffer:triangles_ offset:0 atIndex:0];
+            [encoder setVertexBuffer:lightUvs_ offset:0 atIndex:3];
+            [encoder setFragmentTexture:(lightmap_ ? lightmap_ : p.white) atIndex:2];
+            [encoder setFragmentBytes:&quake length:sizeof(quake) atIndex:3];
+            if (ranges_.empty()) {
+                [encoder setVertexBytes:&draw length:sizeof(draw) atIndex:2];
+                [encoder setFragmentBytes:&draw length:sizeof(draw) atIndex:2];
+                [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:count_];
+            } else {
+                // brush models where the game has them (doors, platforms), hidden when gone
+                const std::vector<mapview::ModelPose> &poses = view_->modelPoses();
+                for (const mapview::ModelRange &r : ranges_) {
+                    const mapview::ModelPose *pose =
+                        r.model > 0 && size_t(r.model) < poses.size() ? &poses[size_t(r.model)] : nullptr;
+                    if (pose && !pose->visible) continue;
+                    if (r.count <= 0 || NSUInteger(r.first) + NSUInteger(r.count) > count_) continue;
+                    draw.objectTransform = pose ? makeColumnMatrix(pose->transform.data()) : identity;
+                    [encoder setVertexBytes:&draw length:sizeof(draw) atIndex:2];
+                    [encoder setFragmentBytes:&draw length:sizeof(draw) atIndex:2];
+                    [encoder drawPrimitives:MTLPrimitiveTypeTriangle
+                                vertexStart:NSUInteger(r.first)
+                                vertexCount:NSUInteger(r.count)];
+                }
+            }
+        }
+        if (!view_->gameRunning()) return;
+        view_->entities(engine, renderYaw, renderPitch, engine.cvarBool("cl_gun", true), entityVertices_,
+                        entityBatches_);
+        drawEntities(encoder, p, samplers, engine, device, queue, quake, drawableSize);
+        drawEffects(encoder, p, device);
     }
 
-    mapview::MapSession &session() { return session_; }
-    const mapview::MapSession &session() const { return session_; }
+    // Quake 2 sounds on the sandbox mixer; silent while paused.
+    void playSounds(realms::Engine &engine, ekron::audio::Mixer &mixer, double dt, bool paused) {
+        mixer_ = &mixer;
+        realms::Quake2Module &q2 = view_->module();
+        std::vector<realms::GameEvent> sounds = q2.takeSounds();
+        if (paused || !q2.gameRunning()) {
+            sound_.stop(mixer);
+            return;
+        }
+        sound_.update(engine, mixer, sounds, q2.loopSounds(), q2.listener(), dt);
+    }
+
+    mapview::MapSession &session() { return view_->session(); }
+    const mapview::MapSession &session() const { return view_->session(); }
 
 private:
-    mapview::MapSession session_;
+    void releaseGpu() {
+        if (prepare_.valid()) prepare_.wait();
+        prepare_ = {};
+        model_.release();
+        triangles_ = nil;
+        lightUvs_ = nil;
+        lightmap_ = nil;
+        count_ = 0;
+        ranges_.clear();
+        skins_.clear();
+        if (mixer_) sound_.stop(*mixer_);
+        reuseCity_ = false;
+        cityScale_ = 1.0f;
+        cityOffset_ = {};
+    }
+
+    void uploadLightmap() {
+        const realms::Quake2Module &q2 = view_->module();
+        const int w = q2.lighting().width(), h = q2.lighting().height();
+        if (!lightmap_ || w <= 0 || h <= 0 || q2.lightmap().size() < size_t(w) * size_t(h) * 4) return;
+        [lightmap_ replaceRegion:MTLRegionMake2D(0, 0, NSUInteger(w), NSUInteger(h))
+                     mipmapLevel:0
+                       withBytes:q2.lightmap().data()
+                     bytesPerRow:NSUInteger(w) * 4];
+    }
+
+    // A skin from the game's files (.pcx / .wal through the VFS), uploaded
+    // once; nil when it is missing.
+    id<MTLTexture> skin(realms::Engine &engine, id<MTLDevice> device, id<MTLCommandQueue> queue,
+                        const std::string &name) {
+        if (name.empty()) return nil;
+        const auto it = skins_.find(name);
+        if (it != skins_.end()) return it->second;
+        id<MTLTexture> tex = nil;
+        realms::RgbaImage img;
+        std::string error;
+        if (realms::GameModelCache::loadSkin(engine, name, img, error) && img.width > 0 && img.height > 0 &&
+            img.rgba.size() == size_t(img.width) * size_t(img.height) * 4) {
+            const NSUInteger w = NSUInteger(img.width), h = NSUInteger(img.height);
+            const NSUInteger mips = mipCountForDimensions(w, h);
+            MTLTextureDescriptor *desc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm_sRGB
+                                                                                            width:w
+                                                                                           height:h
+                                                                                        mipmapped:(mips > 1)];
+            desc.usage = MTLTextureUsageShaderRead;
+            tex = [device newTextureWithDescriptor:desc];
+            if (tex) {
+                [tex replaceRegion:MTLRegionMake2D(0, 0, w, h) mipmapLevel:0 withBytes:img.rgba.data() bytesPerRow:w * 4];
+                if (mips > 1) {
+                    id<MTLCommandBuffer> cmd = [queue commandBuffer];
+                    id<MTLBlitCommandEncoder> blit = [cmd blitCommandEncoder];
+                    [blit generateMipmapsForTexture:tex];
+                    [blit endEncoding];
+                    [cmd commit];
+                }
+            }
+        } else {
+            engine.print("map: skin " + name + ": " + error + "\n", REALMS_PRINT_DEVELOPER);
+        }
+        skins_[name] = tex;
+        return tex;
+    }
+
+    // Opaque entities, then translucent ones (shells, BFG / plasma); the view
+    // weapon never sinks into walls (ref_gl's depth range 0...0.3).
+    void drawEntities(id<MTLRenderCommandEncoder> encoder,
+                      const MetalMapPipelines &p,
+                      id<MTLSamplerState> const samplers[3][3],
+                      realms::Engine &engine,
+                      id<MTLDevice> device,
+                      id<MTLCommandQueue> queue,
+                      SandboxQuakeUniforms quake,
+                      CGSize drawableSize) {
+        if (entityVertices_.empty() || entityBatches_.empty()) return;
+        id<MTLBuffer> vertices = [device newBufferWithBytes:entityVertices_.data()
+                                                     length:entityVertices_.size() * sizeof(mapview::EntityVertex)
+                                                    options:MTLResourceStorageModeShared];
+        if (!vertices) return;
+        [encoder setVertexBuffer:vertices offset:0 atIndex:0];
+        [encoder setFragmentTexture:p.white atIndex:2];
+        [encoder setFragmentSamplerState:samplers[1][1] atIndex:0]; // clamp: skins are atlases
+        MTLViewport full = {0.0, 0.0, drawableSize.width, drawableSize.height, 0.0, 1.0};
+        MTLViewport weapon = full;
+        weapon.zfar = 0.3;
+        for (int pass = 0; pass < 2; ++pass) {
+            const bool blended = pass == 1;
+            [encoder setRenderPipelineState:(blended ? p.quakeEntityBlended : p.quakeEntityOpaque)];
+            [encoder setDepthStencilState:(blended ? p.depthRead : p.depthWrite)];
+            for (const mapview::EntityBatch &b : entityBatches_) {
+                if ((b.color[3] < 0.999f) != blended || b.count <= 0) continue;
+                if (size_t(b.first) + size_t(b.count) > entityVertices_.size()) continue;
+                id<MTLTexture> tex = skin(engine, device, queue, b.skin);
+                std::array<float, 4> tint = b.color;
+                // untextured models (skin missing) get a neutral grey, boxes their colour
+                if (!tex && !b.fallbackBox) tint = {0.7f * b.color[0], 0.7f * b.color[1], 0.72f * b.color[2], b.color[3]};
+                SandboxDrawUniforms draw{};
+                draw.objectTransform = makeColumnMatrix(b.transform.data());
+                draw.baseColorFactor = simd_make_float4(std::pow(std::max(tint[0], 0.0f), 2.2f),
+                                                        std::pow(std::max(tint[1], 0.0f), 2.2f),
+                                                        std::pow(std::max(tint[2], 0.0f), 2.2f), tint[3]);
+                draw.materialParams = simd_make_float4(0.9f, 0.5f, 0.0f, 0.0f);
+                draw.drawFlags = simd_make_int4(1, 0, tex ? 1 : 0, blended ? 2 : 0);
+                quake.modeCount.x = b.fullbright ? 3 : (b.lit ? 2 : 0);
+                quake.light = simd_make_float4(b.light[0], b.light[1], b.light[2], 0.0f);
+                [encoder setFragmentTexture:(tex ? tex : p.white) atIndex:1];
+                [encoder setVertexBytes:&draw length:sizeof(draw) atIndex:2];
+                [encoder setFragmentBytes:&draw length:sizeof(draw) atIndex:2];
+                [encoder setFragmentBytes:&quake length:sizeof(quake) atIndex:3];
+                if (b.viewWeapon) [encoder setViewport:weapon];
+                [encoder drawPrimitives:MTLPrimitiveTypeTriangle
+                            vertexStart:NSUInteger(b.first)
+                            vertexCount:NSUInteger(b.count)];
+                if (b.viewWeapon) [encoder setViewport:full];
+            }
+        }
+        [encoder setFragmentTexture:p.white atIndex:1];
+    }
+
+    void drawEffects(id<MTLRenderCommandEncoder> encoder, const MetalMapPipelines &p, id<MTLDevice> device) {
+        if (effectVertices_.empty()) return;
+        id<MTLBuffer> vertices = [device newBufferWithBytes:effectVertices_.data()
+                                                     length:effectVertices_.size() * sizeof(mapview::EffectVertex)
+                                                    options:MTLResourceStorageModeShared];
+        if (!vertices) return;
+        [encoder setRenderPipelineState:p.quakeEffect];
+        [encoder setDepthStencilState:p.depthRead];
+        [encoder setVertexBuffer:vertices offset:0 atIndex:0];
+        [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:effectVertices_.size()];
+    }
+
+    std::unique_ptr<mapview::Quake2View> view_;
+    bool fresh_ = true;
     bool reuseCity_ = false;
     float cityScale_ = 1.0f;
     std::array<float, 3> cityOffset_{};
     id<MTLBuffer> triangles_ = nil;
+    id<MTLBuffer> lightUvs_ = nil;
+    id<MTLTexture> lightmap_ = nil;
     NSUInteger count_ = 0;
+    std::vector<mapview::ModelRange> ranges_;
     MetalGltfModel model_;
     std::future<std::optional<city::Scene>> prepare_;
+    std::map<std::string, id<MTLTexture>> skins_;
+    std::vector<mapview::EntityVertex> entityVertices_;
+    std::vector<mapview::EntityBatch> entityBatches_;
+    std::vector<mapview::EffectVertex> effectVertices_;
+    std::vector<mapview::DynamicLight> lights_;
+    ekron::audio::GameSoundPlayer sound_;
+    ekron::audio::Mixer *mixer_ = nullptr;
 };
 
 // ---- Game sound -----------------------------------------------------------
@@ -750,6 +1048,11 @@ void IosSoundStart(const std::string &bundleRoot, realms::Engine &engine) {
     id<MTLRenderPipelineState> modelOpaquePipeline_;
     id<MTLRenderPipelineState> modelBlendedPipeline_;
     id<MTLRenderPipelineState> pipPipeline_;
+    // Realms map mode with the Quake 2 stack
+    id<MTLRenderPipelineState> quakeMapPipeline_;
+    id<MTLRenderPipelineState> quakeEntityOpaquePipeline_;
+    id<MTLRenderPipelineState> quakeEntityBlendedPipeline_;
+    id<MTLRenderPipelineState> quakeEffectPipeline_;
 
     id<MTLDepthStencilState> skyDepthState_;
     id<MTLDepthStencilState> depthWriteState_;
@@ -851,17 +1154,33 @@ void IosSoundStart(const std::string &bundleRoot, realms::Engine &engine) {
     bool mapChangePending_;
     std::vector<std::string> pendingMapRequests_; // commandMutex_
     std::atomic<int> mapState_;                   // status slot 17
+    bool mapAttack_;                              // fire held (commands 51 / 52)
+    std::atomic<int> mapGame_;                    // status slots 18...21: the
+    std::atomic<int> mapHealth_;                  // Quake 2 game runs, the
+    std::atomic<int> mapArmor_;                   // player's health, armor
+    std::atomic<int> mapAmmo_;                    // and ammo
     std::string mapPathShown_;                    // snapshotMutex_
 }
+
+#if defined(REALMS_GAME_STATIC)
+// The Quake 2 game module (game/, librealms_game.a from
+// realms/pascal/build_core.sh ios-arm64): apps can't load their own
+// libraries, so realms::GameServer gets the linked entry point.
+extern "C" q2game_export_t *GetGameAPI(q2game_import_t *import);
+#endif
 
 // Realms Engine (Quake 2 stack: cvars, command buffer, PAK filesystem) shared
 // with Desktop and Android. One engine per process; the bridge may be recreated.
 // Link librealms_core.a (realms/pascal/build_core.sh ios-arm64) and define
 // REALMS_PASCAL_STATIC=1 to run the Free Pascal core; otherwise the C++
-// reference core runs.
+// reference core runs. REALMS_GAME_STATIC=1 (with librealms_game.a) lets map
+// mode run the Quake 2 game; without it maps are walked.
 static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const std::string &supportDir) {
     static realms::Engine engine;
     if (engine.initialized()) return engine;
+#if defined(REALMS_GAME_STATIC)
+    realms::GameServer::setLinkedGame(&GetGameAPI);
+#endif
     realms::EngineConfig cfg;
     cfg.searchRoots = {supportDir, bundleRoot};
     cfg.writableRoot = supportDir;
@@ -887,6 +1206,12 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
     boot.onMapChanged = [](const std::string &path) { noteMapChange(path); };
     realms::sandbox::boot(engine, boot);
     NSLog(@"[Realms] engine ready: core=%s", engine.backendName().c_str());
+    std::string where, why;
+    if (realms::GameServer::moduleAvailable({}, &where, &why)) {
+        NSLog(@"[Realms] Quake 2 game module: %s", where.c_str());
+    } else {
+        NSLog(@"[Realms] Quake 2 game module unavailable (maps are walked): %s", why.c_str());
+    }
     return engine;
 }
 
@@ -1054,7 +1379,10 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
         assetsJob_.wait();
     }
     if (mapMode_.active()) {
-        gRetainedMap = RetainedMap{mapMode_.session().path(), mapMode_.session().walker(), mapYaw_, mapPitch_, mapCrouch_};
+        RetainedMap kept{mapMode_.session().path(), mapMode_.session().walker(), mapYaw_, mapPitch_, mapCrouch_, nullptr};
+        // a running game is kept whole (the next bridge's map mode resumes it)
+        if (mapMode_.gameRunning()) kept.game = mapMode_.releaseView();
+        gRetainedMap = std::move(kept);
     }
     mapMode_.close();
     [self flushSave];
@@ -1065,7 +1393,7 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
 
 - (void)realmsToggleNoclip {
     if (mapMode_.active()) {
-        mapMode_.session().toggleNoclip();
+        mapMode_.toggleNoclip();
         verticalInput_ = 0.0f;
         return;
     }
@@ -1118,9 +1446,14 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
     modelOpaquePipeline_ = makePipeline(@"modelVertex", @"sandboxFragment", NO, YES);
     modelBlendedPipeline_ = makePipeline(@"modelVertex", @"sandboxFragment", YES, YES);
     pipPipeline_ = makePipeline(@"pipVertex", @"pipFragment", NO, YES);
+    quakeMapPipeline_ = makePipeline(@"quakeMapVertex", @"quakeMapFragment", NO, YES);
+    quakeEntityOpaquePipeline_ = makePipeline(@"modelVertex", @"quakeMapFragment", NO, YES);
+    quakeEntityBlendedPipeline_ = makePipeline(@"modelVertex", @"quakeMapFragment", YES, YES);
+    quakeEffectPipeline_ = makePipeline(@"quakeEffectVertex", @"quakeEffectFragment", YES, YES);
 
     return skyPipeline_ && sandboxOpaquePipeline_ && sandboxBlendedPipeline_ &&
-           modelOpaquePipeline_ && modelBlendedPipeline_ && pipPipeline_;
+           modelOpaquePipeline_ && modelBlendedPipeline_ && pipPipeline_ &&
+           quakeMapPipeline_ && quakeEntityOpaquePipeline_ && quakeEntityBlendedPipeline_ && quakeEffectPipeline_;
 }
 
 - (void)buildDepthAndSamplers {
@@ -1265,7 +1598,7 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
 - (void)respawnPlayer {
     if (mapMode_.active()) {
         if (mapMode_.respawn([self realms])) {
-            mapYaw_ = mapMode_.session().spawnRenderYaw();
+            mapYaw_ = mapMode_.spawnRenderYaw();
             mapPitch_ = 0.0f;
             [self resetInput];
         }
@@ -1435,8 +1768,10 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
             // Map mode: movement commands only; sandbox tools wait for killserver.
             for (int32_t command : pending) {
                 if (command == 6) {
-                    mapMode_.session().toggleNoclip();
+                    mapMode_.toggleNoclip();
                     verticalInput_ = 0.0f;
+                } else if (command == 51 || command == 52) {
+                    mapAttack_ = command == 51; // fire pressed / released
                 } else if (command == 8) {
                     mapJump_ = 0.2f;
                 } else if (command == 9) {
@@ -2409,6 +2744,8 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
     const std::string path = pendingMap_;
     if (mapMode_.active()) mapMode_.close();
     mapState_ = 0;
+    mapGame_ = 0;
+    mapAttack_ = false;
     [self showMapPath:std::string()];
     if (path.empty() || !engine.mapLoaded()) {
         gRetainedMap.reset();
@@ -2416,7 +2753,11 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
         return;
     }
     std::string error;
-    if (!mapMode_.open(engine, device_, cityModel_, kCityAsset, {supportDir_, bundleRoot_}, error)) {
+    std::unique_ptr<mapview::Quake2View> retainedGame;
+    if (gRetainedMap) retainedGame = std::move(gRetainedMap->game);
+    mapAttack_ = false;
+    if (!mapMode_.open(engine, device_, cityModel_, kCityAsset, {supportDir_, bundleRoot_}, error,
+                       std::move(retainedGame))) {
         NSLog(@"[Realms] map mode: %s: %s", path.c_str(), error.c_str());
         gRetainedMap.reset();
         debugNotice_ = 7;
@@ -2429,7 +2770,7 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
     dronePitchInput_ = 0.0f;
     droneRollInput_ = 0.0f;
     placementPreview_.reset();
-    mapYaw_ = mapMode_.session().spawnRenderYaw();
+    mapYaw_ = mapMode_.spawnRenderYaw();
     mapPitch_ = 0.0f;
     mapCrouch_ = false;
     mapJump_ = 0.0f;
@@ -2445,8 +2786,9 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
     debugNotice_ = 0;
     [self resetInput];
     const auto &w = mapMode_.session().walker();
-    NSLog(@"[Realms] map mode: %s (%s), spawn %s at %.1f %.1f %.1f", path.c_str(),
-          mapMode_.session().summary().c_str(), w.spawnSource.c_str(), w.origin[0], w.origin[1], w.origin[2]);
+    NSLog(@"[Realms] map mode: %s (%s), spawn %s at %.1f %.1f %.1f%s", path.c_str(),
+          mapMode_.session().summary().c_str(), w.spawnSource.c_str(), w.origin[0], w.origin[1], w.origin[2],
+          mapMode_.gameRunning() ? ", Quake 2 game" : "");
 }
 
 - (void)renderMapInView:(MTKView *)view dt:(float)dt {
@@ -2459,14 +2801,24 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
         input.up = verticalInput_.load();
         input.jump = mapJump_ > 0.0f;
         input.crouch = mapCrouch_;
-        mapMode_.update(engine, input, mapYaw_, mapPitch_, dt);
+        mapMode_.update(engine, input, mapYaw_, mapPitch_, dt, mapAttack_);
     }
+    for (const std::string &message : mapMode_.takeMessages()) NSLog(@"[Realms] %s", message.c_str());
+    const bool game = mapMode_.gameRunning();
+    if (!game) mapAttack_ = false;
+    const realms::Quake2Module::PlayerStats stats = mapMode_.stats();
+    mapGame_ = game ? 1 : 0;
+    mapHealth_ = stats.health;
+    mapArmor_ = stats.armor;
+    mapAmmo_ = stats.ammo;
     if (gSoundHeard) {
         auto &sound = IosSound();
         sound.syncCvars(engine);
         sound.director().map(ekron::audio::mapFrame(gameplayReady_, engine, mapMode_.session().walker(), mapYaw_), dt,
                              sound);
     }
+    // Game sounds drain every frame; they play once sound is up and not paused.
+    mapMode_.playSounds(engine, IosSound().mixer(), dt, !gameplayReady_ || !gSoundHeard);
     mapJump_ = std::max(0.0f, mapJump_ - dt);
     mapState_ = mapMode_.texturedPending() ? 2 : 1;
     interactionAction_ = 0;
@@ -2498,22 +2850,26 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
     id<MTLRenderCommandEncoder> encoder = [commandBuffer renderCommandEncoderWithDescriptor:passDesc];
     if (encoder) {
         [self encodeSceneSetup:encoder cameraEye:mapMode_.drawEye() yaw:mapYaw_ pitch:mapPitch_ roll:0.0f aspect:aspect];
-        mapMode_.draw(encoder,
-                      sandboxOpaquePipeline_,
-                      modelOpaquePipeline_,
-                      modelBlendedPipeline_,
-                      depthWriteState_,
-                      depthReadOnlyState_,
-                      gltfSamplers_,
-                      whiteTexture_,
-                      cityModel_);
+        MetalMapPipelines pipelines;
+        pipelines.sandbox = sandboxOpaquePipeline_;
+        pipelines.modelOpaque = modelOpaquePipeline_;
+        pipelines.modelBlended = modelBlendedPipeline_;
+        pipelines.quakeMap = quakeMapPipeline_;
+        pipelines.quakeEntityOpaque = quakeEntityOpaquePipeline_;
+        pipelines.quakeEntityBlended = quakeEntityBlendedPipeline_;
+        pipelines.quakeEffect = quakeEffectPipeline_;
+        pipelines.depthWrite = depthWriteState_;
+        pipelines.depthRead = depthReadOnlyState_;
+        pipelines.white = whiteTexture_;
+        mapMode_.draw(encoder, pipelines, gltfSamplers_, cityModel_, engine, device_, commandQueue_, mapYaw_, mapPitch_,
+                      drawSize);
         [encoder endEncoding];
     }
     [commandBuffer presentDrawable:drawable];
     [commandBuffer commit];
 
     const auto &w = mapMode_.session().walker();
-    const physics::Vec3 at = mapMode_.session().eye();
+    const physics::Vec3 at = mapMode_.eye();
     std::lock_guard<std::mutex> lock(snapshotMutex_);
     snapshot_ = {at.x, at.y, at.z, w.noclip ? 1.0f : 0.0f, w.ducked ? 1.0f : 0.0f, mapYaw_, mapPitch_};
 }
@@ -2622,8 +2978,12 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
 
 - (NSInteger)pollStatus:(float *)outValues count:(NSInteger)count {
     if (!outValues || count <= 0) return 0;
-    std::array<float, 18> values{};
+    std::array<float, 22> values{};
     values[17] = float(mapState_.load());
+    values[18] = float(mapGame_.load());
+    values[19] = float(mapHealth_.load());
+    values[20] = float(mapArmor_.load());
+    values[21] = float(mapAmmo_.load());
     {
         std::lock_guard<std::mutex> lock(snapshotMutex_);
         std::copy_n(snapshot_.begin(), 4, values.begin());

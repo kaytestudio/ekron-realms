@@ -462,9 +462,9 @@ REALMS_CORE=pascal ./build/ekron-realms --headless-smoke
 ctest --test-dir build -R realms --output-on-failure  # bridge conformance (C++ and Pascal)
 ```
 
-For Android `jniLibs` and the iOS static archive, use `realms/pascal/build_core.sh android-aarch64|android-armv7|android-x86_64|ios-arm64`. Without a Pascal core, every platform falls back to the C++ reference core.
+For Android `jniLibs` and the iOS static archive, use `realms/pascal/build_core.sh android-aarch64|android-armv7|android-x86_64|ios-arm64`. Without a Pascal core, every platform falls back to the C++ reference core. `build_core.sh game-android-aarch64|game-android-armv7|game-android-x86_64` puts the Quake 2 game module (`librealms_game.so`) into the same `jniLibs/<abi>` folders, and `ios-arm64` (like `macos-arm64-static`) also writes `librealms_game.a`, which the generated xcconfig links with `REALMS_GAME_STATIC=1`.
 
-- `realms_game_module` is built when `fpc` is found and `-DENABLE_GAME_MODULE=ON` (the default). It compiles the Quake 2 game module, `game/realms_game.lpr` (the Free Pascal gamex86 port), into `librealms_game.so`/`.dylib`, installed next to `librealms_core` in the same three places. `realms::GameServer` (part of `realms_engine`) loads it when a BSP map is opened on desktop, so maps run the Quake 2 game (items, doors, triggers, monsters, weapons) on whichever core is active. `make game` and `lazbuild game/realms_game.lpi` build the same library; `REALMS_GAME_LIBRARY=/path/librealms_game.so` overrides the search; the `sv_game 0` cvar turns the game off (map mode then only walks the map).
+- `realms_game_module` is built when `fpc` is found and `-DENABLE_GAME_MODULE=ON` (the default). It compiles the Quake 2 game module, `game/realms_game.lpr` (the Free Pascal gamex86 port), into `librealms_game.so`/`.dylib`, installed next to `librealms_core` in the same three places. `realms::GameServer` (part of `realms_quake2`, the Quake 2 module that the desktop, Android and iOS sandboxes link) loads it when a BSP map is opened, so maps run the Quake 2 game (items, doors, triggers, monsters, weapons) on whichever core is active. `make game` and `lazbuild game/realms_game.lpi` build the same library; `REALMS_GAME_LIBRARY=/path/librealms_game.so` overrides the search; the `sv_game 0` cvar turns the game off (map mode then only walks the map).
 
 ```bash
 cmake --build build --target realms_game_module
@@ -472,6 +472,7 @@ cmake --build build --target realms_game_module
 ./build/ekron-realms +map base1                       # needs maps/base1.bsp (e.g. from a pak0.pak)
 ctest --test-dir build -R game --output-on-failure    # realms_game_server_native / _pascal, realms_game_effects
 ctest --test-dir build -R map_lighting --output-on-failure   # realms_map_lighting (BSP lightmaps)
+ctest --test-dir build -R quake2_module --output-on-failure  # realms_quake2_module_native / _pascal (Quake2Module + Quake2View)
 ```
 
 `realms/src/GameEffectTables.inc` is generated and committed. It holds the byte directions and the monster muzzle flashes used by the client effects. If `game/m_flash.pas` or `engine/client/cl_fx.pas` changes, regenerate it with `python3 tools/gen_game_effect_tables.py` (plain Python 3, no packages needed).

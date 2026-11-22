@@ -1,12 +1,12 @@
-// Quake 2 game sounds on the desktop mixer (see DesktopGameSound.h).
-#include "DesktopGameSound.h"
+// Quake 2 game sounds on the sandbox mixer (see GameSoundPlayer.h).
+#include "GameSoundPlayer.h"
 
 #include <algorithm>
 #include <cstdio>
 
-namespace ekron::desktop {
+namespace ekron::audio {
 
-int DesktopGameSound::clip(realms::Engine &engine, ekron::audio::Mixer &mixer, const std::string &name) {
+int GameSoundPlayer::clip(realms::Engine &engine, Mixer &mixer, const std::string &name) {
     const auto it = clips_.find(name);
     if (it != clips_.end()) return it->second;
     const std::string key = "q2:" + name; // kept by the mixer across maps
@@ -18,7 +18,7 @@ int DesktopGameSound::clip(realms::Engine &engine, ekron::audio::Mixer &mixer, c
         if (!engine.loadFile(name, bytes)) {
             error = "not found";
         } else if (realms::decodeGameWav(bytes.data(), bytes.size(), wav, &error)) {
-            ekron::audio::Pcm pcm;
+            Pcm pcm;
             pcm.rate = wav.rate;
             pcm.channels = wav.channels;
             pcm.samples = std::move(wav.samples);
@@ -31,7 +31,7 @@ int DesktopGameSound::clip(realms::Engine &engine, ekron::audio::Mixer &mixer, c
     return id;
 }
 
-void DesktopGameSound::update(realms::Engine &engine, ekron::audio::Mixer &mixer,
+void GameSoundPlayer::update(realms::Engine &engine, Mixer &mixer,
                               const std::vector<realms::GameEvent> &events,
                               const std::vector<realms::GameLoopSound> &loops, const realms::GameListener &listener,
                               double dt) {
@@ -48,17 +48,17 @@ void DesktopGameSound::update(realms::Engine &engine, ekron::audio::Mixer &mixer
             const auto it = channels_.find(key);
             if (it != channels_.end()) mixer.stop(it->second, 0.02f);
         }
-        ekron::audio::PlayParams params;
+        PlayParams params;
         params.volume = p.spatial.volume;
         params.pan = p.spatial.pan;
-        const ekron::audio::VoiceId v = mixer.play(c, params);
+        const VoiceId v = mixer.play(c, params);
         if (v && p.channel != 0 && p.entity != 0) channels_[key] = v;
     }
     for (auto it = channels_.begin(); it != channels_.end();)
         it = mixer.playing(it->second) ? std::next(it) : channels_.erase(it);
 
     realms::GameSoundScheduler::mergeLoops(loops, listener, merged_);
-    std::unordered_map<std::string, ekron::audio::VoiceId> next;
+    std::unordered_map<std::string, VoiceId> next;
     for (const realms::GameSoundPlay &p : merged_) {
         const auto it = loops_.find(p.name);
         if (it != loops_.end() && mixer.playing(it->second)) {
@@ -69,18 +69,18 @@ void DesktopGameSound::update(realms::Engine &engine, ekron::audio::Mixer &mixer
         }
         const int c = clip(engine, mixer, p.name);
         if (c < 0) continue;
-        ekron::audio::PlayParams params;
+        PlayParams params;
         params.volume = p.spatial.volume;
         params.pan = p.spatial.pan;
         params.loop = true;
         params.fadeIn = 0.05f;
-        if (const ekron::audio::VoiceId v = mixer.play(c, params)) next[p.name] = v;
+        if (const VoiceId v = mixer.play(c, params)) next[p.name] = v;
     }
     for (const auto &kv : loops_) mixer.stop(kv.second, 0.1f); // no entity plays it any more
     loops_.swap(next);
 }
 
-void DesktopGameSound::stop(ekron::audio::Mixer &mixer) {
+void GameSoundPlayer::stop(Mixer &mixer) {
     for (const auto &kv : channels_) mixer.stop(kv.second, 0.05f);
     for (const auto &kv : loops_) mixer.stop(kv.second, 0.1f);
     channels_.clear();
@@ -88,7 +88,7 @@ void DesktopGameSound::stop(ekron::audio::Mixer &mixer) {
     scheduler_.clear();
 }
 
-std::string DesktopGameSound::summary() const {
+std::string GameSoundPlayer::summary() const {
     size_t loaded = 0, missing = 0;
     for (const auto &kv : clips_) (kv.second >= 0 ? loaded : missing)++;
     char buf[96];
@@ -96,4 +96,4 @@ std::string DesktopGameSound::summary() const {
     return buf;
 }
 
-} // namespace ekron::desktop
+} // namespace ekron::audio

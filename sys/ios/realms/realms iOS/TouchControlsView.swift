@@ -251,6 +251,9 @@ final class HudActionButton: UIControl {
     }
     var fireOnPress: Bool = false
     var onTap: (() -> Void)?
+    /// Hold buttons (map mode fire): called on touch down and when the touch ends anyhow.
+    var onPress: (() -> Void)?
+    var onRelease: (() -> Void)?
 
     override var isSelected: Bool {
         didSet { setNeedsDisplay() }
@@ -268,6 +271,7 @@ final class HudActionButton: UIControl {
         accessibilityLabel = caption
         addTarget(self, action: #selector(handleTouchUpInside), for: .touchUpInside)
         addTarget(self, action: #selector(handleTouchDown), for: .touchDown)
+        addTarget(self, action: #selector(handleTouchEnd), for: [.touchUpInside, .touchUpOutside, .touchCancel])
     }
 
     required init?(coder: NSCoder) {
@@ -275,9 +279,14 @@ final class HudActionButton: UIControl {
     }
 
     @objc private func handleTouchDown() {
+        onPress?()
         if fireOnPress {
             onTap?()
         }
+    }
+
+    @objc private func handleTouchEnd() {
+        onRelease?()
     }
 
     @objc private func handleTouchUpInside() {
@@ -394,6 +403,12 @@ final class HudActionButton: UIControl {
         case "remove":
             line(32, 32, 68, 68)
             line(68, 32, 32, 68)
+        case "fire":
+            ctx.strokeEllipse(in: CGRect(x: 35, y: 27, width: 30, height: 30))
+            line(50, 17, 50, 31)
+            line(50, 53, 50, 67)
+            line(25, 42, 39, 42)
+            line(61, 42, 75, 42)
         case "jump":
             ctx.beginPath()
             ctx.move(to: CGPoint(x: 50, y: 16))

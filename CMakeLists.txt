@@ -141,13 +141,14 @@ if(ENABLE_DESKTOP_SANDBOX)
         "${DESKTOP_SRC_DIR}/Localization.cpp"
         "${DESKTOP_SRC_DIR}/DesktopConsole.cpp"
         "${DESKTOP_SRC_DIR}/DesktopMapMode.cpp"
-        "${DESKTOP_SRC_DIR}/DesktopGameSound.cpp"
         "${DESKTOP_SRC_DIR}/DesktopAudio.cpp"
         "${SHARED_CPP_DIR}/MapSession.cpp"
         "${SHARED_CPP_DIR}/SoundDecode.cpp"
         "${SHARED_CPP_DIR}/SoundMixer.cpp"
         "${SHARED_CPP_DIR}/SoundDirector.cpp"
         "${SHARED_CPP_DIR}/SoundSystem.cpp"
+        "${SHARED_CPP_DIR}/GameSoundPlayer.cpp"
+        "${SHARED_CPP_DIR}/Quake2View.cpp"
         "${SHARED_CPP_DIR}/GltfScene.cpp"
         "${SHARED_CPP_DIR}/ImageDecode.cpp"
     )
@@ -158,7 +159,7 @@ if(ENABLE_DESKTOP_SANDBOX)
         "${SHARED_CPP_DIR}"
     )
     target_link_libraries(ekron_sandbox_objects PUBLIC
-        realms_engine
+        realms_quake2
         ${EKRON_SDL2_TARGET}
         Threads::Threads
         $<$<PLATFORM_ID:Linux>:${CMAKE_DL_LIBS}>
@@ -436,7 +437,7 @@ add_test(NAME ekron_localization COMMAND ekron_localization_test)
 
 # Realms bridge conformance: C++ reference core (+ Free Pascal core below).
 add_executable(realms_bridge_test tests/realms/realms_bridge_test.cpp)
-target_link_libraries(realms_bridge_test PRIVATE realms_engine)
+target_link_libraries(realms_bridge_test PRIVATE realms_quake2)
 add_test(NAME realms_bridge_native COMMAND realms_bridge_test)
 set_tests_properties(realms_bridge_native PROPERTIES ENVIRONMENT "REALMS_CORE=")
 
@@ -473,7 +474,7 @@ set_tests_properties(ekron_sound PROPERTIES ENVIRONMENT "REALMS_CORE=native")
 # the module only the Pmove part runs and the test reports "skipped" (77).
 add_executable(realms_game_server_test tests/realms/game_server_test.cpp)
 target_include_directories(realms_game_server_test PRIVATE tests/realms)
-target_link_libraries(realms_game_server_test PRIVATE realms_engine)
+target_link_libraries(realms_game_server_test PRIVATE realms_quake2)
 if(REALMS_GAME_MODULE_BUILT)
     add_dependencies(realms_game_server_test realms_game_module)
     add_test(NAME realms_game_server_native
@@ -489,32 +490,59 @@ else()
 endif()
 set_tests_properties(realms_game_server_native PROPERTIES ENVIRONMENT "REALMS_CORE=;REALMS_GAME_LIBRARY=")
 
+# The Quake 2 stack as one module: realms::Quake2Module and the sandboxes'
+# shared map mode on it (mapview::Quake2View) on a lightmapped arena; with
+# the game module: walking, the door, a pickup, entities, effects, light
+# styles, respawn. Without the module the game part reports "skipped" (77).
+add_executable(realms_quake2_module_test
+    tests/realms/quake2_module_test.cpp
+    "${SHARED_CPP_DIR}/MapSession.cpp"
+    "${SHARED_CPP_DIR}/Quake2View.cpp"
+)
+target_include_directories(realms_quake2_module_test PRIVATE tests/realms "${SHARED_CPP_DIR}")
+target_link_libraries(realms_quake2_module_test PRIVATE realms_quake2)
+if(REALMS_GAME_MODULE_BUILT)
+    add_dependencies(realms_quake2_module_test realms_game_module)
+    add_test(NAME realms_quake2_module_native
+             COMMAND realms_quake2_module_test --game "${REALMS_GAME_MODULE_PATH}")
+    if(REALMS_PASCAL_CORE_BUILT)
+        add_dependencies(realms_quake2_module_test realms_pascal_core)
+        add_test(NAME realms_quake2_module_pascal
+                 COMMAND realms_quake2_module_test --game "${REALMS_GAME_MODULE_PATH}" --pascal "${REALMS_PASCAL_CORE_PATH}")
+    endif()
+else()
+    add_test(NAME realms_quake2_module_native COMMAND realms_quake2_module_test)
+    set_tests_properties(realms_quake2_module_native PROPERTIES SKIP_RETURN_CODE 77)
+endif()
+set_tests_properties(realms_quake2_module_native PROPERTIES ENVIRONMENT "REALMS_CORE=;REALMS_GAME_LIBRARY=")
+
 # Quake 2 .md2 models and PCX skins (realms::Md2Model / decodePcx), generated
 # in memory by tests/realms/md2_builder.h.
 add_executable(realms_md2_test tests/realms/md2_test.cpp)
 target_include_directories(realms_md2_test PRIVATE tests/realms)
-target_link_libraries(realms_md2_test PRIVATE realms_engine)
+target_link_libraries(realms_md2_test PRIVATE realms_quake2)
 add_test(NAME realms_md2 COMMAND realms_md2_test)
 
 # Quake 2 client effects (realms::GameEffects): temp entities, muzzle
 # flashes, trails, lights, explosions - no game module needed.
 add_executable(realms_game_effects_test tests/realms/game_effects_test.cpp)
 target_include_directories(realms_game_effects_test PRIVATE tests/realms)
-target_link_libraries(realms_game_effects_test PRIVATE realms_engine)
+target_link_libraries(realms_game_effects_test PRIVATE realms_quake2)
 add_test(NAME realms_game_effects COMMAND realms_game_effects_test)
 
 # Quake 2 BSP lightmaps (realms::MapLighting): the atlas, lightmap
 # coordinates, light styles and R_LightPoint on maps from bsp_builder.h.
 add_executable(realms_map_lighting_test tests/realms/map_lighting_test.cpp)
 target_include_directories(realms_map_lighting_test PRIVATE tests/realms)
-target_link_libraries(realms_map_lighting_test PRIVATE realms_engine)
+target_link_libraries(realms_map_lighting_test PRIVATE realms_quake2)
 add_test(NAME realms_map_lighting COMMAND realms_map_lighting_test)
 
-# Desktop map mode: entity poses and .md2 vertices in render space (the view
-# weapon follows the camera for every yaw / pitch). Header-only, no SDL / GL.
+# Map modes (desktop, Android, iOS): entity poses and .md2 vertices in render
+# space (the view weapon follows the camera for every yaw / pitch).
+# Header-only, no SDL / GL.
 add_executable(realms_map_entity_transform_test tests/realms/map_entity_transform_test.cpp)
-target_include_directories(realms_map_entity_transform_test PRIVATE sys/desktop)
-target_link_libraries(realms_map_entity_transform_test PRIVATE realms_engine)
+target_include_directories(realms_map_entity_transform_test PRIVATE sys/android/app/src/main/cpp)
+target_link_libraries(realms_map_entity_transform_test PRIVATE realms_quake2)
 add_test(NAME realms_map_entity_transform COMMAND realms_map_entity_transform_test)
 
 if(EKRON_SDL2_TARGET)

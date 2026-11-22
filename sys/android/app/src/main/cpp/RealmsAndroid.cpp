@@ -1,5 +1,7 @@
 #include "RealmsAndroid.h"
 
+#include "realms/GameServer.h"
+
 #include "realms/SandboxBoot.h"
 
 #include <android/asset_manager.h>
@@ -115,6 +117,13 @@ realms::Engine &ensureEngine(android_app *app) {
     realms::sandbox::boot(gEngine, boot);
     __android_log_print(ANDROID_LOG_INFO, "Realms", "Realms engine ready: core=%s origin=%s",
                         gEngine.backendName().c_str(), gEngine.backendOrigin().c_str());
+    // The Quake 2 game module (librealms_game.so in jniLibs) runs maps with
+    // a worldspawn through realms::Quake2Module; without it maps are walked.
+    std::string where, why;
+    if (realms::GameServer::moduleAvailable({}, &where, &why))
+        __android_log_print(ANDROID_LOG_INFO, "Realms", "Quake 2 game module: %s", where.c_str());
+    else
+        __android_log_print(ANDROID_LOG_INFO, "Realms", "Quake 2 game module unavailable: %s", why.c_str());
     return gEngine;
 }
 

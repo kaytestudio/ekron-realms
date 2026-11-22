@@ -113,7 +113,7 @@ Bridge v3 adds nine functions to `RealmsCoreApi`, implemented in both cores:
 
 ### Desktop map mode
 
-On desktop, `map` swaps the sandbox for the loaded map (`sys/desktop/DesktopMapMode.*`). The renderer-independent part is `mapview::MapSession` (`sys/android/app/src/main/cpp/MapSession.*`), shared with Android: the map-to-render space conversion, the camera conventions, material layers and the walker.
+On desktop, `map` swaps the sandbox for the loaded map (`sys/desktop/DesktopMapMode.*`). The renderer-independent part is `mapview::Quake2View` (`sys/android/app/src/main/cpp/Quake2View.*`, see [the Quake 2 module](#the-quake-2-module-realms_quake2)), shared with Android and iOS: `mapview::MapSession` (the map-to-render space conversion, the camera conventions, material layers and the walker) plus `realms::Quake2Module`.
 
 - **Movement:** you walk with `realms::MapWalker`, a port of Quake 2's pmove (`PM_StepSlideMove`, friction, acceleration, 18-unit steps, ducking, swimming, jumping). It runs on `Engine::boxTrace` against whichever core is active.
 - **Game:** when the game module is available and the `sv_game` cvar is 1 (the default, archived), the map runs the Quake 2 game through `realms::GameServer`: `info_player_start`, items, doors, platforms, triggers and monsters behave as in Quake 2, and the player moves with the game's own `Pmove`. Set `sv_game 0` (then `map` again) to only walk the map with `MapWalker`. The HUD shows health, ammo and armour; centre prints and pickup messages become toasts. Inline brush models (`*1`, `*2`…, doors and lifts) are drawn where the game puts them, interpolated between game frames. Items, monsters, projectiles and the view weapon are drawn from their `.md2` models and PCX skins when the VFS has them (a Quake 2 `pak0.pak`); without id's data each entity is a box the size of its bounds (gold items, red monsters, orange projectiles), so the game stays playable. `cl_gun 0` hides the view weapon.
@@ -146,7 +146,7 @@ On desktop, `map` swaps the sandbox for the loaded map (`sys/desktop/DesktopMapM
 cd game && fpc -Mdelphi -dGAMEDLL -Cg -O2 -FUunits -Fu. -Fi. -o../build/librealms_game.so realms_game.lpr
 ```
 
-build it by hand. Android and iOS don't build the game module yet; their map mode walks maps with `MapWalker`.
+build it by hand. Android ships it in the APK (`realms/pascal/build_core.sh game-android-*` → `jniLibs/<abi>/librealms_game.so`) and iOS links it statically (`build_core.sh ios-arm64` → `librealms_game.a`, handed over with `setLinkedGame`); see [the Quake 2 module](#the-quake-2-module-realms_quake2).
 
 #### Drawing the game (`GameView`, `Md2Model`)
 
@@ -161,7 +161,7 @@ What a Quake 2 client does with the server's frames lives in `realms/` too, with
 - `buildGameScene` turns that into triangle batches through `GameModelCache` (`.md2` from the VFS, failures remembered and reported once). Each batch has its skin and tint (`RF_SHELL_*`, `RF_TRANSLUCENT`) and is placed like `R_RotateForEntity`, with the alias-model pitch negation. Models that are missing get a coloured box.
 - `Md2Model` parses IDP2 v8 models (`Mod_LoadAliasModel` limits, every offset and index checked) and blends two frames into a triangle list with normals, always counter-clockwise from outside. `decodePcx` decodes the 8-bit RLE skins.
 
-On desktop, `DesktopMapMode::buildEntities` uploads the skins once, converts the vertices to render space (`sys/desktop/MapEntityTransform.h`) and hands the batches to `DesktopRenderer::setMapEntities`. The renderer draws them after the map with the textured model shader: opaque first, then translucent, then the view weapon over a cleared depth buffer (Quake 2's `RF_DEPTHHACK`).
+`mapview::Quake2View::entities` converts the vertices to render space (`sys/android/app/src/main/cpp/MapEntityTransform.h`) for every platform. On desktop, `DesktopMapMode` uploads the skins once and hands the batches to `DesktopRenderer::setMapEntities`. The renderer draws them after the map with the textured model shader: opaque first, then translucent, then the view weapon over a cleared depth buffer (Quake 2's `RF_DEPTHHACK`).
 
 #### Client effects (`GameEffects`, `GameSound`)
 
@@ -187,11 +187,11 @@ The parts of the Quake 2 client that are not entities are in `realms/` as well (
   - delays sounds by `timeofs`;
   - merges entity loop sounds (`s.sound`) per sound like `S_AddLoopSounds`.
 
-On desktop, `DesktopMapMode` feeds every game event into `GameEffects` at client time (server frames plus the interpolation fraction):
+`realms::Quake2Module` feeds every game event into `GameEffects` at client time (server frames plus the interpolation fraction), on every platform. On desktop:
 - **Effect models** are drawn with the entities. `RF_FULLBRIGHT` ones skip lighting.
 - **`buildEffects`** turns particles, glows and beams into camera-facing quads, sized like `gl_rpart.c`. `DesktopRenderer::setMapEffects` blends them after the entities and before the view weapon.
 - **Dynamic lights:** the 8 lights closest to the camera light the map and the models.
-- **Sound:** `sys/desktop/DesktopGameSound` loads each `.wav` from the VFS the first time it is played and plays it on the sandbox mixer. A sound on the same entity channel replaces the previous one, as in Quake 2, and loop sounds follow their entities. Without id's data, missing sounds are skipped silently. They are listed with `developer 1`.
+- **Sound:** `ekron::audio::GameSoundPlayer` (`sys/android/app/src/main/cpp/GameSoundPlayer.*`, shared by desktop, Android and iOS) loads each `.wav` from the VFS the first time it is played and plays it on the sandbox mixer. A sound on the same entity channel replaces the previous one, as in Quake 2, and loop sounds follow their entities. Without id's data, missing sounds are skipped silently. They are listed with `developer 1`.
 
 `realms_game_effects` tests all of this without a game module. `realms_game_server_*` checks a real shotgun blast end to end: the muzzle flash and its angles, the `TE_SHOTGUN` impact with a unit byte direction, and then the light, puffs, smoke model and sound it produces.
 
@@ -205,13 +205,38 @@ On desktop, `DesktopMapMode` feeds every game event into `GameEffects` at client
 - **Models.** `lightPoint` is `R_LightPoint` without dynamic lights: it traces down the world BSP and returns the light of the first lit face below the point.
 - **Bad input.** Malformed lumps fail `load`. Faces whose samples do not fit the lighting lump, or do not fit in the atlas, are counted in `droppedFaces` and drawn without a lightmap. Nothing is ever read out of bounds.
 
-On desktop, `DesktopMapMode` loads the lightmaps of BSP maps that have them (maps compiled with `qrad3`):
+`realms::Quake2Module` loads the lightmaps of BSP maps that have them (maps compiled with `qrad3`); on desktop (Android and iOS draw them the same way):
 - Lightmapped faces sample the atlas (texture unit 2, vertex attribute 5) instead of the sandbox sun. Light is doubled like `gl_intensity 2`. Dynamic lights still add to it.
 - Each frame, `updateLighting` reads the game's `CS_LIGHTS` at client time, so flickering and switchable lights animate. The atlas is re-uploaded only when a style the map uses has changed.
 - Entities and the view weapon are lit by `lightPoint` at their origin, never darker than `RF_MINLIGHT`'s 0.1. `RF_FULLBRIGHT` models skip this.
 - Maps without lighting data, glTF maps and `r_lightmaps 0` keep the sandbox sun.
 
 `realms_map_lighting` tests the atlas, the coordinates of every face vertex, style composition, `R_LightPoint` (the world only, with inline models ignored) and corrupted maps. It builds its maps with `tests/realms/bsp_builder.h`, which can now write qrad-style lighting (`MapDef::light`, `faceStyles`).
+
+### The Quake 2 module (`realms_quake2`)
+
+The Quake 2 stack is one static library, `realms_quake2` (`realms/CMakeLists.txt`): `Q2Pmove`, `GameServer`, `GameView`, `GameEffects`, `GameSound`, `MapLighting`, `Md2Model` and `realms::Quake2Module` (`realms/include/realms/Quake2Module.h`), which ties them together behind one interface. It has no renderer or audio types:
+
+| `Quake2Module` | |
+| :--- | :--- |
+| `open(engine, geometry, config, why)` / `close()` | the loaded map's lightmaps, then the game when the map has a worldspawn, the module is available and `config.startGame` (`sv_game`) is set; `why` says why it isn't running |
+| `frame(userCmd(input, attack), dt)` | one sandbox frame: the game's usercmd, `RunFrame` at 10 Hz, entity interpolation, events into effects and sounds, light styles |
+| `restartGame`, `toggleNoclip`, `mirrorPlayer(walker)`, `stats()`, `takeMessages()`, `takeGameFailure()` | respawn, noclip through the game, the HUD, centre prints / pickups, a game error |
+| `modelPoses()`, `buildScene(...)`, `buildEffects(...)` | brush models where the game has them, `.md2` entities and the view weapon, particle / beam / glow quads and the nearest dynamic lights (map space) |
+| `takeSounds()`, `loopSounds()`, `listener()` | what `GameSoundPlayer` plays |
+| `lighting()`, `lightmapUvs(...)`, `lightmap()`, `updateLightStyles()`, `lightAt(point)` | the lightmap atlas, re-composed when a light style changes, and `R_LightPoint` for models |
+
+`mapview::Quake2View` (`sys/android/app/src/main/cpp/Quake2View.*`) is the sandboxes' map mode on top of it, in render space (metres, Y up) and the sandbox camera convention: triangles grouped by BSP model with lightmap coordinates in the same order, model poses as column-major matrices, entity vertices / batches, effect quads and dynamic lights. Each platform only uploads and draws what it hands out:
+
+| Platform | Map mode | Game module |
+| :--- | :--- | :--- |
+| Desktop | `DesktopMapMode` (OpenGL 3.3) | `librealms_game.so` / `.dylib` next to the core |
+| Android | `AndroidMapMode` + `Quake2Gles` (GLES 3) | `jniLibs/<abi>/librealms_game.so` in the APK (`build_core.sh game-android-aarch64` / `-x86_64`), found by `dlopen` |
+| iOS | `MetalMapMode` (Metal: `quakeMapVertex` / `quakeMapFragment`, `quakeEffectVertex` / `quakeEffectFragment`) | device builds link `librealms_game.a` (`build_core.sh ios-arm64`, `REALMS_GAME_STATIC=1`) and call `GameServer::setLinkedGame(&GetGameAPI)`; the simulator has no Free Pascal target and walks maps |
+
+Without a game module (or with `sv_game 0`, or on a glTF map) the map is walked with `MapWalker`, exactly as before. The iOS archive keeps only `_GetGameAPI` global (`ld -r -exported_symbol`, or `nmedit -s`), so the game's Free Pascal RTL stays private and links next to the core's; each starts from its own `__mod_init_func` entry.
+
+`realms_quake2_module_test` (CTest `realms_quake2_module_native` / `_pascal`) runs `Quake2View` on a generated, lightmapped arena: lightmaps and their coordinates in draw order, triangles grouped by model, the walker without a game; then, with the game module, the player as the game's client, the door's pose, the armour shard pickup (message and sound), entities / the view weapon / effects in render space, light styles, the blaster's muzzle flash and its dynamic light, respawn and noclip. Without a game module it exits 77 (skipped). CI also runs it on the Android emulator with the Android `librealms_game.so` on both cores, and on macOS arm64 with the static core and game linked into one binary (`--game linked --pascal static`), the iOS packaging.
 
 ### Android and iOS map mode
 
@@ -232,17 +257,17 @@ Picking one runs `map "<path>"`; any other `map` command (a script, `autoexec.cf
 - **Removing:** **Remove an imported map…** deletes one, except the map being walked.
 
 Where the code lives:
-- **Android:** `sys/android/app/src/main/cpp/AndroidMapMode.*`, with hooks in `Renderer.cpp` and `MainActivity.kt`.
-- **iOS:** `MetalMapMode` in `sys/ios/realms/realms iOS/SandboxBridge.mm` is the Metal twin of `AndroidMapMode`. The bridge exposes `loadMap(_:)`, `currentMapPath()` and status slot 17, and the UI is in `GameViewController.swift`.
-- **Both:** the shared `MapSession.cpp`.
+- **Android:** `sys/android/app/src/main/cpp/AndroidMapMode.*` and `Quake2Gles.*`, with hooks in `Renderer.cpp` and `MainActivity.kt`.
+- **iOS:** `MetalMapMode` in `sys/ios/realms/realms iOS/SandboxBridge.mm` is the Metal twin of `AndroidMapMode`. The bridge exposes `loadMap(_:)`, `currentMapPath()` and status slots 17–21, and the UI is in `GameViewController.swift`.
+- **Both:** the shared `Quake2View.cpp`, `MapSession.cpp` and `GameSoundPlayer.cpp` over `realms_quake2` (iOS compiles them through wrapper `.cpp`s in its app folder).
 
-- **Controls:** the move stick and look area walk with `realms::MapWalker`. Jump and crouch work as in the sandbox. The map's pause menu toggles noclip (↑ / ↓ for altitude), respawns, opens another map, or leaves the map (`killserver`).
-- **HUD:** the sandbox tools, catalogue and tool wheel hide while you're on a map. The sandbox world stays as it was and comes back when you leave.
+- **Controls:** the move stick and look area walk (the game's `Pmove` when the Quake 2 game runs, else `realms::MapWalker`). Jump and crouch work as in the sandbox. With the game, a **Fire** button (commands 51 / 52: pressed / released) appears above jump. The map's pause menu toggles noclip (↑ / ↓ for altitude), respawns (restarts the game), opens another map, or leaves the map (`killserver`).
+- **HUD:** the sandbox tools, catalogue and tool wheel hide while you're on a map. With the game the notice shows health, armour and ammo (status slots 18–21: game running, health, armour, ammo), and centre prints go to the log. The sandbox world stays as it was and comes back when you leave.
 - **Drawing:**
   - **The sandbox street:** when the map is that file, the city model already on the GPU is reused rather than a second 14 MB copy. That model is a rescaled, recentred "level" scene. `city::Scene` records how it relates to the file (`sourceScale`, `sourceOffset`), and the camera moves into that space. `realms_map_render_alignment` checks the relation, vertex by vertex, on every shipped `.glb`.
   - **Other glTF maps:** the textured file is prepared on a worker thread and uploaded a few steps per frame. Until then the map's own triangles are drawn.
-  - **BSPs:** the map's triangles with the sandbox material layers.
-- **Lifecycle:** if Android recreates the EGL surface (or iOS recreates the bridge), the map stays loaded in the engine and map mode reopens where you were standing.
+  - **BSPs:** the map's triangles with the sandbox material layers, lit by their lightmaps (animated light styles, `r_lightmaps 0` for the sandbox sun); doors and lifts where the game puts them; with the game, `.md2` entities and the view weapon (`cl_gun`), particles, beams and up to 8 dynamic lights; game sounds through `GameSoundPlayer`.
+- **Lifecycle:** if Android recreates the EGL surface (or iOS recreates the bridge), the map stays loaded in the engine and map mode reopens where you were standing; a running game is kept whole and carries on.
 - **Failure:** if a map fails to load, the sandbox stays and shows "The map could not be loaded."
 
 ## Shared boot (every platform)
@@ -284,7 +309,8 @@ The other suites:
   - the missing blaster model, reported once;
   - the shotgun view model following the camera, and hidden by `cl_gun 0`. CTest `ekron_desktop_game_module` checks that `--engine-info` finds the module.
 - `md2_test.cpp` (CTest `realms_md2`) checks `.md2` parsing, frame blending, normals and winding for both windings, and texel-centred skin coordinates. It also rejects 23 kinds of corrupt model and survives 2,000 randomly corrupted ones, then checks PCX decoding (runs, padded lines, palette, transparency) and corrupt PCX files. `md2_builder.h` writes the models and images.
-- `map_entity_transform_test.cpp` (CTest `realms_map_entity_transform`) checks that, through the desktop's transform and vertex conversion, the view weapon points along the camera's forward, up and left axes for every yaw and pitch, at 1 m per 32 units. It also checks brush-model pitch, translation, yaw and winding.
+- `quake2_module_test.cpp` (CTest `realms_quake2_module_native` / `_pascal`) checks `realms::Quake2Module` and the shared map mode `mapview::Quake2View` on a lightmapped arena, without and with the game module (see [the Quake 2 module](#the-quake-2-module-realms_quake2)).
+- `map_entity_transform_test.cpp` (CTest `realms_map_entity_transform`) checks that, through the map modes' shared transform and vertex conversion (`MapEntityTransform.h`), the view weapon points along the camera's forward, up and left axes for every yaw and pitch, at 1 m per 32 units. It also checks brush-model pitch, translation, yaw and winding.
 - `realms_walker_suite.h` covers map geometry from the face lump and from brush windings, with error paths and a fuzz. It also walks a test level through the Engine on both cores: stepping up a 16-unit step, being stopped by a 40-unit block, sliding along walls, player clip, jump height, crouching under a low ceiling, swimming, noclip, and spawning on BSP and glTF maps: it must find open ground beside a hut that encloses the map's centre, and fall back when there is no floor.
 
 All of these run against:

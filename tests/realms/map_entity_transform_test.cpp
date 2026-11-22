@@ -1,6 +1,6 @@
-// Realms map mode (desktop): Quake 2 entities placed in render space
-// (sys/desktop/MapEntityTransform.h), the way DesktopMapMode feeds
-// DesktopRenderer's uObjectTransform.
+// Realms map modes: Quake 2 entities placed in render space
+// (sys/android/app/src/main/cpp/MapEntityTransform.h), the way the map modes
+// feed their object transforms (DesktopRenderer's uObjectTransform).
 //
 //   * the view weapon, posed like GameDrawBatch (camera angles from
 //     mapview::walkInput, alias pitch negated), points along the camera's
@@ -33,7 +33,7 @@ bool near(float a, float b, float eps) { return std::fabs(a - b) <= eps; }
 
 // model-space point -> render space, as buildEntities + the vertex shader do
 void place(const std::array<float, 16> &m, float x, float y, float z, float out[3]) {
-    const auto v = ekron::desktop::toRenderModelVertex({x, y, z, 0, 0, 1, 0, 0}, 1.0f / kUpm);
+    const auto v = mapview::toRenderModelVertex({x, y, z, 0, 0, 1, 0, 0}, 1.0f / kUpm);
     for (int r = 0; r < 3; r++) out[r] = m[size_t(r)] * v[0] + m[size_t(4 + r)] * v[1] + m[size_t(8 + r)] * v[2] + m[size_t(12 + r)];
 }
 
@@ -49,7 +49,7 @@ float dot(const float a[3], const float b[3]) { return a[0] * b[0] + a[1] * b[1]
 } // namespace
 
 int main() {
-    using ekron::desktop::entityTransform;
+    using mapview::entityTransform;
     int misaligned = 0;
     for (float ry = -3.1f; ry < 3.15f; ry += 0.23f) {
         for (float rp = -1.4f; rp < 1.41f; rp += 0.2f) {
@@ -101,9 +101,9 @@ int main() {
     // winding: a counter-clockwise model triangle seen from +Z (above)
     // stays counter-clockwise seen from render +Y; normals follow
     {
-        const auto a = ekron::desktop::toRenderModelVertex({0, 0, 0, 0, 0, 1, 0, 0}, 1);
-        const auto b = ekron::desktop::toRenderModelVertex({1, 0, 0, 0, 0, 1, 0, 0}, 1);
-        const auto c = ekron::desktop::toRenderModelVertex({0, 1, 0, 0, 0, 1, 0, 0}, 1);
+        const auto a = mapview::toRenderModelVertex({0, 0, 0, 0, 0, 1, 0, 0}, 1);
+        const auto b = mapview::toRenderModelVertex({1, 0, 0, 0, 0, 1, 0, 0}, 1);
+        const auto c = mapview::toRenderModelVertex({0, 1, 0, 0, 0, 1, 0, 0}, 1);
         const float e1[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]}, e2[3] = {c[0] - a[0], c[1] - a[1], c[2] - a[2]};
         const float n[3] = {e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]};
         CHECK(n[1] > 0.99f);

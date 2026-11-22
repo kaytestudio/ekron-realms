@@ -118,6 +118,10 @@ struct GameDrawBatch {
     bool fallbackBox = false;
     bool fullbright = false; // RF_FULLBRIGHT: not lit (explosions, flashes)
     bool effect = false;     // from GameEffects (appendEffectModels)
+    // The light under it from the map's lightmaps (R_LightPoint, 0..~2 per
+    // channel), filled by Quake2Module::buildScene; unlit: the sandbox sun.
+    bool lit = false;
+    std::array<float, 3> light{1, 1, 1};
 };
 
 struct GameScene {

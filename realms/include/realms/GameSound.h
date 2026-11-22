@@ -2,7 +2,7 @@
 // the mixer): .wav decoding, S_SpatializeOrigin, timeofs delays, the
 // channel override rule and the merged entity loop sounds
 // (S_AddLoopSounds). The platform plays the result through its own mixer
-// (the desktop client: sys/desktop/DesktopGameSound).
+// (the clients: sys/android/app/src/main/cpp/GameSoundPlayer, shared by desktop, Android and iOS).
 #pragma once
 
 #include "realms/Engine.h"

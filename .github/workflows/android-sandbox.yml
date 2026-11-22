@@ -81,18 +81,18 @@ jobs:
           fi
           tail -n 5 /tmp/fpc-cross.log
 
-      - name: Compile librealms_core.so (Free Pascal core) for Android
+      - name: Compile librealms_core.so (Free Pascal core) and librealms_game.so (Quake 2 game module) for Android
         shell: bash
         run: |
           set -euo pipefail
-          for target in android-aarch64:arm64-v8a android-x86_64:x86_64; do
-            abi="${target#*:}"
-            if ! realms/pascal/build_core.sh "${target%%:*}" "out/realms-pascal-android/$abi" > "/tmp/core-$abi.log" 2>&1; then
-              cat "/tmp/core-$abi.log"
-              echo "::error title=librealms_core ($abi)::$(grep -E 'Error|error|Fatal|undefined' "/tmp/core-$abi.log" | tail -n 8 | tr '\n' ' ' | cut -c1-900)"
+          for target in android-aarch64:arm64-v8a android-x86_64:x86_64 game-android-aarch64:arm64-v8a game-android-x86_64:x86_64; do
+            abi="${target#*:}" name="${target%%:*}"
+            if ! realms/pascal/build_core.sh "$name" "out/realms-pascal-android/$abi" > "/tmp/$name.log" 2>&1; then
+              cat "/tmp/$name.log"
+              echo "::error title=$name ($abi)::$(grep -E 'Error|error|Fatal|undefined' "/tmp/$name.log" | tail -n 8 | tr '\n' ' ' | cut -c1-900)"
               exit 1
             fi
-            tail -n 3 "/tmp/core-$abi.log"
+            tail -n 3 "/tmp/$name.log"
           done
 
       - name: Verify Android libraries (ABI, exports, no glibc, no text relocations, 16 KB pages)
@@ -100,12 +100,13 @@ jobs:
         run: |
           set -euo pipefail
           check() {
-            local abi="$1" machine="$2" lib="out/realms-pascal-android/$1/librealms_core.so"
+            local abi="$1" machine="$2" name="${3:-librealms_core.so}" entry="${4:-realms_pascal_get_api}"
+            local lib="out/realms-pascal-android/$1/$name"
             test -f "$lib"
             file "$lib"
             readelf -h "$lib" | grep "Machine:.*$machine" >/dev/null || { echo "::error::$abi: wrong machine"; exit 1; }
-            readelf -d "$lib" | grep 'SONAME.*librealms_core.so' >/dev/null || { echo "::error::$abi: missing SONAME"; exit 1; }
-            readelf --dyn-syms -W "$lib" | grep ' realms_pascal_get_api$' >/dev/null || { echo "::error::$abi: realms_pascal_get_api not exported"; exit 1; }
+            readelf -d "$lib" | grep "SONAME.*$name" >/dev/null || { echo "::error::$abi: $name: missing SONAME"; exit 1; }
+            readelf --dyn-syms -W "$lib" | grep " $entry\$" >/dev/null || { echo "::error::$abi: $entry not exported by $name"; exit 1; }
             if readelf -d "$lib" | grep TEXTREL >/dev/null; then echo "::error::$abi: text relocations (rejected by Android)"; exit 1; fi
             local needed; needed="$(readelf -d "$lib" | sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p' | tr '\n' ' ')"
             echo "$abi NEEDED: $needed"
@@ -120,6 +121,9 @@ jobs:
           }
           check arm64-v8a AArch64
           check x86_64 'X86-64'
+          # the Quake 2 game module (game/): GetGameAPI for realms::GameServer
+          check arm64-v8a AArch64 librealms_game.so GetGameAPI
+          check x86_64 'X86-64' librealms_game.so GetGameAPI
 
       - uses: actions/upload-artifact@v4
         with:
@@ -155,6 +159,15 @@ jobs:
             realms/src/Engine.cpp realms/src/NativeCore.cpp realms/src/NativeCModel.cpp realms/src/SandboxBoot.cpp realms/src/MeshMap.cpp realms/src/MapGeometry.cpp realms/src/MapLighting.cpp realms/src/MapWalker.cpp \
             -o out/realms_bridge_test
           file out/realms_bridge_test
+          # The Quake 2 module (realms_quake2 + the shared map mode) with the
+          # game module, as the app runs it.
+          S=sys/android/app/src/main/cpp
+          "$CLANG" --target=x86_64-linux-android30 -std=c++17 -O2 -Wall -Wextra -Werror -static-libstdc++ \
+            -Irealms/include -Itests/realms -I$S tests/realms/quake2_module_test.cpp $S/Quake2View.cpp $S/MapSession.cpp \
+            realms/src/Engine.cpp realms/src/NativeCore.cpp realms/src/NativeCModel.cpp realms/src/SandboxBoot.cpp realms/src/MeshMap.cpp realms/src/MapGeometry.cpp realms/src/MapLighting.cpp realms/src/MapWalker.cpp \
+            realms/src/Q2Pmove.cpp realms/src/GameServer.cpp realms/src/GameView.cpp realms/src/GameEffects.cpp realms/src/GameSound.cpp realms/src/Md2Model.cpp realms/src/Quake2Module.cpp \
+            -o out/realms_quake2_module_test
+          file out/realms_quake2_module_test
 
       - name: Enable KVM
         run: |
@@ -171,7 +184,7 @@ jobs:
           force-avd-creation: false
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
-          script: bash realms/pascal/android_device_test.sh out/realms_bridge_test out/realms-pascal-android/x86_64/librealms_core.so
+          script: bash realms/pascal/android_device_test.sh out/realms_bridge_test out/realms-pascal-android/x86_64/librealms_core.so out/realms_quake2_module_test out/realms-pascal-android/x86_64/librealms_game.so
 
   apk:
     needs: realms-pascal-core
@@ -233,6 +246,13 @@ jobs:
           run_test realms-bridge-test -O2 -Irealms/include tests/realms/realms_bridge_test.cpp realms/src/Engine.cpp realms/src/NativeCore.cpp realms/src/NativeCModel.cpp realms/src/SandboxBoot.cpp realms/src/MeshMap.cpp realms/src/MapGeometry.cpp realms/src/MapLighting.cpp realms/src/MapWalker.cpp -ldl
           # Game sound: every shipped .ogg decodes, LICENSE.md credits it; mixer, director, play/s_volume.
           S=sys/android/app/src/main/cpp
+          # The Quake 2 module and the shared map mode (no game module on this host: exit 77 skips that part).
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic -Irealms/include -Itests/realms -I$S tests/realms/quake2_module_test.cpp $S/Quake2View.cpp $S/MapSession.cpp \
+            realms/src/Engine.cpp realms/src/NativeCore.cpp realms/src/NativeCModel.cpp realms/src/SandboxBoot.cpp realms/src/MeshMap.cpp realms/src/MapGeometry.cpp realms/src/MapLighting.cpp realms/src/MapWalker.cpp \
+            realms/src/Q2Pmove.cpp realms/src/GameServer.cpp realms/src/GameView.cpp realms/src/GameEffects.cpp realms/src/GameSound.cpp realms/src/Md2Model.cpp realms/src/Quake2Module.cpp -ldl \
+            -o /tmp/realms-quake2-module-test
+          status=0; REALMS_CORE= /tmp/realms-quake2-module-test || status=$?
+          [ "$status" = 0 ] || [ "$status" = 77 ] || { echo "::error::realms_quake2_module_test failed ($status)"; exit 1; }
           REALMS_CORE=native run_test ekron-sound-test -O2 -Irealms/include -I$S tests/native/sound_test.cpp $S/SoundDecode.cpp $S/SoundMixer.cpp $S/SoundDirector.cpp $S/SoundSystem.cpp realms/src/Engine.cpp realms/src/NativeCore.cpp realms/src/NativeCModel.cpp realms/src/SandboxBoot.cpp realms/src/MeshMap.cpp realms/src/MapGeometry.cpp realms/src/MapLighting.cpp realms/src/MapWalker.cpp -ldl -lpthread
 
       - name: Validate translations (English, Russian, Portuguese (Portugal))
@@ -280,9 +300,10 @@ jobs:
         run: |
           set -euo pipefail
           APK=sys/android/app/build/outputs/apk/debug/app-debug.apk
-          unzip -l "$APK" | grep -E 'lib/.*/lib(realms|realms_core)\.so' | tee /tmp/apk-libs.txt
+          unzip -l "$APK" | grep -E 'lib/.*/lib(realms|realms_core|realms_game)\.so' | tee /tmp/apk-libs.txt
           for abi in arm64-v8a x86_64; do
             grep -q "lib/$abi/librealms_core.so" /tmp/apk-libs.txt || { echo "::error::APK is missing lib/$abi/librealms_core.so"; exit 1; }
+            grep -q "lib/$abi/librealms_game.so" /tmp/apk-libs.txt || { echo "::error::APK is missing lib/$abi/librealms_game.so"; exit 1; }
             grep -q "lib/$abi/librealms.so" /tmp/apk-libs.txt || { echo "::error::APK is missing lib/$abi/librealms.so"; exit 1; }
           done
 
@@ -320,4 +341,4 @@ jobs:
           force-avd-creation: false
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
-          script: bash realms/pascal/android_app_smoke.sh out/apk/app-debug.apk pascal-quake2
+          script: bash realms/pascal/android_app_smoke.sh out/apk/app-debug.apk pascal-quake2 game

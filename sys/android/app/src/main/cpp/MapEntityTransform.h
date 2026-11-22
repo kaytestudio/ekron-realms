@@ -1,6 +1,6 @@
-// Realms map mode (desktop): placing Quake 2 entities in the renderer's
-// space. Header-only and free of SDL / GL so tests can check the maths
-// (tests/realms/map_entity_transform_test.cpp).
+// Realms map mode (desktop, Android, iOS): placing Quake 2 entities in the
+// sandbox render space. Header-only and free of SDL / GL / Metal so tests
+// can check the maths (tests/realms/map_entity_transform_test.cpp).
 //
 // Render space is metres, Y up: a map point (x, y, z) is (x, z, -y) / upm
 // (mapview::toRender). entityTransform is R_RotateForEntity in render
@@ -15,7 +15,7 @@
 #include <array>
 #include <cmath>
 
-namespace ekron::desktop {
+namespace mapview {
 
 // Map pose T(origin) * Rz(yaw) * Ry(-pitch) * Rx(-roll), conjugated into
 // render space: C * M * C^-1 (rotation only; the translation is scaled).
@@ -48,4 +48,4 @@ inline std::array<float, 8> toRenderModelVertex(const realms::Md2Vertex &v, floa
     return {v.x * metresPerUnit, v.z * metresPerUnit, -v.y * metresPerUnit, v.nx, v.nz, -v.ny, v.u, v.v};
 }
 
-} // namespace ekron::desktop
+} // namespace mapview

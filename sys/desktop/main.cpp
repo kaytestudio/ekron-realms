@@ -24,7 +24,7 @@
 #include "ShopCatalog.h"
 #include "SoundSnapshot.h"
 #include "SoundSystem.h"
-#include "DesktopGameSound.h"
+#include "GameSoundPlayer.h"
 #include "GravityBeam.h"
 #include "Interaction.h"
 #include "LevelPlacement.h"
@@ -753,7 +753,7 @@ int main(int argc, char **argv)
     std::vector<ekron::desktop::DesktopRenderer::EffectVertex> mapEffectVertices;
     std::vector<ekron::desktop::DesktopRenderer::DynamicLight> mapLights;
     // Quake 2 game sounds (.wav from the VFS) on the same mixer
-    ekron::desktop::DesktopGameSound gameSound;
+    ekron::audio::GameSoundPlayer gameSound;
 
     // Game sound: assets/sounds (CC0, credited in LICENSE.md there), decoded
     // on a worker thread while the rest loads. No audio device = silence.

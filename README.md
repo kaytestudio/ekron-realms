@@ -179,6 +179,8 @@ The `REALMS_CORE=pascal|native|auto` environment variable selects the Realms cor
 
 `sv_game 0` turns the game off (then `map` only walks the map), and `cl_gun 0` hides the view weapon. `REALMS_GAME_LIBRARY=/path/to/librealms_game.so` picks another module build. Details: [realms/README.md](realms/README.md#quake-2-game-module-gameserver).
 
+The whole Quake 2 stack is one C++ module, `realms_quake2` (`realms::Quake2Module`, with the shared map mode `mapview::Quake2View`), used by the desktop, Android and iOS sandboxes alike. The Android APK ships the game module (`librealms_game.so` per ABI) and iOS device builds link it statically, so on the phones a BSP map runs the game too: a **Fire** button appears above jump and the notice shows health, armour and ammo. Lightmaps, `.md2` entities, the view weapon, particles, dynamic lights and game sounds are drawn and played the same way as on desktop. Without the game module (the iOS simulator, or `sv_game 0`) maps are walked as before. Details: [realms/README.md](realms/README.md#the-quake-2-module-realms_quake2).
+
 ### Free Pascal Client (`realms-pascal`)
 
 With `fpc` installed and `-DENABLE_FPC_CLIENT=ON`, the build also produces `realms-pascal` (`Projects/realms.lpr`). It is a Free Pascal program with the Pascal Realms core compiled in. It runs the C++ desktop sandbox (window, input, OpenGL, audio, world) from `libekron_sandbox`, so SDL2 is used from C++ and no Pascal SDL units are needed. It takes the same flags as `ekron-realms`. `--engine-info` reports `Core: pascal-quake2 (Free Pascal)` and `Origin: linked`. It is installed as `/usr/bin/realms-pascal` by the `.deb` and as `EkronRealms.app/Contents/MacOS/realms-pascal` on macOS.

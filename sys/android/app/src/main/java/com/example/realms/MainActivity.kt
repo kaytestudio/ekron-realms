@@ -95,6 +95,9 @@ class MainActivity : GameActivity() {
     private lateinit var grabControl: HudButton
     private lateinit var rotateHeldControl: HudButton
     private lateinit var crouchControl: HudButton
+    // Map mode with the Quake 2 game: hold to fire (native 51 pressed / 52 released).
+    private lateinit var fireControl: HudButton
+    private var mapGame = false
     private lateinit var proneControl: HudButton
     // Localized via res/values{,-ru,-pt-rPT}; resolved lazily because resources are not ready during construction.
     private val items by lazy { BuildCatalog.entries.map { getString(it.labelRes) }.toTypedArray() }
@@ -153,6 +156,12 @@ class MainActivity : GameActivity() {
                 }
                 val nowMap = state.size >= 18 && state[17] > 0.5f
                 mapTexturesLoading = state.size >= 18 && state[17] > 1.5f
+                val nowGame = nowMap && state.size >= 22 && state[18] > 0.5f
+                if (nowGame != mapGame && ::fireControl.isInitialized) {
+                    mapGame = nowGame
+                    if (!nowGame && fireControl.isPressed) { fireControl.isPressed=false;nativeCommand(52) }
+                    fireControl.visibility = if (nowGame) View.VISIBLE else View.GONE
+                }
                 // Re-read every poll: picking another map keeps map mode on.
                 if (nowMap) nativeMapPath().substringAfterLast('/').takeIf { it.isNotEmpty() }?.let { mapName = it }
                 if (nowMap != mapMode) {
@@ -188,7 +197,8 @@ class MainActivity : GameActivity() {
                 }
                 if(stage in 0..5 && state.size>=9)loadingText.append(" ${state[8].toInt()}%")
                 notice.text = if (mapMode) {
-                    if (flying) getString(R.string.notice_flying)
+                    if (mapGame) getString(R.string.notice_map_game, mapName, state[19].toInt(), state[20].toInt(), state[21].toInt())
+                    else if (flying) getString(R.string.notice_flying)
                     else if (mapTexturesLoading) getString(R.string.notice_map_textures, mapName)
                     else getString(R.string.notice_map_mode, mapName)
                 } else when (state[5].toInt()) {
@@ -296,7 +306,15 @@ class MainActivity : GameActivity() {
             proneControl.isSelected = !proneControl.isSelected; crouchControl.isSelected=false
             nativeCommand(10)
         }
-        for (control in listOf(jump,crouchControl)) movement.addView(control, LinearLayout.LayoutParams(dp(actionSize),dp(actionSize)))
+        fireControl = action(getString(R.string.action_fire), "fire") {}.apply { visibility=View.GONE }
+        fireControl.setOnTouchListener { v, event ->
+            when(event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> { v.isPressed=true;nativeCommand(51) }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> { v.isPressed=false;nativeCommand(52) }
+            }
+            true
+        }
+        for (control in listOf(fireControl,jump,crouchControl)) movement.addView(control, LinearLayout.LayoutParams(dp(actionSize),dp(actionSize)))
         overlay.addView(movement, FrameLayout.LayoutParams(-2,-2,Gravity.BOTTOM or Gravity.END).apply { bottomMargin=dp(8);rightMargin=dp(8) })
         toolWheel=ToolWheelView(this) { selectTool(it) }
         overlay.addView(toolWheel,FrameLayout.LayoutParams(-1,-1))
