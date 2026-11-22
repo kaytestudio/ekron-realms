@@ -94,6 +94,13 @@ jobs:
             fi
             tail -n 3 "/tmp/$name.log"
           done
+          # unstripped copy for the emulator test
+          if ! REALMS_GAME_STRIP=0 realms/pascal/build_core.sh game-android-x86_64 out/realms-game-android-debug/x86_64 > /tmp/game-debug.log 2>&1; then
+            cat /tmp/game-debug.log
+            echo "::error title=game-android-x86_64 (unstripped)::$(grep -E 'Error|error|Fatal|undefined' /tmp/game-debug.log | tail -n 8 | tr '\n' ' ' | cut -c1-900)"
+            exit 1
+          fi
+          tail -n 3 /tmp/game-debug.log
 
       - name: Verify Android libraries (ABI, exports, no glibc, no text relocations, 16 KB pages)
         shell: bash
@@ -131,6 +138,12 @@ jobs:
           path: out/realms-pascal-android
           if-no-files-found: error
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: realms-game-android-debug
+          path: out/realms-game-android-debug
+          if-no-files-found: error
+
   # Run the bridge conformance suite on an Android emulator against the
   # Free Pascal core (and the C++ reference core for comparison).
   realms-pascal-device:
@@ -144,6 +157,11 @@ jobs:
         with:
           name: realms-pascal-android
           path: out/realms-pascal-android
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: realms-game-android-debug
+          path: out/realms-game-android-debug
 
       - name: Cross-compile the bridge test for x86_64 Android
         shell: bash
@@ -177,6 +195,8 @@ jobs:
 
       - name: Run Realms bridge suite on the emulator (Pascal + C++ cores)
         uses: reactivecircus/android-emulator-runner@v2
+        env:
+          REALMS_MODULE_RUNS: 10
         with:
           api-level: 30
           arch: x86_64
@@ -184,7 +204,7 @@ jobs:
           force-avd-creation: false
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
-          script: bash realms/pascal/android_device_test.sh out/realms_bridge_test out/realms-pascal-android/x86_64/librealms_core.so out/realms_quake2_module_test out/realms-pascal-android/x86_64/librealms_game.so
+          script: bash realms/pascal/android_device_test.sh out/realms_bridge_test out/realms-pascal-android/x86_64/librealms_core.so out/realms_quake2_module_test out/realms-game-android-debug/x86_64/librealms_game.so
 
   apk:
     needs: realms-pascal-core

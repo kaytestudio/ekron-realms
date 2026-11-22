@@ -2,6 +2,8 @@
 
 #include "realms/Engine.h"
 
+#include "FpcLibraryEnviron.h"
+
 #include <algorithm>
 #include <atomic>
 #include <cctype>
@@ -84,6 +86,7 @@ void *openLibrary(const std::string &path, std::string &error) {
     if (!h) error = "LoadLibrary failed (" + std::to_string(GetLastError()) + ")";
     return reinterpret_cast<void *>(h);
 #else
+    const detail::FpcLibraryEnviron fpcEnviron;
     void *h = dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
     if (!h) {
         const char *e = dlerror();
