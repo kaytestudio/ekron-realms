@@ -1,4 +1,4 @@
-{$ALIGN ON}{$MINENUMSIZE 4}
+{$ALIGN ON}{$IFDEF FPC}{$PACKRECORDS C}{$ENDIF}{$MINENUMSIZE 4}
 {----------------------------------------------------------------------------}
 {                                                                            }
 { File(s): q_shared.pas related                                              }

@@ -58,6 +58,18 @@ typedef struct
     simd_int4       drawFlags;      // x = modelPass, y = previewPass, z = modelTextured, w = alphaMode
 } SandboxDrawUniforms;
 
+// Realms map mode with the Quake 2 stack (quakeMapFragment, buffer 3):
+// BSP lightmaps, Quake 2 entity light and the nearest dynamic lights.
+typedef struct
+{
+    simd_float4 lights[8];      // xyz = render-space position, w = radius (metres)
+    simd_float4 lightColors[8]; // xyz = linear RGB
+    simd_int4   modeCount;      // x = mode (0 sandbox sun, 1 lightmapped world,
+                                //      2 entity lit by `light`, 3 fullbright),
+                                // y = dynamic lights in use (0...8)
+    simd_float4 light;          // xyz = Quake 2 light value at the entity (mode 2)
+} SandboxQuakeUniforms;
+
 typedef struct
 {
     simd_float4 anglesRollAspect; // x = yaw, y = pitch, z = roll, w = aspect

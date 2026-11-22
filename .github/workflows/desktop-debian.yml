@@ -18,6 +18,9 @@ on:
       - 'tests/native/shop_catalog_test.cpp'
       - 'tests/native/sound_test.cpp'
       - 'sys/linux/**'
+      - 'tests/pascal/**'
+      - '.gitmodules'
+      - 'tools/SDL2-for-Pascal'
       - 'sys/android/app/src/main/cpp/**'
       - 'sys/android/app/src/main/assets/**'
       - '.github/workflows/desktop-debian.yml'
@@ -37,6 +40,9 @@ on:
       - 'tests/native/shop_catalog_test.cpp'
       - 'tests/native/sound_test.cpp'
       - 'sys/linux/**'
+      - 'tests/pascal/**'
+      - '.gitmodules'
+      - 'tools/SDL2-for-Pascal'
       - 'sys/android/app/src/main/cpp/**'
       - 'sys/android/app/src/main/assets/**'
       - '.github/workflows/desktop-debian.yml'
@@ -87,7 +93,10 @@ jobs:
             cmake --build build -j"$(nproc)" &&
             test -x build/ekron-realms &&
             test -x build/realms-launcher &&
-            test -f build/librealms_core.so
+            test -f build/librealms_core.so &&
+            test -x build/realms-pascal &&
+            test -f build/libekron_sandbox.so &&
+            test -f build/librealms_game.so
           } 2>&1 | tee /tmp/linux-build.log || {
             tail -n 8 /tmp/linux-build.log | while IFS= read -r line; do
               [ -n "$line" ] && echo "::error::[linux-build] $line"
@@ -100,6 +109,16 @@ jobs:
         run: |
           set -euo pipefail
           ctest --test-dir build --output-on-failure -V
+
+      - name: Pascal SDL2 bindings for the sys layer (tools/SDL2-for-Pascal submodule)
+        shell: bash
+        run: |
+          set -euo pipefail
+          git submodule update --init --depth 1 tools/SDL2-for-Pascal
+          mkdir -p /tmp/sdl2u
+          cd Projects
+          fpc -Mobjfpc -FU/tmp/sdl2u -FE/tmp/sdl2u ../tests/pascal/sdl2_sys_smoke.lpr
+          /tmp/sdl2u/sdl2_sys_smoke
 
       - name: Build and verify Debian package
         shell: bash
@@ -118,8 +137,19 @@ jobs:
           /usr/bin/ekron-realms --engine-info
           REALMS_CORE=pascal /usr/bin/ekron-realms --headless-smoke | tee /tmp/pascal-smoke.log
           grep -q 'realmsCore=pascal-quake2' /tmp/pascal-smoke.log
+          # Map mode hosts the Quake 2 game module (game/) through realms::GameServer.
+          test -f /usr/lib/ekron-realms/librealms_game.so
+          /usr/bin/ekron-realms --engine-info | tee /tmp/engine-info.log
+          grep -q 'Quake 2 game API 3' /tmp/engine-info.log
           /usr/bin/realms-launcher --version
           /usr/bin/realms-launcher --headless-smoke
+          # Free Pascal program: Pascal Realms core linked in, C++ SDL2 sandbox.
+          test -f /usr/lib/ekron-realms/libekron_sandbox.so
+          /usr/bin/realms-pascal --version
+          /usr/bin/realms-pascal --engine-info | tee /tmp/realms-pascal-info.log
+          grep -q 'Origin:   linked' /tmp/realms-pascal-info.log
+          /usr/bin/realms-pascal --headless-smoke | tee /tmp/realms-pascal-smoke.log
+          grep -q 'realmsCore=pascal-quake2' /tmp/realms-pascal-smoke.log
 
       - name: Upload Debian package
         uses: actions/upload-artifact@v7

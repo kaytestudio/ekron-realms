@@ -8,6 +8,7 @@
 #include "third_party/stb_image.h"
 
 #include <array>
+#include <cstdint>
 #include <cstring>
 #include <string>
 #include <string_view>
@@ -116,9 +117,80 @@ public:
                          float roll);
 
     // Realms map mode: static map geometry (render space: metres, Y up) and
-    // an optional glTF map model drawn in its source space.
-    void setMapGeometry(ekron::gl::Api &gl, const std::vector<sandbox::MeshVertex> &vertices);
+    // an optional glTF map model drawn in its source space. `ranges` splits
+    // the vertices by BSP model (0 world, n inline model "*n"); inline models
+    // are then drawn with the poses from setMapModelPoses (the game server's
+    // doors, platforms, trains...). Without ranges everything is static.
+    struct MapDrawRange {
+        int32_t model = 0;
+        GLint first = 0;
+        GLsizei count = 0;
+    };
+    struct MapModelPose {
+        bool visible = true;
+        std::array<float, 16> transform{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}; // render space, column-major
+    };
+    void setMapGeometry(ekron::gl::Api &gl, const std::vector<sandbox::MeshVertex> &vertices,
+                        std::vector<MapDrawRange> ranges = {});
+    // Indexed by model number; empty = every model static and visible.
+    void setMapModelPoses(std::vector<MapModelPose> poses) { mapPoses_ = std::move(poses); }
     void clearMapGeometry(ekron::gl::Api &gl);
+    // Quake 2 lightmaps (realms::MapLighting) for the map set with
+    // setMapGeometry: atlas coordinates per vertex (u, v; u < 0 = no
+    // lightmap: that face keeps the sandbox sun), and the RGBA8 atlas.
+    // Lightmapped faces are lit by it (and the dynamic lights) instead of
+    // the sun; updateMapLightmap re-uploads it when light styles change.
+    void setMapLightmap(ekron::gl::Api &gl, const std::vector<float> &uvs, int width, int height,
+                        const std::vector<uint8_t> &rgba);
+    void updateMapLightmap(ekron::gl::Api &gl, const std::vector<uint8_t> &rgba);
+    void setMapLightmapEnabled(bool on) { lightmapEnabled_ = on; }
+    bool mapLightmapped() const { return lightmapTex_ != 0 && lightmapEnabled_; }
+
+    // Game entities for this frame (Quake 2 .md2 models, fallback boxes),
+    // drawn by renderMapWorld after the map with the textured model shader.
+    // Vertices are in each batch's model space; `transform` (render space,
+    // column-major) places them. `viewWeapon` batches are drawn last over a
+    // cleared depth buffer, like Quake 2's RF_DEPTHHACK gun.
+    struct EntityVertex {
+        float x, y, z, nx, ny, nz, u, v;
+    };
+    struct EntityBatch {
+        GLint first = 0;
+        GLsizei count = 0;
+        GLuint texture = 0; // 0: untextured (color only)
+        Color color{};
+        std::array<float, 16> transform{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+        bool viewWeapon = false;
+        bool fullbright = false; // RF_FULLBRIGHT: not lit
+        // Lit by the map's lightmaps (R_LightPoint, 0..~2 per channel)
+        // instead of the sun.
+        bool lit = false;
+        std::array<float, 3> light{1, 1, 1};
+    };
+    void setMapEntities(ekron::gl::Api &gl, const std::vector<EntityVertex> &vertices, std::vector<EntityBatch> batches);
+    void clearMapEntities() { entityBatches_.clear(); }
+    size_t mapEntityBatches() const { return entityBatches_.size(); }
+
+    // Quake 2 client effects for this frame: particle / glow / beam quads
+    // (render space, two triangles each; shape 0 round with uv -1..1, 1
+    // solid), drawn blended after the entities and before the view weapon,
+    // and dynamic lights (render space, metres) that light the map and the
+    // entities - the first kMaxMapLights.
+    struct EffectVertex {
+        float x, y, z, r, g, b, a, u, v, shape;
+    };
+    struct DynamicLight {
+        float x = 0, y = 0, z = 0, radius = 0, r = 1, g = 1, b = 1;
+    };
+    static constexpr size_t kMaxMapLights = 8;
+    void setMapEffects(ekron::gl::Api &gl, const std::vector<EffectVertex> &vertices, std::vector<DynamicLight> lights);
+    void clearMapEffects() {
+        effectCount_ = 0;
+        mapLights_.clear();
+    }
+    size_t mapEffectVertices() const { return size_t(effectCount_); }
+    size_t mapLights() const { return mapLights_.size(); }
+
     void renderMapWorld(ekron::gl::Api &gl,
                         int drawableW,
                         int drawableH,
@@ -171,6 +243,8 @@ private:
                        bool hologram);
 
     GLuint compileProgram(ekron::gl::Api &gl, const char *vsSrc, const char *fsSrc, std::string &errOut);
+    void applyMapLights(ekron::gl::Api &gl, GLuint prog) const;
+    void drawMapEffects(ekron::gl::Api &gl, physics::Vec3 eye, float yaw, float pitch, float roll, float aspect);
     bool loadMaterialArray(ekron::gl::Api &gl, const std::string &assetRoot);
 
     GLuint worldProg_ = 0;
@@ -189,6 +263,21 @@ private:
     GLuint mapVao_ = 0;
     GLuint mapVbo_ = 0;
     GLsizei mapCount_ = 0;
+    GLuint mapLightVbo_ = 0; // attribute 5 of mapVao_: lightmap coordinates
+    GLuint lightmapTex_ = 0;
+    int lightmapW_ = 0, lightmapH_ = 0;
+    bool lightmapEnabled_ = true;
+    void uploadMapLightUvs(ekron::gl::Api &gl, const std::vector<float> &uvs);
+    std::vector<MapDrawRange> mapRanges_;
+    std::vector<MapModelPose> mapPoses_;
+    GLuint entityVao_ = 0;
+    GLuint entityVbo_ = 0;
+    std::vector<EntityBatch> entityBatches_;
+    GLuint effectProg_ = 0;
+    GLuint effectVao_ = 0;
+    GLuint effectVbo_ = 0;
+    GLsizei effectCount_ = 0;
+    std::vector<DynamicLight> mapLights_;
 
     GLuint whiteTex_ = 0;
     GLuint materialArrayTex_ = 0;

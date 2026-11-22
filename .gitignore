@@ -84,3 +84,6 @@ tests/native/.bin/
 # Standalone Android game source snapshot
 !game-source/sys/android/app/src/main/AndroidManifest.xml
 !game-source/sys/android/app/src/main/res/**/*.xml
+
+# KCC checkout (cmake -DENABLE_KCC=ON or git clone ... tools/kcc)
+/tools/kcc/

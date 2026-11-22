@@ -70,6 +70,7 @@ struct SandboxVaryings
     float2 texUV;
     int    layer [[flat]];
     float3 toEye;
+    float2 lmUV; // Quake 2 lightmap atlas coordinates (quakeMapVertex), -1 = none
 };
 
 static inline float4 projectSandboxPoint(float3 worldPos,
@@ -113,6 +114,30 @@ vertex SandboxVaryings sandboxVertex(uint vid [[vertex_id]],
     out.worldNormal = normalMatrix * float3(v.normal);
     out.texUV = float2(v.uv);
     out.layer = int(v.layer + 0.5f);
+    out.lmUV = float2(-1.0f);
+    return out;
+}
+
+// Realms map mode: the sandbox vertex plus the map's lightmap atlas
+// coordinates, one packed (u, v) per vertex in buffer 3.
+vertex SandboxVaryings quakeMapVertex(uint vid [[vertex_id]],
+                                      device const PackedSandboxVertex *vertices [[buffer(0)]],
+                                      constant SandboxSceneUniforms &scene [[buffer(1)]],
+                                      constant SandboxDrawUniforms &draw [[buffer(2)]],
+                                      device const packed_float2 *lightUVs [[buffer(3)]])
+{
+    SandboxVaryings out;
+    PackedSandboxVertex v = vertices[vid];
+    float3 worldPos = (draw.objectTransform * float4(float3(v.position), 1.0f)).xyz;
+    float3x3 normalMatrix = float3x3(draw.objectTransform[0].xyz,
+                                     draw.objectTransform[1].xyz,
+                                     draw.objectTransform[2].xyz);
+    out.position = projectSandboxPoint(worldPos, scene, out.toEye);
+    out.tint = float3(v.color);
+    out.worldNormal = normalMatrix * float3(v.normal);
+    out.texUV = float2(v.uv);
+    out.layer = int(v.layer + 0.5f);
+    out.lmUV = float2(lightUVs[vid]);
     return out;
 }
 
@@ -132,17 +157,31 @@ vertex SandboxVaryings modelVertex(uint vid [[vertex_id]],
     out.worldNormal = normalMatrix * float3(v.normal);
     out.texUV = float2(v.uv);
     out.layer = 4;
+    out.lmUV = float2(-1.0f);
     return out;
 }
 
-fragment float4 sandboxFragment(SandboxVaryings in [[stage_in]],
-                                bool frontFacing [[front_facing]],
-                                constant SandboxSceneUniforms &scene [[buffer(1)]],
-                                constant SandboxDrawUniforms &draw [[buffer(2)]],
-                                texture2d_array<float> albedoArray [[texture(0)]],
-                                texture2d<float> modelAlbedo [[texture(1)]],
-                                sampler modelSampler [[sampler(0)]])
+// The sandbox surface shading (sandboxFragment), shared with the Realms map
+// mode (quakeMapFragment): linear colour before fog.
+struct SandboxShade
 {
+    float3 base;
+    float3 lit;
+    float3 normal;
+    float  alpha;
+    bool   discarded;
+};
+
+static SandboxShade shadeSandbox(SandboxVaryings in,
+                                 bool frontFacing,
+                                 constant SandboxSceneUniforms &scene,
+                                 constant SandboxDrawUniforms &draw,
+                                 texture2d_array<float> albedoArray,
+                                 texture2d<float> modelAlbedo,
+                                 sampler modelSampler)
+{
+    SandboxShade out;
+    out.discarded = false;
     constexpr sampler arraySampler(coord::normalized,
                                    address::repeat,
                                    mag_filter::linear,
@@ -170,7 +209,7 @@ fragment float4 sandboxFragment(SandboxVaryings in [[stage_in]],
     if (!modelPass && in.layer == 7) {
         float pattern = fmod(floor(in.position.x) + floor(in.position.y) * 2.0f, 4.0f);
         if (pattern > 0.0f) {
-            discard_fragment();
+            out.discarded = true;
         }
     }
 
@@ -180,7 +219,7 @@ fragment float4 sandboxFragment(SandboxVaryings in [[stage_in]],
         base = draw.baseColorFactor.rgb * sampleColor.rgb;
         alpha = draw.baseColorFactor.a * sampleColor.a;
         if (alphaMode == 1 && alpha < alphaCutoff) {
-            discard_fragment();
+            out.discarded = true;
         }
         if (alphaMode != 2) {
             alpha = 1.0f;
@@ -210,11 +249,124 @@ fragment float4 sandboxFragment(SandboxVaryings in [[stage_in]],
     float shine = pow(max(dot(n, halfVector), 0.0f), mix(90.0f, 8.0f, clamp(roughness, 0.0f, 1.0f)));
     lit += scene.lightColor.xyz * (shine * strength * diffuse);
 
-    float d = max(length(in.toEye) - 22.0f, 0.0f);
+    out.base = base;
+    out.lit = lit;
+    out.normal = n;
+    out.alpha = alpha;
+    return out;
+}
+
+static float4 sandboxFog(float3 lit, float alpha, float3 toEye)
+{
+    float d = max(length(toEye) - 22.0f, 0.0f);
     float fog = 1.0f - exp(-d * d * 0.00022f);
     float3 fogColor = pow(float3(0.56f, 0.61f, 0.63f), float3(2.2f));
     float3 finalLinear = max(mix(lit, fogColor, fog), float3(0.0f));
     return float4(pow(finalLinear, float3(1.0f / 2.2f)), alpha);
+}
+
+fragment float4 sandboxFragment(SandboxVaryings in [[stage_in]],
+                                bool frontFacing [[front_facing]],
+                                constant SandboxSceneUniforms &scene [[buffer(1)]],
+                                constant SandboxDrawUniforms &draw [[buffer(2)]],
+                                texture2d_array<float> albedoArray [[texture(0)]],
+                                texture2d<float> modelAlbedo [[texture(1)]],
+                                sampler modelSampler [[sampler(0)]])
+{
+    SandboxShade s = shadeSandbox(in, frontFacing, scene, draw, albedoArray, modelAlbedo, modelSampler);
+    if (s.discarded) {
+        discard_fragment();
+    }
+    return sandboxFog(s.lit, s.alpha, in.toEye);
+}
+
+// Realms map mode with the Quake 2 stack (twin of the Android shaders in
+// Renderer.cpp / Quake2Gles.cpp): the lightmap atlas replaces the sun and sky
+// light on the world like ref_gl, base * (2 * lightmap)^2.2; entities take
+// the Quake 2 light at their origin; dynamic lights (muzzle flashes,
+// rockets...) add on top; effect models are fullbright.
+fragment float4 quakeMapFragment(SandboxVaryings in [[stage_in]],
+                                 bool frontFacing [[front_facing]],
+                                 constant SandboxSceneUniforms &scene [[buffer(1)]],
+                                 constant SandboxDrawUniforms &draw [[buffer(2)]],
+                                 constant SandboxQuakeUniforms &quake [[buffer(3)]],
+                                 texture2d_array<float> albedoArray [[texture(0)]],
+                                 texture2d<float> modelAlbedo [[texture(1)]],
+                                 texture2d<float> lightmap [[texture(2)]],
+                                 sampler modelSampler [[sampler(0)]])
+{
+    constexpr sampler lightmapSampler(coord::normalized,
+                                      address::clamp_to_edge,
+                                      mag_filter::linear,
+                                      min_filter::linear);
+    SandboxShade s = shadeSandbox(in, frontFacing, scene, draw, albedoArray, modelAlbedo, modelSampler);
+    if (s.discarded) {
+        discard_fragment();
+    }
+    const int mode = quake.modeCount.x;
+    float3 lit = s.lit;
+    if (mode == 1 && in.lmUV.x >= 0.0f) {
+        lit = s.base * pow(2.0f * lightmap.sample(lightmapSampler, in.lmUV).rgb, float3(2.2f));
+    } else if (mode == 2) {
+        float diffuse = max(dot(s.normal, normalize(-scene.lightDirection.xyz)), 0.0f);
+        lit = s.base * pow(2.0f * max(quake.light.xyz, float3(0.0f)), float3(2.2f)) * (0.72f + 0.56f * diffuse);
+    }
+    const float3 world = in.toEye + scene.eyeAspect.xyz;
+    const int count = clamp(quake.modeCount.y, 0, 8);
+    for (int i = 0; i < count; ++i) {
+        float3 toLight = quake.lights[i].xyz - world;
+        float f = clamp(1.0f - length(toLight) / max(quake.lights[i].w, 1e-4f), 0.0f, 1.0f);
+        float facing = length_squared(toLight) > 1e-8f ? 0.35f + 0.65f * max(dot(s.normal, normalize(toLight)), 0.0f) : 1.0f;
+        lit += s.base * quake.lightColors[i].xyz * (1.6f * f * f * facing);
+    }
+    if (mode == 3) {
+        lit = s.base;
+    }
+    return sandboxFog(lit, s.alpha, in.toEye);
+}
+
+// Quake 2 particles, glows and beams: camera-facing quads built on the CPU
+// (mapview::Quake2View::effects), alpha blended over the scene. Round
+// particles fade out to the edge; beams (shape 1) are solid.
+struct PackedEffectVertex
+{
+    packed_float3 position;
+    packed_float4 color;
+    packed_float2 corner;
+    float         shape;
+};
+
+struct EffectVaryings
+{
+    float4 position [[position]];
+    float4 color;
+    float3 corner;
+};
+
+vertex EffectVaryings quakeEffectVertex(uint vid [[vertex_id]],
+                                        device const PackedEffectVertex *vertices [[buffer(0)]],
+                                        constant SandboxSceneUniforms &scene [[buffer(1)]])
+{
+    EffectVaryings out;
+    PackedEffectVertex v = vertices[vid];
+    float3 toEye;
+    out.position = projectSandboxPoint(float3(v.position), scene, toEye);
+    out.color = float4(v.color);
+    out.corner = float3(float2(v.corner), v.shape);
+    return out;
+}
+
+fragment float4 quakeEffectFragment(EffectVaryings in [[stage_in]])
+{
+    float a = in.color.a;
+    if (in.corner.z < 0.5f) {
+        float r = length(in.corner.xy);
+        if (r > 1.0f) {
+            discard_fragment();
+        }
+        a *= 1.0f - smoothstep(0.55f, 1.0f, r);
+    }
+    return float4(in.color.rgb, a);
 }
 
 struct SkyVaryings

@@ -594,8 +594,8 @@ begin
       // move back any entities we already moved
       // go backwards, so if the same entity was pushed
       // twice, it goes back to the original position
-      p := Pointer(Cardinal(_pushed_p) - 1 * SizeOf(pushed_t));
-      while (Cardinal(p) >= Cardinal(@pushed)) do
+      p := Pointer(PtrInt(_pushed_p) - 1 * SizeOf(pushed_t));
+      while (PtrInt(p) >= PtrInt(@pushed)) do
       begin
           VectorCopy(p^.origin, p^.ent^.s.origin);
           VectorCopy(p^.angles, p^.ent^.s.angles);
@@ -605,7 +605,7 @@ begin
           end;
           gi.linkentity(p^.ent);
 
-          p := Pointer(Cardinal(p) - 1 * SizeOf(pushed_t));
+          p := Pointer(PtrInt(p) - 1 * SizeOf(pushed_t));
       end;
       Result := False;
       Exit;
@@ -618,11 +618,11 @@ begin
 
 //FIXME: is there a better way to handle this?
   // see if anything we moved has touched a trigger
-  p := Pointer(Cardinal(_pushed_p) - 1 * SizeOf(pushed_t));
-  while (Cardinal(p) >= Cardinal(@pushed)) do
+  p := Pointer(PtrInt(_pushed_p) - 1 * SizeOf(pushed_t));
+  while (PtrInt(p) >= PtrInt(@pushed)) do
   begin
       G_TouchTriggers(p^.ent);
-      p := Pointer(Cardinal(p) - 1 * SizeOf(pushed_t));
+      p := Pointer(PtrInt(p) - 1 * SizeOf(pushed_t));
   end;
 
   Result := True;
@@ -672,7 +672,7 @@ begin
     part := part^.teamchain;
   end;
 
-  if (Cardinal(_pushed_p) > Cardinal(@pushed[MAX_EDICTS - 1])) then //was pushed[MAX_EDICTS]
+  if (PtrInt(_pushed_p) > PtrInt(@pushed[MAX_EDICTS - 1])) then //was pushed[MAX_EDICTS]
     gi.error({ERR_FATAL,} '_pushed_p > @pushed[MAX_EDICTS], memory corrupted');
 
   if (part <> nil) then

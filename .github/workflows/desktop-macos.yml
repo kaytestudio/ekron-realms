@@ -18,6 +18,9 @@ on:
       - 'tests/native/shop_catalog_test.cpp'
       - 'tests/native/sound_test.cpp'
       - 'sys/mac/**'
+      - 'tests/pascal/**'
+      - '.gitmodules'
+      - 'tools/SDL2-for-Pascal'
       - 'sys/android/app/src/main/cpp/**'
       - 'sys/android/app/src/main/assets/**'
       - '.github/workflows/desktop-macos.yml'
@@ -37,6 +40,9 @@ on:
       - 'tests/native/shop_catalog_test.cpp'
       - 'tests/native/sound_test.cpp'
       - 'sys/mac/**'
+      - 'tests/pascal/**'
+      - '.gitmodules'
+      - 'tools/SDL2-for-Pascal'
       - 'sys/android/app/src/main/cpp/**'
       - 'sys/android/app/src/main/assets/**'
       - '.github/workflows/desktop-macos.yml'
@@ -79,11 +85,22 @@ jobs:
               -DENABLE_PASCAL_CORE=ON &&
             cmake --build build -j"$(sysctl -n hw.ncpu)"
           } 2>&1 | tee /tmp/macos-build.log || {
-            tail -n 8 /tmp/macos-build.log | while IFS= read -r line; do
+            { grep -B2 -A6 -E 'Undefined symbols|error:|Error:' /tmp/macos-build.log | head -n 40; tail -n 8 /tmp/macos-build.log; } | while IFS= read -r line; do
               [ -n "$line" ] && echo "::error::[macos-build] $line"
             done
             exit 1
           }
+
+      - name: Pascal SDL2 bindings for the sys layer (tools/SDL2-for-Pascal submodule)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # sys/mac/sys_mac.pas and Projects/realms.lpi use these units (issue #1).
+          git submodule update --init --depth 1 tools/SDL2-for-Pascal
+          mkdir -p /tmp/sdl2u
+          cd Projects
+          fpc -Mobjfpc -FU/tmp/sdl2u -FE/tmp/sdl2u "-Fl$(brew --prefix sdl2)/lib" ../tests/pascal/sdl2_sys_smoke.lpr
+          /tmp/sdl2u/sdl2_sys_smoke
 
       - name: Bundle SDL2 framework library and ad-hoc sign .app
         shell: bash
@@ -96,6 +113,9 @@ jobs:
           test -x "$APP_BUNDLE/Contents/MacOS/EkronRealms"
           test -x "$APP_BUNDLE/Contents/MacOS/realms-launcher"
           test -f "$APP_BUNDLE/Contents/Frameworks/librealms_core.dylib"
+          # Free Pascal client: realms-pascal + the C++ sandbox it runs (libekron_sandbox).
+          test -x "$APP_BUNDLE/Contents/MacOS/realms-pascal"
+          test -f "$APP_BUNDLE/Contents/Frameworks/libekron_sandbox.dylib"
 
           mkdir -p "$APP_BUNDLE/Contents/Frameworks"
           SDL2_REF="$(otool -L "$APP_BUNDLE/Contents/MacOS/EkronRealms" | awk '/libSDL2/{print $1; exit}')"
@@ -112,6 +132,11 @@ jobs:
             chmod 755 "$APP_BUNDLE/Contents/Frameworks/$DYLIB_NAME"
             install_name_tool -id "@rpath/$DYLIB_NAME" "$APP_BUNDLE/Contents/Frameworks/$DYLIB_NAME"
             install_name_tool -change "$SDL2_REF" "@rpath/$DYLIB_NAME" "$APP_BUNDLE/Contents/MacOS/EkronRealms"
+            SANDBOX_LIB="$APP_BUNDLE/Contents/Frameworks/libekron_sandbox.dylib"
+            SANDBOX_SDL2_REF="$(otool -L "$SANDBOX_LIB" | awk '/libSDL2/{print $1; exit}')"
+            if [ -n "$SANDBOX_SDL2_REF" ]; then
+              install_name_tool -change "$SANDBOX_SDL2_REF" "@rpath/$DYLIB_NAME" "$SANDBOX_LIB"
+            fi
 
             # Homebrew sdl2-compat dlopens "@loader_path/libSDL3.dylib" inside Contents/Frameworks
             SDL3_REF="$(otool -L "$APP_BUNDLE/Contents/Frameworks/$DYLIB_NAME" | awk '/libSDL3/{print $1; exit}')"
@@ -141,15 +166,40 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ctest --test-dir build --output-on-failure -V
+          if ! ctest --test-dir build --output-on-failure > /tmp/ctest.log 2>&1; then
+            cat /tmp/ctest.log
+            # Raw logs are not always reachable: put the failures in one annotation.
+            msg="$(grep -iE 'fail|\*\*\*|rror|xception|signal|Segmentation|Abort|not found|missing|Game:' /tmp/ctest.log | grep -v ' Passed ' | tail -n 60 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
+            echo "::error title=ctest (macOS)::${msg}"
+            {
+              ls -l build/EkronRealms.app/Contents/Frameworks/ build/*.dylib 2>&1 || true
+              for lib in build/EkronRealms.app/Contents/Frameworks/librealms_game*; do
+                file "$lib"; nm -gU "$lib" | grep -i getgame || echo "no GetGameAPI export"
+              done
+              build/EkronRealms.app/Contents/MacOS/EkronRealms --engine-info 2>&1 || true
+            } > /tmp/diag.log 2>&1
+            echo "::error title=game module (macOS)::$(sed 's/%/%25/g' /tmp/diag.log | tail -n 40 | awk '{printf "%s%%0A", $0}')"
+            exit 1
+          fi
+          cat /tmp/ctest.log
           APP_BUNDLE="build/EkronRealms.app"
           "$APP_BUNDLE/Contents/MacOS/EkronRealms" --version
           "$APP_BUNDLE/Contents/MacOS/EkronRealms" --headless-smoke
-          "$APP_BUNDLE/Contents/MacOS/EkronRealms" --engine-info
+          "$APP_BUNDLE/Contents/MacOS/EkronRealms" --engine-info | tee /tmp/engine-info.log
+          # Map mode hosts the Quake 2 game module (game/) through realms::GameServer.
+          test -f "$APP_BUNDLE/Contents/Frameworks/librealms_game.dylib"
+          grep -q 'Quake 2 game API 3' /tmp/engine-info.log
           REALMS_CORE=pascal "$APP_BUNDLE/Contents/MacOS/EkronRealms" --headless-smoke | tee /tmp/pascal-smoke.log
           grep -q 'realmsCore=pascal-quake2' /tmp/pascal-smoke.log
           "$APP_BUNDLE/Contents/MacOS/realms-launcher" --version
           "$APP_BUNDLE/Contents/MacOS/realms-launcher" --headless-smoke
+          # Free Pascal program: Pascal Realms core linked in, C++ SDL2 sandbox.
+          "$APP_BUNDLE/Contents/MacOS/realms-pascal" --version
+          "$APP_BUNDLE/Contents/MacOS/realms-pascal" --engine-info | tee /tmp/realms-pascal-info.log
+          grep -q 'Origin:   linked' /tmp/realms-pascal-info.log
+          "$APP_BUNDLE/Contents/MacOS/realms-pascal" --headless-smoke | tee /tmp/realms-pascal-smoke.log
+          grep -q 'realmsCore=pascal-quake2' /tmp/realms-pascal-smoke.log
+          otool -L "$APP_BUNDLE/Contents/Frameworks/libekron_sandbox.dylib"
 
           ditto -c -k --keepParent "$APP_BUNDLE" build/EkronRealms-macos.app.zip
           test -f build/EkronRealms-macos.app.zip

@@ -24,7 +24,7 @@ target_compile_features(realms_engine PUBLIC cxx_std_17)
 set_target_properties(realms_engine PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 if(UNIX AND NOT APPLE)
-    # dlopen() for librealms_core.so (desktop Linux and Android).
+    # dlopen() for librealms_core.so and librealms_game.so (desktop Linux and Android).
     target_link_libraries(realms_engine PUBLIC ${CMAKE_DL_LIBS})
 endif()
 
@@ -39,4 +39,26 @@ endif()
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     # -ffp-contract=off: collision maths stays bit-exact with the Pascal core.
     target_compile_options(realms_engine PRIVATE -Wall -Wextra -ffp-contract=off)
+endif()
+
+# The Quake 2 stack as one module for the sandboxes (desktop, Android, iOS):
+# the game server that hosts librealms_game, entity interpolation and .md2
+# models, client effects, game sounds, BSP lightmaps, and realms::Quake2Module
+# tying them together (realms/include/realms/Quake2Module.h). Renderer and
+# audio API free; each sandbox draws / plays what the module hands out.
+add_library(realms_quake2 STATIC
+    "${CMAKE_CURRENT_LIST_DIR}/src/Q2Pmove.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/src/GameServer.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/src/GameView.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/src/GameEffects.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/src/GameSound.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/src/MapLighting.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/src/Md2Model.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/src/Quake2Module.cpp"
+)
+target_link_libraries(realms_quake2 PUBLIC realms_engine)
+target_compile_features(realms_quake2 PUBLIC cxx_std_17)
+set_target_properties(realms_quake2 PROPERTIES POSITION_INDEPENDENT_CODE ON)
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(realms_quake2 PRIVATE -Wall -Wextra -ffp-contract=off)
 endif()

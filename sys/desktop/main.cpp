@@ -17,12 +17,14 @@
 #include "DesktopConsole.h"
 #include "DesktopMapMode.h"
 #include "DesktopRenderer.h"
+#include "ekron_sandbox.h"
 #include "DesktopHudLayout.h"
 #include "DesktopOnlineClient.h"
 #include "FpvDrone.h"
 #include "ShopCatalog.h"
 #include "SoundSnapshot.h"
 #include "SoundSystem.h"
+#include "GameSoundPlayer.h"
 #include "GravityBeam.h"
 #include "Interaction.h"
 #include "LevelPlacement.h"
@@ -36,6 +38,7 @@
 #include "WorldRecovery.h"
 #include "third_party/json.hpp"
 #include "realms/Engine.h"
+#include "realms/GameServer.h"
 #include "realms/SandboxBoot.h"
 
 #include <algorithm>
@@ -47,6 +50,7 @@
 #include <filesystem>
 #include <fstream>
 #include <future>
+#include <exception>
 #include <iostream>
 #include <iterator>
 #include <optional>
@@ -310,6 +314,12 @@ int printEngineInfo(const std::string &assetRoot, const char *argv0) {
               << "Assets:   " << (assetRoot.empty() ? "<not found>" : assetRoot) << "\n";
     if (!engine.pascalBackend() && !engine.pascalLoadError().empty())
         std::cout << "Pascal:   " << engine.pascalLoadError() << "\n";
+    // The Quake 2 game module realms::GameServer runs BSP maps with.
+    std::string gameWhere, gameWhy;
+    if (realms::GameServer::moduleAvailable(cfg.executableDir, &gameWhere, &gameWhy))
+        std::cout << "Game:     " << gameWhere << " (Quake 2 game API " << Q2_GAME_API_VERSION << ")\n";
+    else
+        std::cout << "Game:     none (" << gameWhy << ")\n";
     return 0;
 }
 
@@ -626,7 +636,15 @@ void printHelp(const char *exe) {
 
 } // namespace
 
-int main(int argc, char **argv) {
+// The desktop executable's entry point. In libekron_sandbox (the C++ sandbox
+// as a shared library, driven by the Free Pascal `realms-pascal` program from
+// Projects/realms.lpr) the same body runs from ekron_sandbox_run() below.
+#if defined(EKRON_SANDBOX_LIBRARY)
+static int sandboxMain(int argc, char **argv)
+#else
+int main(int argc, char **argv)
+#endif
+{
     std::string cliAssets;
     std::string onlineHost, onlineName = "Player";
     bool onlineNameSet = false;
@@ -730,6 +748,12 @@ int main(int argc, char **argv) {
     if (onlineNameSet) engine.setCvar("name", onlineName);
     ekron::desktop::DesktopConsole console;
     ekron::desktop::DesktopMapMode mapMode;
+    std::vector<ekron::desktop::DesktopRenderer::EntityVertex> mapEntityVertices; // reused every frame
+    std::vector<ekron::desktop::DesktopRenderer::EntityBatch> mapEntityBatches;
+    std::vector<ekron::desktop::DesktopRenderer::EffectVertex> mapEffectVertices;
+    std::vector<ekron::desktop::DesktopRenderer::DynamicLight> mapLights;
+    // Quake 2 game sounds (.wav from the VFS) on the same mixer
+    ekron::audio::GameSoundPlayer gameSound;
 
     // Game sound: assets/sounds (CC0, credited in LICENSE.md there), decoded
     // on a worker thread while the rest loads. No audio device = silence.
@@ -1135,8 +1159,9 @@ int main(int argc, char **argv) {
 
     auto toggleNoclip = [&]() {
         if (mapMode.active()) {
-            mapMode.walker().noclip = !mapMode.walker().noclip;
-            showToast(i18n::tr(mapMode.walker().noclip ? Str::FlightOn : Str::FlightOff));
+            const bool wasNoclip = mapMode.noclip();
+            mapMode.toggleNoclip(); // the game's "noclip" when the game module runs the map
+            showToast(i18n::tr(!wasNoclip ? Str::FlightOn : Str::FlightOff));
             return;
         }
         if (drone.piloting() || seatedCar >= 0) return;
@@ -1503,6 +1528,8 @@ int main(int argc, char **argv) {
             pendingMapChange.reset();
             const bool wasActive = mapMode.active();
             sound.director().reset();
+            if (wasActive) engine.print("map: " + gameSound.summary() + "\n", REALMS_PRINT_DEVELOPER);
+            gameSound.stop(sound.mixer());
             if (target.empty()) {
                 if (wasActive) {
                     mapMode.close(gl, renderer);
@@ -1516,11 +1543,13 @@ int main(int argc, char **argv) {
                     sandboxPitch = world.pitch;
                 }
                 std::string mapError;
-                if (mapMode.open(engine, gl, renderer, mapError)) {
+                if (mapMode.open(engine, gl, renderer, mapError, engineCfg.executableDir)) {
                     world.yaw = mapMode.spawnRenderYaw();
                     world.pitch = 0.0f;
-                    engine.print("map: walking " + mapMode.path() + " (" + mapMode.summary() + "), spawn: " +
-                                 mapMode.walker().spawnSource + ". killserver returns to the sandbox.\n");
+                    engine.print("map: " + std::string(mapMode.gameRunning() ? "playing " : "walking ") + mapMode.path() +
+                                 " (" + mapMode.summary() + ")" +
+                                 (mapMode.gameRunning() ? std::string() : ", spawn: " + mapMode.walker().spawnSource) +
+                                 ". killserver returns to the sandbox.\n");
                     showToast("Realms: " + mapMode.path());
                 } else {
                     engine.print("map: can't show " + target + ": " + mapError + "\n", REALMS_PRINT_WARNING);
@@ -1583,7 +1612,11 @@ int main(int argc, char **argv) {
                 walkInput.crouch = down;
                 walkInput.up = float(walkInput.jump) - float(down);
             }
-            mapMode.update(engine, walkInput, world.yaw, world.pitch, dt);
+            // Left mouse fires the game's weapon (game module maps).
+            const bool attack = !catalogOpen && !shopOpen && !console.isOpen() && SDL_GetRelativeMouseMode() &&
+                                (SDL_GetMouseState(nullptr, nullptr) & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0;
+            mapMode.update(engine, walkInput, world.yaw, world.pitch, dt, attack);
+            for (const std::string &message : mapMode.takeGameMessages()) showToast(message);
         }
 
         if (!pauseOpen && !mapMode.active()) {
@@ -1666,6 +1699,10 @@ int main(int argc, char **argv) {
         sound.syncCvars(engine);
         if (mapMode.active()) {
             sound.director().map(ekron::audio::mapFrame(!pauseOpen, engine, mapMode.walker(), world.yaw), dt, sound);
+            // the game's own sounds, the effects' and the entity loops
+            std::vector<realms::GameEvent> gameSounds = mapMode.takeGameSounds();
+            if (pauseOpen) gameSound.stop(sound.mixer());
+            else gameSound.update(engine, sound.mixer(), gameSounds, mapMode.loopSounds(), mapMode.listener(), dt);
         } else {
             ekron::audio::Listener ear;
             const physics::Vec3 earAt = drone.piloting() ? drone.camera() : physics::Vec3{world.x, world.y, world.z};
@@ -1837,6 +1874,14 @@ int main(int argc, char **argv) {
         }
 
         if (mapMode.active()) {
+            renderer.setMapModelPoses(mapMode.modelPoses()); // doors / platforms moved by the game
+            mapMode.updateLighting(engine, gl, renderer);    // lightmaps: animated light styles
+            // items, monsters, projectiles and the view weapon (.md2, or boxes without id's data)
+            mapMode.buildEntities(engine, gl, world.yaw, world.pitch, mapEntityVertices, mapEntityBatches);
+            renderer.setMapEntities(gl, mapEntityVertices, std::move(mapEntityBatches));
+            // particles, trails, laser beams and dynamic lights (cl_fx.c / cl_tent.c)
+            mapMode.buildEffects(world.yaw, world.pitch, mapEffectVertices, mapLights);
+            renderer.setMapEffects(gl, mapEffectVertices, mapLights);
             renderer.renderMapWorld(gl, drawW, drawH, mapMode.model(), mapMode.eye(), world.yaw, world.pitch, 0.0f);
         } else renderer.renderMainWorld(
             gl, drawW, drawH,
@@ -1874,14 +1919,18 @@ int main(int argc, char **argv) {
                               {0.95f, 0.97f, 1.0f, 1.0f});
             const realms::MapWalker &walker = mapMode.walker();
             char mapBuf[200]{};
-            std::snprintf(mapBuf, sizeof(mapBuf), "%.0f %.0f %.0f  %s  %s", walker.origin[0], walker.origin[1],
+            const std::string gameStatus = mapMode.gameStatus();
+            std::snprintf(mapBuf, sizeof(mapBuf), "%.0f %.0f %.0f  %s  %s%s%s", walker.origin[0], walker.origin[1],
                           walker.origin[2], mapMode.summary().c_str(),
-                          walker.noclip ? "[NOCLIP]" : (walker.waterLevel >= 2 ? "[SWIM]" : (walker.ducked ? "[DUCK]" : "")));
+                          walker.noclip ? "[NOCLIP]" : (walker.waterLevel >= 2 ? "[SWIM]" : (walker.ducked ? "[DUCK]" : "")),
+                          gameStatus.empty() ? "" : "  ", gameStatus.c_str());
             renderer.drawText(26.0f, 46.0f, mapBuf,
                               ekron::desktop::fitHudTextScale(1.35f, ekron::font::measureTextWidth(mapBuf, 1.35f), 496.0f),
                               {0.86f, 0.80f, 0.62f, 0.95f});
             renderer.drawRect(14.0f, float(hudH) - 42.0f, float(hudW) - 28.0f, 28.0f, {0.05f, 0.08f, 0.11f, 0.72f});
-            const std::string mapControls = "WASD move  •  Space jump  •  Ctrl crouch  •  N noclip  •  R respawn  •  ` console: killserver";
+            const std::string mapControls = mapMode.gameRunning()
+                ? "WASD move  •  Space jump  •  Ctrl crouch  •  Mouse fire  •  N noclip  •  R restart  •  ` console: give / use / killserver"
+                : "WASD move  •  Space jump  •  Ctrl crouch  •  N noclip  •  R respawn  •  ` console: killserver";
             renderer.drawCenteredText(float(hudW) * 0.5f, float(hudH) - 28.0f, mapControls,
                                       ekron::desktop::fitHudTextScale(1.30f, ekron::font::measureTextWidth(mapControls, 1.30f),
                                                                       float(hudW) - 48.0f),
@@ -2204,6 +2253,7 @@ int main(int argc, char **argv) {
         saved.save(savePath);
     }
 
+    gameSound.stop(sound.mixer());
     audio.close();
     sound.unregisterCommands(engine);
     droneModel.release(gl);
@@ -2217,3 +2267,26 @@ int main(int argc, char **argv) {
     SDL_Quit();
     return 0;
 }
+
+#if defined(EKRON_SANDBOX_LIBRARY)
+// C entry point of libekron_sandbox (see sys/desktop/ekron_sandbox.h).
+// `pascalCore` is the caller's own realms_pascal_get_api: the Realms core
+// then runs inside the calling program instead of being loaded from
+// librealms_core. No C++ exception may unwind into the (Pascal) caller.
+extern "C" __attribute__((visibility("default")))
+int ekron_sandbox_run(int argc, char **argv, RealmsGetApiFn pascalCore) {
+    realms::Engine::setLinkedPascalCore(pascalCore);
+    int rc = 1;
+    try {
+        rc = sandboxMain(argc, argv);
+    } catch (const std::exception &e) {
+        std::cerr << "[Ekron] sandbox stopped: " << e.what() << "\n";
+    } catch (...) {
+        std::cerr << "[Ekron] sandbox stopped: unknown exception\n";
+    }
+    std::cout.flush();
+    std::cerr.flush();
+    realms::Engine::setLinkedPascalCore(nullptr);
+    return rc;
+}
+#endif

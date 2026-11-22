@@ -1,41 +1,92 @@
-# Makefile for Ekron Realms (Updated with x86_64 targets and refactored variables)
+# -----------------------------------------------------------------------------
+# Ekron Realms - convenience wrapper around the CMake build (see BUILD.md).
+#
+#   make              configure + build everything into $(BUILD_DIR):
+#                     ekron-realms (C++ SDL2 sandbox), librealms_core (Free
+#                     Pascal core), librealms_game (Quake 2 game module),
+#                     libekron_sandbox + realms-pascal (Free Pascal client
+#                     running the C++ sandbox), realms-launcher
+#   make test         run the CTest suite
+#   make run          start the game (C++ executable)
+#   make run-pascal   start the game through the Free Pascal client
+#   make pascal       build only realms-pascal (and the sandbox library it needs)
+#   make game         build only librealms_game, the Quake 2 game module (game/)
+#                     map mode plays BSP maps with (realms::GameServer)
+#   make lazarus      build realms-pascal from Projects/realms.lpi with lazbuild
+#   make package      .deb (Linux) / .dmg + .tgz (macOS) with CPack
+#   make install      install (PREFIX=/usr/local by default)
+#   make clean        remove build outputs; make distclean removes $(BUILD_DIR)
+#
+# Variables: BUILD_DIR=build  BUILD_TYPE=Release  GENERATOR="Ninja" (when
+# ninja is installed)  CMAKE_FLAGS=...  LAZBUILD=lazbuild  PREFIX=/usr/local
+# -----------------------------------------------------------------------------
 
-FPC := fpc
-PROJECT := ekron
-SRC_ENGINE := engine
-SRC_GAME := game
+BUILD_DIR   ?= build
+BUILD_TYPE  ?= Release
+CMAKE       ?= cmake
+CTEST       ?= ctest
+CPACK       ?= cpack
+LAZBUILD    ?= lazbuild
+PREFIX      ?= /usr/local
+CMAKE_FLAGS ?=
+GENERATOR   ?= $(if $(shell command -v ninja 2>/dev/null),Ninja,)
+JOBS        ?= $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 
-# Define Output Directories
-BIN_MAC_ARM := bin/macos-arm64
-BIN_LINUX_ARM := bin/linux-arm64
-BIN_MAC_X64 := bin/macos-x86_64
-BIN_LINUX_X64 := bin/linux-x86_64
+UNAME_S := $(shell uname -s)
+ifeq ($(UNAME_S),Darwin)
+GAME_BIN   := $(BUILD_DIR)/EkronRealms.app/Contents/MacOS/EkronRealms
+PASCAL_BIN := $(BUILD_DIR)/EkronRealms.app/Contents/MacOS/realms-pascal
+else
+GAME_BIN   := $(BUILD_DIR)/ekron-realms
+PASCAL_BIN := $(BUILD_DIR)/realms-pascal
+endif
 
-# Define Common Compiler Flags
-FPC_FLAGS := -MObjFPC -Scgi -O2
-UNITS := -Fu$(SRC_ENGINE) -Fu$(SRC_GAME)
+.PHONY: all build configure test run run-pascal pascal game lazarus package install clean distclean help
 
-# The 'all' target now builds all four versions (arm64 and x86_64 for both OS)
-all: macos-arm64 linux-arm64 macos-x86_64 linux-x86_64
+all: build
 
-# ----------------- ARM64 Targets (Refactored) -----------------
-macos-arm64:
-	mkdir -p $(BIN_MAC_ARM)
-	$(FPC) $(FPC_FLAGS) -Tdarwin -Parm64 -o$(BIN_MAC_ARM)/$(PROJECT) $(PROJECT).lpr $(UNITS)
+$(BUILD_DIR)/CMakeCache.txt:
+	$(CMAKE) -S . -B $(BUILD_DIR) $(if $(GENERATOR),-G "$(GENERATOR)",) \
+	    -DCMAKE_BUILD_TYPE=$(BUILD_TYPE) -DCMAKE_INSTALL_PREFIX=$(PREFIX) \
+	    -DENABLE_FPC_CLIENT=ON -DENABLE_PASCAL_CORE=ON $(CMAKE_FLAGS)
 
-linux-arm64:
-	mkdir -p $(BIN_LINUX_ARM)
-	$(FPC) $(FPC_FLAGS) -Tlinux -Parm64 -o$(BIN_LINUX_ARM)/$(PROJECT) $(PROJECT).lpr $(UNITS)
+configure: $(BUILD_DIR)/CMakeCache.txt
 
-# ----------------- x86_64 Targets (NEW) -----------------
-macos-x86_64:
-	mkdir -p $(BIN_MAC_X64)
-	$(FPC) $(FPC_FLAGS) -Tdarwin -Px86_64 -o$(BIN_MAC_X64)/$(PROJECT) $(PROJECT).lpr $(UNITS)
+build: configure
+	$(CMAKE) --build $(BUILD_DIR) -j $(JOBS)
 
-linux-x86_64:
-	mkdir -p $(BIN_LINUX_X64)
-	$(FPC) $(FPC_FLAGS) -Tlinux -Px86_64 -o$(BIN_LINUX_X64)/$(PROJECT) $(PROJECT).lpr $(UNITS)
+test: build
+	$(CTEST) --test-dir $(BUILD_DIR) --output-on-failure
 
-# ----------------- Clean Target -----------------
+run: build
+	$(GAME_BIN)
+
+run-pascal: pascal
+	$(PASCAL_BIN)
+
+pascal: configure
+	$(CMAKE) --build $(BUILD_DIR) -j $(JOBS) --target realms_pascal_client
+
+game: configure
+	$(CMAKE) --build $(BUILD_DIR) -j $(JOBS) --target realms_game_module
+
+# Projects/realms.lpi builds libekron_sandbox first (Projects/build_sandbox.sh)
+# and writes build/realms-pascal, the same program as `make pascal`. The
+# Lazarus project always uses <repo>/build, whatever BUILD_DIR says.
+lazarus:
+	$(LAZBUILD) Projects/realms.lpi
+
+package: build
+	cd $(BUILD_DIR) && $(CPACK)
+
+install: build
+	$(CMAKE) --install $(BUILD_DIR)
+
 clean:
-	rm -rf bin/* *.o *.ppu *.a
+	-$(CMAKE) --build $(BUILD_DIR) --target clean
+
+distclean:
+	rm -rf $(BUILD_DIR)
+
+help:
+	@sed -n '2,21p' Makefile

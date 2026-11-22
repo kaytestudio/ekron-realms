@@ -522,6 +522,9 @@ static void directorTests() {
     }
 }
 
+// `--pascal <librealms_core>` runs the console part on the Free Pascal core.
+static std::string gPascalLibrary;
+
 static void systemTests(const fs::path &assets) {
     SoundSystem sound;
     const int failed = sound.loadNow([&](const std::string &path, std::vector<uint8_t> &out) {
@@ -544,11 +547,14 @@ static void systemTests(const fs::path &assets) {
     CHECK(top > 0.01f); // the streamed music is audible
     CHECK(sound.playing(music));
 
-    // Console commands and cvars on the C++ reference core.
+    // Console commands and cvars on the C++ reference core (or the Pascal one).
     realms::Engine engine;
     realms::EngineConfig cfg;
-    cfg.backend = realms::BackendPreference::Native;
+    cfg.backend = gPascalLibrary.empty() ? realms::BackendPreference::Native : realms::BackendPreference::Pascal;
+    cfg.pascalLibrary = gPascalLibrary;
     CHECK(engine.init(cfg));
+    std::printf("[sound] console on core=%s\n", engine.backendName().c_str());
+    if (!gPascalLibrary.empty()) CHECK(engine.backendName() == "pascal-quake2");
     realms::sandbox::registerSharedCvars(engine, "sound-test");
     CHECK(engine.hasCvar("s_volume") && engine.hasCvar("s_musicvolume"));
     CHECK(engine.cvarFlags("s_volume") & REALMS_CVAR_ARCHIVE);
@@ -580,7 +586,14 @@ static void systemTests(const fs::path &assets) {
 }
 
 int main(int argc, char **argv) {
-    fs::path assets = argc > 1 ? fs::path(argv[1]) : fs::path("sys/android/app/src/main/assets");
+    fs::path assets = "sys/android/app/src/main/assets";
+    for (int i = 1; i < argc; ++i) {
+        const std::string arg = argv[i];
+        if (arg == "--pascal" && i + 1 < argc)
+            gPascalLibrary = argv[++i];
+        else
+            assets = arg;
+    }
     assetTests(assets);
     mixerTests();
     directorTests();

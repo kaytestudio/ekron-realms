@@ -338,6 +338,68 @@ If CMake can't find FPC automatically:
 cmake -DFPC_EXECUTABLE=/path/to/fpc ..
 ```
 
+### Free Pascal Client (`realms-pascal`)
+
+`Projects/realms.lpr` builds `realms-pascal`, a Free Pascal program with the Pascal Realms core (`realms/pascal`) compiled in. It runs the C++ desktop sandbox, built a second time as a shared library (`libekron_sandbox.so` / `.dylib`, entry point `ekron_sandbox_run()` in `sys/desktop/ekron_sandbox.h`). Window, input, OpenGL and audio therefore use SDL2 from C++. The sandbox gets the core's `realms_pascal_get_api` table directly, origin `linked`, instead of loading `librealms_core`. CMake builds it with `-DENABLE_FPC_CLIENT=ON` when `fpc` is found (target `realms_pascal_client`):
+
+| | Program | Sandbox library |
+| :--- | :--- | :--- |
+| Linux build tree | `build/realms-pascal` | `build/libekron_sandbox.so` (RUNPATH `$ORIGIN`) |
+| `.deb` | `/usr/bin/realms-pascal` | `/usr/lib/ekron-realms/libekron_sandbox.so` |
+| macOS | `EkronRealms.app/Contents/MacOS/realms-pascal` | `EkronRealms.app/Contents/Frameworks/libekron_sandbox.dylib` |
+
+```bash
+cmake -S . -B build -DENABLE_FPC_CLIENT=ON && cmake --build build
+build/realms-pascal --engine-info     # Core: pascal-quake2 (Free Pascal) / Origin: linked
+build/realms-pascal                   # the game
+```
+
+The other ways to build it all produce the same `build/realms-pascal`. Each one first builds `libekron_sandbox` with CMake in `<repo>/build`; `Projects/build_sandbox.sh` does that and configures the build directory if needed:
+
+| Entry point | Command |
+| :--- | :--- |
+| Lazarus | Open `Projects/realms.lpi` (or the root `realms.lpi`) and press Build, or run `lazbuild Projects/realms.lpi`. Its "Execute before" step runs `Projects/build_sandbox.sh`, which also builds the Quake 2 game module (`build/librealms_game.so`). `game/realms_game.lpi` builds only the game module. |
+| Makefile | `make pascal` (or `make lazarus` for lazbuild), `make game` for the game module. `make`, `make test`, `make run`, `make run-pascal`, `make package` and `make install` wrap the CMake build. |
+| Plain fpc | `Projects/build_sandbox.sh && fpc @realms-fpc.cfg Projects/realms.lpr` |
+| Docker / Jenkins | `docker build -t ekron-builder .` runs the CMake build, CTest and CPack on Ubuntu 24.04. `docker compose up` (or the `Jenkinsfile`) copies the `.deb` and the binaries to `./output`. |
+
+The CI workflow `build-entry-points.yml` runs all of them. The old Quake 2 client is kept as `Projects/realms_q2legacy.lpr` / `Projects/realms_q2legacy.lpi`, which used to be `realms.lpr` / `realms.lpi`. It does not build: six `sys/linux` units it names don't exist, and the engine units don't compile together yet.
+
+### Pascal SDL2 Units and Other Submodules
+
+The legacy Free Pascal sys layer (`sys/mac/sys_mac.pas`, `Projects/realms_q2legacy.lpi`) uses the SDL2 units in `tools/SDL2-for-Pascal`. That folder, `tools/SDL3-for-Pascal` and `ide` (KayteIDE) are git submodules. The desktop C++ client, `realms-pascal`, the launcher and the Realms core don't need them. Fetch the SDL2 units with:
+
+```bash
+git submodule update --init tools/SDL2-for-Pascal
+# or everything: git submodule update --init
+```
+
+Units listed with `in '...'` resolve from the directory fpc runs in. `Projects/realms_q2legacy.lpr` and `realms_q2legacy.lpi` compile from `Projects/`. `tests/pascal/sdl2_sys_smoke.lpr` uses SDL2 the same way `sys_mac.pas` does, and the desktop CI builds and runs it:
+
+```bash
+cd Projects
+fpc -Mobjfpc -FU/tmp/sdl2u -FE/tmp/sdl2u ../tests/pascal/sdl2_sys_smoke.lpr   # macOS: add -Fl$(brew --prefix sdl2)/lib
+/tmp/sdl2u/sdl2_sys_smoke
+```
+
+### KCC (Kayte C Compiler)
+
+`-DENABLE_KCC=ON` builds [KCC](https://github.com/kaytestudio/kcc) as part of the build. CMake uses `tools/kcc` if you already cloned it there:
+
+```bash
+git clone https://github.com/kaytestudio/kcc.git tools/kcc
+```
+
+Otherwise it clones it there for you. Only the `kcc` compiler is built, in `<build>/kcc/bin/kcc`, with KCC's GCC SH-2 cross-compiler and Saturn tools switched off. `-DENABLE_EXTERNAL_TOOLS=ON` also fetches KayteIDE.
+
+```bash
+cmake -S . -B build -DENABLE_KCC=ON
+cmake --build build --target kcc
+build/kcc/bin/kcc --version
+```
+
+`KCC_REPO`, `KCC_GIT_TAG` (default `main`) and `KCC_SOURCE_DIR` override the source. The `clean-kcc` target deletes the checkout and the build.
+
 ### Custom Install Prefix
 
 ```bash
@@ -400,7 +462,20 @@ REALMS_CORE=pascal ./build/ekron-realms --headless-smoke
 ctest --test-dir build -R realms --output-on-failure  # bridge conformance (C++ and Pascal)
 ```
 
-For Android `jniLibs` and the iOS static archive, use `realms/pascal/build_core.sh android-aarch64|android-armv7|android-x86_64|ios-arm64`. Without a Pascal core, every platform falls back to the C++ reference core.
+For Android `jniLibs` and the iOS static archive, use `realms/pascal/build_core.sh android-aarch64|android-armv7|android-x86_64|ios-arm64`. Without a Pascal core, every platform falls back to the C++ reference core. `build_core.sh game-android-aarch64|game-android-armv7|game-android-x86_64` puts the Quake 2 game module (`librealms_game.so`) into the same `jniLibs/<abi>` folders, and `ios-arm64` (like `macos-arm64-static`) also writes `librealms_game.a`, which the generated xcconfig links with `REALMS_GAME_STATIC=1`.
+
+- `realms_game_module` is built when `fpc` is found and `-DENABLE_GAME_MODULE=ON` (the default). It compiles the Quake 2 game module, `game/realms_game.lpr` (the Free Pascal gamex86 port), into `librealms_game.so`/`.dylib`, installed next to `librealms_core` in the same three places. `realms::GameServer` (part of `realms_quake2`, the Quake 2 module that the desktop, Android and iOS sandboxes link) loads it when a BSP map is opened, so maps run the Quake 2 game (items, doors, triggers, monsters, weapons) on whichever core is active. `make game` and `lazbuild game/realms_game.lpi` build the same library; `REALMS_GAME_LIBRARY=/path/librealms_game.so` overrides the search; the `sv_game 0` cvar turns the game off (map mode then only walks the map).
+
+```bash
+cmake --build build --target realms_game_module
+./build/ekron-realms --engine-info                    # Game: …/librealms_game.so (Quake 2 game API 3)
+./build/ekron-realms +map base1                       # needs maps/base1.bsp (e.g. from a pak0.pak)
+ctest --test-dir build -R game --output-on-failure    # realms_game_server_native / _pascal, realms_game_effects
+ctest --test-dir build -R map_lighting --output-on-failure   # realms_map_lighting (BSP lightmaps)
+ctest --test-dir build -R quake2_module --output-on-failure  # realms_quake2_module_native / _pascal (Quake2Module + Quake2View)
+```
+
+`realms/src/GameEffectTables.inc` is generated and committed. It holds the byte directions and the monster muzzle flashes used by the client effects. If `game/m_flash.pas` or `engine/client/cl_fx.pas` changes, regenerate it with `python3 tools/gen_game_effect_tables.py` (plain Python 3, no packages needed).
 
 ---
 
@@ -509,7 +584,7 @@ Realms/
 │   └── FindLazarus.cmake
 └── Projects/
     ├── realms.lpi  # Lazarus project
-    └── realms.lpr  # Pascal program
+    └── realms.lpr  # Free Pascal client (realms-pascal)
 ```
 
 ### Compilation Errors
@@ -524,9 +599,10 @@ fpc -iV
 # Try verbose build to see actual error
 cmake --build . --verbose
 
-# Try building with FPC directly to see the actual error
+# Try building with FPC directly to see the actual error (realms-pascal;
+# needs libekron_sandbox from the CMake build in ../build)
 cd Projects
-fpc realms.lpr
+fpc -Mobjfpc -Sh -Fu../realms/pascal -Fi../realms/pascal -Fl../build realms.lpr
 ```
 
 ### Wrong Architecture on macOS
@@ -588,7 +664,7 @@ Realms/
 │   └── FindLazarus.cmake      # Lazarus detection module
 ├── Projects/                   # Main project files (note: capital P)
 │   ├── realms.lpi             # Lazarus project
-│   ├── realms.lpr             # Pascal program
+│   ├── realms.lpr             # Free Pascal client (realms-pascal)
 │   └── *.pas                  # Additional units
 ├── src/                       # Optional additional sources
 ├── units/                     # Optional unit directories

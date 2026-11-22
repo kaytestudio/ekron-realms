@@ -6,7 +6,7 @@
 [![Native iOS sandbox](https://github.com/kaytestudio/ekron-realms/actions/workflows/ios-sandbox.yml/badge.svg)](https://github.com/kaytestudio/ekron-realms/actions/workflows/ios-sandbox.yml)
 [![Networking foundation](https://github.com/kaytestudio/ekron-realms/actions/workflows/network-foundation.yml/badge.svg)](https://github.com/kaytestudio/ekron-realms/actions/workflows/network-foundation.yml)
 
-**Ekron Realms** is an open-source 3D urban sandbox and first-person exploration/building game. It features a shared native **C++17** world, rigid-body physics, and glTF 2.0 asset pipeline running natively across **Linux (`.deb`)**, **macOS (`.app`)**, **Android (`.apk`)**, and **iOS (`.ipa`)**, alongside an optional **Free Pascal** desktop launcher (`realms-launcher`), an experimental **TLS online presence relay**, and the classic **Free Pascal / Lazarus** engine codebase.
+**Ekron Realms** is an open-source 3D urban sandbox and first-person exploration/building game. It features a shared native **C++17** world, rigid-body physics, and glTF 2.0 asset pipeline running natively across **Linux (`.deb`)**, **macOS (`.app`)**, **Android (`.apk`)**, and **iOS (`.ipa`)**, alongside an optional **Free Pascal** desktop client (`realms-pascal`: the Pascal Realms core running the C++ SDL2 sandbox in one program) and launcher (`realms-launcher`), an experimental **TLS online presence relay**, and the classic **Free Pascal / Lazarus** engine codebase.
 
 ---
 
@@ -31,8 +31,8 @@
 
 | Platform | Source Directory | Graphics & App Stack | Package / CI Artifact | GitHub Actions Workflow |
 | :--- | :--- | :--- | :--- | :--- |
-| **Linux (Debian / Ubuntu)** | `sys/desktop/`, `sys/linux/` | C++17, SDL2, OpenGL 3.3 Core + optional FPC `realms-launcher` | `ekron-realms_*.deb` (`ekron-realms-linux-deb`) | [`desktop-debian.yml`](.github/workflows/desktop-debian.yml) |
-| **macOS (Apple Silicon & Intel)** | `sys/desktop/`, `sys/mac/` | C++17, SDL2, OpenGL 3.3 Core + optional FPC `realms-launcher` | `EkronRealms.app` (`ekron-realms-macos-app`) | [`desktop-macos.yml`](.github/workflows/desktop-macos.yml) |
+| **Linux (Debian / Ubuntu)** | `sys/desktop/`, `sys/linux/` | C++17, SDL2, OpenGL 3.3 Core + optional FPC `realms-pascal` / `realms-launcher` | `ekron-realms_*.deb` (`ekron-realms-linux-deb`) | [`desktop-debian.yml`](.github/workflows/desktop-debian.yml) |
+| **macOS (Apple Silicon & Intel)** | `sys/desktop/`, `sys/mac/` | C++17, SDL2, OpenGL 3.3 Core + optional FPC `realms-pascal` / `realms-launcher` | `EkronRealms.app` (`ekron-realms-macos-app`) | [`desktop-macos.yml`](.github/workflows/desktop-macos.yml) |
 | **Android** | `sys/android/` | C++17, GameActivity (JNI / Kotlin), OpenGL ES 3.0 | `app-debug.apk` (`ekron-native-sandbox-debug`) | [`android-sandbox.yml`](.github/workflows/android-sandbox.yml) |
 | **iOS** | `sys/ios/` | C++17, Objective-C++ / Swift (UIKit), Metal | `ekron-native-sandbox-debug.ipa` | [`ios-sandbox.yml`](.github/workflows/ios-sandbox.yml) |
 | **Presence Relay (Experimental)** | `server/` | Python 3.10+ (`ssl` TLS 1.2+) | `server/sandbox_relay.py` | [`network-foundation.yml`](.github/workflows/network-foundation.yml) |
@@ -166,6 +166,27 @@ xcodebuild archive \
 
 The `REALMS_CORE=pascal|native|auto` environment variable selects the Realms core. With `pascal`, startup fails if `librealms_core` is missing.
 
+### Quake 2 Maps and the Game Module
+
+`map <name>` in the console (or `+map <name>` on the command line) opens a Quake 2 BSP (`maps/<name>.bsp`, loose or in a `pak0.pak`…) or a `.glb` / `.gltf` scene; `killserver` returns to the sandbox. With `fpc` installed the build also produces `librealms_game.so` / `.dylib`, the Free Pascal port of the Quake 2 game DLL (`game/`). The C++ sandbox hosts it through `realms::GameServer`, a Quake 2 server on the Realms Engine, so a BSP map plays like Quake 2: the player spawns at `info_player_start`, items can be picked up, doors, lifts and triggers work, and monsters and weapons run the original game code, on the Pascal or the C++ core. Items, monsters, projectiles and the view weapon are drawn from the `.md2` models and skins in your `pak0.pak`, interpolated between game frames like the Quake 2 client. Without id's data each one is shown as a coloured box of its size. Temp entities, muzzle flashes, trails, explosions, laser beams and dynamic lights are drawn the way the Quake 2 client draws them. The game's `.wav` sounds play with Quake 2's spatialization, including entity loop sounds. Maps compiled with `qrad3` are drawn with their lightmaps and animated light styles, and models are lit by the light under them (`r_lightmaps 0` switches back to the sandbox sun). `--engine-info` shows the module (`Game: … (Quake 2 game API 3)`).
+
+| Input (in a map) | Action |
+| :--- | :--- |
+| `W A S D` / `Space` / `Ctrl` | Move / Jump / Crouch |
+| `Left Click` | Fire the current weapon (with the mouse captured) |
+| `N` / `R` | Noclip / Restart the map (respawn without the game) |
+| `` ` `` | Console: Quake 2 client commands such as `give all`, `give shotgun`, `use blaster`, `god`, `notarget`, `kill`, `weapnext`, `cmd <command>`, server commands with `sv <command>`, and `killserver` |
+
+`sv_game 0` turns the game off (then `map` only walks the map), and `cl_gun 0` hides the view weapon. `REALMS_GAME_LIBRARY=/path/to/librealms_game.so` picks another module build. Details: [realms/README.md](realms/README.md#quake-2-game-module-gameserver).
+
+The whole Quake 2 stack is one C++ module, `realms_quake2` (`realms::Quake2Module`, with the shared map mode `mapview::Quake2View`), used by the desktop, Android and iOS sandboxes alike. The Android APK ships the game module (`librealms_game.so` per ABI) and iOS device builds link it statically, so on the phones a BSP map runs the game too: a **Fire** button appears above jump and the notice shows health, armour and ammo. Lightmaps, `.md2` entities, the view weapon, particles, dynamic lights and game sounds are drawn and played the same way as on desktop. Without the game module (the iOS simulator, or `sv_game 0`) maps are walked as before. Details: [realms/README.md](realms/README.md#the-quake-2-module-realms_quake2).
+
+### Free Pascal Client (`realms-pascal`)
+
+With `fpc` installed and `-DENABLE_FPC_CLIENT=ON`, the build also produces `realms-pascal` (`Projects/realms.lpr`). It is a Free Pascal program with the Pascal Realms core compiled in. It runs the C++ desktop sandbox (window, input, OpenGL, audio, world) from `libekron_sandbox`, so SDL2 is used from C++ and no Pascal SDL units are needed. It takes the same flags as `ekron-realms`. `--engine-info` reports `Core: pascal-quake2 (Free Pascal)` and `Origin: linked`. It is installed as `/usr/bin/realms-pascal` by the `.deb` and as `EkronRealms.app/Contents/MacOS/realms-pascal` on macOS.
+
+You can also build it from the Lazarus project `Projects/realms.lpi` (`lazbuild Projects/realms.lpi`), with `make pascal`, or with `fpc @realms-fpc.cfg Projects/realms.lpr`. The top-level `Makefile` (`make`, `make test`, `make run`, `make package`) and the `Dockerfile` / `docker compose up` / `Jenkinsfile` wrap the same CMake build. See [BUILD.md](BUILD.md#free-pascal-client-realms-pascal).
+
 ---
 
 ## Testing & Verification
@@ -173,7 +194,8 @@ The `REALMS_CORE=pascal|native|auto` environment variable selects the Realms cor
 ```bash
 # Run desktop CTest suite (HUD layout, shop, localization, Realms bridge conformance
 # for the C++ and Free Pascal cores, console, sound decoding/mixing, --engine-info,
-# --version, --headless-smoke)
+# --version, --headless-smoke, the realms-pascal program on its linked core, and the
+# Quake 2 game module hosted by realms::GameServer on both cores)
 ctest --test-dir build --output-on-failure -V
 
 # Validate Android and iOS translations (English, Russian, Portuguese (Portugal))
@@ -198,6 +220,7 @@ ekron-realms/
 ├── CMakeLists.txt              # Desktop CMake build, CTest smoke suite, and CPack (.deb / .app) packaging
 ├── cmake/                      # CMake find-modules (SDL2, SDL3, FPC, Lazarus, KayteIDE, KCC)
 ├── realms/                     # Realms Engine: C ABI + C++ facade (include/, src/) and Free Pascal Quake 2 core (pascal/)
+├── game/                       # Quake 2 game module (Free Pascal gamex86 port) → librealms_game, hosted by realms::GameServer
 ├── Resources/                  # macOS Info.plist and Linux .desktop launcher entry
 ├── sys/
 │   ├── android/                # Native Android sandbox (GameActivity + OpenGL ES 3.0 + shared C++17 core & assets)
@@ -206,9 +229,9 @@ ekron-realms/
 │   ├── linux/ & mac/           # Platform units for the Free Pascal launcher & legacy engine
 │   └── ...                     # Additional legacy platform ports
 ├── server/                     # Experimental Python TLS 1.2+ online presence relay
-├── Projects/                   # Free Pascal launcher (realms_launcher.lpr) and Lazarus / Delphi projects
+├── Projects/                   # Free Pascal client (realms.lpr → realms-pascal), launcher (realms_launcher.lpr), legacy Q2 graph (realms_q2legacy.lpr), Lazarus / Delphi projects
 ├── tests/                      # C++17 simulation/physics tests (tests/native), Realms bridge tests (tests/realms) & TLS relay tests (tests/network)
-├── tools/                      # Procedural texture generator, catalog icon renderer, sound pack builder, and shader validators
+├── tools/                      # Texture generator, catalog icon renderer, sound pack builder, shader validators; SDL2/SDL3-for-Pascal submodules; tools/kcc (-DENABLE_KCC=ON)
 └── docs/                       # Sandbox design notes and cross-platform HUD verification guide
 ```
 

@@ -30,6 +30,8 @@ class GameViewController: UIViewController {
     private let pauseButton = HudActionButton(caption: "", symbol: "pause")
     private let jumpButton = HudActionButton(caption: loc("action_jump"), symbol: "jump")
     private let crouchButton = HudActionButton(caption: loc("action_crouch"), symbol: "crouch")
+    /// Map mode with the Quake 2 game: held fire (commands 51 / 52).
+    private let fireButton = HudActionButton(caption: loc("action_fire"), symbol: "fire")
 
     private let switchWeaponButton = ToolSwitchButton()
     private let catalogButton = HudActionButton(caption: "", symbol: "cube")
@@ -95,6 +97,9 @@ class GameViewController: UIViewController {
     private var mapMode = false
     private var mapTexturesLoading = false
     private var mapName = ""
+    /// The Quake 2 game runs the map (status slot 18); health, armor, ammo (19...21).
+    private var mapGame = false
+    private var mapStats: [Int32] = [0, 0, 0]
 
     private var pollTimer: Timer?
     private var toastHideWorkItem: DispatchWorkItem?
@@ -310,6 +315,15 @@ class GameViewController: UIViewController {
             self.bridge?.sendCommand(9)
         }
         hudOverlay.addSubview(crouchButton)
+
+        fireButton.isHidden = true
+        fireButton.onPress = { [weak self] in
+            self?.bridge?.sendCommand(51)
+        }
+        fireButton.onRelease = { [weak self] in
+            self?.bridge?.sendCommand(52)
+        }
+        hudOverlay.addSubview(fireButton)
 
         // Spawn strip
         buildPlaceButton.accessibilityLabel = loc("action_place_selected")
@@ -550,6 +564,7 @@ class GameViewController: UIViewController {
         let moveX = b.width - rightMargin - actionSize
         crouchButton.frame = CGRect(x: moveX, y: b.height - bottomMargin - actionSize, width: actionSize, height: actionSize)
         jumpButton.frame = CGRect(x: moveX, y: crouchButton.frame.minY - actionSize - 4, width: actionSize, height: actionSize)
+        fireButton.frame = CGRect(x: moveX, y: jumpButton.frame.minY - actionSize - 4, width: actionSize, height: actionSize)
 
         weaponArt.frame = CGRect(x: b.width - rightMargin - 315, y: b.height - bottomMargin - 195, width: 200, height: 125)
 
@@ -599,10 +614,10 @@ class GameViewController: UIViewController {
         weaponArt.tickAnimation()
         guard let bridge = bridge else { return }
 
-        var state = [Float](repeating: 0, count: 18)
+        var state = [Float](repeating: 0, count: 22)
         let count = state.withUnsafeMutableBufferPointer { buf -> Int in
             guard let base = buf.baseAddress else { return 0 }
-            return Int(bridge.pollStatus(base, count: 18))
+            return Int(bridge.pollStatus(base, count: 22))
         }
         guard count >= 14 else { return }
         let nowMap = count >= 18 && state[17] > 0.5
@@ -611,6 +626,18 @@ class GameViewController: UIViewController {
         if nowMap {
             let name = (bridge.currentMapPath() as NSString).lastPathComponent
             if !name.isEmpty { mapName = name }
+        }
+        let nowGame = nowMap && count >= 22 && state[18] > 0.5
+        if nowGame {
+            mapStats = [Int32(state[19]), Int32(state[20]), Int32(state[21])]
+        }
+        if nowGame != mapGame {
+            mapGame = nowGame
+            if !nowGame && fireButton.isHighlighted {
+                fireButton.cancelTracking(with: nil)
+                bridge.sendCommand(52)
+            }
+            fireButton.isHidden = !nowGame || wasInFpvMode
         }
         if nowMap != mapMode {
             mapMode = nowMap
@@ -708,7 +735,11 @@ class GameViewController: UIViewController {
             if flyingNow {
                 noticeLabel.text = loc("notice_flying")
             } else if mapMode {
-                noticeLabel.text = mapTexturesLoading ? locF("notice_map_textures", mapName) : locF("notice_map_mode", mapName)
+                if mapGame {
+                    noticeLabel.text = locF("notice_map_game", mapName, mapStats[0], mapStats[1], mapStats[2])
+                } else {
+                    noticeLabel.text = mapTexturesLoading ? locF("notice_map_textures", mapName) : locF("notice_map_mode", mapName)
+                }
             } else {
                 switch toolsState.tool {
                 case .handEmpty:
@@ -751,7 +782,7 @@ class GameViewController: UIViewController {
         let normalViews: [UIView] = [
             lookControl, weaponArt, headingBox, crosshairLabel, joystick,
             pauseButton, switchWeaponButton, catalogButton, removeButton,
-            jumpButton, crouchButton, spawnStrip, gravityStrip, remoteStrip,
+            jumpButton, crouchButton, fireButton, spawnStrip, gravityStrip, remoteStrip,
             interactionButton, dronePlaceButton, altitudeContainer
         ]
         if hidden {
@@ -765,6 +796,7 @@ class GameViewController: UIViewController {
             switchWeaponButton.isHidden = mapMode
             jumpButton.isHidden = false
             crouchButton.isHidden = false
+            fireButton.isHidden = !mapGame
             altitudeContainer.isHidden = !flyingNow
         }
     }

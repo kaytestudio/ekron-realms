@@ -39,7 +39,7 @@ uses
   GameUnit,
   q_shared;
 
-{$Include ..\JEDI.inc}
+{$Include ..\Jedi.inc}
 
 //==========================================================
 procedure Use_Target_Tent(ent: edict_p; other: edict_p; activator: edict_p); cdecl;
@@ -407,7 +407,7 @@ begin
   if deathmatch^.Value <> 0 then
   begin
     // cast to interger must be done for mask operation
-    if (Integer(activator) and Integer(activator^.client)) <> 0 then
+    if (activator <> nil) and (activator^.client <> nil) then
 	  gi.bprintf(PRINT_HIGH, '%s exited the level.'#10, activator^.client^.pers.netname);
   end;
 
@@ -713,15 +713,15 @@ begin
 
   // set the color
   if (self^.spawnflags and 2) <> 0 then
-    self^.s.skinnum := $f2f2f0f0
+    self^.s.skinnum := LongInt(LongWord($f2f2f0f0))
   else if (self^.spawnflags and 4) <> 0 then
-    self^.s.skinnum := $d0d1d2d3
+    self^.s.skinnum := LongInt(LongWord($d0d1d2d3))
   else if (self^.spawnflags and 8) <> 0 then
-    self^.s.skinnum := $f3f3f1f1
+    self^.s.skinnum := LongInt(LongWord($f3f3f1f1))
   else if (self^.spawnflags and 16) <> 0 then
-    self^.s.skinnum := $dcdddedf
+    self^.s.skinnum := LongInt(LongWord($dcdddedf))
   else if (self^.spawnflags and 32) <> 0 then
-    self^.s.skinnum := $e0e1e2e3;
+    self^.s.skinnum := LongInt(LongWord($e0e1e2e3));
 
   if self^.enemy = nil then
   begin

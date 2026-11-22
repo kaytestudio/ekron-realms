@@ -8,8 +8,13 @@ project(realms LANGUAGES C CXX)
 # jniLibs at runtime when present; otherwise the C++ reference core runs.
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../realms ${CMAKE_CURRENT_BINARY_DIR}/realms-engine)
 
+# The Quake 2 stack (realms_quake2: game server, entities, effects, game
+# sounds, lightmaps) is drawn by AndroidMapMode through the shared
+# mapview::Quake2View; librealms_game.so (the game module, from
+# build_core.sh game-android-*) is dlopened from jniLibs when packaged.
 add_library(realms SHARED main.cpp AndroidOut.cpp Renderer.cpp RealmsAndroid.cpp TextureLoader.cpp ImageDecode.cpp GltfScene.cpp GltfRenderer.cpp MapSession.cpp AndroidMapMode.cpp
+    Quake2View.cpp Quake2Gles.cpp GameSoundPlayer.cpp
     SoundDecode.cpp SoundMixer.cpp SoundDirector.cpp SoundSystem.cpp AndroidSound.cpp)
 target_compile_features(realms PRIVATE cxx_std_17)
 find_package(game-activity REQUIRED CONFIG)
-target_link_libraries(realms realms_engine game-activity::game-activity EGL GLESv3 android log aaudio)
+target_link_libraries(realms realms_quake2 game-activity::game-activity EGL GLESv3 android log aaudio)

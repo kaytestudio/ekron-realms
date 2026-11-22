@@ -309,7 +309,7 @@ begin
       self^.monsterinfo.currentmove := @actor_move_flipoff
     else
       self^.monsterinfo.currentmove := @actor_move_taunt;
-    name := actor_names[Cardinal(Self) - Cardinal(g_edicts) MOD MAX_ACTOR_NAMES];   //(self - g_edicts)%MAX_ACTOR_NAMES
+    name := actor_names[((PtrUInt(Self) - PtrUInt(g_edicts)) div SizeOf(edict_t)) MOD MAX_ACTOR_NAMES];   //(self - g_edicts)%MAX_ACTOR_NAMES
     { TODO:  Original:  gi.cprintf (other, PRINT_CHAT, "%s: %s!\n", name, messages[rand()%3]); }
     gi.cprintf(other, PRINT_CHAT, '%s: %s!'#10, name, messages[rand() mod 3]);
     Exit;
@@ -532,7 +532,7 @@ begin
     begin
       ent := @g_edicts[n];
       if ent^.inuse then
-        gi.cprintf(ent, PRINT_CHAT, '%s: %s'#10, actor_names[(Cardinal(other) - Cardinal(g_edicts)) MOD MAX_ACTOR_NAMES], self._message);
+        gi.cprintf(ent, PRINT_CHAT, '%s: %s'#10, actor_names[((PtrUInt(other) - PtrUInt(g_edicts)) div SizeOf(edict_t)) MOD MAX_ACTOR_NAMES], self._message);
     end;
   end;
 

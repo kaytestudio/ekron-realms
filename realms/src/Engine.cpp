@@ -37,6 +37,8 @@ namespace realms {
 namespace {
 
 std::atomic<bool> gEngineActive{false};
+// Pascal core linked into the running program (realms-pascal), if any.
+std::atomic<RealmsGetApiFn> gLinkedPascalCore{nullptr};
 
 std::string lower(std::string s) {
     for (auto &c : s) c = char(std::tolower(static_cast<unsigned char>(c)));
@@ -108,6 +110,15 @@ Engine::~Engine() { shutdown(); }
 
 const RealmsCoreApi *Engine::loadPascalCore(const EngineConfig &config) {
     pascalError_.clear();
+    if (RealmsGetApiFn linked = gLinkedPascalCore.load()) {
+        const RealmsCoreApi *api = linked(REALMS_BRIDGE_VERSION);
+        if (api && api->version == REALMS_BRIDGE_VERSION && api->struct_size >= sizeof(RealmsCoreApi)) {
+            origin_ = "linked";
+            return api;
+        }
+        pascalError_ = "linked Pascal core rejected bridge version";
+        return nullptr;
+    }
 #if defined(REALMS_PASCAL_STATIC)
     (void)config;
     const RealmsCoreApi *api = realms_pascal_get_api(REALMS_BRIDGE_VERSION);
@@ -156,6 +167,10 @@ const RealmsCoreApi *Engine::loadPascalCore(const EngineConfig &config) {
     pascalError_ = errors.empty() ? std::string(libraryFileName()) + " not found" : errors;
     return nullptr;
 #endif
+}
+
+void Engine::setLinkedPascalCore(RealmsGetApiFn getApi) {
+    gLinkedPascalCore.store(getApi);
 }
 
 bool Engine::init(EngineConfig config) {

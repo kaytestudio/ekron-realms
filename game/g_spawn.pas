@@ -349,25 +349,26 @@ begin
 
       case f^._type of
         F_LSTRING:  begin
-          PPChar(Integer(b) + f^.ofs)^ := ED_NewString(value);
+          PPChar(PtrInt(b) + f^.ofs)^ := ED_NewString(value);
         end;
         F_VECTOR:  begin
-          sscanf(value, '%f %f %f', [@vec[0], @vec[1], @vec[2]]);
-          PSingleArray(Integer(b) + f^.ofs)[0] := vec[0];
-          PSingleArray(Integer(b) + f^.ofs)[1] := vec[1];
-          PSingleArray(Integer(b) + f^.ofs)[2] := vec[2];
+          // CPas.sscanf: SysUtils (used below) has an SScanf that stores Extended for %f
+          CPas.sscanf(value, '%f %f %f', [@vec[0], @vec[1], @vec[2]]);
+          PSingleArray(PtrInt(b) + f^.ofs)[0] := vec[0];
+          PSingleArray(PtrInt(b) + f^.ofs)[1] := vec[1];
+          PSingleArray(PtrInt(b) + f^.ofs)[2] := vec[2];
         end;
         F_INT:  begin
-          PInteger(Integer(b) + f^.ofs)^ := atoi(value);
+          PInteger(PtrInt(b) + f^.ofs)^ := atoi(value);
         end;
         F_FLOAT:  begin
-          PSingle(Integer(b) + f^.ofs)^ := atof(value);
+          PSingle(PtrInt(b) + f^.ofs)^ := atof(value);
         end;
         F_ANGLEHACK:  begin
           v := atof(value);
-          PSingleArray(Integer(b) + f^.ofs)[0] := 0;
-          PSingleArray(Integer(b) + f^.ofs)[1] := v;
-          PSingleArray(Integer(b) + f^.ofs)[2] := 0;
+          PSingleArray(PtrInt(b) + f^.ofs)[0] := 0;
+          PSingleArray(PtrInt(b) + f^.ofs)[1] := v;
+          PSingleArray(PtrInt(b) + f^.ofs)[2] := 0;
         end;
         F_IGNORE: ;
       end;
@@ -465,7 +466,7 @@ begin
     e^.teammaster := e;
     inc(c);
     inc(c2);
-    e2 := edict_p(Cardinal(e) + 1 * SizeOf(edict_t));
+    e2 := edict_p(PtrInt(e) + 1 * SizeOf(edict_t));
     for j:= i + 1 to globals.num_edicts-1 do
     begin
       if not e2^.inuse then

@@ -1,5 +1,5 @@
 //100%
-{$ALIGN ON}{$MINENUMSIZE 4}
+{$ALIGN ON}{$IFDEF FPC}{$PACKRECORDS C}{$ENDIF}{$MINENUMSIZE 4}
 {----------------------------------------------------------------------------}
 {                                                                            }
 { File(s): game\g_local.h                                                    }
@@ -46,8 +46,8 @@ interface
 
 uses
   GameUnit,
-  g_local_add;
-  //q_shared;
+  g_local_add,
+  q_shared;
 
 
 type

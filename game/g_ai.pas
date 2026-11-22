@@ -88,7 +88,7 @@ begin
   if (level.sight_client = nil) then
      start := 1
   else
-     start := (Cardinal(level.sight_client) - Cardinal(g_edicts)) div sizeof(edict_t);
+     start := (PtrInt(level.sight_client) - PtrInt(g_edicts)) div sizeof(edict_t);
 
   check := start;
   while (True) do begin

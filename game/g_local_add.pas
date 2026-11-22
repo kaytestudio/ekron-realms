@@ -1,5 +1,5 @@
 //100%
-{$ALIGN ON}{$MINENUMSIZE 4}
+{$ALIGN ON}{$IFDEF FPC}{$PACKRECORDS C}{$ENDIF}{$MINENUMSIZE 4}
 {----------------------------------------------------------------------------}
 {                                                                            }
 { File(s): g_local related                                                   }

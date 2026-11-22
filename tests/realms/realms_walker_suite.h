@@ -8,6 +8,7 @@
 #include "gltf_builder.h"
 
 #include "realms/Engine.h"
+#include "realms/MapLighting.h"
 #include "realms/MapGeometry.h"
 #include "realms/MapWalker.h"
 #include "realms/MeshMap.h"
@@ -210,6 +211,9 @@ inline void runWalkerChecks(realms::Engine &engine) {
     std::string error;
     CHECK(realms::loadMapGeometry(engine, g, error) && error.empty());
     checkWalkGeometry(g, realms::MapGeometrySource::Faces);
+    // no qrad lighting in it: loads, nothing lit (the sandbox sun lights it)
+    realms::MapLighting lighting;
+    CHECK(lighting.load(engine, error) && error.empty() && lighting.empty() && lighting.faceCount() > 0);
 
     realms::MapWalker w;
     CHECK(w.spawn(engine));
@@ -299,6 +303,7 @@ inline void runWalkerChecks(realms::Engine &engine) {
     CHECK(engine.loadMap("maps/room.glb"));
     CHECK(realms::loadMapGeometry(engine, g, error) && g.source == realms::MapGeometrySource::Mesh &&
           g.triangleCount() == 8);
+    CHECK(lighting.load(engine, error) && lighting.empty() && lighting.faceCount() == 0); // glTF: no lightmaps
     CHECK(w.spawn(engine) && w.spawnSource == "info_player_start" && w.spawnYaw == 90.0f);
     CHECK(w.origin[0] == 32.0f && w.origin[1] == -64.0f && w.origin[2] == 25.0f);
     walk(engine, w, idle, 0.5f);
@@ -334,6 +339,7 @@ inline void runWalkerChecks(realms::Engine &engine) {
 
     engine.unloadMap();
     CHECK(!w.spawn(engine) && !realms::loadMapGeometry(engine, g, error) && error == "no map loaded");
+    CHECK(!lighting.load(engine, error) && error == "no map loaded");
     const realms::Vec3 before = w.origin;
     w.move(engine, fwd, 0.1f); // no map: no movement
     CHECK(w.origin == before);

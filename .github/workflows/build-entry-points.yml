@@ -1,0 +1,174 @@
+name: Build entry points (Docker, Makefile, Lazarus)
+
+# The project can be built several ways besides the platform CI jobs; each of
+# them must produce a working game, including the Free Pascal client
+# (realms-pascal = Pascal Realms core + C++ SDL2 sandbox).
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'docker-compose.yml'
+      - 'Jenkinsfile'
+      - 'Makefile'
+      - 'realms.lpi'
+      - 'realms-fpc.cfg'
+      - 'Projects/realms.lpr'
+      - 'Projects/realms.lpi'
+      - 'Projects/build_sandbox.sh'
+      - 'CMakeLists.txt'
+      - 'cmake/**'
+      - 'realms/**'
+      - 'sys/desktop/**'
+      - '.github/workflows/build-entry-points.yml'
+  pull_request:
+    paths:
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'docker-compose.yml'
+      - 'Jenkinsfile'
+      - 'Makefile'
+      - 'realms.lpi'
+      - 'realms-fpc.cfg'
+      - 'Projects/realms.lpr'
+      - 'Projects/realms.lpi'
+      - 'Projects/build_sandbox.sh'
+      - 'CMakeLists.txt'
+      - 'cmake/**'
+      - 'realms/**'
+      - 'sys/desktop/**'
+      - '.github/workflows/build-entry-points.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  docker:
+    name: Docker image (Dockerfile / docker compose / Jenkinsfile)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          submodules: false
+
+      - name: Build image (CMake build, CTest, .deb)
+        run: docker build -t ekron-builder .
+
+      - name: Extract build products like the Jenkinsfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p output
+          docker run --rm -v "$PWD/output:/output" ekron-builder cp -r /app/dist/. /output/
+          ls -l output
+          for f in ekron-realms realms-pascal realms-launcher libekron_sandbox.so librealms_core.so librealms_game.so; do
+            test -f "output/$f"
+          done
+          ls output/ekron-realms_*.deb
+          docker compose config -q
+
+      - name: Run the Free Pascal client in the image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm ekron-builder sh -c '
+            build/realms-pascal --engine-info | tee /tmp/info.log &&
+            grep -q "Origin:   linked" /tmp/info.log &&
+            grep -q "Quake 2 game API 3" /tmp/info.log &&
+            build/realms-pascal --headless-smoke | grep "realmsCore=pascal-quake2"'
+
+  make-lazarus:
+    name: Makefile, lazbuild and fpc @realms-fpc.cfg
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          submodules: false
+
+      - name: Install build dependencies and Lazarus (lazbuild)
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build pkg-config \
+            libsdl2-dev libgl1-mesa-dev fpc fp-units-fcl
+          # Debian/Ubuntu ship lazbuild in lcl-utils(-X.Y); it needs a complete
+          # Lazarus directory (lcl/, packager/globallinks: lazarus-src, lcl).
+          for pkg in "lcl-utils lcl-nogui lazarus-src" lazarus; do
+            if sudo apt-get install -y --no-install-recommends $pkg > "/tmp/apt-${pkg%% *}.log" 2>&1; then
+              echo "installed $pkg"; break
+            fi
+            echo "::warning::apt-get install $pkg failed: $(tail -n 2 "/tmp/apt-${pkg%% *}.log" | tr '\n' ' ')"
+          done
+          if ! command -v lazbuild >/dev/null; then
+            LB="$(dpkg -L $(dpkg -l | awk '/^ii +(lcl-utils|lazarus)/{print $2}') 2>/dev/null | grep -E '/lazbuild(-[0-9.]+)?$' | head -n 1 || true)"
+            if [ -z "$LB" ]; then
+              echo "::error::lazbuild not found; lazarus packages: $(dpkg -l | awk '/lazarus|lcl/{print $2}' | tr '\n' ' ')"
+              exit 1
+            fi
+            sudo ln -sf "$LB" /usr/local/bin/lazbuild
+          fi
+          lazbuild --version || echo "::warning::lazbuild --version returned $?"
+
+      - name: make && make test
+        shell: bash
+        run: |
+          set -euo pipefail
+          make
+          make test
+          test -x build/realms-pascal
+          test -f build/librealms_game.so
+
+      - name: Lazarus project for the Quake 2 game module (game/realms_game.lpi)
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f build/librealms_game.so
+          if ! lazbuild game/realms_game.lpi > /tmp/lazbuild-game.log 2>&1; then
+            cat /tmp/lazbuild-game.log
+            grep -iE 'error|fatal|exception|not found|unable' /tmp/lazbuild-game.log | tail -n 8 | while IFS= read -r line; do
+              echo "::error::[lazbuild game] $line"
+            done
+            exit 1
+          fi
+          ls -l build/librealms_game.so
+          build/realms_game_server_test --game build/librealms_game.so
+          build/realms_game_server_test --game build/librealms_game.so --pascal build/librealms_core.so
+
+      - name: Lazarus projects (Projects/realms.lpi, realms.lpi)
+        shell: bash
+        run: |
+          set -euo pipefail
+          for lpi in Projects/realms.lpi realms.lpi; do
+            rm -f build/realms-pascal
+            if ! lazbuild "$lpi" > /tmp/lazbuild.log 2>&1; then
+              cat /tmp/lazbuild.log
+              grep -iE 'error|fatal|exception|not found|unable' /tmp/lazbuild.log | tail -n 8 | while IFS= read -r line; do
+                echo "::error::[lazbuild $lpi] $line"
+              done
+              tail -n 4 /tmp/lazbuild.log | while IFS= read -r line; do echo "::error::[lazbuild $lpi] $line"; done
+              exit 1
+            fi
+            build/realms-pascal --engine-info | tee /tmp/info.log
+            grep -q 'Origin:   linked' /tmp/info.log
+            grep -q 'Quake 2 game API 3' /tmp/info.log
+          done
+          build/realms-pascal --headless-smoke | grep 'realmsCore=pascal-quake2'
+
+      - name: fpc @realms-fpc.cfg Projects/realms.lpr
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f build/realms-pascal
+          Projects/build_sandbox.sh
+          fpc @realms-fpc.cfg Projects/realms.lpr
+          build/realms-pascal --headless-smoke | grep 'realmsCore=pascal-quake2'

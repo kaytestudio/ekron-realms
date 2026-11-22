@@ -47,6 +47,29 @@
         }
       }
     },
+    "action_fire" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fire"
+          }
+        },
+        "pt-PT" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Disparar"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Огонь"
+          }
+        }
+      }
+    },
     "action_freeze" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1883,6 +1906,29 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Не удалось загрузить карту."
+          }
+        }
+      }
+    },
+    "notice_map_game" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quake 2: %1$@ · Health %2$d · Armor %3$d · Ammo %4$d"
+          }
+        },
+        "pt-PT" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quake 2: %1$@ · Vida %2$d · Armadura %3$d · Munições %4$d"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quake 2: %1$@ · Здоровье %2$d · Броня %3$d · Патроны %4$d"
           }
         }
       }

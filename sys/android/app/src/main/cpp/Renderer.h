@@ -70,7 +70,7 @@ private:
     // Realms map mode ("map <name>"): replaces the sandbox until killserver.
     AndroidMapMode mapMode_;
     float mapYaw_=0,mapPitch_=0,mapJump_=0;
-    bool mapCrouch_=false;
+    bool mapCrouch_=false,mapAttack_=false;
     std::string pendingMap_;
     bool mapChangePending_=false;
     bool pollMapChange();

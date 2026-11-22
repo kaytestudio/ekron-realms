@@ -38,14 +38,14 @@
 { * TODO:                                                                    }
 {----------------------------------------------------------------------------}
 
-{$Include ..\JEDI.inc}
+{$Include ..\Jedi.inc}
 
 unit g_utils;
 
 interface
 
 uses
-  q_shared, g_local, g_main{$IFNDEF COMPILER6_UP}, Windows{$ENDIF};
+  q_shared, g_local, g_main{$IFNDEF FPC}{$IFNDEF COMPILER6_UP}, Windows{$ENDIF}{$ENDIF};
 
 // g_utils.c -- misc utility functions for game module
 
@@ -121,12 +121,12 @@ begin
   else
     Inc(from); //Clootie: Shift to next element in pointer to array of "edict_t"
 
-  while Integer(from) < Integer(@g_edicts^[globals.num_edicts]) do
+  while PtrInt(from) < PtrInt(@g_edicts^[globals.num_edicts]) do
   begin
     if (not from^.inuse) then
       goto Continue__;
 
-    s := PPChar(Integer(from) + fieldofs)^;
+    s := PPChar(PtrInt(from) + fieldofs)^;
     if (s = nil) then
       goto Continue__;
 
@@ -165,7 +165,7 @@ begin
   else
     Inc(from); //Clootie: Shift to next element in pointer to array of "edict_t"
 
-  while Integer(from) < Integer(@g_edicts^[globals.num_edicts]) do // FAB ..Check This ..
+  while PtrInt(from) < PtrInt(@g_edicts^[globals.num_edicts]) do // FAB ..Check This ..
   begin
     if (not from^.inuse) then
       goto Continue__;
@@ -282,7 +282,7 @@ begin
     t^.think := Think_Delay;
     t^.activator := activator;
     if (activator = nil) then
-      gi.dprintf('Think_Delay with no activator'#10, []);
+      gi_dprintf('Think_Delay with no activator'#10, []);
     t^._message := ent^._message;
     t^.target := ent^.target;
     t^.killtarget := ent^.killtarget;
@@ -314,7 +314,7 @@ begin
       G_FreeEdict(t);
       if not ent^.inuse then
       begin
-        gi.dprintf('entity was removed while using killtargets'#10, []);
+        gi_dprintf('entity was removed while using killtargets'#10, []);
         Exit;
       end;
       t := G_Find(t, FOFS_targetname, ent^.killtarget);
@@ -339,7 +339,7 @@ begin
 
       if (t = ent) then
       begin
-        gi.dprintf('WARNING: Entity used itself.'#10, []);
+        gi_dprintf('WARNING: Entity used itself.'#10, []);
       end else
       begin
         if (@t^.use <> nil) then
@@ -347,7 +347,7 @@ begin
       end;
       if not ent^.inuse then
       begin
-        gi.dprintf('entity was removed while using targets'#10, []);
+        gi_dprintf('entity was removed while using targets'#10, []);
         Exit;
       end;
     continue_:
@@ -517,7 +517,7 @@ begin
   e^.inuse := True;
   e^.classname := 'noclass';
   e^.gravity := 1.0;
-  e^.s.number := (Integer(e) - Integer(g_edicts)) div SizeOf(edict_t);
+  e^.s.number := (PtrInt(e) - PtrInt(g_edicts)) div SizeOf(edict_t);
 end;
 
 (*
@@ -556,7 +556,7 @@ begin
   end;
 
   if (i_hack = game.maxentities) then
-    gi.error('ED_Alloc: no free edicts', []);
+    gi_error('ED_Alloc: no free edicts', []);
 
   Inc(globals.num_edicts);
   G_InitEdict(e);
@@ -574,7 +574,7 @@ procedure G_FreeEdict(ed: edict_p);
 begin
   gi.unlinkentity(ed);		// unlink from world
 
-  if ((Integer(ed) - Integer(g_edicts)) div SizeOf(edict_t) <=
+  if ((PtrInt(ed) - PtrInt(g_edicts)) div SizeOf(edict_t) <=
      (maxclients^.value + BODY_QUEUE_SIZE)) then
   begin
 //  gi.dprintf("tried to free special edict\n");

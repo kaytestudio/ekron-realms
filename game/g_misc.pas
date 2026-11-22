@@ -1,4 +1,4 @@
-{$ALIGN ON}{$MINENUMSIZE 4}
+{$ALIGN ON}{$IFDEF FPC}{$PACKRECORDS C}{$ENDIF}{$MINENUMSIZE 4}
 {----------------------------------------------------------------------------}
 {                                                                            }
 { File(s): game\g_misc.c                                                     }
@@ -100,7 +100,6 @@ implementation
 
 Uses
   SysUtils,
-  DateUtils,
   g_monster,
   g_main,
   CPas;
@@ -1746,7 +1745,7 @@ begin
 end;
 
 procedure func_clock_think(self: edict_p); cdecl;
-Var ltime: TDateTime; Year, Month, Day, Hour, Minute, Second, MilliSecond: Word;
+Var ltime: TDateTime; Hour, Minute, Second, MilliSecond: Word;
 savetarget, savemessage: PChar;
 begin
   if self.enemy = Nil then
@@ -1769,7 +1768,7 @@ begin
   else
   begin
     ltime := time();
-    DecodeDateTime(ltime, Year, Month, Day, Hour, Minute, Second, MilliSecond);
+    DecodeTime(ltime, Hour, Minute, Second, MilliSecond); // SysUtils: no DateUtils (Android buildbase RTL)
     Com_sprintf(self._message, CLOCK_MESSAGE_SIZE, '%2i:%2i:%2i', [Hour, Minute, Second]);
     if self._message[3] = ' ' then
       self._message[3] := '0';

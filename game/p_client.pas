@@ -921,7 +921,7 @@ var
 begin
 //  spot := nil;
 
-  index := (Cardinal(ent^.client) - Cardinal(game.clients)) div SizeOf(edict_t);
+  index := (PtrInt(ent^.client) - PtrInt(game.clients)) div SizeOf(gclient_t);
 
   // player 0 starts in normal player spawn point
   if (index = 0) then
@@ -1061,7 +1061,7 @@ begin
 
   gi.unlinkentity (body);
   body^.s := ent^.s;
-  body^.s.number := (Cardinal(body) - Cardinal(g_edicts)) div SizeOf(edict_t);
+  body^.s.number := (PtrInt(body) - PtrInt(g_edicts)) div SizeOf(edict_t);
 
   body^.svflags := ent^.svflags;
   VectorCopy (ent^.mins, body^.mins);
@@ -1186,7 +1186,7 @@ begin
   begin
     // send effect
     gi.WriteByte (svc_muzzleflash);
-    gi.WriteShort ((Cardinal(ent)-Cardinal(g_edicts)) div SizeOf(edict_t));
+    gi.WriteShort ((PtrInt(ent)-PtrInt(g_edicts)) div SizeOf(edict_t));
     gi.WriteByte (MZ_LOGIN);
     gi.multicast (@ent^.s.origin, MULTICAST_PVS);
 
@@ -1236,7 +1236,7 @@ begin
   // ranging doesn't count this client
   SelectSpawnPoint (ent, spawn_origin, spawn_angles);
 
-  index := (Cardinal(ent) - Cardinal(g_edicts)) div SizeOf(edict_t) - 1;
+  index := (PtrInt(ent) - PtrInt(g_edicts)) div SizeOf(edict_t) - 1;
   client := ent^.client;
 
   // deathmatch wipes most client data every spawn
@@ -1347,7 +1347,7 @@ begin
   ent^.s.modelindex2 := 255;		// custom gun model
   // sknum is player num and weapon number
   // weapon number will be added in changeweapon
-  ent^.s.skinnum := (Cardinal(ent) - Cardinal(g_edicts)) div SizeOf(edict_t) - 1;
+  ent^.s.skinnum := (PtrInt(ent) - PtrInt(g_edicts)) div SizeOf(edict_t) - 1;
 
   ent^.s.frame := 0;
   VectorCopy (spawn_origin, ent^.s.origin);
@@ -1426,7 +1426,7 @@ begin
   begin
     // send effect
     gi.WriteByte (svc_muzzleflash);
-    gi.WriteShort ((Cardinal(ent) - Cardinal(g_edicts)) div SizeOf(edict_t));
+    gi.WriteShort ((PtrInt(ent) - PtrInt(g_edicts)) div SizeOf(edict_t));
     gi.WriteByte (MZ_LOGIN);
     gi.multicast (@ent^.s.origin, MULTICAST_PVS);
   end;
@@ -1450,7 +1450,7 @@ procedure ClientBegin (ent : edict_p); //g_main
 var
   i : integer;
 begin
-  ent^.client := @gclient_a(game.clients)[((Cardinal(ent) - Cardinal(g_edicts)) div sizeof(edict_t)- 1)];
+  ent^.client := @gclient_a(game.clients)[((PtrInt(ent) - PtrInt(g_edicts)) div sizeof(edict_t)- 1)];
 
   if (deathmatch^.value <> 0) then
   begin
@@ -1490,7 +1490,7 @@ begin
     if (game.maxclients > 1) then
     begin
       gi.WriteByte (svc_muzzleflash);
-      gi.WriteShort (Cardinal(ent)-Cardinal(g_edicts) div SizeOf(edict_t));
+      gi.WriteShort ((PtrInt(ent)-PtrInt(g_edicts)) div SizeOf(edict_t));
       gi.WriteByte (MZ_LOGIN);
       gi.multicast (@ent^.s.origin, MULTICAST_PVS);
 
@@ -1541,7 +1541,7 @@ begin
   // set skin
   s := Info_ValueForKey (userinfo, 'skin');
 
-  playernum := ((Cardinal(ent) - Cardinal(g_edicts)) div SizeOf(edict_t)) - 1;
+  playernum := ((PtrInt(ent) - PtrInt(g_edicts)) div SizeOf(edict_t)) - 1;
 
   // combine name and skin into a configstring
 {$IFDEF CTF}  //onlyCTF
@@ -1656,7 +1656,7 @@ begin
 
 
   // they can connect
-  ent^.client := @gclient_a(game.clients)[((Cardinal(ent) - Cardinal(g_edicts)) div SizeOf(edict_t)) - 1];
+  ent^.client := @gclient_a(game.clients)[((PtrInt(ent) - PtrInt(g_edicts)) div SizeOf(edict_t)) - 1];
 
   // if there is already a body waiting for us (a loadgame), just
   // take it, otherwise spawn one from scratch
@@ -1713,7 +1713,7 @@ begin
 
   // send effect
   gi.WriteByte (svc_muzzleflash);
-  gi.WriteShort ((Cardinal(ent) - Cardinal(g_edicts)) div SizeOf(edict_t));
+  gi.WriteShort ((PtrInt(ent) - PtrInt(g_edicts)) div SizeOf(edict_t));
   gi.WriteByte (MZ_LOGOUT);
   gi.multicast (@ent^.s.origin, MULTICAST_PVS);
 
@@ -1724,7 +1724,7 @@ begin
   ent^.classname := 'disconnected';
   ent^.client^.pers.connected := false;
 
-  playernum := (Cardinal(ent) - Cardinal(g_edicts)) div SizeOf(edict_t) - 1;
+  playernum := (PtrInt(ent) - PtrInt(g_edicts)) div SizeOf(edict_t) - 1;
   gi.configstring (CS_PLAYERSKINS+playernum, '');
 end;
 

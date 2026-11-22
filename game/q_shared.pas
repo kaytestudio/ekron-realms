@@ -1,4 +1,4 @@
-{$ALIGN ON}{$MINENUMSIZE 4}
+{$ALIGN ON}{$IFDEF FPC}{$PACKRECORDS C}{$ENDIF}{$MINENUMSIZE 4}
 unit q_shared;
 
 {$IFDEF FPC}
@@ -15,10 +15,7 @@ uses
   Unix, // General Unix/Linux utilities
   // Other Linux-specific units if needed
   {$ENDIF}
-  {$IFDEF DARWIN}
-  MacTypes, // Core macOS types
-  // Other macOS-specific units if needed
-  {$ENDIF}
+  // (no Darwin unit: MacTypes is not in the iOS RTL, and nothing here needs it)
   q_shared_add,
   Math;
 
@@ -1861,13 +1858,13 @@ begin
   while (s2 <> in_) and (s2^ <> '/') do
     dec(s2);
 
-  if LongInt(s) - LongInt(s2) < 2 then
+  if PtrInt(s) - PtrInt(s2) < 2 then
     out_^ := #0
   else
   begin
     dec(s);
-    strncpy(out_, Pointer(Cardinal(s2) + 1), Cardinal(s) - Cardinal(s2));
-    out_[Cardinal(s) - Cardinal(s2)] := #0;
+    strncpy(out_, Pointer(PtrInt(s2) + 1), PtrInt(s) - PtrInt(s2));
+    out_[PtrInt(s) - PtrInt(s2)] := #0;
   end;
 end;
 
@@ -1889,8 +1886,8 @@ begin
   while (s <> in_) and (s^ <> '/') do
     dec(s);
 
-  strncpy(out_, in_, LongInt(s) - LongInt(in_));
-  out_[LongInt(s) - LongInt(in_)] := #0;
+  strncpy(out_, in_, PtrInt(s) - PtrInt(in_));
+  out_[PtrInt(s) - PtrInt(in_)] := #0;
 end;
 
 (*
@@ -2457,10 +2454,7 @@ begin
   s^ := #0;
 end;
 
-begin
-  //====================================================================
-
-// ... (rest of the file content)
+//====================================================================
 
 initialization
   // Check the size of standard types:
@@ -2468,7 +2462,9 @@ initialization
   Assert(sizeof(integer) = 4);
   Assert(sizeof(single) = 4);
   Assert(sizeof(cardinal) = 4);
+{$IFDEF CPU32}
   Assert(sizeof(pointer) = 4);
+{$ENDIF}
   Assert(sizeof(smallint) = 2);
 
   // Check the size of types defined in q_shared.h
@@ -2481,16 +2477,20 @@ initialization
   Assert(sizeof(fixed4_t) = 4);
   Assert(sizeof(fixed8_t) = 4);
   Assert(sizeof(fixed16_t) = 4);
+{$IFDEF CPU32}
   Assert(sizeof(cvar_t) = 28);
   Assert(sizeof(cplane_t) = 20);
   Assert(sizeof(cmodel_t) = 40);
   Assert(sizeof(csurface_t) = 24);
   Assert(sizeof(mapsurface_t) = 56);
   Assert(sizeof(trace_t) = 56);
+{$ENDIF}
   Assert(sizeof(pmtype_t) = 4);
   Assert(sizeof(pmove_state_t) = 28);
   Assert(sizeof(usercmd_t) = 16);
+{$IFDEF CPU32}
   Assert(sizeof(pmove_t) = 240);
+{$ENDIF}
   Assert(sizeof(temp_event_t) = 4);
   Assert(sizeof(entity_event_t) = 4);
   Assert(sizeof(entity_state_t) = 84);
