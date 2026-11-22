@@ -90,7 +90,7 @@ cd game && fpc -Mdelphi -dGAMEDLL -Cg -O2 -FUunits -Fu. -Fi. -o../build/librealm
 | `restartGame`, `toggleNoclip`, `mirrorPlayer`, `stats`, `takeMessages`, `takeGameFailure` | Respawn, noclip, HUD values, centre prints, game errors |
 | `modelPoses`, `buildScene`, `buildEffects` | Brush model poses, entity batches, effect quads and nearest dynamic lights |
 | `takeSounds`, `loopSounds`, `listener` | Input for `GameSoundPlayer` |
-| `lighting`, `lightmapUvs`, `lightmap`, `updateLightStyles`, `lightAt` | Lightmap atlas and model lighting |
+| `lighting`, `lightmapUvs`, `lightmap`, `updateLightStyles`, `lightAt` | Lightmap atlas; model lighting from the lightmap plus all dynamic lights (`R_LightPoint`) |
 
 `mapview::Quake2View` (`sys/android/app/src/main/cpp/Quake2View.*`) converts
 this to render space (metres, Y up) for the map modes:

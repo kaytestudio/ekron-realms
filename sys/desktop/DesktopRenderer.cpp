@@ -262,7 +262,9 @@ void main() {
         baked = true;
     }
     vec3 worldPos = vToEye + uEye;
-    for (int i = 0; i < uDlightCount && i < 8; i++) {
+    // lit entities already have the dynamic lights in uEntityLight
+    int dlightCount = uModelPass != 0 && uEntityLit != 0 ? 0 : uDlightCount;
+    for (int i = 0; i < dlightCount && i < 8; i++) {
         vec3 toLight = uDlights[i].xyz - worldPos;
         float f = clamp(1.0 - length(toLight) / max(uDlights[i].w, 1e-4), 0.0, 1.0);
         float facing = dot(toLight, toLight) > 1e-8 ? 0.35 + 0.65 * max(dot(n, normalize(toLight)), 0.0) : 1.0;

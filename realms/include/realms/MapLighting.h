@@ -55,8 +55,9 @@ public:
     // True when composing with `a` and `b` gives a different atlas.
     bool stylesDiffer(const MapLightStyles &a, const MapLightStyles &b) const;
 
-    // R_LightPoint without dynamic lights: the light (0..~2 per channel)
-    // at the first lit world face straight below `p` (down to 2048 units).
+    // R_LightPoint without dynamic lights (Quake2Module::lightAt adds them):
+    // the light (0..~2 per channel) at the first lit world face straight
+    // below `p` (down to 2048 units).
     // False when the map has no lightmaps or nothing is below; `rgb` is
     // then black, as in Quake 2.
     bool lightPoint(const float p[3], const MapLightStyles &styles, float rgb[3]) const;

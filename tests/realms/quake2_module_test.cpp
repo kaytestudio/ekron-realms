@@ -272,14 +272,30 @@ void viewWithGame(realms::Engine &engine) {
     CHECK(view.session().walker().origin[0] > -250.0f);
     CHECK(q2.stats().armor == 2);
 
-    // firing: the blaster's muzzle flash lights the view, its sound plays
+    // firing: the blaster's muzzle flash lights the view and the view weapon
+    // (yellow, through R_LightPoint), its sound plays
     step("fire");
+    auto weaponLight = [&](std::array<float, 3> &rgb) {
+        view.entities(engine, yaw, 0.0f, true, ev, eb);
+        for (const auto &b : eb)
+            if (b.viewWeapon && b.lit) {
+                rgb = b.light;
+                return true;
+            }
+        return false;
+    };
+    std::array<float, 3> gunBefore{}, gunFlash{};
+    CHECK(weaponLight(gunBefore));
     view.update(engine, {}, yaw, 0.0f, 0.1f, true);
     std::vector<mapview::EffectVertex> quads;
     std::vector<mapview::DynamicLight> lights;
     view.effects(yaw, 0.0f, 1, quads, lights);
     CHECK(lights.size() == 1);
     if (!lights.empty()) CHECK(lights[0].radius > 1.0f); // metres
+    CHECK(weaponLight(gunFlash));
+    // red and green only come from style 0 ("normal"); style 1 flickers blue
+    CHECK(gunFlash[0] > gunBefore[0] + 0.3f);
+    CHECK(near(gunFlash[0] - gunBefore[0], gunFlash[1] - gunBefore[1], 1e-3f));
     CHECK(hasSound(q2.takeSounds(), "sound/weapons/blastf1a.wav"));
     for (int i = 0; i < 5; i++) view.update(engine, {}, yaw, 0.0f, 0.1f, false);
     const realms::GameListener listener = q2.listener();

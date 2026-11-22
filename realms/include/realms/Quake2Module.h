@@ -117,14 +117,16 @@ public:
     // Light styles from the game's CS_LIGHTS at client time; true when the
     // atlas changed (re-upload lightmap()).
     bool updateLightStyles();
-    // R_LightPoint at a map point, at least RF_MINLIGHT's 0.1; false (and
-    // white) without lightmaps.
+    // R_LightPoint at a map point: the lightmap under it plus the game's
+    // dynamic lights, at least RF_MINLIGHT's 0.1; false (and white) without
+    // lightmaps.
     bool lightAt(const Vec3 &point, std::array<float, 3> &rgb) const;
 
 private:
     bool startGame(Engine &engine, std::string &why);
     void sync();
     MapLightStyles currentLightStyles() const;
+    bool lightAt(const Vec3 &point, const std::vector<GameDynamicLight> &dlights, std::array<float, 3> &rgb) const;
 
     std::string executableDir_;
     std::unique_ptr<GameServer> game_;
@@ -140,6 +142,7 @@ private:
     std::vector<GameEffectModel> fxModels_;
     std::vector<GameParticle> fxParticles_;
     std::vector<GameBeam> fxBeams_;
+    std::vector<GameDynamicLight> fxLights_;
     MapLighting lighting_;
     MapLightStyles lightStyles_;
     std::vector<uint8_t> lightmapRgba_;

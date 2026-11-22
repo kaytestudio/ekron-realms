@@ -1170,6 +1170,16 @@ void GameEffects::particles(double t, std::vector<GameParticle> &out) const {
     }
 }
 
+void addDynamicLights(const std::array<float, 3> &point, const std::vector<GameDynamicLight> &lights,
+                      std::array<float, 3> &rgb) {
+    for (const GameDynamicLight &l : lights) {
+        const float x = point[0] - l.origin[0], y = point[1] - l.origin[1], z = point[2] - l.origin[2];
+        const float add = (l.radius - std::sqrt(x * x + y * y + z * z)) * (1.0f / 256.0f);
+        if (!(add > 0.0f)) continue;
+        for (int k = 0; k < 3; ++k) rgb[size_t(k)] += add * l.color[size_t(k)];
+    }
+}
+
 void GameEffects::lights(double t, std::vector<GameDynamicLight> &out) const {
     out.clear();
     for (const Dlight &d : dlights_)

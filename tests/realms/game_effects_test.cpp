@@ -69,6 +69,23 @@ void byteDirChecks() {
     CHECK(none[0] == 0 && none[1] == 0 && none[2] == 0);
 }
 
+// R_LightPoint's dynamic light term
+void dynamicLightPointChecks() {
+    std::vector<realms::GameDynamicLight> lights;
+    lights.push_back({{100, 0, 0}, 200, {1, 1, 0}});    // 72 units away: (200 - 72) / 256 = 0.5
+    lights.push_back({{0, 0, 300}, 200, {1, 1, 1}});    // out of range
+    lights.push_back({{28, 0, 0}, 0, {1, 1, 1}});       // radius 0
+    std::array<float, 3> rgb{0.1f, 0.2f, 0.3f};
+    realms::addDynamicLights({28, 0, 0}, lights, rgb);
+    CHECK(near(rgb[0], 0.6f, 1e-5f) && near(rgb[1], 0.7f, 1e-5f) && near(rgb[2], 0.3f, 1e-5f));
+    lights.push_back({{28, 0, 0}, 64, {0, 0, 1}});      // at the point: 64 / 256
+    realms::addDynamicLights({28, 0, 0}, lights, rgb);
+    CHECK(near(rgb[0], 1.1f, 1e-5f) && near(rgb[2], 0.55f, 1e-5f));
+    std::array<float, 3> none{0, 0, 0};
+    realms::addDynamicLights({0, 0, 0}, {}, none);
+    CHECK(none[0] == 0 && none[1] == 0 && none[2] == 0);
+}
+
 void tempEntityChecks() {
     realms::GameEffects fx;
     std::vector<realms::GameParticle> parts;
@@ -593,6 +610,7 @@ void soundChecks() {
 int main() {
     soundChecks();
     byteDirChecks();
+    dynamicLightPointChecks();
     tempEntityChecks();
     muzzleFlashChecks();
     entityEffectChecks();

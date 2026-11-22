@@ -75,6 +75,11 @@ struct GameDynamicLight {
     std::array<float, 3> color{1, 1, 1};
 };
 
+// R_LightPoint's dynamic light term: each light adds (radius - distance) / 256
+// of its colour to `rgb` at `point` (map space).
+void addDynamicLights(const std::array<float, 3> &point, const std::vector<GameDynamicLight> &lights,
+                      std::array<float, 3> &rgb);
+
 // An explosion, smoke puff, muzzle flash or cable segment model.
 struct GameEffectModel {
     std::string model;

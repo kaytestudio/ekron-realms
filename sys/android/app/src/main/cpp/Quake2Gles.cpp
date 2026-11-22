@@ -65,7 +65,7 @@ void main(){
  if(lit)c=base*pow(2.0*max(light,vec3(0.0)),vec3(2.2))*(.72+.56*diffuse);
  else c=base*(ambientColor*(.78+.22*max(n.y,0.0))+lightColor*diffuse);
  vec3 world=toEye+eye;
- for(int i=0;i<dlightCount&&i<8;i++){
+ for(int i=0;i<(lit?0:dlightCount)&&i<8;i++){
   vec3 toLight=dlights[i].xyz-world;
   float f=clamp(1.0-length(toLight)/max(dlights[i].w,1e-4),0.0,1.0);
   float facing=dot(toLight,toLight)>1e-8?.35+.65*max(dot(n,normalize(toLight)),0.0):1.0;
