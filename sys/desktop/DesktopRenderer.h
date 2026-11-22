@@ -8,6 +8,7 @@
 #include "third_party/stb_image.h"
 
 #include <array>
+#include <cstdint>
 #include <cstring>
 #include <string>
 #include <string_view>
@@ -134,6 +135,16 @@ public:
     // Indexed by model number; empty = every model static and visible.
     void setMapModelPoses(std::vector<MapModelPose> poses) { mapPoses_ = std::move(poses); }
     void clearMapGeometry(ekron::gl::Api &gl);
+    // Quake 2 lightmaps (realms::MapLighting) for the map set with
+    // setMapGeometry: atlas coordinates per vertex (u, v; u < 0 = no
+    // lightmap: that face keeps the sandbox sun), and the RGBA8 atlas.
+    // Lightmapped faces are lit by it (and the dynamic lights) instead of
+    // the sun; updateMapLightmap re-uploads it when light styles change.
+    void setMapLightmap(ekron::gl::Api &gl, const std::vector<float> &uvs, int width, int height,
+                        const std::vector<uint8_t> &rgba);
+    void updateMapLightmap(ekron::gl::Api &gl, const std::vector<uint8_t> &rgba);
+    void setMapLightmapEnabled(bool on) { lightmapEnabled_ = on; }
+    bool mapLightmapped() const { return lightmapTex_ != 0 && lightmapEnabled_; }
 
     // Game entities for this frame (Quake 2 .md2 models, fallback boxes),
     // drawn by renderMapWorld after the map with the textured model shader.
@@ -151,6 +162,10 @@ public:
         std::array<float, 16> transform{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
         bool viewWeapon = false;
         bool fullbright = false; // RF_FULLBRIGHT: not lit
+        // Lit by the map's lightmaps (R_LightPoint, 0..~2 per channel)
+        // instead of the sun.
+        bool lit = false;
+        std::array<float, 3> light{1, 1, 1};
     };
     void setMapEntities(ekron::gl::Api &gl, const std::vector<EntityVertex> &vertices, std::vector<EntityBatch> batches);
     void clearMapEntities() { entityBatches_.clear(); }
@@ -248,6 +263,11 @@ private:
     GLuint mapVao_ = 0;
     GLuint mapVbo_ = 0;
     GLsizei mapCount_ = 0;
+    GLuint mapLightVbo_ = 0; // attribute 5 of mapVao_: lightmap coordinates
+    GLuint lightmapTex_ = 0;
+    int lightmapW_ = 0, lightmapH_ = 0;
+    bool lightmapEnabled_ = true;
+    void uploadMapLightUvs(ekron::gl::Api &gl, const std::vector<float> &uvs);
     std::vector<MapDrawRange> mapRanges_;
     std::vector<MapModelPose> mapPoses_;
     GLuint entityVao_ = 0;

@@ -60,6 +60,7 @@ layout(location = 1) in vec3 aCol;
 layout(location = 2) in vec3 aNorm;
 layout(location = 3) in vec2 aUV;
 layout(location = 4) in float aLayer;
+layout(location = 5) in vec2 aLightUV;
 
 uniform vec3 uEye;
 uniform vec2 uAngles;
@@ -72,6 +73,7 @@ out vec3 vNorm;
 out vec2 vUV;
 flat out int vLayer;
 out vec3 vToEye;
+out vec2 vLightUV;
 
 void main() {
     vec3 worldPos = (uObjectTransform * vec4(aPos, 1.0)).xyz;
@@ -89,6 +91,7 @@ void main() {
     vNorm = mat3(uObjectTransform) * aNorm;
     vUV = aUV;
     vLayer = int(aLayer + 0.5);
+    vLightUV = aLightUV;
 }
 )GLSL";
 
@@ -108,6 +111,7 @@ out vec3 vNorm;
 out vec2 vUV;
 flat out int vLayer;
 out vec3 vToEye;
+out vec2 vLightUV;
 
 void main() {
     vec3 worldPos = (uObjectTransform * vec4(aPos, 1.0)).xyz;
@@ -125,6 +129,7 @@ void main() {
     vNorm = mat3(uObjectTransform) * aNorm;
     vUV = aUV;
     vLayer = 4;
+    vLightUV = vec2(-1.0);
 }
 )GLSL";
 
@@ -201,6 +206,15 @@ uniform int uDlightCount;
 uniform vec4 uDlights[8];
 uniform vec4 uDlightColors[8];
 uniform int uFullbright;
+// Quake 2 lightmaps: map faces sample the atlas (vLightUV.x < 0: none),
+// entities get the light under them (uEntityLight, R_LightPoint). Light
+// values are Quake 2's (1 = the texture as drawn), doubled like
+// gl_intensity 2 and taken to linear space.
+in vec2 vLightUV;
+uniform int uLightmapped;
+uniform sampler2D uLightmap;
+uniform int uEntityLit;
+uniform vec3 uEntityLight;
 
 out vec4 fragColor;
 
@@ -238,6 +252,15 @@ void main() {
     float diffuse = max(dot(n, lightDir), 0.0);
     float sky = 0.78 + 0.22 * max(n.y, 0.0);
     vec3 lit = base * (uAmbientColor * sky + uLightColor * diffuse);
+    bool baked = false;
+    if (uModelPass == 0 && uLightmapped != 0 && vLightUV.x >= 0.0) {
+        lit = base * pow(2.0 * texture(uLightmap, vLightUV).rgb, vec3(2.2));
+        baked = true;
+    } else if (uModelPass != 0 && uEntityLit != 0) {
+        // alias model shading: the point light, brighter on faces towards the sun
+        lit = base * pow(2.0 * max(uEntityLight, vec3(0.0)), vec3(2.2)) * (0.72 + 0.56 * diffuse);
+        baked = true;
+    }
     vec3 worldPos = vToEye + uEye;
     for (int i = 0; i < uDlightCount && i < 8; i++) {
         vec3 toLight = uDlights[i].xyz - worldPos;
@@ -251,7 +274,7 @@ void main() {
     vec3 viewDir = dot(vToEye, vToEye) > 1e-12 ? -normalize(vToEye) : vec3(0.0, 0.0, 1.0);
     vec3 halfVector = normalize(lightDir + viewDir);
     float shine = pow(max(dot(n, halfVector), 0.0), mix(90.0, 8.0, clamp(roughness, 0.0, 1.0)));
-    lit += uLightColor * (shine * strength * diffuse);
+    if (!baked) lit += uLightColor * (shine * strength * diffuse);
 
     if (uFullbright != 0) lit = base;
 
@@ -360,6 +383,9 @@ void applyCommonSceneUniforms(ekron::gl::Api &gl,
     gl.Uniform3f(gl.GetUniformLocation(prog, "uAmbientColor"), 0.55f, 0.59f, 0.65f);
     gl.Uniform1i(gl.GetUniformLocation(prog, "uDlightCount"), 0);
     gl.Uniform1i(gl.GetUniformLocation(prog, "uFullbright"), 0);
+    gl.Uniform1i(gl.GetUniformLocation(prog, "uLightmap"), 2);
+    gl.Uniform1i(gl.GetUniformLocation(prog, "uLightmapped"), 0);
+    gl.Uniform1i(gl.GetUniformLocation(prog, "uEntityLit"), 0);
 }
 
 const std::array<float, 16> kIdentityMatrix = {
@@ -637,6 +663,12 @@ bool DesktopRenderer::init(ekron::gl::Api &gl, const std::string &assetRoot, std
     setupMeshVao(worldVao_, worldVbo_);
     setupMeshVao(ghostVao_, ghostVbo_);
     setupMeshVao(mapVao_, mapVbo_);
+    // map lightmap coordinates: a second buffer, attribute 5 (the sandbox
+    // VAOs leave it disabled; uLightmapped is only set for the map)
+    gl.GenBuffers(1, &mapLightVbo_);
+    gl.BindBuffer(GL_ARRAY_BUFFER, mapLightVbo_);
+    gl.EnableVertexAttribArray(5);
+    gl.VertexAttribPointer(5, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), reinterpret_cast<const void *>(0));
 
     gl.GenVertexArrays(1, &uiVao_);
     gl.GenBuffers(1, &uiVbo_);
@@ -725,7 +757,10 @@ void DesktopRenderer::shutdown(ekron::gl::Api &gl) {
     if (worldVbo_) gl.DeleteBuffers(1, &worldVbo_);
     if (worldVao_) gl.DeleteVertexArrays(1, &worldVao_);
     if (mapVbo_) gl.DeleteBuffers(1, &mapVbo_);
+    if (mapLightVbo_) gl.DeleteBuffers(1, &mapLightVbo_);
     if (mapVao_) gl.DeleteVertexArrays(1, &mapVao_);
+    if (lightmapTex_) gl.DeleteTextures(1, &lightmapTex_);
+    mapLightVbo_ = lightmapTex_ = 0;
     mapCount_ = 0;
     if (entityVbo_) gl.DeleteBuffers(1, &entityVbo_);
     if (entityVao_) gl.DeleteVertexArrays(1, &entityVao_);
@@ -918,6 +953,57 @@ void DesktopRenderer::setMapGeometry(ekron::gl::Api &gl, const std::vector<sandb
                   GL_STATIC_DRAW);
     gl.BindVertexArray(0);
     mapCount_ = static_cast<GLsizei>(vertices.size());
+    // no lightmap until setMapLightmap (attribute 5 must cover every vertex)
+    if (lightmapTex_) gl.DeleteTextures(1, &lightmapTex_);
+    lightmapTex_ = 0;
+    lightmapW_ = lightmapH_ = 0;
+    uploadMapLightUvs(gl, std::vector<float>(vertices.size() * 2, -1.0f));
+}
+
+void DesktopRenderer::uploadMapLightUvs(ekron::gl::Api &gl, const std::vector<float> &uvs) {
+    if (!mapLightVbo_) return;
+    gl.BindBuffer(GL_ARRAY_BUFFER, mapLightVbo_);
+    gl.BufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(uvs.size() * sizeof(float)),
+                  uvs.empty() ? nullptr : uvs.data(), GL_STATIC_DRAW);
+    gl.BindBuffer(GL_ARRAY_BUFFER, 0);
+}
+
+void DesktopRenderer::setMapLightmap(ekron::gl::Api &gl, const std::vector<float> &uvs, int width, int height,
+                                     const std::vector<uint8_t> &rgba) {
+    if (lightmapTex_) gl.DeleteTextures(1, &lightmapTex_);
+    lightmapTex_ = 0;
+    lightmapW_ = lightmapH_ = 0;
+    if (uvs.size() != size_t(mapCount_) * 2 || width <= 0 || height <= 0 ||
+        rgba.size() != size_t(width) * size_t(height) * 4) {
+        uploadMapLightUvs(gl, std::vector<float>(size_t(mapCount_) * 2, -1.0f));
+        return;
+    }
+    uploadMapLightUvs(gl, uvs);
+    gl.GenTextures(1, &lightmapTex_);
+    gl.ActiveTexture(GL_TEXTURE2);
+    gl.BindTexture(GL_TEXTURE_2D, lightmapTex_);
+    gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, static_cast<GLint>(GL_LINEAR));
+    gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, static_cast<GLint>(GL_LINEAR));
+    gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, static_cast<GLint>(GL_CLAMP_TO_EDGE));
+    gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, static_cast<GLint>(GL_CLAMP_TO_EDGE));
+    gl.PixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    gl.TexImage2D(GL_TEXTURE_2D, 0, static_cast<GLint>(GL_RGBA8), width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                  rgba.data());
+    gl.BindTexture(GL_TEXTURE_2D, 0);
+    gl.ActiveTexture(GL_TEXTURE0);
+    lightmapW_ = width;
+    lightmapH_ = height;
+}
+
+void DesktopRenderer::updateMapLightmap(ekron::gl::Api &gl, const std::vector<uint8_t> &rgba) {
+    if (!lightmapTex_ || rgba.size() != size_t(lightmapW_) * size_t(lightmapH_) * 4) return;
+    gl.ActiveTexture(GL_TEXTURE2);
+    gl.BindTexture(GL_TEXTURE_2D, lightmapTex_);
+    gl.PixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    gl.TexImage2D(GL_TEXTURE_2D, 0, static_cast<GLint>(GL_RGBA8), lightmapW_, lightmapH_, 0, GL_RGBA,
+                  GL_UNSIGNED_BYTE, rgba.data());
+    gl.BindTexture(GL_TEXTURE_2D, 0);
+    gl.ActiveTexture(GL_TEXTURE0);
 }
 
 void DesktopRenderer::clearMapGeometry(ekron::gl::Api &gl) {
@@ -926,6 +1012,10 @@ void DesktopRenderer::clearMapGeometry(ekron::gl::Api &gl) {
         gl.BufferData(GL_ARRAY_BUFFER, 0, nullptr, GL_STATIC_DRAW);
     }
     mapCount_ = 0;
+    uploadMapLightUvs(gl, {});
+    if (lightmapTex_) gl.DeleteTextures(1, &lightmapTex_);
+    lightmapTex_ = 0;
+    lightmapW_ = lightmapH_ = 0;
     mapRanges_.clear();
     mapPoses_.clear();
     entityBatches_.clear();
@@ -1049,6 +1139,11 @@ void DesktopRenderer::renderMapWorld(ekron::gl::Api &gl,
         gl.BindTexture(GL_TEXTURE_2D_ARRAY, materialArrayTex_);
         gl.ActiveTexture(GL_TEXTURE1);
         gl.BindTexture(GL_TEXTURE_2D, whiteTex_);
+        if (mapLightmapped()) {
+            gl.ActiveTexture(GL_TEXTURE2);
+            gl.BindTexture(GL_TEXTURE_2D, lightmapTex_);
+            gl.Uniform1i(gl.GetUniformLocation(worldProg_, "uLightmapped"), 1);
+        }
         gl.BindVertexArray(mapVao_);
         if (mapRanges_.empty()) {
             gl.DrawArrays(GL_TRIANGLES, 0, mapCount_);
@@ -1065,6 +1160,10 @@ void DesktopRenderer::renderMapWorld(ekron::gl::Api &gl,
             gl.UniformMatrix4fv(transformLoc, 1, GL_FALSE, kIdentityMatrix.data());
         }
         gl.Uniform1i(gl.GetUniformLocation(worldProg_, "uDlightCount"), 0);
+        gl.Uniform1i(gl.GetUniformLocation(worldProg_, "uLightmapped"), 0);
+        gl.ActiveTexture(GL_TEXTURE2);
+        gl.BindTexture(GL_TEXTURE_2D, 0);
+        gl.ActiveTexture(GL_TEXTURE0);
     }
 
     if (mapModel && mapModel->ready()) {
@@ -1091,6 +1190,8 @@ void DesktopRenderer::renderMapWorld(ekron::gl::Api &gl,
         const GLint colorLoc = gl.GetUniformLocation(modelProg_, "uBaseColorFactor");
         const GLint alphaModeLoc = gl.GetUniformLocation(modelProg_, "uAlphaMode");
         const GLint fullbrightLoc = gl.GetUniformLocation(modelProg_, "uFullbright");
+        const GLint entityLitLoc = gl.GetUniformLocation(modelProg_, "uEntityLit");
+        const GLint entityLightLoc = gl.GetUniformLocation(modelProg_, "uEntityLight");
         gl.BindVertexArray(entityVao_);
         // opaque entities, then translucent ones, then the effects (particles,
         // beams), then the view weapon
@@ -1123,6 +1224,8 @@ void DesktopRenderer::renderMapWorld(ekron::gl::Api &gl,
                 gl.Uniform4f(colorLoc, b.color.r, b.color.g, b.color.b, b.color.a);
                 gl.Uniform1i(alphaModeLoc, translucent ? 2 : 0);
                 gl.Uniform1i(fullbrightLoc, b.fullbright ? 1 : 0);
+                gl.Uniform1i(entityLitLoc, b.lit && lightmapEnabled_ ? 1 : 0);
+                gl.Uniform3f(entityLightLoc, b.light[0], b.light[1], b.light[2]);
                 gl.UniformMatrix4fv(transformLoc, 1, GL_FALSE, b.transform.data());
                 gl.DrawArrays(GL_TRIANGLES, b.first, b.count);
             }
@@ -1130,6 +1233,7 @@ void DesktopRenderer::renderMapWorld(ekron::gl::Api &gl,
         gl.Disable(GL_BLEND);
         gl.DepthMask(GL_TRUE);
         gl.Uniform1i(fullbrightLoc, 0);
+        gl.Uniform1i(entityLitLoc, 0);
         gl.Uniform1i(gl.GetUniformLocation(modelProg_, "uDlightCount"), 0);
         gl.UniformMatrix4fv(transformLoc, 1, GL_FALSE, kIdentityMatrix.data());
     } else {

@@ -503,6 +503,13 @@ target_include_directories(realms_game_effects_test PRIVATE tests/realms)
 target_link_libraries(realms_game_effects_test PRIVATE realms_engine)
 add_test(NAME realms_game_effects COMMAND realms_game_effects_test)
 
+# Quake 2 BSP lightmaps (realms::MapLighting): the atlas, lightmap
+# coordinates, light styles and R_LightPoint on maps from bsp_builder.h.
+add_executable(realms_map_lighting_test tests/realms/map_lighting_test.cpp)
+target_include_directories(realms_map_lighting_test PRIVATE tests/realms)
+target_link_libraries(realms_map_lighting_test PRIVATE realms_engine)
+add_test(NAME realms_map_lighting COMMAND realms_map_lighting_test)
+
 # Desktop map mode: entity poses and .md2 vertices in render space (the view
 # weapon follows the camera for every yaw / pitch). Header-only, no SDL / GL.
 add_executable(realms_map_entity_transform_test tests/realms/map_entity_transform_test.cpp)

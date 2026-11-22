@@ -108,7 +108,7 @@ jobs:
           run_test ekron-debug-test -O2 tests/native/debug_player_test.cpp
           run_test ekron-texture-test -O2 tests/native/texture_mesh_test.cpp
           run_test ekron-gltf-test -O1 tests/native/gltf_scene_test.cpp /tmp/ekron-GltfScene.o /tmp/ekron-ImageDecode.o
-          run_test realms-bridge-test -O2 -Irealms/include tests/realms/realms_bridge_test.cpp realms/src/Engine.cpp realms/src/NativeCore.cpp realms/src/NativeCModel.cpp realms/src/SandboxBoot.cpp realms/src/MeshMap.cpp realms/src/MapGeometry.cpp realms/src/MapWalker.cpp
+          run_test realms-bridge-test -O2 -Irealms/include tests/realms/realms_bridge_test.cpp realms/src/Engine.cpp realms/src/NativeCore.cpp realms/src/NativeCModel.cpp realms/src/SandboxBoot.cpp realms/src/MeshMap.cpp realms/src/MapGeometry.cpp realms/src/MapLighting.cpp realms/src/MapWalker.cpp
 
           if [ "${#failed[@]}" -ne 0 ]; then
             echo "::error title=native tests::${#failed[@]} failing: ${failed[*]}"
@@ -179,7 +179,7 @@ jobs:
           }
           tail -n 2 /tmp/pascal-static.log
           if ! clang++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic -Irealms/include -DREALMS_PASCAL_STATIC \
-            tests/realms/realms_bridge_test.cpp realms/src/Engine.cpp realms/src/NativeCore.cpp realms/src/NativeCModel.cpp realms/src/SandboxBoot.cpp realms/src/MeshMap.cpp realms/src/MapGeometry.cpp realms/src/MapWalker.cpp \
+            tests/realms/realms_bridge_test.cpp realms/src/Engine.cpp realms/src/NativeCore.cpp realms/src/NativeCModel.cpp realms/src/SandboxBoot.cpp realms/src/MeshMap.cpp realms/src/MapGeometry.cpp realms/src/MapLighting.cpp realms/src/MapWalker.cpp \
             build/realms-macos-static/librealms_core.a -Wl,-no_fixup_chains -o /tmp/realms-bridge-static > /tmp/realms-static-link.log 2>&1; then
             cat /tmp/realms-static-link.log
             echo "::error title=Pascal static core (link)::$(grep -v '^ *$' /tmp/realms-static-link.log | head -n 24 | tr '\n' ' ' | cut -c1-2000)"

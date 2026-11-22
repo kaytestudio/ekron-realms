@@ -50,6 +50,13 @@ bool DesktopMapMode::open(realms::Engine &engine, ekron::gl::Api &gl, DesktopRen
     // Vertices grouped by BSP model (world first) so brush entities can move.
     std::vector<sandbox::MeshVertex> vertices;
     std::vector<DesktopRenderer::MapDrawRange> ranges;
+    // BSP lightmaps: atlas coordinates per vertex, in the same order
+    if (!session_.mesh() && geometry.source == realms::MapGeometrySource::Faces) {
+        std::string lightError;
+        if (!lighting_.load(engine, lightError))
+            engine.print("map: no lightmaps: " + lightError + "\n", REALMS_PRINT_DEVELOPER);
+    }
+    std::vector<float> lightUvs;
     if (!model_) {
         std::map<int32_t, realms::MapGeometry> byModel;
         for (const auto &b : geometry.batches) byModel[std::max(b.model, 0)].batches.push_back(b);
@@ -59,10 +66,34 @@ bool DesktopMapMode::open(realms::Engine &engine, ekron::gl::Api &gl, DesktopRen
             if (part.empty()) continue;
             ranges.push_back({modelIndex, GLint(vertices.size()), GLsizei(part.size())});
             vertices.insert(vertices.end(), part.begin(), part.end());
+            if (lighting_.empty()) continue;
+            for (const auto &b : g.batches) {
+                const size_t n = b.positions.size() / 3;
+                for (size_t i = 0; i < n; ++i) {
+                    float uv[2] = {-1.0f, -1.0f};
+                    const size_t tri = i / 3;
+                    const int32_t face = tri < b.faces.size() ? b.faces[tri] : -1;
+                    if (face < 0 || !lighting_.faceUv(size_t(face), &b.positions[i * 3], uv)) uv[0] = uv[1] = -1.0f;
+                    lightUvs.push_back(uv[0]);
+                    lightUvs.push_back(uv[1]);
+                }
+            }
         }
     }
     renderer.setMapGeometry(gl, vertices, ranges.size() > 1 ? ranges : std::vector<DesktopRenderer::MapDrawRange>{});
     if (model_) session_.summary() += ", textured";
+    engine.registerCvar("r_lightmaps", "1", REALMS_CVAR_ARCHIVE);
+    if (!lighting_.empty() && lightUvs.size() == vertices.size() * 2) {
+        lightStyles_ = realms::defaultLightStyles();
+        lighting_.compose(lightStyles_, lightmapRgba_);
+        renderer.setMapLightmap(gl, lightUvs, lighting_.width(), lighting_.height(), lightmapRgba_);
+        char buf[96];
+        std::snprintf(buf, sizeof(buf), ", lightmaps (%zu faces, %dx%d)", lighting_.litFaces(), lighting_.width(),
+                      lighting_.height());
+        session_.summary() += buf;
+    } else {
+        lighting_.clear();
+    }
 
     engine.registerCvar("sv_game", "1", REALMS_CVAR_ARCHIVE);
     engine.registerCvar("cl_gun", "1", REALMS_CVAR_ARCHIVE);
@@ -125,6 +156,39 @@ void DesktopMapMode::close(ekron::gl::Api &gl, DesktopRenderer &renderer) {
     }
     if (session_.active()) renderer.clearMapGeometry(gl);
     session_.close();
+    lighting_.clear();
+    lightmapRgba_.clear();
+    lightStyles_ = realms::defaultLightStyles();
+}
+
+realms::MapLightStyles DesktopMapMode::currentLightStyles() const {
+    realms::MapLightStyles styles = realms::defaultLightStyles();
+    if (!gameRunning()) return styles;
+    // CL_SetLightstyle / CL_RunLightStyles: the configstrings at 10 Hz
+    const double now = realms::clientTimeMs(*game_);
+    for (int s : lighting_.styles()) {
+        if (s >= Q2_MAX_LIGHTSTYLES) continue;
+        styles[size_t(s)] = realms::lightStyleValue(game_->configString(Q2_CS_LIGHTS + s), now);
+    }
+    return styles;
+}
+
+void DesktopMapMode::updateLighting(realms::Engine &engine, ekron::gl::Api &gl, DesktopRenderer &renderer) {
+    renderer.setMapLightmapEnabled(engine.cvarBool("r_lightmaps", true));
+    if (lighting_.empty()) return;
+    const realms::MapLightStyles styles = currentLightStyles();
+    if (!lighting_.stylesDiffer(styles, lightStyles_)) return;
+    lightStyles_ = styles;
+    lighting_.compose(lightStyles_, lightmapRgba_);
+    renderer.updateMapLightmap(gl, lightmapRgba_);
+}
+
+bool DesktopMapMode::lightAt(const realms::Vec3 &p, std::array<float, 3> &rgb) const {
+    rgb = {1.0f, 1.0f, 1.0f};
+    if (lighting_.empty()) return false;
+    lighting_.lightPoint(p.data(), lightStyles_, rgb.data());
+    if (std::max({rgb[0], rgb[1], rgb[2]}) < 0.1f) rgb = {0.1f, 0.1f, 0.1f};
+    return true;
 }
 
 void DesktopMapMode::update(realms::Engine &engine, const realms::WalkInput &input, float renderYaw,
@@ -382,6 +446,7 @@ void DesktopMapMode::buildEntities(realms::Engine &engine, ekron::gl::Api &gl, f
         out.transform = entityTransform(b.origin.data(), b.angles.data(), session_.unitsPerMetre());
         out.viewWeapon = b.viewWeapon;
         out.fullbright = b.fullbright;
+        if (!b.fullbright) out.lit = lightAt(b.origin, out.light);
         batches.push_back(out);
     }
 }

@@ -37,6 +37,7 @@ struct MapGeometryBatch {
     std::vector<float> positions; // xyz per vertex
     std::vector<float> normals;   // xyz per vertex (flat)
     std::vector<float> uvs;       // texinfo texels (BSP) or map units (planar)
+    std::vector<int32_t> faces;   // per triangle: BSP face number (realms::MapLighting), -1 otherwise
     size_t triangleCount() const { return positions.size() / 9; }
 };
 

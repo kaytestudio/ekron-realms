@@ -105,7 +105,7 @@ public:
     // Polygon (any winding) with an outward normal; fan-triangulated so the
     // triangles wind counter-clockwise around `normal`.
     bool polygon(std::vector<DVec> points, const DVec &normal, const std::string &material, int32_t flags,
-                 int32_t contents, const Texinfo *tex, int32_t model = 0) {
+                 int32_t contents, const Texinfo *tex, int32_t model = 0, int32_t face = -1) {
         // Drop repeated points (qbsp leaves colinear points; harmless).
         std::vector<DVec> pts;
         for (const DVec &p : points) {
@@ -128,6 +128,7 @@ public:
         MapGeometryBatch &batch = batchFor(material, flags, contents, model);
         for (size_t i = 1; i + 1 < pts.size(); ++i) {
             for (const DVec *p : {&pts[0], &pts[i], &pts[i + 1]}) vertex(batch, *p, normal, tex);
+            batch.faces.push_back(face);
         }
         return true;
     }
@@ -280,7 +281,8 @@ void faceGeometry(const Lump (&lumps)[kNumLumps], const std::vector<Texinfo> &te
         DVec normal = plane.normal;
         if (side) normal = {-normal[0], -normal[1], -normal[2]};
         if (!ok ||
-            !emit.polygon(points, normal, tex ? tex->name : std::string(), tex ? tex->flags : 0, 0, tex, faceModel[f]))
+            !emit.polygon(points, normal, tex ? tex->name : std::string(), tex ? tex->flags : 0, 0, tex, faceModel[f],
+                          int32_t(f)))
             ++out.skipped;
     }
 }

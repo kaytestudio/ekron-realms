@@ -23,6 +23,7 @@ add_library(realms_engine STATIC
     "${CMAKE_CURRENT_LIST_DIR}/src/GameView.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/src/GameEffects.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/src/GameSound.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/src/MapLighting.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/src/Md2Model.cpp"
 )
 target_include_directories(realms_engine PUBLIC "${CMAKE_CURRENT_LIST_DIR}/include")

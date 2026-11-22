@@ -1875,6 +1875,7 @@ int main(int argc, char **argv)
 
         if (mapMode.active()) {
             renderer.setMapModelPoses(mapMode.modelPoses()); // doors / platforms moved by the game
+            mapMode.updateLighting(engine, gl, renderer);    // lightmaps: animated light styles
             // items, monsters, projectiles and the view weapon (.md2, or boxes without id's data)
             mapMode.buildEntities(engine, gl, world.yaw, world.pitch, mapEntityVertices, mapEntityBatches);
             renderer.setMapEntities(gl, mapEntityVertices, std::move(mapEntityBatches));

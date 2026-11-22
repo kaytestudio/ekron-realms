@@ -82,6 +82,7 @@ constexpr GLenum GL_DEPTH_COMPONENT24      = 0x81A6;
 constexpr GLenum GL_MIRRORED_REPEAT        = 0x8370;
 constexpr GLenum GL_TEXTURE0               = 0x84C0;
 constexpr GLenum GL_TEXTURE1               = 0x84C1;
+constexpr GLenum GL_TEXTURE2               = 0x84C2;
 constexpr GLenum GL_ARRAY_BUFFER           = 0x8892;
 constexpr GLenum GL_STATIC_DRAW            = 0x88E4;
 constexpr GLenum GL_DYNAMIC_DRAW           = 0x88E8;

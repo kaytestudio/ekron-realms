@@ -4,9 +4,12 @@
 // generates its own. The builder emits a real BSP tree (a kd split on brush
 // faces, nodes in pre-order like qbsp), solid leaf 0, clusters/areas, brush
 // sides with texinfo, inline models and the entity lump - everything the
-// collision model reads. Unused lumps (faces, lighting, ...) are empty.
+// collision model reads. Faces (emitFaces) and qrad-style lightmaps
+// (MapDef::light) are optional; other lumps are empty.
 #pragma once
 
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <functional>
@@ -58,6 +61,12 @@ struct MapDef {
     // Write a face lump (vertexes / edges / surfedges / faces) with the six
     // sides of every visible brush, like qbsp does for drawable surfaces.
     bool emitFaces = false;
+    // Lightmaps (with emitFaces): every face gets a texinfo projecting on
+    // its plane's other two axes (one texel per unit), RGB samples every 16
+    // units from light(point, style slot) for each style in faceStyles, and
+    // the nodes list the faces on their plane (for R_LightPoint).
+    std::function<std::array<uint8_t, 3>(const float *point, int slot)> light;
+    std::array<uint8_t, 4> faceStyles{{0, 255, 255, 255}};
 };
 
 struct Stats {
@@ -75,6 +84,7 @@ enum {
     kNodes = 4,
     kTexinfo = 5,
     kFaces = 6,
+    kLighting = 7,
     kLeafs = 8,
     kLeafBrushes = 10,
     kEdges = 11,
@@ -120,6 +130,7 @@ public:
                 rmax[a] = def_.extent;
             }
             headnodes.push_back(buildNode(rmin, rmax, ids));
+            nodeModel_.resize(nodes_.size(), int32_t(headnodes.size()) - 1);
         }
         if (stats) {
             stats->planes = int32_t(planes_.size());
@@ -281,6 +292,21 @@ private:
             o.append(name, sizeof(name));
             put32(o, -1);
         }
+        if (def_.light) {
+            // per texinfo and axis: s along axis+1, t along axis+2
+            for (const Texinfo &t : def_.texinfo)
+                for (int a = 0; a < 3; ++a) {
+                    std::string &o = lumps[kTexinfo];
+                    for (int r = 0; r < 2; ++r)
+                        for (int k = 0; k < 4; ++k) putf(o, k == (a + 1 + r) % 3 ? 1.0f : 0.0f);
+                    put32(o, t.flags);
+                    put32(o, t.value);
+                    char name[32] = {};
+                    std::strncpy(name, t.name.c_str(), sizeof(name) - 1);
+                    o.append(name, sizeof(name));
+                    put32(o, -1);
+                }
+        }
         for (const LeafRec &l : leafs_) {
             std::string &o = lumps[kLeafs];
             put32(o, l.contents);
@@ -368,6 +394,11 @@ private:
     // Six quads per drawable brush. Edge 0 is the reserved dummy edge.
     void faces(std::string *lumps) const {
         constexpr int32_t kDrawable = kDrawableContents;
+        struct FaceRecord {
+            int32_t model, plane;
+            std::string bytes;
+        };
+        std::vector<FaceRecord> records;
         put16(lumps[kEdges], 0);
         put16(lumps[kEdges], 0);
         int32_t vertexCount = 0, edgeCount = 1, surfEdgeCount = 0;
@@ -395,20 +426,60 @@ private:
                         put16(lumps[kEdges], c % 2 ? from : to);
                         put32(lumps[kSurfEdges], c % 2 ? -(edgeCount + c) : edgeCount + c);
                     }
-                    std::string &o = lumps[kFaces];
-                    put16(o, int16_t(uint16_t(planeIndex_.at(std::make_pair(a, v)))));
+                    std::string o;
+                    const int32_t planeNum = planeIndex_.at(std::make_pair(a, v));
+                    put16(o, int16_t(uint16_t(planeNum)));
                     put16(o, int16_t(side ? 0 : 1)); // min side faces -axis
                     put32(o, surfEdgeCount);
                     put16(o, 4);
-                    put16(o, int16_t(b.texinfo));
-                    put32(o, 0); // styles
-                    put32(o, -1); // lightofs
+                    if (!def_.light) {
+                        put16(o, int16_t(b.texinfo));
+                        put32(o, 0);  // styles
+                        put32(o, -1); // lightofs
+                    } else {
+                        put16(o, int16_t(def_.texinfo.size() + size_t(b.texinfo) * 3 + size_t(a)));
+                        for (uint8_t st : def_.faceStyles) o.push_back(char(st));
+                        put32(o, int32_t(lumps[kLighting].size()));
+                        // CalcSurfaceExtents on the face's two axes, then the samples
+                        const float tmin[2] = {std::floor(b.mins[u] / 16) * 16, std::floor(b.mins[w] / 16) * 16};
+                        const int smax = int(std::ceil(b.maxs[u] / 16) - std::floor(b.mins[u] / 16)) + 1;
+                        const int tmax = int(std::ceil(b.maxs[w] / 16) - std::floor(b.mins[w] / 16)) + 1;
+                        for (int slot = 0; slot < 4 && def_.faceStyles[size_t(slot)] != 255; ++slot)
+                            for (int t = 0; t < tmax; ++t)
+                                for (int sx = 0; sx < smax; ++sx) {
+                                    float p[3];
+                                    p[a] = v;
+                                    p[u] = tmin[0] + float(sx) * 16;
+                                    p[w] = tmin[1] + float(t) * 16;
+                                    const std::array<uint8_t, 3> c = def_.light(p, slot);
+                                    lumps[kLighting].append(reinterpret_cast<const char *>(c.data()), 3);
+                                }
+                    }
+                    records.push_back({boxModel_[size_t(&b - boxes_.data())], planeNum, o});
                     vertexCount += 4;
                     edgeCount += 4;
                     surfEdgeCount += 4;
                 }
             }
         }
+        if (def_.light) {
+            // faces grouped by plane within each model, and every node lists
+            // the faces of its model on its plane (qbsp puts them there)
+            std::stable_sort(records.begin(), records.end(), [](const FaceRecord &x, const FaceRecord &y) {
+                return x.model != y.model ? x.model < y.model : x.plane < y.plane;
+            });
+            for (size_t n = 0; n < nodes_.size(); ++n) {
+                size_t first = 0, count = 0;
+                for (size_t i = 0; i < records.size(); ++i) {
+                    if (records[i].model != nodeModel_[n] || records[i].plane != nodes_[n].plane) continue;
+                    if (!count) first = i;
+                    ++count;
+                }
+                poke16(lumps[kNodes], n * 28 + 24, int16_t(uint16_t(first)));
+                poke16(lumps[kNodes], n * 28 + 26, int16_t(uint16_t(count)));
+            }
+        }
+        for (const FaceRecord &r : records) lumps[kFaces] += r.bytes;
     }
 
     // dvis_t: numclusters, bitofs[numclusters][2], Quake 2 zero-run rows.
@@ -465,6 +536,7 @@ private:
     static constexpr int32_t kDrawableContents = 0x1 | 0x2 | 0x8 | 0x10 | 0x20;
     std::vector<Box> boxes_;
     std::vector<int32_t> boxModel_; // model index of each box
+    std::vector<int32_t> nodeModel_; // model index of each node
     int32_t clusters_ = 0;
 };
 

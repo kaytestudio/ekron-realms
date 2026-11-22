@@ -195,6 +195,24 @@ On desktop, `DesktopMapMode` feeds every game event into `GameEffects` at client
 
 `realms_game_effects` tests all of this without a game module. `realms_game_server_*` checks a real shotgun blast end to end: the muzzle flash and its angles, the `TE_SHOTGUN` impact with a unit byte direction, and then the light, puffs, smoke model and sound it produces.
 
+#### Lightmaps (`MapLighting`)
+
+`realms/include/realms/MapLighting.h` is the lighting half of `ref_gl` (`gl_rsurf.c`, `gl_light.c`) without OpenGL:
+
+- **Atlas.** `load` reads `LUMP_LIGHTING` and every face's `styles[4]` / `lightofs`, computes the face extents like `CalcSurfaceExtents` (16-unit luxels) and packs the lightmaps into 128 × 128 pages with `LM_AllocBlock`. The pages sit in one atlas 1024 texels wide. Sky, warp and translucent faces get no lightmap, as in Quake 2.
+- **Coordinates.** `faceUv(face, point)` gives the atlas coordinates of a point on a face (`BuildSurfaceDisplayList`). `MapGeometry` batches now carry the BSP face number of each triangle (`faces`) to make that possible.
+- **Light styles.** `compose` builds the RGBA atlas for the current style values the way `R_BuildLightMap` does: up to four styles summed per face, and the colour kept when a texel saturates. `lightStyleValue` turns a `CS_LIGHTS` string into a value at 10 Hz (`'a'` = 0, `'m'` = 1, `'z'` ≈ 2). `stylesDiffer` tells when the atlas needs composing again.
+- **Models.** `lightPoint` is `R_LightPoint` without dynamic lights: it traces down the world BSP and returns the light of the first lit face below the point.
+- **Bad input.** Malformed lumps fail `load`. Faces whose samples do not fit the lighting lump, or do not fit in the atlas, are counted in `droppedFaces` and drawn without a lightmap. Nothing is ever read out of bounds.
+
+On desktop, `DesktopMapMode` loads the lightmaps of BSP maps that have them (maps compiled with `qrad3`):
+- Lightmapped faces sample the atlas (texture unit 2, vertex attribute 5) instead of the sandbox sun. Light is doubled like `gl_intensity 2`. Dynamic lights still add to it.
+- Each frame, `updateLighting` reads the game's `CS_LIGHTS` at client time, so flickering and switchable lights animate. The atlas is re-uploaded only when a style the map uses has changed.
+- Entities and the view weapon are lit by `lightPoint` at their origin, never darker than `RF_MINLIGHT`'s 0.1. `RF_FULLBRIGHT` models skip this.
+- Maps without lighting data, glTF maps and `r_lightmaps 0` keep the sandbox sun.
+
+`realms_map_lighting` tests the atlas, the coordinates of every face vertex, style composition, `R_LightPoint` (the world only, with inline models ignored) and corrupted maps. It builds its maps with `tests/realms/bsp_builder.h`, which can now write qrad-style lighting (`MapDef::light`, `faceStyles`).
+
 ### Android and iOS map mode
 
 On both phones, **pause menu → Maps…** lists every `.bsp`, `.glb` and `.gltf` under `maps/` and `models/` in the app package, plus `maps/` in the app's writable storage:

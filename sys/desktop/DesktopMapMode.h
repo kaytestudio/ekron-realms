@@ -19,6 +19,7 @@
 #include "realms/GameServer.h"
 #include "realms/GameSound.h"
 #include "realms/GameView.h"
+#include "realms/MapLighting.h"
 
 #include <memory>
 #include <unordered_map>
@@ -88,6 +89,16 @@ public:
     realms::GameListener listener() const;
     const realms::GameEffects &effects() const { return effects_; }
 
+    // ---- lightmaps (BSP maps lit by qrad3)
+    // Light styles now (the game's CS_LIGHTS at client time, or all normal
+    // without a game); re-uploads the atlas when a style used by the map
+    // changed, and follows r_lightmaps. Call once per frame before drawing.
+    void updateLighting(realms::Engine &engine, ekron::gl::Api &gl, DesktopRenderer &renderer);
+    const realms::MapLighting &lighting() const { return lighting_; }
+    // The light (R_LightPoint, 0..~2 per channel) at a map point, never
+    // darker than Quake 2's RF_MINLIGHT 0.1. False without lightmaps.
+    bool lightAt(const realms::Vec3 &mapPoint, std::array<float, 3> &rgb) const;
+
 private:
     bool startGame(realms::Engine &engine, std::string &why);
     void syncFromGame();
@@ -111,6 +122,10 @@ private:
     std::vector<realms::GameParticle> fxParticles_;
     std::vector<realms::GameDynamicLight> fxLights_;
     std::vector<realms::GameBeam> fxBeams_;
+    realms::MapLighting lighting_;
+    realms::MapLightStyles lightStyles_ = realms::defaultLightStyles();
+    std::vector<uint8_t> lightmapRgba_;
+    realms::MapLightStyles currentLightStyles() const;
 };
 
 } // namespace ekron::desktop

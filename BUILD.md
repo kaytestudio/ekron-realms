@@ -471,6 +471,7 @@ cmake --build build --target realms_game_module
 ./build/ekron-realms --engine-info                    # Game: …/librealms_game.so (Quake 2 game API 3)
 ./build/ekron-realms +map base1                       # needs maps/base1.bsp (e.g. from a pak0.pak)
 ctest --test-dir build -R game --output-on-failure    # realms_game_server_native / _pascal, realms_game_effects
+ctest --test-dir build -R map_lighting --output-on-failure   # realms_map_lighting (BSP lightmaps)
 ```
 
 `realms/src/GameEffectTables.inc` is generated and committed. It holds the byte directions and the monster muzzle flashes used by the client effects. If `game/m_flash.pas` or `engine/client/cl_fx.pas` changes, regenerate it with `python3 tools/gen_game_effect_tables.py` (plain Python 3, no packages needed).
