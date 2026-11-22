@@ -169,8 +169,16 @@ jobs:
           if ! ctest --test-dir build --output-on-failure > /tmp/ctest.log 2>&1; then
             cat /tmp/ctest.log
             # Raw logs are not always reachable: put the failures in one annotation.
-            msg="$(grep -E 'Failed|FAIL|\*\*\*|rror|xception|signal|Segmentation|Abort|not found|Test +#' /tmp/ctest.log | tail -n 60 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
+            msg="$(grep -iE 'fail|\*\*\*|rror|xception|signal|Segmentation|Abort|not found|missing|Game:' /tmp/ctest.log | grep -v ' Passed ' | tail -n 60 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
             echo "::error title=ctest (macOS)::${msg}"
+            {
+              ls -l build/EkronRealms.app/Contents/Frameworks/ build/*.dylib 2>&1 || true
+              for lib in build/EkronRealms.app/Contents/Frameworks/librealms_game*; do
+                file "$lib"; nm -gU "$lib" | grep -i getgame || echo "no GetGameAPI export"
+              done
+              build/EkronRealms.app/Contents/MacOS/EkronRealms --engine-info 2>&1 || true
+            } > /tmp/diag.log 2>&1
+            echo "::error title=game module (macOS)::$(sed 's/%/%25/g' /tmp/diag.log | tail -n 40 | awk '{printf "%s%%0A", $0}')"
             exit 1
           fi
           cat /tmp/ctest.log
