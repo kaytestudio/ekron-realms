@@ -10,6 +10,7 @@
 *.rlf
 *.dbg
 *.map
+!tests/realms/maps/*.map
 *.s
 
 # Ignore build directories

@@ -493,6 +493,8 @@ cmake --build build --target realms_game_module
 ctest --test-dir build -R game --output-on-failure    # realms_game_server_native / _pascal, realms_game_effects
 ctest --test-dir build -R map_lighting --output-on-failure   # realms_map_lighting (BSP lightmaps)
 ctest --test-dir build -R quake2_module --output-on-failure  # realms_quake2_module_native / _pascal (Quake2Module + Quake2View)
+ctest --test-dir build -R q2_compiled --output-on-failure    # realms_q2_compiled_map_native / _pascal (a qbsp3/qrad3 map)
+tools/build_q2_test_map.sh                                   # rebuilds tests/realms/maps/q2room.bsp (curl, make, cc)
 ```
 
 `realms/src/GameEffectTables.inc` is generated and committed. It holds the byte directions and the monster muzzle flashes used by the client effects. If `game/m_flash.pas` or `engine/client/cl_fx.pas` changes, regenerate it with `python3 tools/gen_game_effect_tables.py` (plain Python 3, no packages needed).

@@ -273,6 +273,13 @@ jobs:
             -o /tmp/realms-quake2-module-test
           status=0; REALMS_CORE= /tmp/realms-quake2-module-test || status=$?
           [ "$status" = 0 ] || [ "$status" = 77 ] || { echo "::error::realms_quake2_module_test failed ($status)"; exit 1; }
+          # The qbsp3/qvis3/qrad3 map (collision, areas, PVS, lightmaps; the game part skips).
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic -Irealms/include -I$S tests/realms/q2_compiled_map_test.cpp $S/Quake2View.cpp $S/MapSession.cpp \
+            realms/src/Engine.cpp realms/src/NativeCore.cpp realms/src/NativeCModel.cpp realms/src/SandboxBoot.cpp realms/src/MeshMap.cpp realms/src/MapGeometry.cpp realms/src/MapLighting.cpp realms/src/MapWalker.cpp \
+            realms/src/Q2Pmove.cpp realms/src/GameServer.cpp realms/src/GameView.cpp realms/src/GameEffects.cpp realms/src/GameSound.cpp realms/src/Md2Model.cpp realms/src/Quake2Module.cpp -ldl \
+            -o /tmp/realms-q2-compiled-map-test
+          status=0; REALMS_CORE= /tmp/realms-q2-compiled-map-test --map tests/realms/maps/q2room.bsp || status=$?
+          [ "$status" = 0 ] || [ "$status" = 77 ] || { echo "::error::realms_q2_compiled_map_test failed ($status)"; exit 1; }
           REALMS_CORE=native run_test ekron-sound-test -O2 -Irealms/include -I$S tests/native/sound_test.cpp $S/SoundDecode.cpp $S/SoundMixer.cpp $S/SoundDirector.cpp $S/SoundSystem.cpp realms/src/Engine.cpp realms/src/NativeCore.cpp realms/src/NativeCModel.cpp realms/src/SandboxBoot.cpp realms/src/MeshMap.cpp realms/src/MapGeometry.cpp realms/src/MapLighting.cpp realms/src/MapWalker.cpp -ldl -lpthread
 
       - name: Validate translations (English, Russian, Portuguese (Portugal))

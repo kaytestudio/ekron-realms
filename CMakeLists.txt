@@ -516,6 +516,32 @@ else()
 endif()
 set_tests_properties(realms_quake2_module_native PROPERTIES ENVIRONMENT "REALMS_CORE=;REALMS_GAME_LIBRARY=")
 
+# A map compiled by id's qbsp3 / qvis3 / qrad3 (tools/build_q2_test_map.sh):
+# collision, areas, PVS, qrad lightmaps and styles, then the game on it.
+set(REALMS_Q2ROOM_BSP "${CMAKE_CURRENT_SOURCE_DIR}/tests/realms/maps/q2room.bsp")
+add_executable(realms_q2_compiled_map_test
+    tests/realms/q2_compiled_map_test.cpp
+    "${SHARED_CPP_DIR}/MapSession.cpp"
+    "${SHARED_CPP_DIR}/Quake2View.cpp"
+)
+target_include_directories(realms_q2_compiled_map_test PRIVATE "${SHARED_CPP_DIR}")
+target_link_libraries(realms_q2_compiled_map_test PRIVATE realms_quake2)
+if(REALMS_GAME_MODULE_BUILT)
+    add_dependencies(realms_q2_compiled_map_test realms_game_module)
+    add_test(NAME realms_q2_compiled_map_native
+             COMMAND realms_q2_compiled_map_test --map "${REALMS_Q2ROOM_BSP}" --game "${REALMS_GAME_MODULE_PATH}")
+    if(REALMS_PASCAL_CORE_BUILT)
+        add_dependencies(realms_q2_compiled_map_test realms_pascal_core)
+        add_test(NAME realms_q2_compiled_map_pascal
+                 COMMAND realms_q2_compiled_map_test --map "${REALMS_Q2ROOM_BSP}" --game "${REALMS_GAME_MODULE_PATH}"
+                         --pascal "${REALMS_PASCAL_CORE_PATH}")
+    endif()
+else()
+    add_test(NAME realms_q2_compiled_map_native COMMAND realms_q2_compiled_map_test --map "${REALMS_Q2ROOM_BSP}")
+    set_tests_properties(realms_q2_compiled_map_native PROPERTIES SKIP_RETURN_CODE 77)
+endif()
+set_tests_properties(realms_q2_compiled_map_native PROPERTIES ENVIRONMENT "REALMS_CORE=;REALMS_GAME_LIBRARY=")
+
 # Quake 2 .md2 models and PCX skins (realms::Md2Model / decodePcx), generated
 # in memory by tests/realms/md2_builder.h.
 add_executable(realms_md2_test tests/realms/md2_test.cpp)
