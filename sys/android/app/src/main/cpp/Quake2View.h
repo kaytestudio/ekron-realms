@@ -57,6 +57,9 @@ struct DynamicLight {
     float x, y, z, radius, r, g, b; // render space, metres
 };
 
+// Quake 2's MAX_DLIGHTS; the map mode shaders' light arrays have this size.
+constexpr size_t kMaxDynamicLights = 32;
+
 class Quake2View {
 public:
     // Opens the engine's loaded map: the session, then the module (lightmaps

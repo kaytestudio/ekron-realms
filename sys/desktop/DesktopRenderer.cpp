@@ -203,8 +203,8 @@ uniform vec3 uAmbientColor;
 // Map mode: Quake 2 dynamic lights (render space, metres: xyz + radius;
 // colours) and RF_FULLBRIGHT models (explosions, flashes).
 uniform int uDlightCount;
-uniform vec4 uDlights[8];
-uniform vec4 uDlightColors[8];
+uniform vec4 uDlights[32];
+uniform vec4 uDlightColors[32];
 uniform int uFullbright;
 // Quake 2 lightmaps: map faces sample the atlas (vLightUV.x < 0: none),
 // entities get the light under them (uEntityLight, R_LightPoint). Light
@@ -264,7 +264,7 @@ void main() {
     vec3 worldPos = vToEye + uEye;
     // lit entities already have the dynamic lights in uEntityLight
     int dlightCount = uModelPass != 0 && uEntityLit != 0 ? 0 : uDlightCount;
-    for (int i = 0; i < dlightCount && i < 8; i++) {
+    for (int i = 0; i < dlightCount && i < 32; i++) {
         vec3 toLight = uDlights[i].xyz - worldPos;
         float f = clamp(1.0 - length(toLight) / max(uDlights[i].w, 1e-4), 0.0, 1.0);
         float facing = dot(toLight, toLight) > 1e-8 ? 0.35 + 0.65 * max(dot(n, normalize(toLight)), 0.0) : 1.0;

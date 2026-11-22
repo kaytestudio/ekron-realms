@@ -59,14 +59,15 @@ typedef struct
 } SandboxDrawUniforms;
 
 // Realms map mode with the Quake 2 stack (quakeMapFragment, buffer 3):
-// BSP lightmaps, Quake 2 entity light and the nearest dynamic lights.
+// BSP lightmaps, Quake 2 entity light and the dynamic lights.
+#define SANDBOX_MAX_DLIGHTS 32 // Quake 2's MAX_DLIGHTS
 typedef struct
 {
-    simd_float4 lights[8];      // xyz = render-space position, w = radius (metres)
-    simd_float4 lightColors[8]; // xyz = linear RGB
+    simd_float4 lights[SANDBOX_MAX_DLIGHTS];      // xyz = render-space position, w = radius (metres)
+    simd_float4 lightColors[SANDBOX_MAX_DLIGHTS]; // xyz = linear RGB
     simd_int4   modeCount;      // x = mode (0 sandbox sun, 1 lightmapped world,
                                 //      2 entity lit by `light`, 3 fullbright),
-                                // y = dynamic lights in use (0...8)
+                                // y = dynamic lights in use (0...SANDBOX_MAX_DLIGHTS)
     simd_float4 light;          // xyz = Quake 2 light value at the entity (mode 2)
 } SandboxQuakeUniforms;
 

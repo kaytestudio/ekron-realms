@@ -182,7 +182,7 @@ public:
     struct DynamicLight {
         float x = 0, y = 0, z = 0, radius = 0, r = 1, g = 1, b = 1;
     };
-    static constexpr size_t kMaxMapLights = 8;
+    static constexpr size_t kMaxMapLights = 32; // MAX_DLIGHTS; the shader arrays match
     void setMapEffects(ekron::gl::Api &gl, const std::vector<EffectVertex> &vertices, std::vector<DynamicLight> lights);
     void clearMapEffects() {
         effectCount_ = 0;

@@ -313,7 +313,7 @@ fragment float4 quakeMapFragment(SandboxVaryings in [[stage_in]],
     }
     const float3 world = in.toEye + scene.eyeAspect.xyz;
     // lit entities (mode 2) already have the dynamic lights in quake.light
-    const int count = mode == 2 ? 0 : clamp(quake.modeCount.y, 0, 8);
+    const int count = mode == 2 ? 0 : clamp(quake.modeCount.y, 0, SANDBOX_MAX_DLIGHTS);
     for (int i = 0; i < count; ++i) {
         float3 toLight = quake.lights[i].xyz - world;
         float f = clamp(1.0f - length(toLight) / max(quake.lights[i].w, 1e-4f), 0.0f, 1.0f);

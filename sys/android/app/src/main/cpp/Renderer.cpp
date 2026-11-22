@@ -123,8 +123,8 @@ uniform bool mapLightmap;
 uniform sampler2D lightmap;
 // Quake 2 dynamic lights (muzzle flashes, rockets, explosions), map mode only.
 uniform int dlightCount;
-uniform vec4 dlights[8];
-uniform vec4 dlightColors[8];
+uniform vec4 dlights[32];
+uniform vec4 dlightColors[32];
 uniform bool texturesReady;
 uniform bool modelPass;
 uniform bool previewPass;
@@ -169,7 +169,7 @@ void main(){
  float shine=pow(max(dot(n,halfVector),0.0),mix(90.0,8.0,roughness));
  lit+=lightColor*shine*strength*diffuse;
  if(mapLightmap&&!modelPass&&lmUV.x>=0.0)lit=base*pow(2.0*texture(lightmap,lmUV).rgb,vec3(2.2));
- for(int i=0;i<dlightCount&&i<8;i++){
+ for(int i=0;i<dlightCount&&i<32;i++){
   vec3 toLight=dlights[i].xyz-(toEye+eye);
   float f=clamp(1.0-length(toLight)/max(dlights[i].w,1e-4),0.0,1.0);
   float facing=dot(toLight,toLight)>1e-8?.35+.65*max(dot(n,normalize(toLight)),0.0):1.0;

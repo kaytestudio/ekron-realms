@@ -51,8 +51,8 @@ uniform vec3 lightDirection;
 uniform vec3 lightColor;
 uniform vec3 ambientColor;
 uniform int dlightCount;
-uniform vec4 dlights[8];
-uniform vec4 dlightColors[8];
+uniform vec4 dlights[32];
+uniform vec4 dlightColors[32];
 out vec4 outColor;
 void main(){
  vec4 s=textured?texture(skin,texUV):vec4(1.0);
@@ -65,7 +65,7 @@ void main(){
  if(lit)c=base*pow(2.0*max(light,vec3(0.0)),vec3(2.2))*(.72+.56*diffuse);
  else c=base*(ambientColor*(.78+.22*max(n.y,0.0))+lightColor*diffuse);
  vec3 world=toEye+eye;
- for(int i=0;i<(lit?0:dlightCount)&&i<8;i++){
+ for(int i=0;i<(lit?0:dlightCount)&&i<32;i++){
   vec3 toLight=dlights[i].xyz-world;
   float f=clamp(1.0-length(toLight)/max(dlights[i].w,1e-4),0.0,1.0);
   float facing=dot(toLight,toLight)>1e-8?.35+.65*max(dot(n,normalize(toLight)),0.0):1.0;
@@ -254,8 +254,8 @@ void Quake2Gles::drawEntities(realms::Engine &engine, const std::vector<mapview:
     glUniform3f(glGetUniformLocation(entityProgram_, "lightDirection"), -.45f, -1.f, -.25f);
     glUniform3f(glGetUniformLocation(entityProgram_, "lightColor"), .55f, .52f, .48f);
     glUniform3f(glGetUniformLocation(entityProgram_, "ambientColor"), .55f, .59f, .65f);
-    float pos[8 * 4] = {}, col[8 * 4] = {};
-    const int count = int(std::min<size_t>(lights.size(), 8));
+    float pos[mapview::kMaxDynamicLights * 4] = {}, col[mapview::kMaxDynamicLights * 4] = {};
+    const int count = int(std::min(lights.size(), mapview::kMaxDynamicLights));
     for (int i = 0; i < count; i++) {
         const mapview::DynamicLight &l = lights[size_t(i)];
         const float p[4] = {l.x, l.y, l.z, l.radius}, c[4] = {l.r, l.g, l.b, 1.0f};
@@ -263,8 +263,8 @@ void Quake2Gles::drawEntities(realms::Engine &engine, const std::vector<mapview:
         std::copy(c, c + 4, col + i * 4);
     }
     glUniform1i(glGetUniformLocation(entityProgram_, "dlightCount"), count);
-    glUniform4fv(glGetUniformLocation(entityProgram_, "dlights"), 8, pos);
-    glUniform4fv(glGetUniformLocation(entityProgram_, "dlightColors"), 8, col);
+    glUniform4fv(glGetUniformLocation(entityProgram_, "dlights"), GLsizei(mapview::kMaxDynamicLights), pos);
+    glUniform4fv(glGetUniformLocation(entityProgram_, "dlightColors"), GLsizei(mapview::kMaxDynamicLights), col);
     const GLint transformLoc = glGetUniformLocation(entityProgram_, "objectTransform");
     const GLint tintLoc = glGetUniformLocation(entityProgram_, "tint");
     const GLint texturedLoc = glGetUniformLocation(entityProgram_, "textured");

@@ -218,7 +218,7 @@ void AndroidMapMode::draw(GLuint program, const city::GltfRenderer &sandboxCity,
         return;
     }
     // effects first: their dynamic lights light the world and the entities
-    view_->effects(renderYaw, renderPitch, 8, effectVertices_, lights_);
+    view_->effects(renderYaw, renderPitch, mapview::kMaxDynamicLights, effectVertices_, lights_);
     if (model_.ready()) {
         model_.draw(program, eye.x, eye.z);
     } else if (count_) {
@@ -241,8 +241,8 @@ void AndroidMapMode::draw(GLuint program, const city::GltfRenderer &sandboxCity,
             glActiveTexture(GL_TEXTURE0);
             glUniform1i(glGetUniformLocation(program, "mapLightmap"), engine.cvarBool("r_lightmaps", true) ? 1 : 0);
         }
-        float pos[8 * 4] = {}, col[8 * 4] = {};
-        const int lightCount = int(std::min<size_t>(lights_.size(), 8));
+        float pos[mapview::kMaxDynamicLights * 4] = {}, col[mapview::kMaxDynamicLights * 4] = {};
+        const int lightCount = int(std::min(lights_.size(), mapview::kMaxDynamicLights));
         for (int i = 0; i < lightCount; i++) {
             const mapview::DynamicLight &l = lights_[size_t(i)];
             const float p[4] = {l.x, l.y, l.z, l.radius}, c[4] = {l.r, l.g, l.b, 1.0f};
@@ -250,8 +250,8 @@ void AndroidMapMode::draw(GLuint program, const city::GltfRenderer &sandboxCity,
             std::copy(c, c + 4, col + i * 4);
         }
         glUniform1i(glGetUniformLocation(program, "dlightCount"), lightCount);
-        glUniform4fv(glGetUniformLocation(program, "dlights"), 8, pos);
-        glUniform4fv(glGetUniformLocation(program, "dlightColors"), 8, col);
+        glUniform4fv(glGetUniformLocation(program, "dlights"), GLsizei(mapview::kMaxDynamicLights), pos);
+        glUniform4fv(glGetUniformLocation(program, "dlightColors"), GLsizei(mapview::kMaxDynamicLights), col);
         const GLint transformLoc = glGetUniformLocation(program, "objectTransform");
         glBindVertexArray(vao_);
         if (ranges_.empty()) {

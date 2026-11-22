@@ -685,9 +685,9 @@ public:
             return;
         }
         // effects first: their dynamic lights light the world and the entities
-        view_->effects(renderYaw, renderPitch, 8, effectVertices_, lights_);
+        view_->effects(renderYaw, renderPitch, SANDBOX_MAX_DLIGHTS, effectVertices_, lights_);
         SandboxQuakeUniforms quake{};
-        const int lightCount = int(std::min<size_t>(lights_.size(), 8));
+        const int lightCount = int(std::min<size_t>(lights_.size(), SANDBOX_MAX_DLIGHTS));
         for (int i = 0; i < lightCount; ++i) {
             const mapview::DynamicLight &l = lights_[size_t(i)];
             quake.lights[i] = simd_make_float4(l.x, l.y, l.z, l.radius);

@@ -242,6 +242,23 @@ void tempEntityChecks() {
     CHECK(int(fx.particleCount()) <= realms::GameEffects::kMaxParticles && fx.explosionCount() == 0);
 }
 
+// 40 entities firing at once: MAX_DLIGHTS (32) lights, all handed to the map modes
+void dynamicLightLimitChecks() {
+    realms::GameEffects fx;
+    realms::GameEvent mz;
+    mz.kind = realms::GameEvent::Kind::MuzzleFlash;
+    mz.level = realms::GMZ_BLASTER;
+    for (int e = 1; e <= 40; e++) {
+        mz.entity = e;
+        mz.origin = {float(e) * 64.0f, 0, 0};
+        fx.handleEvent(mz, 0);
+    }
+    std::vector<realms::GameDynamicLight> lights;
+    fx.lights(10, lights);
+    CHECK(lights.size() == size_t(realms::GameEffects::kMaxDlights));
+    CHECK(realms::GameEffects::kMaxDlights == 32);
+}
+
 void muzzleFlashChecks() {
     realms::GameEffects fx;
     std::vector<realms::GameDynamicLight> lights;
@@ -613,6 +630,7 @@ int main() {
     dynamicLightPointChecks();
     tempEntityChecks();
     muzzleFlashChecks();
+    dynamicLightLimitChecks();
     entityEffectChecks();
     sceneChecks();
     std::printf("[effects] %d checks, %d failures\n", gChecks, gFailures);
