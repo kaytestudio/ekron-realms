@@ -358,8 +358,8 @@ The other ways to build it all produce the same `build/realms-pascal`. Each one 
 
 | Entry point | Command |
 | :--- | :--- |
-| Lazarus | Open `Projects/realms.lpi` (or the root `realms.lpi`) and press Build, or run `lazbuild Projects/realms.lpi`. Its "Execute before" step runs `Projects/build_sandbox.sh`. |
-| Makefile | `make pascal` (or `make lazarus` for lazbuild). `make`, `make test`, `make run`, `make run-pascal`, `make package` and `make install` wrap the CMake build. |
+| Lazarus | Open `Projects/realms.lpi` (or the root `realms.lpi`) and press Build, or run `lazbuild Projects/realms.lpi`. Its "Execute before" step runs `Projects/build_sandbox.sh`, which also builds the Quake 2 game module (`build/librealms_game.so`). `game/realms_game.lpi` builds only the game module. |
+| Makefile | `make pascal` (or `make lazarus` for lazbuild), `make game` for the game module. `make`, `make test`, `make run`, `make run-pascal`, `make package` and `make install` wrap the CMake build. |
 | Plain fpc | `Projects/build_sandbox.sh && fpc @realms-fpc.cfg Projects/realms.lpr` |
 | Docker / Jenkins | `docker build -t ekron-builder .` runs the CMake build, CTest and CPack on Ubuntu 24.04. `docker compose up` (or the `Jenkinsfile`) copies the `.deb` and the binaries to `./output`. |
 
@@ -463,6 +463,15 @@ ctest --test-dir build -R realms --output-on-failure  # bridge conformance (C++ 
 ```
 
 For Android `jniLibs` and the iOS static archive, use `realms/pascal/build_core.sh android-aarch64|android-armv7|android-x86_64|ios-arm64`. Without a Pascal core, every platform falls back to the C++ reference core.
+
+- `realms_game_module` is built when `fpc` is found and `-DENABLE_GAME_MODULE=ON` (the default). It compiles the Quake 2 game module, `game/realms_game.lpr` (the Free Pascal gamex86 port), into `librealms_game.so`/`.dylib`, installed next to `librealms_core` in the same three places. `realms::GameServer` (part of `realms_engine`) loads it when a BSP map is opened on desktop, so maps run the Quake 2 game (items, doors, triggers, monsters, weapons) on whichever core is active. `make game` and `lazbuild game/realms_game.lpi` build the same library; `REALMS_GAME_LIBRARY=/path/librealms_game.so` overrides the search; the `sv_game 0` cvar turns the game off (map mode then only walks the map).
+
+```bash
+cmake --build build --target realms_game_module
+./build/ekron-realms --engine-info                    # Game: …/librealms_game.so (Quake 2 game API 3)
+./build/ekron-realms +map base1                       # needs maps/base1.bsp (e.g. from a pak0.pak)
+ctest --test-dir build -R game --output-on-failure    # realms_game_server_native / _pascal
+```
 
 ---
 

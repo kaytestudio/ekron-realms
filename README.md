@@ -166,6 +166,19 @@ xcodebuild archive \
 
 The `REALMS_CORE=pascal|native|auto` environment variable selects the Realms core. With `pascal`, startup fails if `librealms_core` is missing.
 
+### Quake 2 Maps and the Game Module
+
+`map <name>` in the console (or `+map <name>` on the command line) opens a Quake 2 BSP (`maps/<name>.bsp`, loose or in a `pak0.pak`…) or a `.glb` / `.gltf` scene; `killserver` returns to the sandbox. With `fpc` installed the build also produces `librealms_game.so` / `.dylib`, the Free Pascal port of the Quake 2 game DLL (`game/`). The C++ sandbox hosts it through `realms::GameServer`, a Quake 2 server on the Realms Engine, so a BSP map plays like Quake 2: the player spawns at `info_player_start`, items can be picked up, doors, lifts and triggers work, and monsters and weapons run the original game code, on the Pascal or the C++ core. `--engine-info` shows the module (`Game: … (Quake 2 game API 3)`).
+
+| Input (in a map) | Action |
+| :--- | :--- |
+| `W A S D` / `Space` / `Ctrl` | Move / Jump / Crouch |
+| `Left Click` | Fire the current weapon (with the mouse captured) |
+| `N` / `R` | Noclip / Restart the map (respawn without the game) |
+| `` ` `` | Console: Quake 2 client commands such as `give all`, `give shotgun`, `use blaster`, `god`, `notarget`, `kill`, `weapnext`, `cmd <command>`, server commands with `sv <command>`, and `killserver` |
+
+`sv_game 0` turns the game off (then `map` only walks the map). `REALMS_GAME_LIBRARY=/path/to/librealms_game.so` picks another module build. Details: [realms/README.md](realms/README.md#quake-2-game-module-gameserver).
+
 ### Free Pascal Client (`realms-pascal`)
 
 With `fpc` installed and `-DENABLE_FPC_CLIENT=ON`, the build also produces `realms-pascal` (`Projects/realms.lpr`). It is a Free Pascal program with the Pascal Realms core compiled in. It runs the C++ desktop sandbox (window, input, OpenGL, audio, world) from `libekron_sandbox`, so SDL2 is used from C++ and no Pascal SDL units are needed. It takes the same flags as `ekron-realms`. `--engine-info` reports `Core: pascal-quake2 (Free Pascal)` and `Origin: linked`. It is installed as `/usr/bin/realms-pascal` by the `.deb` and as `EkronRealms.app/Contents/MacOS/realms-pascal` on macOS.
@@ -179,7 +192,8 @@ You can also build it from the Lazarus project `Projects/realms.lpi` (`lazbuild 
 ```bash
 # Run desktop CTest suite (HUD layout, shop, localization, Realms bridge conformance
 # for the C++ and Free Pascal cores, console, sound decoding/mixing, --engine-info,
-# --version, --headless-smoke, and the realms-pascal program on its linked core)
+# --version, --headless-smoke, the realms-pascal program on its linked core, and the
+# Quake 2 game module hosted by realms::GameServer on both cores)
 ctest --test-dir build --output-on-failure -V
 
 # Validate Android and iOS translations (English, Russian, Portuguese (Portugal))
@@ -204,6 +218,7 @@ ekron-realms/
 ├── CMakeLists.txt              # Desktop CMake build, CTest smoke suite, and CPack (.deb / .app) packaging
 ├── cmake/                      # CMake find-modules (SDL2, SDL3, FPC, Lazarus, KayteIDE, KCC)
 ├── realms/                     # Realms Engine: C ABI + C++ facade (include/, src/) and Free Pascal Quake 2 core (pascal/)
+├── game/                       # Quake 2 game module (Free Pascal gamex86 port) → librealms_game, hosted by realms::GameServer
 ├── Resources/                  # macOS Info.plist and Linux .desktop launcher entry
 ├── sys/
 │   ├── android/                # Native Android sandbox (GameActivity + OpenGL ES 3.0 + shared C++17 core & assets)

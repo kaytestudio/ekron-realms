@@ -167,7 +167,7 @@ begin
   if ent^.client^.chase_target = Nil then
     Exit;
 
-  i := (LongInt(ent^.client^.chase_target) - LongInt(g_edicts)) div sizeof(edict_t);
+  i := (PtrInt(ent^.client^.chase_target) - PtrInt(g_edicts)) div sizeof(edict_t);
   repeat
     inc(i);
     if i > maxclients^.value then
@@ -193,7 +193,7 @@ begin
   if ent^.client^.chase_target = Nil then
     Exit;
 
-  i := (LongInt(ent^.client^.chase_target) - LongInt(g_edicts)) div sizeof(edict_t);
+  i := (PtrInt(ent^.client^.chase_target) - PtrInt(g_edicts)) div sizeof(edict_t);
   repeat
     dec(i);
     if i < 1 then

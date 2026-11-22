@@ -10,6 +10,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 option(ENABLE_DESKTOP_SANDBOX "Build the native C++17 SDL2/OpenGL desktop sandbox client" ON)
 option(ENABLE_FPC_CLIENT "Build the Free Pascal client (realms-pascal + libekron_sandbox) and launcher when fpc is installed" ON)
 option(ENABLE_PASCAL_CORE "Build the Free Pascal Realms core (librealms_core, Quake 2 stack) when fpc is installed" ON)
+option(ENABLE_GAME_MODULE "Build the Quake 2 game module (game/, librealms_game) for realms::GameServer when fpc is installed" ON)
 option(ENABLE_EXTERNAL_TOOLS "Fetch and build external KayteIDE and KCC repositories" OFF)
 option(ENABLE_KCC "Build the KCC compiler from tools/kcc (cloned from kaytestudio/kcc when missing)" OFF)
 
@@ -23,7 +24,7 @@ set(REALMS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/realms")
 # =============================================================================
 add_subdirectory("${REALMS_DIR}" realms)
 
-if(ENABLE_FPC_CLIENT OR ENABLE_PASCAL_CORE)
+if(ENABLE_FPC_CLIENT OR ENABLE_PASCAL_CORE OR ENABLE_GAME_MODULE)
     find_package(FPC QUIET)
 endif()
 
@@ -47,6 +48,31 @@ if(ENABLE_PASCAL_CORE AND FPC_FOUND)
     message(STATUS "=== Realms Pascal core: ${REALMS_PASCAL_CORE_PATH} ===")
 elseif(ENABLE_PASCAL_CORE)
     message(STATUS "Free Pascal Compiler (fpc) not found; Realms will use its C++ reference core.")
+endif()
+
+# The Quake 2 game module (game/, the Free Pascal port of gamex86): Quake 2
+# game API v3 behind realms/include/realms/q2game.h, hosted in the C++
+# sandbox by realms::GameServer (dlopen + GetGameAPI), next to the core.
+set(REALMS_GAME_MODULE_BUILT FALSE)
+if(ENABLE_GAME_MODULE AND FPC_FOUND)
+    if(APPLE)
+        set(REALMS_GAME_MODULE_DIR "${CMAKE_CURRENT_BINARY_DIR}/EkronRealms.app/Contents/Frameworks")
+        set(_realms_game_flags -Mdelphi -dGAMEDLL -O2)
+    else()
+        set(REALMS_GAME_MODULE_DIR "${CMAKE_CURRENT_BINARY_DIR}")
+        set(_realms_game_flags -Mdelphi -dGAMEDLL -O2 -Xs)
+    endif()
+    add_fpc_library(realms_game_module
+        SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/game/realms_game.lpr"
+        NAME realms_game
+        OUTPUT_DIRECTORY "${REALMS_GAME_MODULE_DIR}"
+        COMPILE_FLAGS ${_realms_game_flags}
+    )
+    get_target_property(REALMS_GAME_MODULE_PATH realms_game_module FPC_OUTPUT_PATH)
+    set(REALMS_GAME_MODULE_BUILT TRUE)
+    message(STATUS "=== Realms game module: ${REALMS_GAME_MODULE_PATH} ===")
+elseif(ENABLE_GAME_MODULE)
+    message(STATUS "Free Pascal Compiler (fpc) not found; skipping the Quake 2 game module (map mode runs without it).")
 endif()
 
 # =============================================================================
@@ -336,6 +362,14 @@ if(TARGET ekron-realms)
             )
         endif()
 
+        if(REALMS_GAME_MODULE_BUILT)
+            # Probed by realms::GameServer at <bindir>/../lib/ekron-realms.
+            install(FILES "${REALMS_GAME_MODULE_PATH}"
+                DESTINATION "lib/ekron-realms"
+                PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ
+            )
+        endif()
+
         if(REALMS_PASCAL_CORE_BUILT)
             # Private library probed by realms::Engine at <bindir>/../lib/ekron-realms.
             install(FILES "${REALMS_PASCAL_CORE_PATH}"
@@ -433,6 +467,27 @@ target_link_libraries(ekron_sound_test PRIVATE realms_engine Threads::Threads)
 add_test(NAME ekron_sound COMMAND ekron_sound_test "${SHARED_ASSETS_DIR}")
 set_tests_properties(ekron_sound PROPERTIES ENVIRONMENT "REALMS_CORE=native")
 
+# Quake 2 game module on realms::GameServer: Q2Pmove on Engine traces, then
+# the Free Pascal game (spawn, walk, pickup, door, commands, restart). Without
+# the module only the Pmove part runs and the test reports "skipped" (77).
+add_executable(realms_game_server_test tests/realms/game_server_test.cpp)
+target_include_directories(realms_game_server_test PRIVATE tests/realms)
+target_link_libraries(realms_game_server_test PRIVATE realms_engine)
+if(REALMS_GAME_MODULE_BUILT)
+    add_dependencies(realms_game_server_test realms_game_module)
+    add_test(NAME realms_game_server_native
+             COMMAND realms_game_server_test --game "${REALMS_GAME_MODULE_PATH}")
+    if(REALMS_PASCAL_CORE_BUILT)
+        add_dependencies(realms_game_server_test realms_pascal_core)
+        add_test(NAME realms_game_server_pascal
+                 COMMAND realms_game_server_test --game "${REALMS_GAME_MODULE_PATH}" --pascal "${REALMS_PASCAL_CORE_PATH}")
+    endif()
+else()
+    add_test(NAME realms_game_server_native COMMAND realms_game_server_test)
+    set_tests_properties(realms_game_server_native PROPERTIES SKIP_RETURN_CODE 77)
+endif()
+set_tests_properties(realms_game_server_native PROPERTIES ENVIRONMENT "REALMS_CORE=;REALMS_GAME_LIBRARY=")
+
 if(EKRON_SDL2_TARGET)
     # Drop-down console line editing / command submission (no GL needed).
     add_executable(realms_desktop_console_test
@@ -467,6 +522,17 @@ if(TARGET ekron-realms)
         set_tests_properties(ekron_desktop_headless_smoke_pascal PROPERTIES
             ENVIRONMENT "REALMS_CORE=pascal"
             PASS_REGULAR_EXPRESSION "realmsCore=pascal-quake2"
+        )
+    endif()
+    if(REALMS_GAME_MODULE_BUILT)
+        # The sandbox finds the game module it ships with (next to it).
+        add_test(
+            NAME ekron_desktop_game_module
+            COMMAND $<TARGET_FILE:ekron-realms> --engine-info --assets "${SHARED_ASSETS_DIR}"
+        )
+        set_tests_properties(ekron_desktop_game_module PROPERTIES
+            ENVIRONMENT "REALMS_GAME_LIBRARY="
+            PASS_REGULAR_EXPRESSION "Game: +[^\r\n]*realms_game[^\r\n]*Quake 2 game API 3"
         )
     endif()
     add_test(

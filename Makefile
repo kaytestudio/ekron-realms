@@ -3,12 +3,15 @@
 #
 #   make              configure + build everything into $(BUILD_DIR):
 #                     ekron-realms (C++ SDL2 sandbox), librealms_core (Free
-#                     Pascal core), libekron_sandbox + realms-pascal (Free Pascal
-#                     client running the C++ sandbox), realms-launcher
+#                     Pascal core), librealms_game (Quake 2 game module),
+#                     libekron_sandbox + realms-pascal (Free Pascal client
+#                     running the C++ sandbox), realms-launcher
 #   make test         run the CTest suite
 #   make run          start the game (C++ executable)
 #   make run-pascal   start the game through the Free Pascal client
 #   make pascal       build only realms-pascal (and the sandbox library it needs)
+#   make game         build only librealms_game, the Quake 2 game module (game/)
+#                     map mode plays BSP maps with (realms::GameServer)
 #   make lazarus      build realms-pascal from Projects/realms.lpi with lazbuild
 #   make package      .deb (Linux) / .dmg + .tgz (macOS) with CPack
 #   make install      install (PREFIX=/usr/local by default)
@@ -38,7 +41,7 @@ GAME_BIN   := $(BUILD_DIR)/ekron-realms
 PASCAL_BIN := $(BUILD_DIR)/realms-pascal
 endif
 
-.PHONY: all build configure test run run-pascal pascal lazarus package install clean distclean help
+.PHONY: all build configure test run run-pascal pascal game lazarus package install clean distclean help
 
 all: build
 
@@ -64,6 +67,9 @@ run-pascal: pascal
 pascal: configure
 	$(CMAKE) --build $(BUILD_DIR) -j $(JOBS) --target realms_pascal_client
 
+game: configure
+	$(CMAKE) --build $(BUILD_DIR) -j $(JOBS) --target realms_game_module
+
 # Projects/realms.lpi builds libekron_sandbox first (Projects/build_sandbox.sh)
 # and writes build/realms-pascal, the same program as `make pascal`. The
 # Lazarus project always uses <repo>/build, whatever BUILD_DIR says.
@@ -83,4 +89,4 @@ distclean:
 	rm -rf $(BUILD_DIR)
 
 help:
-	@sed -n '2,19p' Makefile
+	@sed -n '2,21p' Makefile

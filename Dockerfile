@@ -4,6 +4,7 @@
 # Builds the whole desktop project with CMake, like the Debian CI job:
 #   ekron-realms        C++17 SDL2/OpenGL sandbox
 #   librealms_core.so   Free Pascal Realms core (Quake 2 stack)
+#   librealms_game.so   Quake 2 game module (game/, Free Pascal) for map mode
 #   realms-pascal       Free Pascal client: the Pascal core compiled in, running
 #                       the C++ sandbox from libekron_sandbox.so
 #   realms-launcher     Free Pascal launcher
@@ -39,7 +40,7 @@ RUN ctest --test-dir build --output-on-failure
 RUN cd build && cpack -G DEB && \
     mkdir -p /app/dist && \
     cp ekron-realms_*.deb ekron-realms realms-pascal realms-launcher \
-       libekron_sandbox.so librealms_core.so /app/dist/ && \
+       libekron_sandbox.so librealms_core.so librealms_game.so /app/dist/ && \
     ls -l /app/dist
 
 CMD ["bash"]

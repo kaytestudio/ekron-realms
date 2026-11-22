@@ -18,13 +18,15 @@ add_library(realms_engine STATIC
     "${CMAKE_CURRENT_LIST_DIR}/src/MeshMap.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/src/MapGeometry.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/src/MapWalker.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/src/Q2Pmove.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/src/GameServer.cpp"
 )
 target_include_directories(realms_engine PUBLIC "${CMAKE_CURRENT_LIST_DIR}/include")
 target_compile_features(realms_engine PUBLIC cxx_std_17)
 set_target_properties(realms_engine PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 if(UNIX AND NOT APPLE)
-    # dlopen() for librealms_core.so (desktop Linux and Android).
+    # dlopen() for librealms_core.so and librealms_game.so (desktop Linux and Android).
     target_link_libraries(realms_engine PUBLIC ${CMAKE_DL_LIBS})
 endif()
 

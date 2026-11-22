@@ -33,6 +33,7 @@ struct MapGeometryBatch {
     std::string material;     // texture / surface name ("" when unknown)
     int32_t surfaceFlags = 0; // REALMS_SURF_*
     int32_t contents = 0;     // brush / surface contents, 0 when unknown
+    int32_t model = 0;        // BSP faces: 0 world, n = inline model "*n" (doors, platforms...)
     std::vector<float> positions; // xyz per vertex
     std::vector<float> normals;   // xyz per vertex (flat)
     std::vector<float> uvs;       // texinfo texels (BSP) or map units (planar)

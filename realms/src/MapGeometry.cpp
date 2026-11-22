@@ -35,10 +35,15 @@ enum {
     kLumpTexinfo = 5,
     kLumpEdges = 11,
     kLumpSurfEdges = 12,
+    kLumpNodes = 4,
+    kLumpLeafs = 8,
+    kLumpLeafBrushes = 10,
+    kLumpModels = 13,
     kLumpBrushes = 14,
     kLumpBrushSides = 15,
     kNumLumps = 19
 };
+constexpr size_t kModelSize = 48, kNodeSize = 28, kLeafSize = 28, kLeafBrushSize = 2;
 constexpr size_t kPlaneSize = 20, kVertexSize = 12, kFaceSize = 20, kTexinfoSize = 76, kEdgeSize = 4,
                  kSurfEdgeSize = 4, kBrushSize = 12, kBrushSideSize = 4;
 constexpr int kMaxFaceEdges = 64;    // qbsp MAXEDGES
@@ -100,7 +105,7 @@ public:
     // Polygon (any winding) with an outward normal; fan-triangulated so the
     // triangles wind counter-clockwise around `normal`.
     bool polygon(std::vector<DVec> points, const DVec &normal, const std::string &material, int32_t flags,
-                 int32_t contents, const Texinfo *tex) {
+                 int32_t contents, const Texinfo *tex, int32_t model = 0) {
         // Drop repeated points (qbsp leaves colinear points; harmless).
         std::vector<DVec> pts;
         for (const DVec &p : points) {
@@ -120,7 +125,7 @@ public:
         if (std::fabs(a) < 1e-6) return false; // degenerate (bevel sides, slivers)
         if (a < 0) std::reverse(pts.begin(), pts.end());
 
-        MapGeometryBatch &batch = batchFor(material, flags, contents);
+        MapGeometryBatch &batch = batchFor(material, flags, contents, model);
         for (size_t i = 1; i + 1 < pts.size(); ++i) {
             for (const DVec *p : {&pts[0], &pts[i], &pts[i + 1]}) vertex(batch, *p, normal, tex);
         }
@@ -128,8 +133,8 @@ public:
     }
 
 private:
-    MapGeometryBatch &batchFor(const std::string &material, int32_t flags, int32_t contents) {
-        const auto key = std::make_tuple(material, flags, contents);
+    MapGeometryBatch &batchFor(const std::string &material, int32_t flags, int32_t contents, int32_t model) {
+        const auto key = std::make_tuple(model, material, flags, contents);
         auto it = index_.find(key);
         if (it != index_.end()) return out_.batches[it->second];
         index_.emplace(key, out_.batches.size());
@@ -138,6 +143,7 @@ private:
         b.material = material;
         b.surfaceFlags = flags;
         b.contents = contents;
+        b.model = model;
         return b;
     }
 
@@ -177,7 +183,7 @@ private:
     }
 
     MapGeometry &out_;
-    std::map<std::tuple<std::string, int32_t, int32_t>, size_t> index_;
+    std::map<std::tuple<int32_t, std::string, int32_t, int32_t>, size_t> index_;
     bool first_ = true;
 };
 
@@ -223,6 +229,16 @@ void faceGeometry(const Lump (&lumps)[kNumLumps], const std::vector<Texinfo> &te
     const Lump &verts = lumps[kLumpVertexes];
     const Lump &edges = lumps[kLumpEdges];
     const Lump &surfedges = lumps[kLumpSurfEdges];
+    // dmodel_t firstface / numfaces: which model (0 world, n "*n") owns a face.
+    std::vector<int32_t> faceModel(faces.count, 0);
+    const Lump &models = lumps[kLumpModels];
+    for (size_t m = 1; m < models.count; ++m) {
+        const unsigned char *mp = models.data + m * kModelSize;
+        const int32_t first = rdI32(mp + 40), num = rdI32(mp + 44);
+        if (first < 0 || num <= 0 || size_t(first) >= faces.count) continue;
+        const size_t end = std::min(faces.count, size_t(first) + size_t(num));
+        for (size_t f = size_t(first); f < end; ++f) faceModel[f] = int32_t(m);
+    }
     std::vector<DVec> points;
     for (size_t f = 0; f < faces.count; ++f) {
         const unsigned char *p = faces.data + f * kFaceSize;
@@ -263,15 +279,55 @@ void faceGeometry(const Lump (&lumps)[kNumLumps], const std::vector<Texinfo> &te
         }
         DVec normal = plane.normal;
         if (side) normal = {-normal[0], -normal[1], -normal[2]};
-        if (!ok || !emit.polygon(points, normal, tex ? tex->name : std::string(), tex ? tex->flags : 0, 0, tex))
+        if (!ok ||
+            !emit.polygon(points, normal, tex ? tex->name : std::string(), tex ? tex->flags : 0, 0, tex, faceModel[f]))
             ++out.skipped;
     }
+}
+
+// Brushes of inline model m: the leafs under its headnode (dmodel_t), so
+// brush-drawn doors / platforms can move with their entity.
+std::vector<int32_t> brushModels(const Lump (&lumps)[kNumLumps]) {
+    const Lump &brushes = lumps[kLumpBrushes];
+    const Lump &models = lumps[kLumpModels];
+    const Lump &nodes = lumps[kLumpNodes];
+    const Lump &leafs = lumps[kLumpLeafs];
+    const Lump &leafBrushes = lumps[kLumpLeafBrushes];
+    std::vector<int32_t> owner(brushes.count, 0);
+    std::vector<int32_t> stack;
+    std::vector<int32_t> seen(nodes.count, -1);
+    for (size_t m = 1; m < models.count; ++m) {
+        stack.assign(1, rdI32(models.data + m * kModelSize + 36));
+        size_t guard = 0;
+        while (!stack.empty() && guard++ < 4 * (nodes.count + leafs.count) + 16) {
+            const int32_t n = stack.back();
+            stack.pop_back();
+            if (n >= 0) {
+                if (size_t(n) >= nodes.count || seen[size_t(n)] == int32_t(m)) continue;
+                seen[size_t(n)] = int32_t(m);
+                const unsigned char *np = nodes.data + size_t(n) * kNodeSize;
+                stack.push_back(rdI32(np + 4));
+                stack.push_back(rdI32(np + 8));
+                continue;
+            }
+            const int64_t leaf = -1 - int64_t(n);
+            if (leaf < 0 || size_t(leaf) >= leafs.count) continue;
+            const unsigned char *lp = leafs.data + size_t(leaf) * kLeafSize;
+            const uint16_t first = rdU16(lp + 24), num = rdU16(lp + 26);
+            for (size_t k = first; k < size_t(first) + num && k < leafBrushes.count; ++k) {
+                const uint16_t b = rdU16(leafBrushes.data + k * kLeafBrushSize);
+                if (b < owner.size()) owner[b] = int32_t(m);
+            }
+        }
+    }
+    return owner;
 }
 
 void brushGeometry(const Lump (&lumps)[kNumLumps], const std::vector<Texinfo> &texinfo, Emitter &emit,
                    MapGeometry &out, const MapGeometryOptions &options) {
     const Lump &brushes = lumps[kLumpBrushes];
     const Lump &sides = lumps[kLumpBrushSides];
+    const std::vector<int32_t> owner = brushModels(lumps);
     std::vector<Plane> planes;
     std::vector<int16_t> texnums;
     std::vector<DVec> winding, clipped;
@@ -342,7 +398,8 @@ void brushGeometry(const Lump (&lumps)[kNumLumps], const std::vector<Texinfo> &t
                 winding.swap(clipped);
             }
             if (winding.size() < 3) continue; // fully clipped: bevel or hidden side
-            emit.polygon(winding, pl.normal, tex ? tex->name : std::string(), tex ? tex->flags : 0, contents, tex);
+            emit.polygon(winding, pl.normal, tex ? tex->name : std::string(), tex ? tex->flags : 0, contents, tex,
+                         owner[b]);
         }
     }
 }
@@ -363,7 +420,8 @@ bool bspGeometry(const unsigned char *data, size_t size, MapGeometry &out, std::
         return false;
     }
     static const size_t recordSize[kNumLumps] = {1, kPlaneSize, kVertexSize, 1, 1, kTexinfoSize, kFaceSize, 1, 1, 1,
-                                                 1, kEdgeSize, kSurfEdgeSize, 1, kBrushSize, kBrushSideSize, 1, 1, 1};
+                                                 1, kEdgeSize, kSurfEdgeSize, kModelSize, kBrushSize, kBrushSideSize,
+                                                 1, 1, 1};
     Lump lumps[kNumLumps];
     for (int i = 0; i < kNumLumps; ++i) {
         const int32_t ofs = rdI32(data + 8 + size_t(i) * 8);

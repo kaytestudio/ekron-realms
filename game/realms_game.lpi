@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CONFIG>
+  <!--
+    Ekron Realms - Quake 2 game module (librealms_game), Lazarus project.
+    Exports GetGameAPI (Quake 2 game API 3, realms/include/realms/q2game.h);
+    the C++ sandbox (ekron-realms, realms-pascal) hosts it with
+    realms::GameServer when a BSP map is opened. Output:
+    ../build/librealms_game.so (.dylib on macOS), the same library as
+    `make game` / the CMake target realms_game_module.
+  -->
+  <ProjectOptions>
+    <Version Value="12"/>
+    <General>
+      <Flags>
+        <MainUnitHasCreateFormStatements Value="False"/>
+        <MainUnitHasTitleStatement Value="False"/>
+        <MainUnitHasScaledStatement Value="False"/>
+      </Flags>
+      <SessionStorage Value="InProjectDir"/>
+      <Title Value="realms_game"/>
+      <UseAppBundle Value="False"/>
+      <ResourceType Value="res"/>
+    </General>
+    <BuildModes>
+      <Item Name="Default" Default="True"/>
+    </BuildModes>
+    <PublishOptions>
+      <Version Value="2"/>
+      <UseFileFilters Value="True"/>
+    </PublishOptions>
+    <RunParams>
+      <FormatVersion Value="2"/>
+    </RunParams>
+    <Units>
+      <Unit>
+        <Filename Value="realms_game.lpr"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+    </Units>
+  </ProjectOptions>
+  <CompilerOptions>
+    <Version Value="11"/>
+    <Target>
+      <Filename Value="../build/librealms_game"/>
+    </Target>
+    <SearchPaths>
+      <IncludeFiles Value="$(ProjOutDir)"/>
+      <UnitOutputDirectory Value="../build/lazarus-units/realms_game-$(TargetCPU)-$(TargetOS)"/>
+    </SearchPaths>
+    <Parsing>
+      <SyntaxOptions>
+        <SyntaxMode Value="Delphi"/>
+      </SyntaxOptions>
+    </Parsing>
+    <CodeGeneration>
+      <RelocatableUnit Value="True"/>
+      <Optimizations>
+        <OptimizationLevel Value="2"/>
+      </Optimizations>
+    </CodeGeneration>
+    <Linking>
+      <Options>
+        <ExecutableType Value="Library"/>
+      </Options>
+    </Linking>
+    <Other>
+      <CustomOptions Value="-dGAMEDLL"/>
+    </Other>
+  </CompilerOptions>
+</CONFIG>

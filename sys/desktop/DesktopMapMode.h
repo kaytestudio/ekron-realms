@@ -1,17 +1,25 @@
 // Realms map mode for the desktop client: "map <name>" swaps the sandbox for
-// a Quake 2 BSP or a glTF map loaded into the Realms core, walked with
-// realms::MapWalker (collision by the Pascal / C++ CModel) and drawn by
+// a Quake 2 BSP or a glTF map loaded into the Realms core and drawn by
 // DesktopRenderer::renderMapWorld. The renderer-independent part (spaces,
 // walker, material layers) is mapview::MapSession, shared with Android.
+//
+// When the Quake 2 game module (librealms_game, game/) is available and the
+// map has a worldspawn entity string, the map runs a realms::GameServer:
+// the player is the game's client (ClientThink / Pmove), doors, platforms
+// and other brush entities move as the game drives them, items can be
+// picked up, and the HUD shows the game's player stats. Otherwise (or with
+// sv_game 0) the map is walked with realms::MapWalker as before.
 #pragma once
 
 #include "DesktopRenderer.h"
 #include "MapSession.h"
 
 #include "realms/Engine.h"
+#include "realms/GameServer.h"
 
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace ekron::desktop {
 
@@ -19,24 +27,28 @@ class DesktopMapMode {
 public:
     static constexpr float kBspUnitsPerMetre = mapview::kBspUnitsPerMetre;
 
-    // Builds and uploads the loaded map's geometry and spawns the walker.
-    // On failure the mode stays inactive and `error` says why.
-    bool open(realms::Engine &engine, ekron::gl::Api &gl, DesktopRenderer &renderer, std::string &error);
+    // Builds and uploads the loaded map's geometry and spawns the player
+    // (game server or walker). On failure the mode stays inactive and
+    // `error` says why. `executableDir` is where librealms_game is looked for.
+    bool open(realms::Engine &engine, ekron::gl::Api &gl, DesktopRenderer &renderer, std::string &error,
+              const std::string &executableDir = {});
     void close(ekron::gl::Api &gl, DesktopRenderer &renderer);
     bool active() const { return session_.active(); }
 
-    // Walk one frame; yaw / pitch are the renderer's camera angles (radians,
-    // yaw 0 = -Z, positive pitch looks up).
-    void update(const realms::Engine &engine, const realms::WalkInput &input, float renderYaw, float renderPitch,
-                float dt) {
-        session_.update(engine, input, renderYaw, renderPitch, dt);
-    }
-    bool respawn(const realms::Engine &engine) { return session_.respawn(engine); }
+    // One frame; yaw / pitch are the renderer's camera angles (radians,
+    // yaw 0 = -Z, positive pitch looks up). `attack` fires the game's weapon.
+    void update(realms::Engine &engine, const realms::WalkInput &input, float renderYaw, float renderPitch, float dt,
+                bool attack = false);
+    bool respawn(realms::Engine &engine);
+    void toggleNoclip();
+    bool noclip() const;
 
-    physics::Vec3 eye() const { return session_.eye(); }
+    physics::Vec3 eye() const;
     // Camera yaw (renderer convention) facing the spawn point's angle.
-    float spawnRenderYaw() const { return session_.spawnRenderYaw(); }
+    float spawnRenderYaw() const;
     const DesktopGltfModel *model() const { return model_ && model_->ready() ? model_.get() : nullptr; }
+    // Inline model poses for DesktopRenderer::setMapModelPoses (empty without a game).
+    const std::vector<DesktopRenderer::MapModelPose> &modelPoses() const { return poses_; }
 
     realms::MapWalker &walker() { return session_.walker(); }
     const realms::MapWalker &walker() const { return session_.walker(); }
@@ -44,9 +56,25 @@ public:
     const std::string &summary() const { return session_.summary(); }
     float unitsPerMetre() const { return session_.unitsPerMetre(); }
 
+    // ---- game server
+    bool gameRunning() const { return game_ && game_->running(); }
+    const realms::GameServer *game() const { return gameRunning() ? game_.get() : nullptr; }
+    // "HP 100  Armor 2  Ammo 50" for the HUD ("" without a game).
+    std::string gameStatus() const;
+    // Centre prints / pickup messages since the last call (for toasts).
+    std::vector<std::string> takeGameMessages();
+
 private:
+    bool startGame(realms::Engine &engine, std::string &why);
+    void syncFromGame();
+
     mapview::MapSession session_;
     std::unique_ptr<DesktopGltfModel> model_;
+    std::unique_ptr<realms::GameServer> game_;
+    std::string executableDir_;
+    std::vector<DesktopRenderer::MapModelPose> poses_;
+    std::vector<std::string> messages_;
+    int lastPickup_ = 0;
 };
 
 } // namespace ekron::desktop

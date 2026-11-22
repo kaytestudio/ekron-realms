@@ -123,7 +123,7 @@ var
 
 
 procedure G_RunFrame; cdecl;
-function GetGameApi(const import: game_import_t): game_export_p; cdecl;
+function GetGameApi({$IFDEF FPC}constref{$ELSE}const{$ENDIF} import: game_import_t): game_export_p; cdecl;
 
 {$IFNDEF GAME_HARD_LINKED}
 // this is only here so the functions in q_shared.c and q_shwin.c can link
@@ -134,6 +134,14 @@ procedure Com_Printf(fmt: PChar); overload;
 {$ENDIF}
 
 function world: edict_p;
+
+// Realms: Free Pascal can't pass Delphi-style [args] to the cdecl varargs
+// members of game_import_t. These format with DelphiStrFmt and pass '%s'.
+procedure gi_bprintf(printlevel: Integer; fmt: PChar; const args: array of const);
+procedure gi_dprintf(fmt: PChar; const args: array of const);
+procedure gi_cprintf(ent: edict_p; printlevel: Integer; fmt: PChar; const args: array of const);
+procedure gi_centerprintf(ent: edict_p; fmt: PChar; const args: array of const);
+procedure gi_error(fmt: PChar; const args: array of const);
 
 implementation
 
@@ -177,7 +185,7 @@ Returns a pointer to the structure with all entry points
 and global variables
 =================
 *)
-function GetGameApi(const import: game_import_t): game_export_p; cdecl;
+function GetGameApi({$IFDEF FPC}constref{$ELSE}const{$ENDIF} import: game_import_t): game_export_p; cdecl;
 begin
   gi := import;
 
@@ -232,6 +240,46 @@ end;
 procedure Com_Printf(fmt: PChar);
 begin
   Com_Printf(fmt, []);
+end;
+
+procedure gi_bprintf(printlevel: Integer; fmt: PChar; const args: array of const);
+var
+  text: array [0..2047] of Char;
+begin
+  DelphiStrFmt(text, fmt, args);
+  gi.bprintf(printlevel, '%s', PChar(@text[0]));
+end;
+
+procedure gi_dprintf(fmt: PChar; const args: array of const);
+var
+  text: array [0..2047] of Char;
+begin
+  DelphiStrFmt(text, fmt, args);
+  gi.dprintf('%s', PChar(@text[0]));
+end;
+
+procedure gi_cprintf(ent: edict_p; printlevel: Integer; fmt: PChar; const args: array of const);
+var
+  text: array [0..2047] of Char;
+begin
+  DelphiStrFmt(text, fmt, args);
+  gi.cprintf(ent, printlevel, '%s', PChar(@text[0]));
+end;
+
+procedure gi_centerprintf(ent: edict_p; fmt: PChar; const args: array of const);
+var
+  text: array [0..2047] of Char;
+begin
+  DelphiStrFmt(text, fmt, args);
+  gi.centerprintf(ent, '%s', PChar(@text[0]));
+end;
+
+procedure gi_error(fmt: PChar; const args: array of const);
+var
+  text: array [0..2047] of Char;
+begin
+  DelphiStrFmt(text, fmt, args);
+  gi.error('%s', PChar(@text[0]));
 end;
 
 procedure Sys_Error(error: PChar);
@@ -350,7 +398,7 @@ begin
   begin	// search for a changelevel
     // #define FOFS(x) (int)&(((edict_t *)0)->x)
     // ent := G_Find(nil, FOFS(classname), 'target_changelevel');
-    ent := G_Find(nil, Integer(@edict_p(nil).classname), 'target_changelevel');
+    ent := G_Find(nil, PtrInt(@edict_p(nil).classname), 'target_changelevel');
     if (ent = nil) then
     begin	// the map designer didn't include a changelevel,
       // so create a fake ent that goes back to the same level
@@ -429,7 +477,7 @@ begin
   begin
     if (level.time >= timelimit^.value * 60) then
     begin
-      gi.bprintf(PRINT_HIGH, 'Timelimit hit.'#10, []);
+      gi_bprintf(PRINT_HIGH, 'Timelimit hit.'#10, []);
       EndDMLevel;
       Exit;
     end;
@@ -447,7 +495,7 @@ begin
 
       if (cl^.resp.score >= fraglimit^.value) then
       begin
-        gi.bprintf(PRINT_HIGH, 'Fraglimit hit.'#10, []);
+        gi_bprintf(PRINT_HIGH, 'Fraglimit hit.'#10, []);
         EndDMLevel;
         Exit;
       end;

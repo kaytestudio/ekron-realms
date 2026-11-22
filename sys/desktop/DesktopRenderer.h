@@ -116,8 +116,23 @@ public:
                          float roll);
 
     // Realms map mode: static map geometry (render space: metres, Y up) and
-    // an optional glTF map model drawn in its source space.
-    void setMapGeometry(ekron::gl::Api &gl, const std::vector<sandbox::MeshVertex> &vertices);
+    // an optional glTF map model drawn in its source space. `ranges` splits
+    // the vertices by BSP model (0 world, n inline model "*n"); inline models
+    // are then drawn with the poses from setMapModelPoses (the game server's
+    // doors, platforms, trains...). Without ranges everything is static.
+    struct MapDrawRange {
+        int32_t model = 0;
+        GLint first = 0;
+        GLsizei count = 0;
+    };
+    struct MapModelPose {
+        bool visible = true;
+        std::array<float, 16> transform{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}; // render space, column-major
+    };
+    void setMapGeometry(ekron::gl::Api &gl, const std::vector<sandbox::MeshVertex> &vertices,
+                        std::vector<MapDrawRange> ranges = {});
+    // Indexed by model number; empty = every model static and visible.
+    void setMapModelPoses(std::vector<MapModelPose> poses) { mapPoses_ = std::move(poses); }
     void clearMapGeometry(ekron::gl::Api &gl);
     void renderMapWorld(ekron::gl::Api &gl,
                         int drawableW,
@@ -189,6 +204,8 @@ private:
     GLuint mapVao_ = 0;
     GLuint mapVbo_ = 0;
     GLsizei mapCount_ = 0;
+    std::vector<MapDrawRange> mapRanges_;
+    std::vector<MapModelPose> mapPoses_;
 
     GLuint whiteTex_ = 0;
     GLuint materialArrayTex_ = 0;

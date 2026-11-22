@@ -37,6 +37,7 @@
 #include "WorldRecovery.h"
 #include "third_party/json.hpp"
 #include "realms/Engine.h"
+#include "realms/GameServer.h"
 #include "realms/SandboxBoot.h"
 
 #include <algorithm>
@@ -312,6 +313,12 @@ int printEngineInfo(const std::string &assetRoot, const char *argv0) {
               << "Assets:   " << (assetRoot.empty() ? "<not found>" : assetRoot) << "\n";
     if (!engine.pascalBackend() && !engine.pascalLoadError().empty())
         std::cout << "Pascal:   " << engine.pascalLoadError() << "\n";
+    // The Quake 2 game module realms::GameServer runs BSP maps with.
+    std::string gameWhere, gameWhy;
+    if (realms::GameServer::moduleAvailable(cfg.executableDir, &gameWhere, &gameWhy))
+        std::cout << "Game:     " << gameWhere << " (Quake 2 game API " << Q2_GAME_API_VERSION << ")\n";
+    else
+        std::cout << "Game:     none (" << gameWhy << ")\n";
     return 0;
 }
 
@@ -1145,8 +1152,9 @@ int main(int argc, char **argv)
 
     auto toggleNoclip = [&]() {
         if (mapMode.active()) {
-            mapMode.walker().noclip = !mapMode.walker().noclip;
-            showToast(i18n::tr(mapMode.walker().noclip ? Str::FlightOn : Str::FlightOff));
+            const bool wasNoclip = mapMode.noclip();
+            mapMode.toggleNoclip(); // the game's "noclip" when the game module runs the map
+            showToast(i18n::tr(!wasNoclip ? Str::FlightOn : Str::FlightOff));
             return;
         }
         if (drone.piloting() || seatedCar >= 0) return;
@@ -1526,11 +1534,13 @@ int main(int argc, char **argv)
                     sandboxPitch = world.pitch;
                 }
                 std::string mapError;
-                if (mapMode.open(engine, gl, renderer, mapError)) {
+                if (mapMode.open(engine, gl, renderer, mapError, engineCfg.executableDir)) {
                     world.yaw = mapMode.spawnRenderYaw();
                     world.pitch = 0.0f;
-                    engine.print("map: walking " + mapMode.path() + " (" + mapMode.summary() + "), spawn: " +
-                                 mapMode.walker().spawnSource + ". killserver returns to the sandbox.\n");
+                    engine.print("map: " + std::string(mapMode.gameRunning() ? "playing " : "walking ") + mapMode.path() +
+                                 " (" + mapMode.summary() + ")" +
+                                 (mapMode.gameRunning() ? std::string() : ", spawn: " + mapMode.walker().spawnSource) +
+                                 ". killserver returns to the sandbox.\n");
                     showToast("Realms: " + mapMode.path());
                 } else {
                     engine.print("map: can't show " + target + ": " + mapError + "\n", REALMS_PRINT_WARNING);
@@ -1593,7 +1603,11 @@ int main(int argc, char **argv)
                 walkInput.crouch = down;
                 walkInput.up = float(walkInput.jump) - float(down);
             }
-            mapMode.update(engine, walkInput, world.yaw, world.pitch, dt);
+            // Left mouse fires the game's weapon (game module maps).
+            const bool attack = !catalogOpen && !shopOpen && !console.isOpen() && SDL_GetRelativeMouseMode() &&
+                                (SDL_GetMouseState(nullptr, nullptr) & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0;
+            mapMode.update(engine, walkInput, world.yaw, world.pitch, dt, attack);
+            for (const std::string &message : mapMode.takeGameMessages()) showToast(message);
         }
 
         if (!pauseOpen && !mapMode.active()) {
@@ -1847,6 +1861,7 @@ int main(int argc, char **argv)
         }
 
         if (mapMode.active()) {
+            renderer.setMapModelPoses(mapMode.modelPoses()); // doors / platforms moved by the game
             renderer.renderMapWorld(gl, drawW, drawH, mapMode.model(), mapMode.eye(), world.yaw, world.pitch, 0.0f);
         } else renderer.renderMainWorld(
             gl, drawW, drawH,
@@ -1884,14 +1899,18 @@ int main(int argc, char **argv)
                               {0.95f, 0.97f, 1.0f, 1.0f});
             const realms::MapWalker &walker = mapMode.walker();
             char mapBuf[200]{};
-            std::snprintf(mapBuf, sizeof(mapBuf), "%.0f %.0f %.0f  %s  %s", walker.origin[0], walker.origin[1],
+            const std::string gameStatus = mapMode.gameStatus();
+            std::snprintf(mapBuf, sizeof(mapBuf), "%.0f %.0f %.0f  %s  %s%s%s", walker.origin[0], walker.origin[1],
                           walker.origin[2], mapMode.summary().c_str(),
-                          walker.noclip ? "[NOCLIP]" : (walker.waterLevel >= 2 ? "[SWIM]" : (walker.ducked ? "[DUCK]" : "")));
+                          walker.noclip ? "[NOCLIP]" : (walker.waterLevel >= 2 ? "[SWIM]" : (walker.ducked ? "[DUCK]" : "")),
+                          gameStatus.empty() ? "" : "  ", gameStatus.c_str());
             renderer.drawText(26.0f, 46.0f, mapBuf,
                               ekron::desktop::fitHudTextScale(1.35f, ekron::font::measureTextWidth(mapBuf, 1.35f), 496.0f),
                               {0.86f, 0.80f, 0.62f, 0.95f});
             renderer.drawRect(14.0f, float(hudH) - 42.0f, float(hudW) - 28.0f, 28.0f, {0.05f, 0.08f, 0.11f, 0.72f});
-            const std::string mapControls = "WASD move  •  Space jump  •  Ctrl crouch  •  N noclip  •  R respawn  •  ` console: killserver";
+            const std::string mapControls = mapMode.gameRunning()
+                ? "WASD move  •  Space jump  •  Ctrl crouch  •  Mouse fire  •  N noclip  •  R restart  •  ` console: give / use / killserver"
+                : "WASD move  •  Space jump  •  Ctrl crouch  •  N noclip  •  R respawn  •  ` console: killserver";
             renderer.drawCenteredText(float(hudW) * 0.5f, float(hudH) - 28.0f, mapControls,
                                       ekron::desktop::fitHudTextScale(1.30f, ekron::font::measureTextWidth(mapControls, 1.30f),
                                                                       float(hudW) - 48.0f),

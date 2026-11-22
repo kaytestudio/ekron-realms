@@ -1,5 +1,5 @@
 //100%
-{$ALIGN ON}{$MINENUMSIZE 4}
+{$ALIGN ON}{$IFDEF FPC}{$PACKRECORDS C}{$ENDIF}{$MINENUMSIZE 4}
 {----------------------------------------------------------------------------}
 {                                                                            }
 { File(s): game\g_save.c                                                     }
@@ -183,104 +183,104 @@ uses
 
 // CAK - These were originally 4 macros in g_local.h
 // But this was the only way to convert them, and because they are so long, I moved them here.
-function FOFS_classname: Integer; begin Result:=Integer(@edict_p(Ptr(0))^.classname); end;
-function FOFS_model: Integer; begin Result:=Integer(@edict_p(Ptr(0))^.model); end;
-function FOFS_spawnflags: Integer; begin Result:=Integer(@edict_p(Ptr(0))^.spawnflags); end;
-function FOFS_speed: Integer; begin Result:=Integer(@edict_p(Ptr(0))^.speed); end;
-function FOFS_accel: Integer; begin Result:=Integer(@edict_p(Ptr(0))^.accel); end;
-function FOFS_decel: Integer; begin Result:=Integer(@edict_p(Ptr(0))^.decel); end;
-function FOFS_target: Integer; begin Result:=Integer(@edict_p(Ptr(0))^.target); end;
-function FOFS_targetname: Integer; begin Result:=Integer(@edict_p(Ptr(0))^.targetname); end;
-function FOFS_pathtarget: Integer; begin Result:=Integer(@edict_p(Ptr(0))^.pathtarget); end;
-function FOFS_deathtarget: Integer; begin Result:=Integer(@edict_p(Ptr(0))^.deathtarget); end;
-function FOFS_killtarget: Integer; begin Result:=Integer(@edict_p(Ptr(0))^.killtarget); end;
-function FOFS_combattarget: Integer; begin Result:=Integer(@edict_p(Ptr(0))^.combattarget); end;
-function FOFS_message: Integer; begin Result:=Integer(@edict_p(Ptr(0))^._message); end;
-function FOFS_team: Integer; begin Result:=Integer(@edict_p(Ptr(0))^.team); end;
-function FOFS_wait: Integer; begin Result:=Integer(@edict_p(Ptr(0))^.wait); end;
-function FOFS_delay: Integer; begin Result:=Integer(@edict_p(Ptr(0))^.delay); end;
-function FOFS_random: Integer; begin Result:=Integer(@edict_p(Ptr(0))^.random); end;
-function FOFS_move_origin: Integer; begin Result:=Integer(@edict_p(Ptr(0))^.move_origin); end;
-function FOFS_move_angles: Integer; begin Result:=Integer(@edict_p(Ptr(0))^.move_angles); end;
-function FOFS_style: Integer; begin Result:=Integer(@edict_p(Ptr(0))^.style); end;
-function FOFS_count: Integer; begin Result:=Integer(@edict_p(Ptr(0))^.count); end;
-function FOFS_health: Integer; begin Result:=Integer(@edict_p(Ptr(0))^.health); end;
-function FOFS_sounds: Integer; begin Result:=Integer(@edict_p(Ptr(0))^.sounds); end;
-//function FOFS_light: Integer; begin Result:=Integer(@edict_p(Ptr(0)).light); end;
-function FOFS_dmg: Integer; begin Result:=Integer(@edict_p(Ptr(0))^.dmg); end;
-function FOFS_mass: Integer; begin Result:=Integer(@edict_p(Ptr(0))^.mass); end;
-function FOFS_volume: Integer; begin Result:=Integer(@edict_p(Ptr(0))^.volume); end;
-function FOFS_attenuation: Integer; begin Result:=Integer(@edict_p(Ptr(0))^.attenuation); end;
-function FOFS_map: Integer; begin Result:=Integer(@edict_p(Ptr(0))^.map); end;
-function FOFS_s_origin: Integer; begin Result:=Integer(@edict_p(Ptr(0))^.s.origin); end;
-function FOFS_s_angles: Integer; begin Result:=Integer(@edict_p(Ptr(0))^.s.angles); end;
-//function FOFS_s_angles: Integer; begin Result:=Integer(@edict_p(Ptr(0)).s.angles); end;
+function FOFS_classname: Integer; begin Result:=PtrInt(@edict_p(nil)^.classname); end;
+function FOFS_model: Integer; begin Result:=PtrInt(@edict_p(nil)^.model); end;
+function FOFS_spawnflags: Integer; begin Result:=PtrInt(@edict_p(nil)^.spawnflags); end;
+function FOFS_speed: Integer; begin Result:=PtrInt(@edict_p(nil)^.speed); end;
+function FOFS_accel: Integer; begin Result:=PtrInt(@edict_p(nil)^.accel); end;
+function FOFS_decel: Integer; begin Result:=PtrInt(@edict_p(nil)^.decel); end;
+function FOFS_target: Integer; begin Result:=PtrInt(@edict_p(nil)^.target); end;
+function FOFS_targetname: Integer; begin Result:=PtrInt(@edict_p(nil)^.targetname); end;
+function FOFS_pathtarget: Integer; begin Result:=PtrInt(@edict_p(nil)^.pathtarget); end;
+function FOFS_deathtarget: Integer; begin Result:=PtrInt(@edict_p(nil)^.deathtarget); end;
+function FOFS_killtarget: Integer; begin Result:=PtrInt(@edict_p(nil)^.killtarget); end;
+function FOFS_combattarget: Integer; begin Result:=PtrInt(@edict_p(nil)^.combattarget); end;
+function FOFS_message: Integer; begin Result:=PtrInt(@edict_p(nil)^._message); end;
+function FOFS_team: Integer; begin Result:=PtrInt(@edict_p(nil)^.team); end;
+function FOFS_wait: Integer; begin Result:=PtrInt(@edict_p(nil)^.wait); end;
+function FOFS_delay: Integer; begin Result:=PtrInt(@edict_p(nil)^.delay); end;
+function FOFS_random: Integer; begin Result:=PtrInt(@edict_p(nil)^.random); end;
+function FOFS_move_origin: Integer; begin Result:=PtrInt(@edict_p(nil)^.move_origin); end;
+function FOFS_move_angles: Integer; begin Result:=PtrInt(@edict_p(nil)^.move_angles); end;
+function FOFS_style: Integer; begin Result:=PtrInt(@edict_p(nil)^.style); end;
+function FOFS_count: Integer; begin Result:=PtrInt(@edict_p(nil)^.count); end;
+function FOFS_health: Integer; begin Result:=PtrInt(@edict_p(nil)^.health); end;
+function FOFS_sounds: Integer; begin Result:=PtrInt(@edict_p(nil)^.sounds); end;
+//function FOFS_light: Integer; begin Result:=Integer(@edict_p(nil).light); end;
+function FOFS_dmg: Integer; begin Result:=PtrInt(@edict_p(nil)^.dmg); end;
+function FOFS_mass: Integer; begin Result:=PtrInt(@edict_p(nil)^.mass); end;
+function FOFS_volume: Integer; begin Result:=PtrInt(@edict_p(nil)^.volume); end;
+function FOFS_attenuation: Integer; begin Result:=PtrInt(@edict_p(nil)^.attenuation); end;
+function FOFS_map: Integer; begin Result:=PtrInt(@edict_p(nil)^.map); end;
+function FOFS_s_origin: Integer; begin Result:=PtrInt(@edict_p(nil)^.s.origin); end;
+function FOFS_s_angles: Integer; begin Result:=PtrInt(@edict_p(nil)^.s.angles); end;
+//function FOFS_s_angles: Integer; begin Result:=Integer(@edict_p(nil).s.angles); end;
 
-function FOFS_goalentity: Integer; begin Result:=Integer(@edict_p(Ptr(0))^.goalentity); end;
-function FOFS_movetarget: Integer; begin Result:=Integer(@edict_p(Ptr(0))^.movetarget); end;
-function FOFS_enemy: Integer; begin Result:=Integer(@edict_p(Ptr(0))^.enemy); end;
-function FOFS_oldenemy: Integer; begin Result:=Integer(@edict_p(Ptr(0))^.oldenemy); end;
-function FOFS_activator: Integer; begin Result:=Integer(@edict_p(Ptr(0))^.activator); end;
-function FOFS_groundentity: Integer; begin Result:=Integer(@edict_p(Ptr(0))^.groundentity); end;
-function FOFS_teamchain: Integer; begin Result:=Integer(@edict_p(Ptr(0))^.teamchain); end;
-function FOFS_teammaster: Integer; begin Result:=Integer(@edict_p(Ptr(0))^.teammaster); end;
-function FOFS_owner: Integer; begin Result:=Integer(@edict_p(Ptr(0))^.owner); end;
-function FOFS_mynoise: Integer; begin Result:=Integer(@edict_p(Ptr(0))^.mynoise); end;
-function FOFS_mynoise2: Integer; begin Result:=Integer(@edict_p(Ptr(0))^.mynoise2); end;
-function FOFS_target_ent: Integer; begin Result:=Integer(@edict_p(Ptr(0))^.target_ent); end;
-function FOFS_chain: Integer; begin Result:=Integer(@edict_p(Ptr(0))^.chain); end;
+function FOFS_goalentity: Integer; begin Result:=PtrInt(@edict_p(nil)^.goalentity); end;
+function FOFS_movetarget: Integer; begin Result:=PtrInt(@edict_p(nil)^.movetarget); end;
+function FOFS_enemy: Integer; begin Result:=PtrInt(@edict_p(nil)^.enemy); end;
+function FOFS_oldenemy: Integer; begin Result:=PtrInt(@edict_p(nil)^.oldenemy); end;
+function FOFS_activator: Integer; begin Result:=PtrInt(@edict_p(nil)^.activator); end;
+function FOFS_groundentity: Integer; begin Result:=PtrInt(@edict_p(nil)^.groundentity); end;
+function FOFS_teamchain: Integer; begin Result:=PtrInt(@edict_p(nil)^.teamchain); end;
+function FOFS_teammaster: Integer; begin Result:=PtrInt(@edict_p(nil)^.teammaster); end;
+function FOFS_owner: Integer; begin Result:=PtrInt(@edict_p(nil)^.owner); end;
+function FOFS_mynoise: Integer; begin Result:=PtrInt(@edict_p(nil)^.mynoise); end;
+function FOFS_mynoise2: Integer; begin Result:=PtrInt(@edict_p(nil)^.mynoise2); end;
+function FOFS_target_ent: Integer; begin Result:=PtrInt(@edict_p(nil)^.target_ent); end;
+function FOFS_chain: Integer; begin Result:=PtrInt(@edict_p(nil)^.chain); end;
 
-function FOFS_prethink: Integer; begin Result:=Integer(@@edict_p(Ptr(0))^.prethink); end;
+function FOFS_prethink: Integer; begin Result:=PtrInt(@@edict_p(nil)^.prethink); end;
 
-function FOFS_think: Integer; begin Result:=Integer(@@edict_p(Ptr(0))^.think); end;
-function FOFS_blocked: Integer; begin Result:=Integer(@@edict_p(Ptr(0))^.blocked); end;
-function FOFS_touch: Integer; begin Result:=Integer(@@edict_p(Ptr(0))^.touch); end;
-function FOFS_use: Integer; begin Result:=Integer(@@edict_p(Ptr(0))^.use); end;
-function FOFS_pain: Integer; begin Result:=Integer(@@edict_p(Ptr(0))^.pain); end;
-function FOFS_die: Integer; begin Result:=Integer(@@edict_p(Ptr(0))^.die); end;
+function FOFS_think: Integer; begin Result:=PtrInt(@@edict_p(nil)^.think); end;
+function FOFS_blocked: Integer; begin Result:=PtrInt(@@edict_p(nil)^.blocked); end;
+function FOFS_touch: Integer; begin Result:=PtrInt(@@edict_p(nil)^.touch); end;
+function FOFS_use: Integer; begin Result:=PtrInt(@@edict_p(nil)^.use); end;
+function FOFS_pain: Integer; begin Result:=PtrInt(@@edict_p(nil)^.pain); end;
+function FOFS_die: Integer; begin Result:=PtrInt(@@edict_p(nil)^.die); end;
 
-function FOFS_monsterinfo_stand: Integer; begin Result:=Integer(@@edict_p(Ptr(0))^.monsterinfo.stand); end;
-function FOFS_monsterinfo_idle: Integer; begin Result:=Integer(@@edict_p(Ptr(0))^.monsterinfo.idle); end;
-function FOFS_monsterinfo_search: Integer; begin Result:=Integer(@@edict_p(Ptr(0))^.monsterinfo.search); end;
-function FOFS_monsterinfo_walk: Integer; begin Result:=Integer(@@edict_p(Ptr(0))^.monsterinfo.walk); end;
-function FOFS_monsterinfo_run: Integer; begin Result:=Integer(@@edict_p(Ptr(0))^.monsterinfo.run); end;
-function FOFS_monsterinfo_dodge: Integer; begin Result:=Integer(@@edict_p(Ptr(0))^.monsterinfo.dodge); end;
-function FOFS_monsterinfo_attack: Integer; begin Result:=Integer(@@edict_p(Ptr(0))^.monsterinfo.attack); end;
-function FOFS_monsterinfo_melee: Integer; begin Result:=Integer(@@edict_p(Ptr(0))^.monsterinfo.melee); end;
-function FOFS_monsterinfo_sight: Integer; begin Result:=Integer(@@edict_p(Ptr(0))^.monsterinfo.sight); end;
-function FOFS_monsterinfo_checkattack: Integer; begin Result:=Integer(@@edict_p(Ptr(0))^.monsterinfo.checkattack); end;
-function FOFS_monsterinfo_currentmove: Integer; begin Result:=Integer(@edict_p(Ptr(0))^.monsterinfo.currentmove); end;
+function FOFS_monsterinfo_stand: Integer; begin Result:=PtrInt(@@edict_p(nil)^.monsterinfo.stand); end;
+function FOFS_monsterinfo_idle: Integer; begin Result:=PtrInt(@@edict_p(nil)^.monsterinfo.idle); end;
+function FOFS_monsterinfo_search: Integer; begin Result:=PtrInt(@@edict_p(nil)^.monsterinfo.search); end;
+function FOFS_monsterinfo_walk: Integer; begin Result:=PtrInt(@@edict_p(nil)^.monsterinfo.walk); end;
+function FOFS_monsterinfo_run: Integer; begin Result:=PtrInt(@@edict_p(nil)^.monsterinfo.run); end;
+function FOFS_monsterinfo_dodge: Integer; begin Result:=PtrInt(@@edict_p(nil)^.monsterinfo.dodge); end;
+function FOFS_monsterinfo_attack: Integer; begin Result:=PtrInt(@@edict_p(nil)^.monsterinfo.attack); end;
+function FOFS_monsterinfo_melee: Integer; begin Result:=PtrInt(@@edict_p(nil)^.monsterinfo.melee); end;
+function FOFS_monsterinfo_sight: Integer; begin Result:=PtrInt(@@edict_p(nil)^.monsterinfo.sight); end;
+function FOFS_monsterinfo_checkattack: Integer; begin Result:=PtrInt(@@edict_p(nil)^.monsterinfo.checkattack); end;
+function FOFS_monsterinfo_currentmove: Integer; begin Result:=PtrInt(@edict_p(nil)^.monsterinfo.currentmove); end;
 
-function FOFS_moveinfo_endfunc: Integer; begin Result:=Integer(@@edict_p(Ptr(0))^.moveinfo.endfunc); end;
+function FOFS_moveinfo_endfunc: Integer; begin Result:=PtrInt(@@edict_p(nil)^.moveinfo.endfunc); end;
 
-function FOFS_item: Integer; begin Result:=Integer(@edict_p(Ptr(0))^.item); end;
+function FOFS_item: Integer; begin Result:=PtrInt(@edict_p(nil)^.item); end;
 
-function STOFS_lip: Integer; begin Result:=Integer(@spawn_temp_p(Ptr(0))^.lip); end;
-function STOFS_distance: Integer; begin Result:=Integer(@spawn_temp_p(Ptr(0))^.distance); end;
-function STOFS_height: Integer; begin Result:=Integer(@spawn_temp_p(Ptr(0))^.height); end;
-function STOFS_noise: Integer; begin Result:=Integer(@spawn_temp_p(Ptr(0))^.noise); end;
-function STOFS_pausetime: Integer; begin Result:=Integer(@spawn_temp_p(Ptr(0))^.pausetime); end;
-function STOFS_item: Integer; begin Result:=Integer(@spawn_temp_p(Ptr(0))^.item); end;
+function STOFS_lip: Integer; begin Result:=PtrInt(@spawn_temp_p(nil)^.lip); end;
+function STOFS_distance: Integer; begin Result:=PtrInt(@spawn_temp_p(nil)^.distance); end;
+function STOFS_height: Integer; begin Result:=PtrInt(@spawn_temp_p(nil)^.height); end;
+function STOFS_noise: Integer; begin Result:=PtrInt(@spawn_temp_p(nil)^.noise); end;
+function STOFS_pausetime: Integer; begin Result:=PtrInt(@spawn_temp_p(nil)^.pausetime); end;
+function STOFS_item: Integer; begin Result:=PtrInt(@spawn_temp_p(nil)^.item); end;
 
-function STOFS_gravity: Integer; begin Result:=Integer(@spawn_temp_p(Ptr(0))^.gravity); end;
-function STOFS_sky: Integer; begin Result:=Integer(@spawn_temp_p(Ptr(0))^.sky); end;
-function STOFS_skyrotate: Integer; begin Result:=Integer(@spawn_temp_p(Ptr(0))^.skyrotate); end;
-function STOFS_skyaxis: Integer; begin Result:=Integer(@spawn_temp_p(Ptr(0))^.skyaxis); end;
-function STOFS_minyaw: Integer; begin Result:=Integer(@spawn_temp_p(Ptr(0))^.minyaw); end;
-function STOFS_maxyaw: Integer; begin Result:=Integer(@spawn_temp_p(Ptr(0))^.maxyaw); end;
-function STOFS_minpitch: Integer; begin Result:=Integer(@spawn_temp_p(Ptr(0))^.minpitch); end;
-function STOFS_maxpitch: Integer; begin Result:=Integer(@spawn_temp_p(Ptr(0))^.maxpitch); end;
-function STOFS_nextmap: Integer; begin Result:=Integer(@spawn_temp_p(Ptr(0))^.nextmap); end;
+function STOFS_gravity: Integer; begin Result:=PtrInt(@spawn_temp_p(nil)^.gravity); end;
+function STOFS_sky: Integer; begin Result:=PtrInt(@spawn_temp_p(nil)^.sky); end;
+function STOFS_skyrotate: Integer; begin Result:=PtrInt(@spawn_temp_p(nil)^.skyrotate); end;
+function STOFS_skyaxis: Integer; begin Result:=PtrInt(@spawn_temp_p(nil)^.skyaxis); end;
+function STOFS_minyaw: Integer; begin Result:=PtrInt(@spawn_temp_p(nil)^.minyaw); end;
+function STOFS_maxyaw: Integer; begin Result:=PtrInt(@spawn_temp_p(nil)^.maxyaw); end;
+function STOFS_minpitch: Integer; begin Result:=PtrInt(@spawn_temp_p(nil)^.minpitch); end;
+function STOFS_maxpitch: Integer; begin Result:=PtrInt(@spawn_temp_p(nil)^.maxpitch); end;
+function STOFS_nextmap: Integer; begin Result:=PtrInt(@spawn_temp_p(nil)^.nextmap); end;
 
-function LLOFS_changemap: Integer; begin Result:=Integer(@level_locals_p(Ptr(0))^.changemap); end;
-function LLOFS_sight_client: Integer; begin Result:=Integer(@level_locals_p(Ptr(0))^.sight_client); end;
-function LLOFS_sight_entity: Integer; begin Result:=Integer(@level_locals_p(Ptr(0))^.sight_entity); end;
-function LLOFS_sound_entity: Integer; begin Result:=Integer(@level_locals_p(Ptr(0))^.sound_entity); end;
-function LLOFS_sound2_entity: Integer; begin Result:=Integer(@level_locals_p(Ptr(0))^.sound2_entity); end;
+function LLOFS_changemap: Integer; begin Result:=PtrInt(@level_locals_p(nil)^.changemap); end;
+function LLOFS_sight_client: Integer; begin Result:=PtrInt(@level_locals_p(nil)^.sight_client); end;
+function LLOFS_sight_entity: Integer; begin Result:=PtrInt(@level_locals_p(nil)^.sight_entity); end;
+function LLOFS_sound_entity: Integer; begin Result:=PtrInt(@level_locals_p(nil)^.sound_entity); end;
+function LLOFS_sound2_entity: Integer; begin Result:=PtrInt(@level_locals_p(nil)^.sound2_entity); end;
 
-function CLOFS_pers_weapon: Integer; begin Result:=Integer(@gclient_p(Ptr(0))^.pers.weapon); end;
-function CLOFS_pers_lastweapon: Integer; begin Result:=Integer(@gclient_p(Ptr(0))^.pers.lastweapon); end;
-function CLOFS_newweapon: Integer; begin Result:=Integer(@gclient_p(Ptr(0))^.newweapon); end;
+function CLOFS_pers_weapon: Integer; begin Result:=PtrInt(@gclient_p(nil)^.pers.weapon); end;
+function CLOFS_pers_lastweapon: Integer; begin Result:=PtrInt(@gclient_p(nil)^.pers.lastweapon); end;
+function CLOFS_newweapon: Integer; begin Result:=PtrInt(@gclient_p(nil)^.newweapon); end;
 
 procedure SetFields;
 begin
@@ -548,7 +548,7 @@ begin
   if (field^.flags AND FFL_SPAWNTEMP) <> 0 then
     Exit;
     
-  p := Pointer(LongInt(base) + field^.ofs);
+  p := Pointer(PtrInt(base) + field^.ofs);
   case field^._type of
     F_INT, F_FLOAT, F_ANGLEHACK, F_VECTOR, F_IGNORE: {do nothing};
     F_LSTRING, F_GSTRING: begin
@@ -562,21 +562,21 @@ begin
       if pedict_p(p)^ = Nil then
         index := -1
       else
-        index := (LongInt(pedict_p(p)^) - LongInt(g_edicts)) div sizeof(edict_t);
+        index := (PtrInt(pedict_p(p)^) - PtrInt(g_edicts)) div sizeof(edict_t);
       PInteger(p)^ := index;
     end;
     F_CLIENT: begin
       if pgclient_p(p)^ = Nil then
         index := -1
       else
-        index := (LongInt(pgclient_p(p)^) - LongInt(game.clients)) div sizeof(gclient_t);
+        index := (PtrInt(pgclient_p(p)^) - PtrInt(game.clients)) div sizeof(gclient_t);
       PInteger(p)^ := index;
     end;
     F_ITEM: begin
       if pedict_p(p)^ = Nil then
         index := -1
       else
-        index := (LongInt(pgitem_p(p)^) - LongInt(@itemlist)) div sizeof(gitem_t);
+        index := (PtrInt(pgitem_p(p)^) - PtrInt(@itemlist)) div sizeof(gitem_t);
       PInteger(p)^ := index;
     end;
     //relative to code segment
@@ -584,7 +584,7 @@ begin
       if PPByte(p)^ = Nil then
         index := 0
       else
-        index := LongInt(PPByte(p)^) - LongInt(PByte(@InitGame));
+        index := PtrInt(PPByte(p)^) - PtrInt(PByte(@InitGame));
       PInteger(p)^ := index;
     end;
     //relative to data segment
@@ -592,7 +592,7 @@ begin
       if PPByte(p)^ = Nil then
         index := 0
       else
-        index := LongInt(PPByte(p)^) - LongInt(PByte(@mmove_reloc));
+        index := PtrInt(PPByte(p)^) - PtrInt(PByte(@mmove_reloc));
       PInteger(p)^ := index;
     end;
     else
@@ -609,7 +609,7 @@ begin
   if (field^.flags AND FFL_SPAWNTEMP) <> 0 then
     Exit;
 
-  p := Pointer(LongInt(base) + field^.ofs);
+  p := Pointer(PtrInt(base) + field^.ofs);
   case field^._type of
     F_LSTRING:
       if PPChar(p)^ <> Nil then
@@ -632,7 +632,7 @@ begin
   if (field^.flags AND FFL_SPAWNTEMP) <> 0 then
     Exit;
 
-  p := Ptr(LongInt(base) + field^.ofs);
+  p := Pointer(PtrInt(base) + field^.ofs);
   case field^._type of
     F_INT, F_FLOAT, F_ANGLEHACK, F_VECTOR, F_IGNORE: {do nothing};
     F_LSTRING: begin
@@ -671,7 +671,7 @@ begin
       if index = 0 then
         PPByte(p)^ := Nil
       else
-        PPByte(p)^ := PByte(LongInt(@InitGame)+index);
+        PPByte(p)^ := PByte(PtrInt(@InitGame)+index);
     end;
     //relative to data segment
     F_MMOVE: begin
@@ -679,7 +679,7 @@ begin
       if index = 0 then
 	PPByte(p)^ := Nil
       else
-	PPByte(p)^ := PByte(LongInt(@mmove_reloc) + index);
+	PPByte(p)^ := PByte(PtrInt(@mmove_reloc) + index);
     end;
     else
       gi.error('ReadEdict: unknown field type');
@@ -1027,7 +1027,7 @@ begin
     gi.error('ReadLevel: function pointers have moved');
   end;
 {$else}
-  gi_dprintf('Function offsets %d'#10, [LongInt(base) - LongInt(@InitGame)]);
+  gi_dprintf('Function offsets %d'#10, [PtrInt(base) - PtrInt(@InitGame)]);
 {$endif}
 
   // load the level locals

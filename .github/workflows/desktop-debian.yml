@@ -95,7 +95,8 @@ jobs:
             test -x build/realms-launcher &&
             test -f build/librealms_core.so &&
             test -x build/realms-pascal &&
-            test -f build/libekron_sandbox.so
+            test -f build/libekron_sandbox.so &&
+            test -f build/librealms_game.so
           } 2>&1 | tee /tmp/linux-build.log || {
             tail -n 8 /tmp/linux-build.log | while IFS= read -r line; do
               [ -n "$line" ] && echo "::error::[linux-build] $line"
@@ -136,6 +137,10 @@ jobs:
           /usr/bin/ekron-realms --engine-info
           REALMS_CORE=pascal /usr/bin/ekron-realms --headless-smoke | tee /tmp/pascal-smoke.log
           grep -q 'realmsCore=pascal-quake2' /tmp/pascal-smoke.log
+          # Map mode hosts the Quake 2 game module (game/) through realms::GameServer.
+          test -f /usr/lib/ekron-realms/librealms_game.so
+          /usr/bin/ekron-realms --engine-info | tee /tmp/engine-info.log
+          grep -q 'Quake 2 game API 3' /tmp/engine-info.log
           /usr/bin/realms-launcher --version
           /usr/bin/realms-launcher --headless-smoke
           # Free Pascal program: Pascal Realms core linked in, C++ SDL2 sandbox.

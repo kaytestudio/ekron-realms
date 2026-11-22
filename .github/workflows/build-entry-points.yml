@@ -66,7 +66,7 @@ jobs:
           mkdir -p output
           docker run --rm -v "$PWD/output:/output" ekron-builder cp -r /app/dist/. /output/
           ls -l output
-          for f in ekron-realms realms-pascal realms-launcher libekron_sandbox.so librealms_core.so; do
+          for f in ekron-realms realms-pascal realms-launcher libekron_sandbox.so librealms_core.so librealms_game.so; do
             test -f "output/$f"
           done
           ls output/ekron-realms_*.deb
@@ -79,6 +79,7 @@ jobs:
           docker run --rm ekron-builder sh -c '
             build/realms-pascal --engine-info | tee /tmp/info.log &&
             grep -q "Origin:   linked" /tmp/info.log &&
+            grep -q "Quake 2 game API 3" /tmp/info.log &&
             build/realms-pascal --headless-smoke | grep "realmsCore=pascal-quake2"'
 
   make-lazarus:
@@ -125,6 +126,23 @@ jobs:
           make
           make test
           test -x build/realms-pascal
+          test -f build/librealms_game.so
+
+      - name: Lazarus project for the Quake 2 game module (game/realms_game.lpi)
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f build/librealms_game.so
+          if ! lazbuild game/realms_game.lpi > /tmp/lazbuild-game.log 2>&1; then
+            cat /tmp/lazbuild-game.log
+            grep -iE 'error|fatal|exception|not found|unable' /tmp/lazbuild-game.log | tail -n 8 | while IFS= read -r line; do
+              echo "::error::[lazbuild game] $line"
+            done
+            exit 1
+          fi
+          ls -l build/librealms_game.so
+          build/realms_game_server_test --game build/librealms_game.so
+          build/realms_game_server_test --game build/librealms_game.so --pascal build/librealms_core.so
 
       - name: Lazarus projects (Projects/realms.lpi, realms.lpi)
         shell: bash
@@ -142,6 +160,7 @@ jobs:
             fi
             build/realms-pascal --engine-info | tee /tmp/info.log
             grep -q 'Origin:   linked' /tmp/info.log
+            grep -q 'Quake 2 game API 3' /tmp/info.log
           done
           build/realms-pascal --headless-smoke | grep 'realmsCore=pascal-quake2'
 

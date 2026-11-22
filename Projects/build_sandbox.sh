@@ -21,5 +21,9 @@ elif ! grep -q '^ENABLE_FPC_CLIENT:BOOL=ON' "$build/CMakeCache.txt"; then
     cmake -S "$root" -B "$build" -DENABLE_FPC_CLIENT=ON
 fi
 cmake --build "$build" --target ekron_sandbox
+# The Quake 2 game module map mode runs BSP maps with (a target only when
+# CMake found fpc; realms-pascal then picks librealms_game up next to it).
+cmake --build "$build" --target realms_game_module ||
+    echo "build_sandbox.sh: no Quake 2 game module built (map mode walks maps without it)" >&2
 # Unit output directory used by `fpc @realms-fpc.cfg Projects/realms.lpr`.
 mkdir -p "$build/fpc-units/realms-pascal-cfg"

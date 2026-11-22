@@ -170,7 +170,10 @@ jobs:
           APP_BUNDLE="build/EkronRealms.app"
           "$APP_BUNDLE/Contents/MacOS/EkronRealms" --version
           "$APP_BUNDLE/Contents/MacOS/EkronRealms" --headless-smoke
-          "$APP_BUNDLE/Contents/MacOS/EkronRealms" --engine-info
+          "$APP_BUNDLE/Contents/MacOS/EkronRealms" --engine-info | tee /tmp/engine-info.log
+          # Map mode hosts the Quake 2 game module (game/) through realms::GameServer.
+          test -f "$APP_BUNDLE/Contents/Frameworks/librealms_game.dylib"
+          grep -q 'Quake 2 game API 3' /tmp/engine-info.log
           REALMS_CORE=pascal "$APP_BUNDLE/Contents/MacOS/EkronRealms" --headless-smoke | tee /tmp/pascal-smoke.log
           grep -q 'realmsCore=pascal-quake2' /tmp/pascal-smoke.log
           "$APP_BUNDLE/Contents/MacOS/realms-launcher" --version

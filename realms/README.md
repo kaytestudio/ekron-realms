@@ -37,7 +37,7 @@ These subsystems are ported from Quake 2 `qcommon` in both cores, and both cores
 | Visibility and areas: PVS/PHS rows, area portals and flood-filled area connectivity, `CM_BoxLeafnums`, `CM_HeadnodeVisible` | `cmodel.c` | `rlm_cmodel.pas` |
 | Triangle-mesh maps (Realms extension): glTF levels turned into brush collision with a kd tree | - | `rlm_cmodel.pas` |
 
-Shared C++ on top of the ABI (`realms/src`, used by every platform): the glTF map converter (`MeshMap`), drawable map geometry (`MapGeometry`), Quake 2 player movement (`MapWalker`) and the `map` / `mapinfo` / `killserver` commands (`SandboxBoot`). Sound, the server and the game DLL are **not** part of the engine yet.
+Shared C++ on top of the ABI (`realms/src`, used by every platform): the glTF map converter (`MeshMap`), drawable map geometry (`MapGeometry`), Quake 2 player movement (`MapWalker`) the `map` / `mapinfo` / `killserver` commands (`SandboxBoot`), and the Quake 2 server that hosts the game module (`GameServer`, with `Q2Pmove`, a port of `pmove.c`). See [Quake 2 game module](#quake-2-game-module-gameserver).
 
 ## Maps and collision (bridge v2)
 
@@ -116,10 +116,37 @@ Bridge v3 adds nine functions to `RealmsCoreApi`, implemented in both cores:
 On desktop, `map` swaps the sandbox for the loaded map (`sys/desktop/DesktopMapMode.*`). The renderer-independent part is `mapview::MapSession` (`sys/android/app/src/main/cpp/MapSession.*`), shared with Android: the map-to-render space conversion, the camera conventions, material layers and the walker.
 
 - **Movement:** you walk with `realms::MapWalker`, a port of Quake 2's pmove (`PM_StepSlideMove`, friction, acceleration, 18-unit steps, ducking, swimming, jumping). It runs on `Engine::boxTrace` against whichever core is active.
-- **Controls:** WASD, Space to jump, Ctrl to crouch, N for noclip and R to respawn. `killserver` returns to the sandbox where you left it.
+- **Game:** when the game module is available and the `sv_game` cvar is 1 (the default, archived), the map runs the Quake 2 game through `realms::GameServer`: `info_player_start`, items, doors, platforms, triggers and monsters behave as in Quake 2, and the player moves with the game's own `Pmove`. Set `sv_game 0` (then `map` again) to only walk the map with `MapWalker`. The HUD shows health, ammo and armour; centre prints and pickup messages become toasts. Inline brush models (`*1`, `*2`…, doors and lifts) are drawn at the positions the game gives them.
+- **Controls:** WASD, Space to jump, Ctrl to crouch, N for noclip. With the game: left mouse fires (mouse captured), R restarts the map, and the console forwards Quake 2 client commands (`give all`, `give shotgun`, `use blaster`, `god`, `notarget`, `kill`, `weapnext`, `inven`…, or `cmd <anything>`) and `sv <command>` server commands. Without it R respawns. `killserver` returns to the sandbox where you left it.
 - **Spawn:** `MapWalker::spawn` uses `info_player_start`, then the deathmatch and coop spots. glTF scenes rarely have any of these, so for maps without them it searches the map. It scans a 24 × 24 grid of columns for every walkable floor and takes the map's ground level: the lowest height that a tenth of the columns share, so streets beat rooftops and a room's floor beats its roof. On that level it picks the spot with the longest walkable runs in 8 directions. A run ends at a wall or a drop, and it needs floor under the player's centre, so the void past a map's rim and the tops of walls don't count as open. The search is deterministic and uses only box traces, so both cores pick the same spot. The street .glb takes about 0.3 s. Maps with no walkable floor fall back to the map's centre (or top).
 - **BSPs** are drawn from their face lump (sky and nodraw skipped). Maps without faces are drawn from their brush windings. Texture names pick the sandbox material layer (brick, metal, wood, glass, water…).
 - **glTF maps** are drawn with the textured model through the regular glTF pipeline, in the file's own space. `tests/realms/map_render_alignment_test.cpp` (CTest `realms_map_render_alignment`) checks that the drawn model and the collision coincide for every `.glb` shipped in `assets/models`.
+
+### Quake 2 game module (GameServer)
+
+`game/` is the Free Pascal port of Quake 2's game DLL (gamex86: `g_*`, `m_*` monsters, `p_*` player code). `game/realms_game.lpr` builds it as `librealms_game.so` / `.dylib`, which exports `GetGameAPI` with the unchanged **Quake 2 game API 3** C ABI (`realms/include/realms/q2game.h`). The game units use `{$PACKRECORDS C}`, so `edict_t`, `gclient_t`, `trace_t`, `pmove_t` … have the C layouts; `q2game.h` and `GameUnit` check the sizes on both sides.
+
+`realms::GameServer` (`realms/src/GameServer.cpp`) is the server half of Quake 2 (`sv_game.c`, `sv_world.c`, parts of `sv_init.c` / `sv_user.c`) on top of `realms::Engine`:
+
+- `game_import_t` traces, point contents, PVS / PHS and area portals go through the Engine, so the game behaves the same on the Pascal and the C++ core (`SV_Trace` clips against the world, inline models and entity boxes);
+- `SV_LinkEdict` / `SV_AreaEdicts` with area nodes, config strings, model / sound / image indexes, Quake 2 `cvar_t` records mirrored from the Engine's cvars, tag memory, the command tokenizer;
+- one local client: `ClientConnect` / `ClientBegin`, one usercmd per sandbox frame (`ClientThink`, i.e. `Pmove`, using `Q2Pmove`), `RunFrame` at 10 Hz;
+- sounds, prints, centre prints and temp entities from the game are queued as `GameEvent`s (`takeEvents`); game errors stop the server instead of the process.
+
+| How the module is found | |
+| :--- | :--- |
+| `GameServer::setLinkedGame(GetGameAPI)` | a program that compiles `game/` in |
+| `GameServerConfig::library` | an explicit path |
+| `REALMS_GAME_LIBRARY` | environment override (a path) |
+| next to the executable, `../Frameworks/` (macOS app), `../lib/ekron-realms/` (`.deb`) | `librealms_game.so` / `.dylib` |
+
+`--engine-info` prints the module it would use (`Game: …/librealms_game.so (Quake 2 game API 3)`). The desktop build adds the `realms_game_module` target when `fpc` is installed (`-DENABLE_GAME_MODULE=ON`, the default); `make game`, `lazbuild game/realms_game.lpi` or
+
+```bash
+cd game && fpc -Mdelphi -dGAMEDLL -Cg -O2 -FUunits -Fu. -Fi. -o../build/librealms_game.so realms_game.lpr
+```
+
+build it by hand. Android and iOS don't build the game module yet; their map mode walks maps with `MapWalker`.
 
 ### Android and iOS map mode
 
@@ -185,6 +212,7 @@ The other suites:
 
 - `realms_vis_mesh_suite.h` covers PVS/PHS, area portals, box leafs and mesh maps in the core.
 - `realms_meshmap_suite.h` covers the glTF converter, using `gltf_builder.h` to write `.glb` / `.gltf` files in memory.
+- `game_server_test.cpp` (CTest `realms_game_server_native` / `_pascal`) checks `Q2Pmove` on Engine traces (standing, walking, steps, walls, jumping, water), then loads the real `librealms_game` on a generated level, on both cores: spawning on `info_player_start`, walking through `ClientThink` / `Pmove`, picking up an armour shard, the door (`*1`) opening when the player walks into its trigger, server-side traces and per-model geometry, `god` / `give` / `notarget` and the forwarded console commands, weapon fire, game events, latched cvars, and stopping and restarting the server. CTest `ekron_desktop_game_module` checks that `--engine-info` finds the module.
 - `realms_walker_suite.h` covers map geometry from the face lump and from brush windings, with error paths and a fuzz. It also walks a test level through the Engine on both cores: stepping up a 16-unit step, being stopped by a 40-unit block, sliding along walls, player clip, jump height, crouching under a low ceiling, swimming, noclip, and spawning on BSP and glTF maps: it must find open ground beside a hut that encloses the map's centre, and fall back when there is no floor.
 
 All of these run against:

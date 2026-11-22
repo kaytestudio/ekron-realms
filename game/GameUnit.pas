@@ -1,5 +1,5 @@
 //100%
-{$ALIGN ON}{$MINENUMSIZE 4}
+{$ALIGN ON}{$IFDEF FPC}{$PACKRECORDS C}{$ENDIF}{$MINENUMSIZE 4}
 {----------------------------------------------------------------------------}
 {                                                                            }
 { File(s): game\game.h                                                       }
@@ -292,12 +292,20 @@ initialization
 begin
   { 2003-05-23 (SP):  Assume these are basic tests on structure sizes, etc }
   Assert(SizeOf(solid_t) = 4);
+{$IFDEF CPU32}
   Assert(SizeOf(link_t) = 8);
   Assert(SizeOf(game_import_t) = 176);
   Assert(SizeOf(game_export_t) = 80);
 {$IFNDEF GAMEDLL}
   Assert(SizeOf(edict_t) = 260);
   Assert(SizeOf(gclient_t) = 188);
+{$ENDIF}
+{$ENDIF}
+{$IFDEF CPU64}
+  { Realms: the C layouts of realms/include/realms/q2game.h (PACKRECORDS C) }
+  Assert(SizeOf(link_t) = 16);
+  Assert(SizeOf(game_import_t) = 352);
+  Assert(SizeOf(game_export_t) = 152);
 {$ENDIF}
 end;
 

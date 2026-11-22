@@ -830,7 +830,10 @@ void DesktopRenderer::drawWorldScene(ekron::gl::Api &gl,
     }
 }
 
-void DesktopRenderer::setMapGeometry(ekron::gl::Api &gl, const std::vector<sandbox::MeshVertex> &vertices) {
+void DesktopRenderer::setMapGeometry(ekron::gl::Api &gl, const std::vector<sandbox::MeshVertex> &vertices,
+                                     std::vector<MapDrawRange> ranges) {
+    mapRanges_ = std::move(ranges);
+    mapPoses_.clear();
     if (!mapVbo_) return;
     gl.BindVertexArray(mapVao_);
     gl.BindBuffer(GL_ARRAY_BUFFER, mapVbo_);
@@ -848,6 +851,8 @@ void DesktopRenderer::clearMapGeometry(ekron::gl::Api &gl) {
         gl.BufferData(GL_ARRAY_BUFFER, 0, nullptr, GL_STATIC_DRAW);
     }
     mapCount_ = 0;
+    mapRanges_.clear();
+    mapPoses_.clear();
 }
 
 void DesktopRenderer::renderMapWorld(ekron::gl::Api &gl,
@@ -889,7 +894,20 @@ void DesktopRenderer::renderMapWorld(ekron::gl::Api &gl,
         gl.ActiveTexture(GL_TEXTURE1);
         gl.BindTexture(GL_TEXTURE_2D, whiteTex_);
         gl.BindVertexArray(mapVao_);
-        gl.DrawArrays(GL_TRIANGLES, 0, mapCount_);
+        if (mapRanges_.empty()) {
+            gl.DrawArrays(GL_TRIANGLES, 0, mapCount_);
+        } else {
+            const GLint transformLoc = gl.GetUniformLocation(worldProg_, "uObjectTransform");
+            for (const MapDrawRange &r : mapRanges_) {
+                if (r.count <= 0 || r.first < 0 || r.first + r.count > mapCount_) continue;
+                const MapModelPose *pose =
+                    r.model > 0 && size_t(r.model) < mapPoses_.size() ? &mapPoses_[size_t(r.model)] : nullptr;
+                if (pose && !pose->visible) continue;
+                gl.UniformMatrix4fv(transformLoc, 1, GL_FALSE, pose ? pose->transform.data() : kIdentityMatrix.data());
+                gl.DrawArrays(GL_TRIANGLES, r.first, r.count);
+            }
+            gl.UniformMatrix4fv(transformLoc, 1, GL_FALSE, kIdentityMatrix.data());
+        }
     }
 
     if (mapModel && mapModel->ready()) {

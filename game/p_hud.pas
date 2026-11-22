@@ -689,7 +689,7 @@ begin
     cl^.ps.stats[STAT_LAYOUTS] := cl^.ps.stats[STAT_LAYOUTS] OR 2;
 
   if (cl^.chase_target <> Nil) AND (cl^.chase_target^.inuse) then
-    cl^.ps.stats[STAT_CHASE] := CS_PLAYERSKINS + (Cardinal(cl^.chase_target) - Cardinal(g_edicts)) div SizeOf(edict_t) - 1
+    cl^.ps.stats[STAT_CHASE] := CS_PLAYERSKINS + (PtrInt(cl^.chase_target) - PtrInt(g_edicts)) div SizeOf(edict_t) - 1
   else
     cl^.ps.stats[STAT_CHASE] := 0;
 end;

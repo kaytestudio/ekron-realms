@@ -113,6 +113,7 @@ public:
         for (const ModelDef *m : models) {
             std::vector<int32_t> ids;
             for (const Box &b : m->brushes) ids.push_back(addBrush(b));
+            boxModel_.resize(boxes_.size(), int32_t(headnodes.size()));
             float rmin[3], rmax[3];
             for (int a = 0; a < 3; ++a) {
                 rmin[a] = -def_.extent;
@@ -308,8 +309,18 @@ private:
             for (float v : maxs) putf(o, v);
             for (float v : models[i]->origin) putf(o, v);
             put32(o, headnodes[i]);
-            put32(o, 0);
-            put32(o, 0);
+            // firstface / numfaces: faces() writes six per drawable box in
+            // box order, and boxes are added model by model.
+            int32_t firstFace = 0, numFaces = 0;
+            if (def_.emitFaces) {
+                for (size_t b = 0; b < boxes_.size(); ++b) {
+                    if (!(boxes_[b].contents & kDrawableContents)) continue;
+                    if (boxModel_[b] < int32_t(i)) firstFace += 6;
+                    else if (boxModel_[b] == int32_t(i)) numFaces += 6;
+                }
+            }
+            put32(o, firstFace);
+            put32(o, numFaces);
         }
         for (const BrushRec &b : brushes_) {
             put32(lumps[kBrushes], b.firstSide);
@@ -356,7 +367,7 @@ private:
 
     // Six quads per drawable brush. Edge 0 is the reserved dummy edge.
     void faces(std::string *lumps) const {
-        constexpr int32_t kDrawable = 0x1 | 0x2 | 0x8 | 0x10 | 0x20;
+        constexpr int32_t kDrawable = kDrawableContents;
         put16(lumps[kEdges], 0);
         put16(lumps[kEdges], 0);
         int32_t vertexCount = 0, edgeCount = 1, surfEdgeCount = 0;
@@ -451,7 +462,9 @@ private:
     std::vector<int32_t> leafBrushes_;
     std::vector<BrushRec> brushes_;
     std::vector<std::pair<int32_t, int32_t>> sides_;
+    static constexpr int32_t kDrawableContents = 0x1 | 0x2 | 0x8 | 0x10 | 0x20;
     std::vector<Box> boxes_;
+    std::vector<int32_t> boxModel_; // model index of each box
     int32_t clusters_ = 0;
 };
 

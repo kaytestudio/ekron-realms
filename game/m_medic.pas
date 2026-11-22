@@ -686,7 +686,7 @@ begin
 
 	gi.WriteByte (svc_temp_entity);
 	gi.WriteByte (Ord(TE_MEDIC_CABLE_ATTACK));
-	gi.WriteShort (ShortInt((Cardinal(Self) - Cardinal(g_edicts)) div SizeOf(edict_t)));
+	gi.WriteShort ((PtrInt(Self) - PtrInt(g_edicts)) div SizeOf(edict_t));
 	gi.WritePosition (start);
 	gi.WritePosition (_end);
 	gi.multicast (@self^.s.origin, MULTICAST_PVS);
