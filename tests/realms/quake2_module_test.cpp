@@ -10,6 +10,7 @@
 #include "Quake2View.h"
 
 #include "realms/Engine.h"
+#include "realms/MapSky.h"
 #include "realms/MapTextures.h"
 #include "realms/Quake2Module.h"
 
@@ -125,6 +126,102 @@ void walDecoding() {
     CHECK(rgbIs(&small[0], 50, 50, 50) && rgbIs(&small[4], 120, 120, 120) && rgbIs(&small[8], 50, 50, 50));
 }
 
+// A TGA of one colour: type 2 (24-bit, bottom row first) or 10 (RLE, 32-bit,
+// top row first, in runs of at most 128).
+std::vector<unsigned char> tgaBytes(int w, int h, uint8_t r, uint8_t g, uint8_t b, bool rle) {
+    std::vector<unsigned char> t(18, 0);
+    t[2] = rle ? 10 : 2;
+    t[12] = uint8_t(w), t[13] = uint8_t(w >> 8), t[14] = uint8_t(h), t[15] = uint8_t(h >> 8);
+    t[16] = rle ? 32 : 24;
+    t[17] = rle ? 0x28 : 0x00; // top-down, 8 alpha bits
+    for (int left = w * h; left > 0;) {
+        if (rle) {
+            const int run = std::min(left, 128);
+            t.insert(t.end(), {uint8_t(0x80 | (run - 1)), b, g, r, 255});
+            left -= run;
+        } else {
+            t.insert(t.end(), {b, g, r});
+            left--;
+        }
+    }
+    return t;
+}
+
+void writeFileBytes(const fs::path &path, const std::vector<unsigned char> &bytes) {
+    std::error_code ec;
+    fs::create_directories(path.parent_path(), ec);
+    std::ofstream(path, std::ios::binary).write(reinterpret_cast<const char *>(bytes.data()), std::streamsize(bytes.size()));
+}
+
+// env/testsky_<face>: one colour each; dn is a .pcx (index 200 = 200 55 100).
+const uint8_t kSkyColours[5][3] = {{255, 0, 0}, {0, 255, 0}, {0, 0, 255}, {255, 255, 0}, {0, 255, 255}};
+void writeSky(const fs::path &dir) {
+    for (int i = 0; i < 5; i++)
+        writeFileBytes(dir / "env" / (std::string("testsky_") + realms::MapSky::kSuffixes[i] + ".tga"),
+                       tgaBytes(8, 8, kSkyColours[i][0], kSkyColours[i][1], kSkyColours[i][2], i % 2 == 1));
+    writeFileBytes(dir / "env/testsky_dn.pcx", md2_builder::writePcx(8, 8, std::vector<uint8_t>(64, 200)));
+}
+
+// decodeTga, skySettings, the face lookup against R_DrawSkyBox, renderToSky.
+void skyMath() {
+    // a 2 x 2 TGA, bottom row first: red green / blue white on screen
+    std::vector<unsigned char> tga(18, 0);
+    tga[2] = 2, tga[12] = 2, tga[14] = 2, tga[16] = 24;
+    tga.insert(tga.end(), {255, 0, 0, 255, 255, 255, 0, 0, 255, 0, 255, 0}); // BGR: blue white, red green
+    realms::RgbaImage img;
+    std::string error;
+    CHECK(realms::decodeTga(tga.data(), tga.size(), img, error));
+    CHECK(img.width == 2 && img.height == 2 && img.rgba.size() == 16);
+    if (img.rgba.size() == 16) {
+        CHECK(rgbIs(&img.rgba[0], 255, 0, 0) && rgbIs(&img.rgba[4], 0, 255, 0));
+        CHECK(rgbIs(&img.rgba[8], 0, 0, 255) && rgbIs(&img.rgba[12], 255, 255, 255));
+    }
+    CHECK(!realms::decodeTga(tga.data(), tga.size() - 1, img, error) && error == "pixels cut short");
+    const auto rle = tgaBytes(20, 10, 1, 2, 3, true); // 200 pixels: runs of 128 and 72
+    CHECK(realms::decodeTga(rle.data(), rle.size(), img, error) && img.width == 20 && img.height == 10);
+    CHECK(img.rgba.size() == 800 && rgbIs(&img.rgba[796], 1, 2, 3));
+    CHECK(!realms::decodeTga(rle.data(), rle.size() - 3, img, error));
+    auto mapped = tga;
+    mapped[2] = 1; // colour-mapped
+    CHECK(!realms::decodeTga(mapped.data(), mapped.size(), img, error));
+
+    realms::MapSkySettings s = realms::skySettings("{\n\"classname\" \"worldspawn\"\n}\n");
+    CHECK(s.name == "unit1_" && s.rotate == 0.0f);
+    s = realms::skySettings("{\n\"sky\" \"space1_\"\n\"skyrotate\" \"-4.5\"\n\"skyaxis\" \"0 1 2\"\n"
+                            "\"classname\" \"worldspawn\"\n}\n{\n\"classname\" \"light\"\n\"sky\" \"x\"\n}\n");
+    CHECK(s.name == "space1_" && near(s.rotate, -4.5f, 1e-6f) && s.axis[0] == 0 && s.axis[1] == 1 && s.axis[2] == 2);
+
+    // MakeSkyVec(s, t, axis): every point of every face maps back
+    const int stToVec[6][3] = {{3, -1, 2}, {-3, 1, 2}, {1, 3, 2}, {-1, -3, 2}, {-2, -1, 3}, {2, -1, -3}};
+    int ok = 0, total = 0;
+    for (int axis = 0; axis < 6; axis++)
+        for (float st0 = -0.9f; st0 < 0.95f; st0 += 0.3f)
+            for (float st1 = -0.9f; st1 < 0.95f; st1 += 0.3f) {
+                const float b[3] = {st0 * 2300, st1 * 2300, 2300};
+                float v[3];
+                for (int j = 0; j < 3; j++) {
+                    const int k = stToVec[axis][j];
+                    v[j] = k < 0 ? -b[-k - 1] : b[k - 1];
+                }
+                int layer = -1;
+                float u = 0, vv = 0;
+                realms::MapSky::faceCoords(v, layer, u, vv);
+                total++;
+                if (layer == axis && near(u, (st0 + 1) * 0.5f, 1e-5f) && near(vv, 1.0f - (st1 + 1) * 0.5f, 1e-5f)) ok++;
+            }
+    CHECK(total == 6 * 49 && ok == total);
+
+    auto toSky = [](const std::array<float, 9> &m, float x, float y, float z, std::array<float, 3> &d) {
+        for (int r = 0; r < 3; r++) d[size_t(r)] = m[size_t(r)] * x + m[size_t(3 + r)] * y + m[size_t(6 + r)] * z;
+    };
+    realms::MapSky sky;
+    std::array<float, 3> d{};
+    toSky(sky.renderToSky(5.0), 0, 1, 0, d); // render up = Quake +Z
+    CHECK(near(d[0], 0, 1e-6f) && near(d[1], 0, 1e-6f) && near(d[2], 1, 1e-6f));
+    toSky(sky.renderToSky(5.0), 0, 0, -1, d); // render -Z = Quake +Y
+    CHECK(near(d[0], 0, 1e-6f) && near(d[1], 1, 1e-6f) && near(d[2], 0, 1e-6f));
+}
+
 // The floor's light: red 128, green 64, blue 32 everywhere (style slot 0,
 // "normal"); slot 1 (style 1, FLICKER in the game's worldspawn) adds blue.
 std::array<uint8_t, 3> arenaLight(const float *, int slot) {
@@ -148,7 +245,8 @@ bsp_builder::MapDef arena() {
     bsp_builder::ModelDef door;
     door.brushes = {{{0, -64, 0}, {16, 64, 128}, REALMS_CONTENTS_SOLID, 2}};
     def.inlineModels.push_back(door);
-    def.entities = "{\n\"classname\" \"worldspawn\"\n\"message\" \"Realms module arena\"\n}\n"
+    def.entities = "{\n\"classname\" \"worldspawn\"\n\"message\" \"Realms module arena\"\n\"sky\" \"testsky_\"\n"
+                   "\"skyrotate\" \"90\"\n\"skyaxis\" \"0 0 1\"\n}\n"
                    "{\n\"classname\" \"info_player_start\"\n\"origin\" \"-320 0 24\"\n\"angle\" \"0\"\n}\n"
                    "{\n\"classname\" \"item_armor_shard\"\n\"origin\" \"-160 0 16\"\n}\n"
                    "{\n\"classname\" \"func_door\"\n\"model\" \"*1\"\n\"angle\" \"-1\"\n\"speed\" \"200\"\n}\n";
@@ -236,8 +334,36 @@ void moduleWithoutGame(realms::Engine &engine) {
         CHECK(rgbIs(w + (10 * 128 + 70) * 4, 239, 0, 0) && rgbIs(w + (100 * 128 + 3) * 4, 235, 235, 235));
     }
 
+    // the skybox: five .tga faces and a .pcx, 8 x 8 each (layers of 16)
+    const realms::MapSky &sky = q2.sky();
+    CHECK(!sky.empty() && sky.size() == 16 && sky.pixels().size() == 6 * 16 * 16 * 4);
+    CHECK(sky.settings().name == "testsky_" && near(sky.settings().rotate, 90.0f, 1e-6f));
+    if (sky.pixels().size() == 6 * 16 * 16 * 4) {
+        for (int i = 0; i < 5; i++)
+            CHECK(rgbIs(sky.pixels().data() + size_t(i) * 1024 + 4 * 37, kSkyColours[i][0], kSkyColours[i][1],
+                        kSkyColours[i][2]));
+        CHECK(rgbIs(sky.pixels().data() + 5 * 1024 + 4 * 200, 200, 55, 100));
+    }
+    // 90 degrees a second about Z: after one second, Quake +X looks at the
+    // box's -Y face (ft), render-space +X being Quake +X
+    std::array<float, 9> m = sky.renderToSky(1.0);
+    float dir[3] = {m[0], m[1], m[2]}; // the image of render +X
+    int face = -1;
+    float fu = 0, fv = 0;
+    realms::MapSky::faceCoords(dir, face, fu, fv);
+    CHECK(face == 3 && near(fu, 0.5f, 1e-4f) && near(fv, 0.5f, 1e-4f));
+    m = sky.renderToSky(4.0); // a full turn
+    CHECK(near(m[0], 1, 1e-4f) && near(m[1], 0, 1e-4f) && near(m[2], 0, 1e-4f));
+    realms::MapSky missing;
+    std::string skyError;
+    realms::MapSkySettings other;
+    other.name = "nosuch_";
+    CHECK(!missing.load(engine, other, &skyError) && missing.empty() && skyError == "env/nosuch_rt: not found");
+
     q2.disableLightmaps();
     CHECK(!q2.lightmapped() && q2.lightmap().empty() && !q2.lightmapUvs(geometry, uvs) && uvs.empty());
+    q2.disableSky();
+    CHECK(q2.sky().empty());
     q2.disableTextures();
     CHECK(q2.textures().empty() && q2.textures().find("e1u1/floor") == -1);
     q2.close();
@@ -246,8 +372,9 @@ void moduleWithoutGame(realms::Engine &engine) {
     realms::Quake2ModuleConfig plain;
     plain.startGame = false;
     plain.textures = false;
+    plain.sky = false;
     q2.open(engine, geometry, plain, why);
-    CHECK(q2.textures().empty() && q2.lightmapped());
+    CHECK(q2.textures().empty() && q2.sky().empty() && q2.lightmapped());
     q2.close();
 }
 
@@ -313,6 +440,15 @@ void viewWithoutGame(realms::Engine &engine) {
     for (int i = 0; i < 30; i++) view.update(engine, in, yaw, 0.0f, 1.0f / 30.0f, false);
     const physics::Vec3 moved = view.eye();
     CHECK(moved.x > start.x + 1.0f);
+    {
+        // one second of update(): the sky turned 90 degrees (skyrotate 90)
+        const std::array<float, 9> m = view.skyMatrix();
+        const float dir[3] = {m[0], m[1], m[2]};
+        int face = -1;
+        float u = 0, v = 0;
+        realms::MapSky::faceCoords(dir, face, u, v);
+        CHECK(face == 3 && near(u, 0.5f, 1e-3f));
+    }
     CHECK(near(moved.z, start.z, 0.1f));
     CHECK(view.modelPoses().empty());
     std::vector<mapview::EntityVertex> ev;
@@ -470,6 +606,7 @@ int main(int argc, char **argv) {
         std::ofstream(tmp / "maps" / "arena.bsp", std::ios::binary).write(bsp.data(), std::streamsize(bsp.size()));
     }
     writeBlaster(tmp);
+    writeSky(tmp);
     writeWal(tmp, "e1u1/floor", 64, 64, [](uint32_t, uint32_t) { return 0xd0; });
     writeWal(tmp, "e1u1/wall", 32, 128, [](uint32_t, uint32_t y) { return y < 64 ? 0xf0 : 0x0f; });
     realms::EngineConfig cfg;
@@ -484,6 +621,8 @@ int main(int argc, char **argv) {
 
     step("wal decoding");
     walDecoding();
+    step("sky math");
+    skyMath();
     step("module without game");
     moduleWithoutGame(engine);
     step("view without game");

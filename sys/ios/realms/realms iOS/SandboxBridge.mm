@@ -538,6 +538,8 @@ public:
         else if (fresh_)
             session().summary() += ", " + std::to_string(textures.count()) + " textures";
         view_->triangles(geometry, vertices, ranges_, lightUvs);
+        if (session().mesh() || !uploadSky(device, view_->module().sky())) view_->disableSky();
+        else if (fresh_) session().summary() += ", sky " + view_->module().sky().settings().name;
         if (!vertices.empty()) {
             triangles_ = [device newBufferWithBytes:vertices.data()
                                              length:vertices.size() * sizeof(sandbox::MeshVertex)
@@ -762,6 +764,9 @@ public:
 
     mapview::MapSession &session() { return view_->session(); }
     const mapview::MapSession &session() const { return view_->session(); }
+    // The skybox for the sky pass (nil without one) and its direction matrix.
+    id<MTLTexture> skyTexture() const { return skyTexture_; }
+    std::array<float, 9> skyMatrix() const { return view_->skyMatrix(); }
 
 private:
     void releaseGpu() {
@@ -772,6 +777,7 @@ private:
         lightUvs_ = nil;
         lightmap_ = nil;
         mapTextures_ = nil;
+        skyTexture_ = nil;
         count_ = 0;
         ranges_.clear();
         skins_.clear();
@@ -789,6 +795,35 @@ private:
                      mipmapLevel:0
                        withBytes:q2.lightmap().data()
                      bytesPerRow:NSUInteger(w) * 4];
+    }
+
+    // The skybox's six faces as a 2D array, drawn as is (no mipmaps: they
+    // would seam where the faces meet).
+    bool uploadSky(id<MTLDevice> device, const realms::MapSky &sky) {
+        skyTexture_ = nil;
+        if (sky.empty() || !device) return false;
+        const NSUInteger size = NSUInteger(sky.size());
+        MTLTextureDescriptor *desc = [[MTLTextureDescriptor alloc] init];
+        desc.textureType = MTLTextureType2DArray;
+        desc.pixelFormat = MTLPixelFormatRGBA8Unorm;
+        desc.width = size;
+        desc.height = size;
+        desc.arrayLength = realms::MapSky::kFaces;
+        desc.mipmapLevelCount = 1;
+        desc.usage = MTLTextureUsageShaderRead;
+        id<MTLTexture> tex = [device newTextureWithDescriptor:desc];
+        if (!tex) return false;
+        const size_t layerBytes = size_t(size) * size_t(size) * 4;
+        for (NSUInteger i = 0; i < NSUInteger(realms::MapSky::kFaces); ++i) {
+            [tex replaceRegion:MTLRegionMake2D(0, 0, size, size)
+                   mipmapLevel:0
+                         slice:i
+                     withBytes:sky.pixels().data() + i * layerBytes
+                   bytesPerRow:size * 4
+                 bytesPerImage:layerBytes];
+        }
+        skyTexture_ = tex;
+        return true;
     }
 
     // The map's textures as an sRGB 2D array with mipmaps; false (nil) when
@@ -940,6 +975,7 @@ private:
     id<MTLBuffer> lightUvs_ = nil;
     id<MTLTexture> lightmap_ = nil;
     id<MTLTexture> mapTextures_ = nil; // texture(3): the map's own textures
+    id<MTLTexture> skyTexture_ = nil;  // the skybox (sky pass)
     NSUInteger count_ = 0;
     std::vector<mapview::ModelRange> ranges_;
     MetalGltfModel model_;
@@ -2118,15 +2154,34 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
                    pitch:(float)pitch
                     roll:(float)roll
                   aspect:(float)aspect {
+    [self encodeSceneSetup:encoder cameraEye:eye yaw:yaw pitch:pitch roll:roll aspect:aspect skyBox:nil skyMatrix:nullptr];
+}
+
+// skyBox: map mode's MapSky layers (nil: the gradient); skyMatrix: its
+// MapSky::renderToSky, column-major.
+- (void)encodeSceneSetup:(id<MTLRenderCommandEncoder>)encoder
+               cameraEye:(physics::Vec3)eye
+                     yaw:(float)yaw
+                   pitch:(float)pitch
+                    roll:(float)roll
+                  aspect:(float)aspect
+                  skyBox:(id<MTLTexture>)skyBox
+               skyMatrix:(const float *)skyMatrix {
     [encoder setCullMode:MTLCullModeNone];
     [encoder setFrontFacingWinding:MTLWindingCounterClockwise];
 
     // Sky pass
     SandboxSkyUniforms sky{};
     sky.anglesRollAspect = simd_make_float4(yaw, pitch, roll, aspect);
+    if (skyBox && skyMatrix) {
+        sky.skyFlags = simd_make_int4(1, 0, 0, 0);
+        for (int c = 0; c < 3; ++c)
+            sky.skyAxes[c] = simd_make_float4(skyMatrix[c * 3], skyMatrix[c * 3 + 1], skyMatrix[c * 3 + 2], 0.0f);
+    }
     [encoder setRenderPipelineState:skyPipeline_];
     [encoder setDepthStencilState:skyDepthState_];
     [encoder setFragmentBytes:&sky length:sizeof(sky) atIndex:0];
+    [encoder setFragmentTexture:(sky.skyFlags.x ? skyBox : fallbackArrayTexture_) atIndex:0];
     [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
 
     // Shared scene uniforms
@@ -2884,7 +2939,15 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
 
     id<MTLRenderCommandEncoder> encoder = [commandBuffer renderCommandEncoderWithDescriptor:passDesc];
     if (encoder) {
-        [self encodeSceneSetup:encoder cameraEye:mapMode_.drawEye() yaw:mapYaw_ pitch:mapPitch_ roll:0.0f aspect:aspect];
+        const std::array<float, 9> skyMatrix = mapMode_.skyMatrix();
+        [self encodeSceneSetup:encoder
+                     cameraEye:mapMode_.drawEye()
+                           yaw:mapYaw_
+                         pitch:mapPitch_
+                          roll:0.0f
+                        aspect:aspect
+                        skyBox:mapMode_.skyTexture()
+                     skyMatrix:skyMatrix.data()];
         MetalMapPipelines pipelines;
         pipelines.sandbox = sandboxOpaquePipeline_;
         pipelines.modelOpaque = modelOpaquePipeline_;

@@ -151,6 +151,12 @@ public:
     // material layers). Kept until clearMapGeometry.
     bool setMapTextures(ekron::gl::Api &gl, int size, int count, const std::vector<uint8_t> &rgba);
     bool mapTextured() const { return mapTexturesTex_ != 0; }
+    // The Quake 2 skybox (realms::MapSky::pixels(): six RGBA layers of size
+    // x size) drawn by renderMapWorld instead of the sky gradient, turned by
+    // setMapSkyMatrix (MapSky::renderToSky). Kept until clearMapGeometry.
+    void setMapSky(ekron::gl::Api &gl, int size, const std::vector<uint8_t> &rgba);
+    void setMapSkyMatrix(const std::array<float, 9> &m) { skyMatrix_ = m; }
+    bool mapSky() const { return skyTex_ != 0; }
 
     // Game entities for this frame (Quake 2 .md2 models, fallback boxes),
     // drawn by renderMapWorld after the map with the textured model shader.
@@ -274,6 +280,9 @@ private:
     int lightmapW_ = 0, lightmapH_ = 0;
     GLuint mapTexturesTex_ = 0; // unit 3: the map's own textures
     void releaseMapTextures(ekron::gl::Api &gl);
+    GLuint skyTex_ = 0; // unit 4 (sky program): the skybox
+    std::array<float, 9> skyMatrix_{1, 0, 0, 0, 1, 0, 0, 0, 1};
+    void releaseMapSky(ekron::gl::Api &gl);
     bool lightmapEnabled_ = true;
     void uploadMapLightUvs(ekron::gl::Api &gl, const std::vector<float> &uvs);
     std::vector<MapDrawRange> mapRanges_;

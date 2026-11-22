@@ -89,6 +89,11 @@ public:
     void disableLightmaps() { q2_.disableLightmaps(); }
     // ... or the map's textures (call before triangles()).
     void disableTextures() { q2_.disableTextures(); }
+    // ... or its skybox.
+    void disableSky() { q2_.disableSky(); }
+    // The skybox's direction matrix (MapSky::renderToSky) at the time
+    // update() has run since open().
+    std::array<float, 9> skyMatrix() const { return q2_.sky().renderToSky(skyTime_); }
 
     // One frame: the game with this input (attack fires), or the walker.
     void update(realms::Engine &engine, const realms::WalkInput &input, float renderYaw, float renderPitch,
@@ -128,6 +133,7 @@ private:
     realms::Quake2Module q2_;
     std::vector<ModelPose> poses_;
     std::vector<std::string> messages_;
+    double skyTime_ = 0.0;
     std::vector<realms::Quake2EffectVertex> fxQuads_;
     std::vector<realms::GameDynamicLight> fxLights_;
 };

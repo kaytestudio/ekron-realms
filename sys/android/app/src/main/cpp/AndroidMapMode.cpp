@@ -65,6 +65,9 @@ bool AndroidMapMode::open(realms::Engine &engine, const city::GltfRenderer &sand
     else if (fresh)
         session().summary() += ", " + std::to_string(textures.count()) + " textures";
     view_->triangles(geometry, vertices, ranges_, lightUvs);
+    if (session().mesh()) view_->disableSky();
+    uploadSky(view_->module().sky());
+    if (skyTexture_ && fresh) session().summary() += ", sky " + view_->module().sky().settings().name;
     if (!vertices.empty()) {
         glGenVertexArrays(1, &vao_);
         glGenBuffers(1, &vbo_);
@@ -169,13 +172,30 @@ bool AndroidMapMode::uploadMapTextures(const realms::MapTextures &textures) {
     return false;
 }
 
+void AndroidMapMode::uploadSky(const realms::MapSky &sky) {
+    if (sky.empty()) return;
+    const GLsizei size = sky.size();
+    glGenTextures(1, &skyTexture_);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, skyTexture_);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    // drawn as is; no mipmaps, they would seam where the faces meet
+    glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_RGBA8, size, size, realms::MapSky::kFaces, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                 sky.pixels().data());
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+}
+
 void AndroidMapMode::releaseTriangles() {
     if (vbo_) glDeleteBuffers(1, &vbo_);
     if (lightUvVbo_) glDeleteBuffers(1, &lightUvVbo_);
     if (vao_) glDeleteVertexArrays(1, &vao_);
     if (lightmapTexture_) glDeleteTextures(1, &lightmapTexture_);
     if (mapTextures_) glDeleteTextures(1, &mapTextures_);
-    vbo_ = lightUvVbo_ = vao_ = lightmapTexture_ = mapTextures_ = 0;
+    if (skyTexture_) glDeleteTextures(1, &skyTexture_);
+    vbo_ = lightUvVbo_ = vao_ = lightmapTexture_ = mapTextures_ = skyTexture_ = 0;
     count_ = 0;
     ranges_.clear();
 }

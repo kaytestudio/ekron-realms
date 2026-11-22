@@ -192,14 +192,33 @@ out vec2 screen;
 void main(){vec2 p=vec2(float((gl_VertexID<<1)&2),float(gl_VertexID&2));screen=p*2.0-1.0;gl_Position=vec4(screen,0.0,1.0);})";
 const char *skyFragment=R"(#version 300 es
 precision highp float;
+precision highp sampler2DArray;
 in vec2 screen;
 uniform float aspect;
 uniform vec2 angles;
 uniform float cameraRoll;
+// Quake 2 skybox (map mode, realms::MapSky): layers rt lf bk ft up dn on unit
+// 4; skyMatrix turns a render-space direction into the box's axes.
+uniform bool skyBox;
+uniform mat3 skyMatrix;
+uniform sampler2DArray skyTextures;
 out vec4 outColor;
 void main(){
  vec3 ray=normalize(vec3(screen.x*aspect/1.37638,screen.y/1.37638,-1.0));
  ray.xy=mat2(cos(cameraRoll),-sin(cameraRoll),sin(cameraRoll),cos(cameraRoll))*ray.xy;
+ if(skyBox){
+  // undo pitch, then yaw; then R_DrawSkyBox inverted (MapSky::faceCoords)
+  float cp=cos(angles.y),sp=sin(angles.y),cy=cos(angles.x),sy=sin(angles.x);
+  vec3 r=vec3(ray.x,cp*ray.y-sp*ray.z,sp*ray.y+cp*ray.z);
+  r=vec3(cy*r.x+sy*r.z,r.y,-sy*r.x+cy*r.z);
+  vec3 d=skyMatrix*r,a=abs(d);
+  float layer;vec2 st;
+  if(a.x>=a.y&&a.x>=a.z){layer=d.x>0.0?0.0:1.0;st=vec2(d.x>0.0?-d.y:d.y,d.z)/a.x;}
+  else if(a.y>=a.z){layer=d.y>0.0?2.0:3.0;st=vec2(d.y>0.0?d.x:-d.x,d.z)/a.y;}
+  else{layer=d.z>0.0?4.0:5.0;st=vec2(-d.y,d.z>0.0?-d.x:d.x)/a.z;}
+  outColor=vec4(texture(skyTextures,vec3((st.x+1.0)*.5,(1.0-st.y)*.5,layer)).rgb,1.0);
+  return;
+ }
  float altitude=cos(angles.y)*ray.y-sin(angles.y)*ray.z;
  float blend=smoothstep(0.0,.85,max(altitude,0.0));
  outColor=vec4(mix(vec3(.56,.61,.63),vec3(.32,.41,.51),blend),1.0);
@@ -308,6 +327,7 @@ Renderer::Renderer(android_app *app):app_(app),last_(std::chrono::steady_clock::
  const EGLint contextAttributes[]={EGL_CONTEXT_CLIENT_VERSION,3,EGL_NONE};context_=eglCreateContext(display_,config,EGL_NO_CONTEXT,contextAttributes);
  if(surface_==EGL_NO_SURFACE||context_==EGL_NO_CONTEXT||!eglMakeCurrent(display_,surface_,surface_,context_))return;
  program_=link(vertex,fragment);skyProgram_=link(skyVertex,skyFragment);if(!program_)return;
+ if(skyProgram_){glUseProgram(skyProgram_);glUniform1i(glGetUniformLocation(skyProgram_,"skyTextures"),4);glUniform1i(glGetUniformLocation(skyProgram_,"skyBox"),0);}
  // Each sampler keeps its own unit: albedo array 0, model 1, lightmap 2, map textures 3.
  glUseProgram(program_);glUniform1i(glGetUniformLocation(program_,"lightmap"),2);glUniform1i(glGetUniformLocation(program_,"mapLightmap"),0);glUniform1i(glGetUniformLocation(program_,"mapTextures"),3);glUniform1i(glGetUniformLocation(program_,"mapTextured"),0);glUniform1i(glGetUniformLocation(program_,"dlightCount"),0);
  loadStage=1;loadPercent=2;
@@ -787,7 +807,15 @@ void Renderer::renderMap(float dt){
   glUniform1f(glGetUniformLocation(skyProgram_,"aspect"),aspect);
   glUniform2f(glGetUniformLocation(skyProgram_,"angles"),mapYaw_,mapPitch_);
   glUniform1f(glGetUniformLocation(skyProgram_,"cameraRoll"),0);
+  const GLuint skyTexture=mapMode_.skyTexture();
+  if(skyTexture){
+   glActiveTexture(GL_TEXTURE4);glBindTexture(GL_TEXTURE_2D_ARRAY,skyTexture);glActiveTexture(GL_TEXTURE0);
+   const std::array<float,9> m=mapMode_.skyMatrix();
+   glUniformMatrix3fv(glGetUniformLocation(skyProgram_,"skyMatrix"),1,GL_FALSE,m.data());
+  }
+  glUniform1i(glGetUniformLocation(skyProgram_,"skyBox"),skyTexture?1:0);
   glDrawArrays(GL_TRIANGLES,0,3);glDepthMask(GL_TRUE);glEnable(GL_DEPTH_TEST);
+  glUniform1i(glGetUniformLocation(skyProgram_,"skyBox"),0);
  }
  glUseProgram(program_);
  const float identity[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};

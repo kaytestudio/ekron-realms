@@ -64,6 +64,7 @@ void Quake2View::close() {
     q2_.close();
     poses_.clear();
     messages_.clear();
+    skyTime_ = 0.0;
     session_.close();
 }
 
@@ -94,6 +95,7 @@ void Quake2View::triangles(const realms::MapGeometry &geometry, std::vector<sand
 
 void Quake2View::update(realms::Engine &engine, const realms::WalkInput &input, float renderYaw, float renderPitch,
                         float dt, bool attack) {
+    skyTime_ += double(dt);
     const std::string failure = q2_.takeGameFailure(); // the game stopped (game error): back to walking
     if (!failure.empty()) {
         messages_.push_back("Game stopped: " + failure);

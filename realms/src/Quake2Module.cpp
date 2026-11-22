@@ -49,6 +49,11 @@ void Quake2Module::open(Engine &engine, const MapGeometry &geometry, const Quake
         if (textures_.missing())
             engine.print("map: " + std::to_string(textures_.missing()) + " textures not found\n", REALMS_PRINT_DEVELOPER);
     }
+    if (config.sky && (geometry.source == MapGeometrySource::Faces || geometry.source == MapGeometrySource::Brushes)) {
+        std::string error;
+        if (!sky_.load(engine, skySettings(engine.mapEntities()), &error))
+            engine.print("map: no sky: " + error + "\n", REALMS_PRINT_DEVELOPER);
+    }
     if (config.startGame) startGame(engine, why);
 }
 
@@ -68,6 +73,7 @@ void Quake2Module::close() {
     sounds_.clear();
     lighting_.clear();
     textures_.clear();
+    sky_.clear();
     lightStyles_ = defaultLightStyles();
     lightmapRgba_.clear();
 }

@@ -54,6 +54,13 @@ bool DesktopMapMode::open(realms::Engine &engine, ekron::gl::Api &gl, DesktopRen
     else
         session.summary() += ", " + std::to_string(textures.count()) + " textures";
     if (!model_) view_.triangles(geometry, vertices, ranges, lightUvs);
+    const realms::MapSky &sky = quake2().sky();
+    if (!model_ && !sky.empty()) {
+        renderer.setMapSky(gl, sky.size(), sky.pixels());
+        session.summary() += ", sky " + sky.settings().name;
+    } else {
+        view_.disableSky();
+    }
     std::vector<DesktopRenderer::MapDrawRange> drawRanges;
     for (const mapview::ModelRange &r : ranges) drawRanges.push_back({r.model, GLint(r.first), GLsizei(r.count)});
     renderer.setMapGeometry(gl, vertices, drawRanges);

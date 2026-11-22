@@ -397,15 +397,41 @@ vertex SkyVaryings skyVertex(uint vid [[vertex_id]])
     return out;
 }
 
+// The sky gradient, or in map mode the Quake 2 skybox (realms::MapSky):
+// layers rt lf bk ft up dn of texture(0), always bound.
 fragment float4 skyFragment(SkyVaryings in [[stage_in]],
-                            constant SandboxSkyUniforms &sky [[buffer(0)]])
+                            constant SandboxSkyUniforms &sky [[buffer(0)]],
+                            texture2d_array<float> skyTextures [[texture(0)]])
 {
+    float yaw = sky.anglesRollAspect.x;
     float pitch = sky.anglesRollAspect.y;
     float roll = sky.anglesRollAspect.z;
     float aspect = max(sky.anglesRollAspect.w, 0.001f);
     float3 ray = normalize(float3(in.screen.x * aspect / 1.37638f, in.screen.y / 1.37638f, -1.0f));
     float cr = cos(roll), sr = sin(roll);
     ray.xy = float2(cr * ray.x + sr * ray.y, -sr * ray.x + cr * ray.y);
+    if (sky.skyFlags.x != 0) {
+        // undo pitch, then yaw; then R_DrawSkyBox inverted (MapSky::faceCoords)
+        float cp = cos(pitch), sp = sin(pitch), cy = cos(yaw), sy = sin(yaw);
+        float3 r = float3(ray.x, cp * ray.y - sp * ray.z, sp * ray.y + cp * ray.z);
+        r = float3(cy * r.x + sy * r.z, r.y, -sy * r.x + cy * r.z);
+        float3x3 m = float3x3(sky.skyAxes[0].xyz, sky.skyAxes[1].xyz, sky.skyAxes[2].xyz);
+        float3 d = m * r, a = abs(d);
+        uint layer;
+        float2 st;
+        if (a.x >= a.y && a.x >= a.z) {
+            layer = d.x > 0.0f ? 0u : 1u;
+            st = float2(d.x > 0.0f ? -d.y : d.y, d.z) / a.x;
+        } else if (a.y >= a.z) {
+            layer = d.y > 0.0f ? 2u : 3u;
+            st = float2(d.y > 0.0f ? d.x : -d.x, d.z) / a.y;
+        } else {
+            layer = d.z > 0.0f ? 4u : 5u;
+            st = float2(-d.y, d.z > 0.0f ? -d.x : d.x) / a.z;
+        }
+        constexpr sampler skySampler(coord::normalized, address::clamp_to_edge, filter::linear);
+        return float4(skyTextures.sample(skySampler, float2((st.x + 1.0f) * 0.5f, (1.0f - st.y) * 0.5f), layer).rgb, 1.0f);
+    }
     float altitude = cos(pitch) * ray.y - sin(pitch) * ray.z;
     float blend = smoothstep(0.0f, 0.85f, max(altitude, 0.0f));
     return float4(mix(float3(0.56f, 0.61f, 0.63f), float3(0.32f, 0.41f, 0.51f), blend), 1.0f);

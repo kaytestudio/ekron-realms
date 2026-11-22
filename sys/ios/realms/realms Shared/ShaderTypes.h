@@ -75,6 +75,8 @@ typedef struct
 typedef struct
 {
     simd_float4 anglesRollAspect; // x = yaw, y = pitch, z = roll, w = aspect
+    simd_int4   skyFlags;         // x = 1: the Quake 2 skybox on texture(0) (map mode)
+    simd_float4 skyAxes[3];       // columns (xyz) of realms::MapSky::renderToSky
 } SandboxSkyUniforms;
 
 typedef struct

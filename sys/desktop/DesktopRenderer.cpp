@@ -43,11 +43,38 @@ in vec2 vScreen;
 uniform vec2 uAngles;
 uniform float uRoll;
 uniform float uAspect;
+// Quake 2 skybox (map mode, realms::MapSky): six layers rt lf bk ft up dn on
+// unit 4; uSkyMatrix turns a render-space direction into the box's axes.
+uniform int uSkyBox;
+uniform mat3 uSkyMatrix;
+uniform sampler2DArray uSkyTextures;
 out vec4 fragColor;
 void main() {
     vec3 ray = normalize(vec3(vScreen.x * max(uAspect, 0.001) / 1.37638, vScreen.y / 1.37638, -1.0));
     float cr = cos(uRoll), sr = sin(uRoll);
     ray.xy = vec2(cr * ray.x + sr * ray.y, -sr * ray.x + cr * ray.y);
+    if (uSkyBox != 0) {
+        // undo pitch, then yaw: the view ray in render space
+        float cp = cos(uAngles.y), sp = sin(uAngles.y), cy = cos(uAngles.x), sy = sin(uAngles.x);
+        vec3 r = vec3(ray.x, cp * ray.y - sp * ray.z, sp * ray.y + cp * ray.z);
+        r = vec3(cy * r.x + sy * r.z, r.y, -sy * r.x + cy * r.z);
+        // R_DrawSkyBox inverted (MapSky::faceCoords)
+        vec3 d = uSkyMatrix * r, a = abs(d);
+        float layer;
+        vec2 st;
+        if (a.x >= a.y && a.x >= a.z) {
+            layer = d.x > 0.0 ? 0.0 : 1.0;
+            st = vec2(d.x > 0.0 ? -d.y : d.y, d.z) / a.x;
+        } else if (a.y >= a.z) {
+            layer = d.y > 0.0 ? 2.0 : 3.0;
+            st = vec2(d.y > 0.0 ? d.x : -d.x, d.z) / a.y;
+        } else {
+            layer = d.z > 0.0 ? 4.0 : 5.0;
+            st = vec2(-d.y, d.z > 0.0 ? -d.x : d.x) / a.z;
+        }
+        fragColor = vec4(texture(uSkyTextures, vec3((st.x + 1.0) * 0.5, (1.0 - st.y) * 0.5, layer)).rgb, 1.0);
+        return;
+    }
     float altitude = cos(uAngles.y) * ray.y - sin(uAngles.y) * ray.z;
     float blend = smoothstep(0.0, 0.85, max(altitude, 0.0));
     fragColor = vec4(mix(vec3(0.56, 0.61, 0.63), vec3(0.32, 0.41, 0.51), blend), 1.0);
@@ -652,6 +679,10 @@ bool DesktopRenderer::init(ekron::gl::Api &gl, const std::string &assetRoot, std
     if (!skyProg_ || !worldProg_ || !modelProg_ || !pipProg_ || !uiProg_ || !effectProg_) {
         return false;
     }
+    gl.UseProgram(skyProg_);
+    gl.Uniform1i(gl.GetUniformLocation(skyProg_, "uSkyTextures"), 4);
+    gl.Uniform1i(gl.GetUniformLocation(skyProg_, "uSkyBox"), 0);
+    gl.UseProgram(0);
 
     gl.GenVertexArrays(1, &emptyVao_);
 
@@ -774,6 +805,7 @@ void DesktopRenderer::shutdown(ekron::gl::Api &gl) {
     if (lightmapTex_) gl.DeleteTextures(1, &lightmapTex_);
     mapLightVbo_ = lightmapTex_ = 0;
     releaseMapTextures(gl);
+    releaseMapSky(gl);
     mapCount_ = 0;
     if (entityVbo_) gl.DeleteBuffers(1, &entityVbo_);
     if (entityVao_) gl.DeleteVertexArrays(1, &entityVao_);
@@ -1008,6 +1040,30 @@ void DesktopRenderer::setMapLightmap(ekron::gl::Api &gl, const std::vector<float
     lightmapH_ = height;
 }
 
+void DesktopRenderer::setMapSky(ekron::gl::Api &gl, int size, const std::vector<uint8_t> &rgba) {
+    releaseMapSky(gl);
+    if (size <= 0 || rgba.size() != size_t(size) * size_t(size) * 4 * 6) return;
+    gl.GenTextures(1, &skyTex_);
+    gl.ActiveTexture(GL_TEXTURE4);
+    gl.BindTexture(GL_TEXTURE_2D_ARRAY, skyTex_);
+    gl.PixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    // drawn as is (no lighting, no sRGB decode), no mipmaps: they would seam
+    // where the faces meet
+    gl.TexImage3D(GL_TEXTURE_2D_ARRAY, 0, static_cast<GLint>(GL_RGBA8), size, size, 6, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                  rgba.data());
+    gl.TexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, static_cast<GLint>(GL_LINEAR));
+    gl.TexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, static_cast<GLint>(GL_LINEAR));
+    gl.TexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, static_cast<GLint>(GL_CLAMP_TO_EDGE));
+    gl.TexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, static_cast<GLint>(GL_CLAMP_TO_EDGE));
+    gl.BindTexture(GL_TEXTURE_2D_ARRAY, 0);
+    gl.ActiveTexture(GL_TEXTURE0);
+}
+
+void DesktopRenderer::releaseMapSky(ekron::gl::Api &gl) {
+    if (skyTex_) gl.DeleteTextures(1, &skyTex_);
+    skyTex_ = 0;
+}
+
 void DesktopRenderer::releaseMapTextures(ekron::gl::Api &gl) {
     if (mapTexturesTex_) gl.DeleteTextures(1, &mapTexturesTex_);
     mapTexturesTex_ = 0;
@@ -1058,6 +1114,7 @@ void DesktopRenderer::clearMapGeometry(ekron::gl::Api &gl) {
     mapCount_ = 0;
     uploadMapLightUvs(gl, {});
     releaseMapTextures(gl);
+    releaseMapSky(gl);
     if (lightmapTex_) gl.DeleteTextures(1, &lightmapTex_);
     lightmapTex_ = 0;
     lightmapW_ = lightmapH_ = 0;
@@ -1169,8 +1226,16 @@ void DesktopRenderer::renderMapWorld(ekron::gl::Api &gl,
     gl.Uniform2f(gl.GetUniformLocation(skyProg_, "uAngles"), yaw, pitch);
     gl.Uniform1f(gl.GetUniformLocation(skyProg_, "uRoll"), roll);
     gl.Uniform1f(gl.GetUniformLocation(skyProg_, "uAspect"), aspect);
+    if (skyTex_) {
+        gl.ActiveTexture(GL_TEXTURE4);
+        gl.BindTexture(GL_TEXTURE_2D_ARRAY, skyTex_);
+        gl.ActiveTexture(GL_TEXTURE0);
+        gl.UniformMatrix3fv(gl.GetUniformLocation(skyProg_, "uSkyMatrix"), 1, GL_FALSE, skyMatrix_.data());
+    }
+    gl.Uniform1i(gl.GetUniformLocation(skyProg_, "uSkyBox"), skyTex_ ? 1 : 0);
     gl.BindVertexArray(emptyVao_);
     gl.DrawArrays(GL_TRIANGLES, 0, 3);
+    gl.Uniform1i(gl.GetUniformLocation(skyProg_, "uSkyBox"), 0);
     gl.DepthMask(GL_TRUE);
 
     if (mapCount_ > 0) {

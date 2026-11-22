@@ -43,6 +43,9 @@ public:
     bool active() const { return view_ && view_->active(); }
     // The textured model is still being prepared / uploaded.
     bool texturedPending() const { return prepare_.valid() || model_.uploading(); }
+    // The skybox for the sky pass (0 without one) and its direction matrix.
+    GLuint skyTexture() const { return skyTexture_; }
+    std::array<float, 9> skyMatrix() const { return view_ ? view_->skyMatrix() : std::array<float, 9>{}; }
 
     // Continues preparing / uploading the textured model (GL context current).
     void advance();
@@ -82,6 +85,8 @@ private:
     GLuint vao_ = 0, vbo_ = 0, lightUvVbo_ = 0, lightmapTexture_ = 0;
     GLuint mapTextures_ = 0; // unit 3: the map's own textures (Quake2Module::textures())
     bool uploadMapTextures(const realms::MapTextures &textures);
+    GLuint skyTexture_ = 0; // the skybox (Quake2Module::sky())
+    void uploadSky(const realms::MapSky &sky);
     GLsizei count_ = 0;
     std::vector<mapview::ModelRange> ranges_;
     city::GltfRenderer model_;

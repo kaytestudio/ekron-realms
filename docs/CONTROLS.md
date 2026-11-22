@@ -40,7 +40,7 @@ The `REALMS_CORE=pascal|native|auto` environment variable selects the Realms cor
 
 `map <name>` (console) or `+map <name>` (command line) opens `maps/<name>.bsp`, loose or from a `pak0.pak`, or a `.glb` / `.gltf` scene. `killserver` returns to the sandbox.
 
-When the build finds `fpc` it also builds `librealms_game.so` / `.dylib`, the Free Pascal port of the Quake 2 game code in `game/`. `realms::GameServer` runs it, so BSP maps play as in Quake 2: spawn points, items, doors, lifts, triggers, monsters and weapons. Models, skins and sounds come from your `pak0.pak`; without it, entities are drawn as boxes. Maps built with `qrad3` use their lightmaps (`r_lightmaps 0` turns them off). With `pak0.pak` installed, map faces use their `.wal` textures; otherwise they get one of eight generic materials picked from the texture name.
+When the build finds `fpc` it also builds `librealms_game.so` / `.dylib`, the Free Pascal port of the Quake 2 game code in `game/`. `realms::GameServer` runs it, so BSP maps play as in Quake 2: spawn points, items, doors, lifts, triggers, monsters and weapons. Models, skins and sounds come from your `pak0.pak`; without it, entities are drawn as boxes. Maps built with `qrad3` use their lightmaps (`r_lightmaps 0` turns them off). With `pak0.pak` installed, map faces use their `.wal` textures; otherwise they get one of eight generic materials picked from the texture name. The sky is the map's skybox (`env/`), turning when the map sets `skyrotate`.
 
 | Input (in a map) | Action |
 | :--- | :--- |

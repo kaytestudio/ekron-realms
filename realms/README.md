@@ -61,6 +61,7 @@ is missing). `ekron-realms --engine-info` shows what was picked.
 | `MapWalker` | Quake 2 style movement for walking a map without the game |
 | `MapLighting` | BSP lightmap atlas, light styles, `R_LightPoint` |
 | `MapTextures` | `textures/*.wal` of the map's faces in one texture array, Quake 2 palette |
+| `MapSky` | Skybox from worldspawn `sky`, `skyrotate`, `skyaxis`: `env/*.tga` or `.pcx` |
 | `GameServer`, `Q2Pmove` | Server side of Quake 2 hosting the game module |
 | `GameView`, `Md2Model` | Entity interpolation, `.md2` models, PCX skins |
 | `GameEffects`, `GameSound` | Particles, temp entities, dynamic lights, beams; `.wav` decoding and spatialisation |
@@ -86,13 +87,14 @@ cd game && fpc -Mdelphi -dGAMEDLL -Cg -O2 -FUunits -Fu. -Fi. -o../build/librealm
 
 | Call | Does |
 | :--- | :--- |
-| `open(engine, geometry, config, why)` / `close()` | Loads lightmaps and `.wal` textures, starts the game if the map has a worldspawn, the module exists and `sv_game` is 1 |
+| `open(engine, geometry, config, why)` / `close()` | Loads lightmaps, `.wal` textures and the skybox, starts the game if the map has a worldspawn, the module exists and `sv_game` is 1 |
 | `frame(userCmd(input, attack), dt)` | One sandbox frame: usercmd, `RunFrame` at 10 Hz, interpolation, effects, light styles |
 | `restartGame`, `toggleNoclip`, `mirrorPlayer`, `stats`, `takeMessages`, `takeGameFailure` | Respawn, noclip, HUD values, centre prints, game errors |
 | `modelPoses`, `buildScene`, `buildEffects` | Brush model poses, entity batches, effect quads and nearest dynamic lights |
 | `takeSounds`, `loopSounds`, `listener` | Input for `GameSoundPlayer` |
 | `lighting`, `lightmapUvs`, `lightmap`, `updateLightStyles`, `lightAt` | Lightmap atlas; model lighting from the lightmap plus all dynamic lights (`R_LightPoint`) |
 | `textures`, `disableTextures` | The map's `.wal` textures; faces without one keep the generic material layers |
+| `sky`, `disableSky` | The skybox; without all six images the sky gradient stays |
 
 `mapview::Quake2View` (`sys/android/app/src/main/cpp/Quake2View.*`) converts
 this to render space (metres, Y up) for the map modes:
@@ -143,7 +145,7 @@ the game module exit 77 (skipped) without it.
 | :--- | :--- |
 | `realms_bridge_test.cpp` | Cvars, commands, PAK files, collision (`realms_map_suite.h`), vis and mesh maps, glTF import, walker, Engine |
 | `game_server_test.cpp` | `Q2Pmove`, the game module on a generated level, client-side entities |
-| `quake2_module_test.cpp` | `Quake2Module` and `Quake2View` on a lightmapped arena, `.wal` decoding and texture layers |
+| `quake2_module_test.cpp` | `Quake2Module` and `Quake2View` on a lightmapped arena, `.wal` decoding and texture layers, TGA decoding and the skybox |
 | `q2_compiled_map_test.cpp` | `q2room.bsp`: collision, areaportals, PVS, qrad lightmaps and styles, a walk with the game |
 | `md2_test.cpp` | `.md2` and PCX parsing, corrupt files |
 | `map_render_alignment_test.cpp` | glTF collision vs. drawn model, map import rules |
