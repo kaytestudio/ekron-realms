@@ -36,7 +36,11 @@ int32_t water = engine.pointContents(eye) & REALMS_MASK_WATER;
 glTF maps (`.glb`, `.gltf`) are converted by `realms::gltfToMeshMap`
 (`MeshMap.h`): 32 units per metre by default (`map_mesh_scale`), each triangle
 a 2-unit slab brush (`map_mesh_thickness`). Material names and extras set
-contents; see the header for the tags.
+contents. Nodes named after Quake 2 point entities (`info_player_start`,
+`item_*`, `weapon_*`, `monster_*`, ...) become entities, with their extras as
+keys, so the game runs on glTF maps too. Brush entities are not exported
+(mesh maps have no inline models). See the header for the tags and entity
+rules.
 
 ## Choosing a core
 
@@ -105,8 +109,9 @@ this to render space (metres, Y up) for the map modes:
 | Android | `AndroidMapMode` + `Quake2Gles` (GLES 3) | `jniLibs/<abi>/librealms_game.so` (`build_core.sh game-android-aarch64`/`-x86_64`) |
 | iOS | `MetalMapMode` in `SandboxBridge.mm` | device builds link `librealms_game.a` (`build_core.sh ios-arm64`); the simulator walks maps only |
 
-Without the game (or with `sv_game 0`, or on a glTF map) the map is walked with
-`MapWalker`. Controls and map import are in [docs/CONTROLS.md](../docs/CONTROLS.md).
+Without the game (or with `sv_game 0`) the map is walked with `MapWalker`.
+glTF maps run the game as BSP maps do, with the entities their node names
+spawn. Controls and map import are in [docs/CONTROLS.md](../docs/CONTROLS.md).
 
 On Android both libraries are opened through `realms/src/FpcLibraryEnviron.h`:
 FPC 3.2.2's Android startup scans backwards from `environ` for `argc`, which
@@ -145,7 +150,7 @@ the game module exit 77 (skipped) without it.
 | :--- | :--- |
 | `realms_bridge_test.cpp` | Cvars, commands, PAK files, collision (`realms_map_suite.h`), vis and mesh maps, glTF import, walker, Engine |
 | `game_server_test.cpp` | `Q2Pmove`, the game module on a generated level, client-side entities |
-| `quake2_module_test.cpp` | `Quake2Module` and `Quake2View` on a lightmapped arena, `.wal` decoding and texture layers, TGA decoding and the skybox |
+| `quake2_module_test.cpp` | `Quake2Module` and `Quake2View` on a lightmapped arena, `.wal` decoding and texture layers, TGA decoding and the skybox, the game on a glTF map |
 | `q2_compiled_map_test.cpp` | `q2room.bsp`: collision, areaportals, PVS, qrad lightmaps and styles, a walk with the game |
 | `md2_test.cpp` | `.md2` and PCX parsing, corrupt files |
 | `map_render_alignment_test.cpp` | glTF collision vs. drawn model, map import rules |

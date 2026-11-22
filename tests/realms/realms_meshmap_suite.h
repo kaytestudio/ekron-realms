@@ -67,6 +67,33 @@ inline void runMeshMapChecks() {
     checkRoom(m);
     CHECK(m.entities.find("\"message\" \"room.glb\"") != std::string::npos);
 
+    // Quake 2 point entities from node names, keys from extras.
+    {
+        CHECK(convert(outpostGlb(), m, error));
+        const auto entity = [&](const std::string &classname) {
+            const size_t at = m.entities.find("\"classname\" \"" + classname + "\"\n");
+            if (at == std::string::npos) return std::string();
+            return m.entities.substr(at, m.entities.find('}', at) - at);
+        };
+        CHECK(m.entities.rfind("{\n\"classname\" \"worldspawn\"\n\"message\" \"Outpost\"\n\"sounds\" \"2\"\n"
+                               "\"nextmap\" \"base1\"\n}\n",
+                               0) == 0);
+        CHECK(entity("info_player_start") == "\"classname\" \"info_player_start\"\n\"origin\" \"-96 0 24\"\n");
+        CHECK(entity("weapon_shotgun") == "\"classname\" \"weapon_shotgun\"\n\"origin\" \"-32 0 24\"\n");
+        // realms_ tags, unsafe keys and inline models are dropped; arrays,
+        // numbers and booleans become text; quotes are stripped.
+        CHECK(entity("item_health") == "\"classname\" \"item_health\"\n\"origin\" \"32 -64 24\"\n"
+                                       "\"_color\" \"1 0.5 0\"\n\"wait\" \"1.5\"\n\"flag\" \"1\"\n\"note\" \"say hi\"\n");
+        CHECK(entity("monster_soldier") == "\"classname\" \"monster_soldier\"\n\"origin\" \"160 0 24\"\n\"angle\" \"90\"\n");
+        CHECK(entity("light") == "\"classname\" \"light\"\n\"origin\" \"0 0 96\"\n\"light\" \"300\"\n");
+        CHECK(entity("misc_explobox") == "\"classname\" \"misc_explobox\"\n\"origin\" \"64 64 24\"\n\"angle\" \"45\"\n");
+        CHECK(entity("func_door").empty() && m.entities.find("Bad") == std::string::npos);
+        size_t count = 0;
+        for (size_t at = m.entities.find('{'); at != std::string::npos; at = m.entities.find('{', at + 1)) ++count;
+        CHECK(count == 7);
+        CHECK(m.triangleCount() == 2 && m.vertices[0] == -256.0f);
+    }
+
     // JSON .gltf with an external buffer next to it (resolved through the
     // reader, relative to the asset) and with a base64 data URI.
     CHECK(convert(roomJson("room%20data.bin"), m, error, {{"maps/room data.bin", quadBin()}}, "maps/room.gltf"));

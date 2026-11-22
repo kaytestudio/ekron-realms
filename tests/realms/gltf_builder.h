@@ -92,6 +92,37 @@ inline std::string roomJson(const std::string &bufferUri = std::string()) {
 
 inline std::string roomGlb() { return glb(roomJson(), quadBin()); }
 
+// A game map: a 16 x 16 m floor with Quake 2 point entities named after
+// their classnames, 0.75 m (24 units) up. The soldier faces map +Y (node
+// rotation, 90 degrees about glTF +Y); the health has extras that become
+// keys or are dropped; the explobox sits under a moved parent. func_door
+// (a brush entity) and "monster_Bad Name" are not exported. Scene extras go
+// to worldspawn.
+inline std::string outpostJson() {
+    return std::string("{\"asset\":{\"version\":\"2.0\"},\"scene\":0,") +
+           "\"scenes\":[{\"nodes\":[0,1,2,3,4,5,6,7,8],"
+           "\"extras\":{\"message\":\"Outpost\",\"sounds\":2,\"nextmap\":\"base1\"}}]," +
+           "\"nodes\":[{\"name\":\"Floor\",\"mesh\":0,\"scale\":[2,1,2]}," +
+           "{\"name\":\"info_player_start.001\",\"translation\":[-3,0.75,0]}," +
+           "{\"name\":\"weapon_shotgun\",\"translation\":[-1,0.75,0]}," +
+           "{\"name\":\"item_health.002\",\"translation\":[1,0.75,2],\"extras\":{\"realms_contents\":\"none\"," +
+           "\"model\":\"*1\",\"bad key\":\"x\",\"_color\":[1,0.5,0],\"wait\":1.5,\"flag\":true,\"note\":\"}say \\\"hi\\\"{\"}}," +
+           "{\"name\":\"monster_soldier\",\"translation\":[5,0.75,0],\"rotation\":[0,0.70710678,0,0.70710678]}," +
+           "{\"name\":\"func_door\",\"translation\":[0,1,0]}," +
+           "{\"name\":\"monster_Bad Name\",\"translation\":[0,1,0]}," +
+           "{\"name\":\"Light\",\"translation\":[0,3,0],\"extras\":{\"light\":300}}," +
+           "{\"name\":\"Props\",\"translation\":[2,0,-2],\"children\":[9]}," +
+           "{\"name\":\"misc_explobox\",\"translation\":[0,0.75,0],\"extras\":{\"angle\":45}}]," +
+           "\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0},\"indices\":1,\"material\":0}]}]," +
+           "\"materials\":[{\"name\":\"concrete\"}]," +
+           "\"accessors\":[{\"bufferView\":0,\"componentType\":5126,\"count\":4,\"type\":\"VEC3\"}," +
+           "{\"bufferView\":1,\"componentType\":5123,\"count\":6,\"type\":\"SCALAR\"}]," +
+           "\"bufferViews\":[{\"buffer\":0,\"byteOffset\":0,\"byteLength\":48}," +
+           "{\"buffer\":0,\"byteOffset\":48,\"byteLength\":12}],\"buffers\":[{\"byteLength\":60}]}";
+}
+
+inline std::string outpostGlb() { return glb(outpostJson(), quadBin()); }
+
 // One node / one mesh / one material GLB from glTF-space (Y up, metres)
 // positions and u16 triangle indices. No spawn entity.
 inline std::string meshGlb(const std::vector<float> &positions, const std::vector<uint16_t> &indices,

@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <map>
 #include <utility>
@@ -433,6 +434,88 @@ bool extrasContents(const JValue *owner, int32_t &contents) {
     return ok;
 }
 
+// Quake 2 point entities a node name may spawn. Brush entities (func_door,
+// trigger_multiple, ...) need inline models, which mesh maps do not have:
+// the game stops on them (PF_setmodel: NULL), so those nodes are skipped.
+bool pointEntityClass(const std::string &c) {
+    static const char *const prefixes[] = {"info_",    "item_",   "weapon_", "ammo_",  "key_",
+                                           "monster_", "misc_",   "target_", "path_",  "point_", "light_"};
+    static const char *const names[] = {"light",       "trigger_relay", "trigger_always", "trigger_counter",
+                                        "trigger_key", "func_timer",    "func_clock"};
+    for (char ch : c)
+        if (!std::isalnum(static_cast<unsigned char>(ch)) && ch != '_') return false;
+    for (const char *p : prefixes)
+        if (c.size() > std::strlen(p) && c.compare(0, std::strlen(p), p) == 0) return true;
+    for (const char *n : names)
+        if (c == n) return true;
+    return false;
+}
+
+// An extras key that can become an entity key: printable, no quotes or
+// braces, not one the converter sets itself or a realms_ tag.
+bool entityKeyAllowed(const std::string &key) {
+    if (key.empty() || key.size() > 63) return false;
+    for (char ch : key) {
+        const unsigned char c = static_cast<unsigned char>(ch);
+        if (c <= ' ' || c >= 127 || c == '"' || c == '{' || c == '}') return false;
+    }
+    const std::string l = lower(key);
+    return l != "classname" && l != "origin" && l.rfind("realms_", 0) != 0;
+}
+
+std::string entityNumber(double v) {
+    char buf[32];
+    if (v == std::floor(v) && std::fabs(v) < 1e9) std::snprintf(buf, sizeof(buf), "%lld", static_cast<long long>(v));
+    else std::snprintf(buf, sizeof(buf), "%g", v);
+    return buf;
+}
+
+// Entity value text for an extras value: strings (without quotes, braces
+// or control characters: ED_ParseEdict stops on a value starting with "}"),
+// numbers, booleans (1/0) and arrays of up to 4 numbers ("_color":
+// [1, 0.5, 0] -> "1 0.5 0").
+bool entityValueText(const JValue &v, std::string &out) {
+    out.clear();
+    switch (v.kind) {
+    case JValue::String:
+        for (char c : v.string)
+            if (c != '"' && c != '{' && c != '}' && static_cast<unsigned char>(c) >= ' ') out += c;
+        if (out.size() > 255) out.resize(255);
+        return true;
+    case JValue::Number:
+        if (!std::isfinite(v.number)) return false;
+        out = entityNumber(v.number);
+        return true;
+    case JValue::Bool:
+        out = v.boolean ? "1" : "0";
+        return true;
+    case JValue::Array:
+        if (v.size() == 0 || v.size() > 4) return false;
+        for (size_t i = 0; i < v.size(); ++i) {
+            const JValue *e = v.at(i);
+            if (e->kind != JValue::Number || !std::isfinite(e->number)) return false;
+            out += (i ? " " : "") + entityNumber(e->number);
+        }
+        return true;
+    default:
+        return false;
+    }
+}
+
+// "key" "value" lines for an extras object, skipping `skip` keys.
+std::string entityKeys(const JValue *extras, const std::vector<std::string> &skip) {
+    std::string r, value;
+    if (!extras || extras->kind != JValue::Object) return r;
+    for (size_t i = 0; i < extras->keys.size(); ++i) {
+        const std::string &k = extras->keys[i];
+        if (!entityKeyAllowed(k) || std::find(skip.begin(), skip.end(), lower(k)) != skip.end()) continue;
+        if (!entityValueText(extras->items[i], value)) continue;
+        if (lower(k) == "model" && !value.empty() && value[0] == '*') continue; // no inline models
+        r += "\"" + k + "\" \"" + value + "\"\n";
+    }
+    return r;
+}
+
 class Converter {
 public:
     Converter(const JValue &root, const std::vector<BufferView> &buffers, const GltfMapOptions &options, MeshMap &out)
@@ -447,7 +530,11 @@ public:
             if (!visit(r, identity(), 0, error)) return false;
         if (out_.surfaces.empty()) out_.surfaces.push_back(MeshMapSurface{"default", 0, 0, REALMS_CONTENTS_SOLID});
         if (!haveBounds_) out_.sourceMins = out_.sourceMaxs = {0, 0, 0};
-        out_.entities = "{\n\"classname\" \"worldspawn\"\n\"message\" \"" + clean(mapName) + "\"\n}\n" + entities_;
+        // worldspawn: the scene's extras ("sky", "gravity", "message", ...).
+        const JValue *extras = sceneExtras();
+        out_.entities = "{\n\"classname\" \"worldspawn\"\n";
+        if (!extras || !extras->get("message")) out_.entities += "\"message\" \"" + clean(mapName) + "\"\n";
+        out_.entities += entityKeys(extras, {}) + "}\n" + entities_;
         return true;
     }
 
@@ -524,6 +611,14 @@ private:
         out_.surfaces.push_back(s);
         variants_[key] = index;
         return index;
+    }
+
+    const JValue *sceneExtras() const {
+        const JValue *scenes = array("scenes");
+        if (!scenes || scenes->size() == 0) return nullptr;
+        int64_t scene = jint(root_.get("scene"), 0);
+        if (scene < 0 || size_t(scene) >= scenes->size()) scene = 0;
+        return scenes->at(size_t(scene))->get("extras");
     }
 
     bool sceneRoots(std::vector<int64_t> &roots) const {
@@ -715,17 +810,30 @@ private:
         return true;
     }
 
-    void addEntity(const JValue &node, const std::string &name, const Mat4 &world) {
-        std::string classname = name;
-        const size_t dot = classname.find('.');
-        if (dot != std::string::npos) classname.resize(dot);
+    // A point entity at the node's origin. Facing: extras "angle" /
+    // "angles" / "realms_angle", else the yaw of the node's +X axis.
+    void addEntity(const JValue &node, const std::string &classname, const Mat4 &world) {
         const double o[3] = {world[12] * opt_.scale, -world[14] * opt_.scale, world[13] * opt_.scale};
-        entities_ += "{\n\"classname\" \"" + clean(classname) + "\"\n\"origin\" \"" + std::to_string(std::lround(o[0])) +
-                     " " + std::to_string(std::lround(o[1])) + " " + std::to_string(std::lround(o[2])) + "\"\n";
-        if (const JValue *extras = node.get("extras"))
-            if (const JValue *angle = extras->get("realms_angle"))
-                entities_ += "\"angle\" \"" + std::to_string(std::lround(jnum(angle, 0.0))) + "\"\n";
-        entities_ += "}\n";
+        for (double v : o)
+            if (!(std::fabs(v) <= 1e6)) return;
+        entities_ += "{\n\"classname\" \"" + classname + "\"\n\"origin\" \"" + std::to_string(std::lround(o[0])) + " " +
+                     std::to_string(std::lround(o[1])) + " " + std::to_string(std::lround(o[2])) + "\"\n";
+        const JValue *extras = node.get("extras");
+        if (extras && extras->kind != JValue::Object) extras = nullptr;
+        const JValue *realmsAngle = extras ? extras->get("realms_angle") : nullptr;
+        const bool explicitAngle = extras && (extras->get("angle") || extras->get("angles"));
+        if (realmsAngle && !explicitAngle) {
+            entities_ += "\"angle\" \"" + std::to_string(std::lround(jnum(realmsAngle, 0.0))) + "\"\n";
+        } else if (!explicitAngle) {
+            // glTF +X axis (wx, wy, wz) -> map (wx, -wz): yaw about map +Z.
+            const double fx = world[0], fy = -world[2];
+            if (fx * fx + fy * fy > 1e-12) {
+                long yaw = std::lround(std::atan2(fy, fx) * 180.0 / 3.14159265358979323846);
+                if (yaw < 0) yaw += 360;
+                if (yaw % 360 != 0) entities_ += "\"angle\" \"" + std::to_string(yaw % 360) + "\"\n";
+            }
+        }
+        entities_ += entityKeys(extras, {}) + "}\n";
     }
 
     bool visit(int64_t index, const Mat4 &parent, int depth, std::string &error) {
@@ -736,7 +844,10 @@ private:
         if (!nodeMatrix(node, local)) return fail(error, "bad node matrix");
         const Mat4 world = mul(parent, local);
         const std::string name = jstr(node.get("name"));
-        if (lower(name).rfind("info_", 0) == 0) addEntity(node, lower(name), world);
+        std::string classname = lower(name);
+        const size_t dot = classname.find('.'); // Blender ".001" suffixes
+        if (dot != std::string::npos) classname.resize(dot);
+        if (pointEntityClass(classname)) addEntity(node, classname, world);
 
         int32_t contents = REALMS_CONTENTS_SOLID;
         bool overridden = extrasContents(&node, contents);

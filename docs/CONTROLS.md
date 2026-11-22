@@ -42,6 +42,8 @@ The `REALMS_CORE=pascal|native|auto` environment variable selects the Realms cor
 
 When the build finds `fpc` it also builds `librealms_game.so` / `.dylib`, the Free Pascal port of the Quake 2 game code in `game/`. `realms::GameServer` runs it, so BSP maps play as in Quake 2: spawn points, items, doors, lifts, triggers, monsters and weapons. Models, skins and sounds come from your `pak0.pak`; without it, entities are drawn as boxes. Maps built with `qrad3` use their lightmaps (`r_lightmaps 0` turns them off). With `pak0.pak` installed, map faces use their `.wal` textures; otherwise they get one of eight generic materials picked from the texture name. The sky is the map's skybox (`env/`), turning when the map sets `skyrotate`.
 
+glTF maps run the game too. Name nodes (Blender empties, for example) after Quake 2 point entities such as `info_player_start`, `item_health`, `weapon_shotgun`, `monster_soldier` or `misc_explobox`. Blender's `.001` suffixes are ignored. Put each one where Quake 2 would put its origin, about 0.75 m above the floor. Blender coordinates become Quake coordinates (32 units per metre), and an empty's Z rotation is its `angle`. Custom properties become entity keys (`spawnflags`, `targetname`, `angle`, ...) when the glTF export includes them, and the scene's custom properties go to `worldspawn`. Doors, lifts and other brush entities need a BSP map. The full rules are in `realms/include/realms/MeshMap.h`.
+
 | Input (in a map) | Action |
 | :--- | :--- |
 | `W A S D` / `Space` / `Ctrl` | Move / Jump / Crouch |

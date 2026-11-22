@@ -5,6 +5,7 @@
 // "linked" needs -DREALMS_GAME_STATIC and librealms_game.a. Without a game
 // module the game part is skipped and the exit code is 77.
 #include "bsp_builder.h"
+#include "gltf_builder.h"
 #include "md2_builder.h"
 
 #include "Quake2View.h"
@@ -588,6 +589,64 @@ void viewWithGame(realms::Engine &engine) {
 
 } // namespace
 
+// The game on a glTF map: node names spawn the player, items and monsters
+// (realms/MeshMap.h); the player picks the shotgun up walking +X.
+void gameOnGltf(realms::Engine &engine) {
+    CHECK(engine.loadMap("maps/outpost.glb"));
+    mapview::Quake2View view;
+    mapview::Quake2ViewOptions options;
+    realms::MapGeometry geometry;
+    std::string error;
+    CHECK(view.open(engine, options, geometry, error));
+    CHECK(view.session().mesh() && view.gameRunning());
+    if (!view.gameRunning()) return;
+    CHECK(view.session().summary().find("glTF mesh") != std::string::npos);
+    CHECK(view.session().summary().find(", game") != std::string::npos);
+    realms::Quake2Module &q2 = view.module();
+    CHECK(q2.status().rfind("HP 100", 0) == 0);
+    const realms::MapWalker &w = view.session().walker();
+    CHECK(near(w.origin[0], -96, 0.2f) && near(w.origin[1], 0, 0.2f));
+    CHECK(view.modelPoses().size() <= 1); // no brush models on mesh maps
+
+    // a couple of frames: items and monsters drop to the floor
+    const float yaw = view.spawnRenderYaw();
+    for (int i = 0; i < 4; i++) view.update(engine, {}, yaw, 0.0f, 0.1f, false);
+    CHECK(view.gameRunning());
+    bool shotgun = false, health = false, soldier = false, barrel = false;
+    float floorTop = 0.0f;
+    for (const realms::GameRenderEntity &e : q2.game()->renderEntities()) {
+        if (e.model == "models/weapons/g_shotg/tris.md2") {
+            shotgun = near(e.origin[0], -32, 0.5f) && near(e.origin[1], 0, 0.5f);
+            floorTop = e.origin[2] + e.mins[2];
+        } else if (e.model == "models/items/healing/medium/tris.md2") {
+            health = near(e.origin[0], 32, 0.5f) && near(e.origin[1], -64, 0.5f); // not "*1"
+        } else if (e.model == "models/monsters/soldier/tris.md2") {
+            soldier = near(e.origin[0], 160, 0.5f) && near(e.origin[1], 0, 0.5f) && near(e.angles[1], 90, 0.5f);
+            CHECK(near(e.origin[2] + e.mins[2], 0.0f, 2.5f)); // stands on the floor
+        } else if (e.model == "models/objects/barrels/tris.md2") {
+            barrel = near(e.origin[0], 64, 0.5f) && near(e.origin[1], 64, 0.5f);
+        }
+    }
+    CHECK(shotgun && health && soldier && barrel);
+    CHECK(near(floorTop, 0.0f, 2.5f)); // dropped from 24 units up onto the slab
+
+    // walk +X onto the shotgun
+    realms::WalkInput in;
+    in.forward = 1.0f;
+    bool picked = false;
+    for (int i = 0; i < 40 && !picked; i++) {
+        view.update(engine, in, yaw, 0.0f, 0.05f, false);
+        for (const std::string &m : view.takeMessages()) picked |= m == "Shotgun";
+    }
+    CHECK(picked);
+    CHECK(view.gameRunning());
+
+    // respawn restarts the game on the same map
+    CHECK(view.respawn(engine) && view.gameRunning());
+    CHECK(near(view.session().walker().origin[0], -96, 0.2f));
+    view.close();
+}
+
 int main(int argc, char **argv) {
     std::setvbuf(stdout, nullptr, _IOLBF, 0);
     std::string pascalLibrary, gameLibrary;
@@ -604,6 +663,11 @@ int main(int argc, char **argv) {
     {
         const std::string bsp = bsp_builder::Builder(arena()).build();
         std::ofstream(tmp / "maps" / "arena.bsp", std::ios::binary).write(bsp.data(), std::streamsize(bsp.size()));
+    }
+    {
+        const std::string outpost = gltf_builder::outpostGlb();
+        std::ofstream(tmp / "maps" / "outpost.glb", std::ios::binary)
+            .write(outpost.data(), std::streamsize(outpost.size()));
     }
     writeBlaster(tmp);
     writeSky(tmp);
@@ -646,6 +710,8 @@ int main(int argc, char **argv) {
     int status = 0;
     if (realms::GameServer::moduleAvailable({}, &where, &why)) {
         viewWithGame(engine);
+        step("game on a glTF map");
+        gameOnGltf(engine);
         std::printf("[module] %d checks, %d failures (%s)\n", gChecks, gFailures, backend.c_str());
         status = gFailures ? 1 : 0;
     } else {

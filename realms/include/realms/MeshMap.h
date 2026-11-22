@@ -12,9 +12,21 @@
 //   {"realms_contents": "solid|water|slime|lava|playerclip|monsterclip|
 //    window|none" or a number, "realms_flags": n, "realms_value": n}
 //
-// Entities: worldspawn, plus one per node named "info_*" (Blender ".001"
-// suffixes dropped) with its "origin"; node extras {"realms_angle": deg}
-// add "angle".
+// Entities, for the Quake 2 game (Quake2Module) and the walker's spawn:
+//   worldspawn: "message" (the file name) plus the scene's extras.
+//   One point entity per node named after a Quake 2 classname (lower-cased,
+//   Blender ".001" suffixes dropped): info_*, item_*, weapon_*, ammo_*,
+//   key_*, monster_*, misc_*, target_*, path_*, point_*, light, light_*,
+//   trigger_relay/always/counter/key, func_timer, func_clock. "origin" is
+//   the node's world position: place it where Quake 2 would, about 24 units
+//   (0.75 m) above the floor for player starts, items and monsters.
+//   "angle": extras "angle"/"angles" if set, else {"realms_angle": deg},
+//   else the yaw of the node's +X axis (when not 0).
+//   Node extras become keys: strings, numbers, booleans (1/0) and arrays of
+//   up to 4 numbers ("_color": [1, 0.5, 0]); realms_* tags, classname,
+//   origin and inline "model" values ("*N") are dropped.
+//   Brush entities (func_door, trigger_multiple, ...) need inline models,
+//   which mesh maps do not have: nodes with those names are not exported.
 #pragma once
 
 #include "realms/realms_bridge.h"
