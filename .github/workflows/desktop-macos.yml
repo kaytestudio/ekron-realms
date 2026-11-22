@@ -166,7 +166,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ctest --test-dir build --output-on-failure -V
+          if ! ctest --test-dir build --output-on-failure > /tmp/ctest.log 2>&1; then
+            cat /tmp/ctest.log
+            # Raw logs are not always reachable: put the failures in one annotation.
+            msg="$(grep -E 'Failed|FAIL|\*\*\*|rror|xception|signal|Segmentation|Abort|not found|Test +#' /tmp/ctest.log | tail -n 60 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
+            echo "::error title=ctest (macOS)::${msg}"
+            exit 1
+          fi
+          cat /tmp/ctest.log
           APP_BUNDLE="build/EkronRealms.app"
           "$APP_BUNDLE/Contents/MacOS/EkronRealms" --version
           "$APP_BUNDLE/Contents/MacOS/EkronRealms" --headless-smoke
