@@ -1,17 +1,6 @@
-{ ----------------------------------------------------------------------------
-  Realms Engine - command buffer and command execution (Pascal core)
-
-  Port of Quake 2 qcommon/cmd.c (Cbuf_*, Cmd_TokenizeString, aliases,
-  macro expansion and Cmd_ExecuteString) plus the cvar console commands from
-  cvar.c (set, cvarlist, writeconfig), adapted from the Quake2 Delphi
-  game/qcommon/Cmd.pas conversion into a dependency-free unit.
-
-  Execution order of a console line, as in Quake 2:
-    1. Pascal built-in command or C++ host command (via the bridge)
-    2. alias
-    3. cvar ("name" prints the value, "name value" sets it)
-    4. otherwise: Unknown command
-  ---------------------------------------------------------------------------- }
+{ Command buffer, from qcommon/cmd.c, plus the cvar commands from cvar.c.
+  A line runs as: built-in or host command, alias, cvar, else "Unknown
+  command". Keep in step with realms/src/NativeCore.cpp. }
 unit rlm_cmd;
 
 {$mode objfpc}{$H+}

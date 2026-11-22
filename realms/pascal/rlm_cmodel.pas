@@ -1,18 +1,7 @@
-{ ----------------------------------------------------------------------------
-  Realms Engine - collision model (Pascal core)
-
-  Quake 2 qcommon/cmodel.c for the Realms bridge (version 3): loads IBSP v38
-  maps from the virtual filesystem, validates every index before use and
-  answers point contents / box trace / leaf queries, the PVS / PHS and area
-  portal connectivity. Triangle meshes (.glb maps) are turned into slab
-  brushes under an axial kd-tree so they use the same trace code. The algorithms follow
-  game/qcommon/CModel.pas (the original Delphi port) with its 64-bit pointer
-  casts, fixed-size tables and Com_Error exits replaced by dynamic arrays and
-  a clean rejection path: a malformed map leaves no map loaded.
-
-  Keep in lock-step with realms/src/NativeCModel.cpp - the conformance suite
-  (tests/realms/realms_map_suite.h) runs the same checks against both cores.
-  ---------------------------------------------------------------------------- }
+{ Collision model, from qcommon/cmodel.c via game/qcommon/CModel.pas: IBSP v38
+  maps, traces, contents, leafs, PVS/PHS, area portals, and glTF meshes as
+  slab brushes in a kd-tree. Bad maps are rejected and leave no map loaded.
+  Keep in step with realms/src/NativeCModel.cpp. }
 unit rlm_cmodel;
 
 {$mode objfpc}{$H+}

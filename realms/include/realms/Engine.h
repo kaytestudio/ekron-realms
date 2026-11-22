@@ -1,13 +1,7 @@
-// Realms Engine - C++17 facade used by every sandbox host.
-//
-// realms::Engine owns the bridge to a Realms core (Free Pascal Quake 2 stack
-// or the C++ reference core), installs the host services (console output,
-// platform file access, host commands) and exposes an idiomatic C++ API for
-// cvars, the command buffer, the PAK virtual filesystem, the BSP collision
-// model and the frame clock.
-//
-// Cores keep Quake 2 style global state, therefore only one Engine may be
-// initialised per process at a time, and it must be driven from one thread.
+// C++ wrapper around a Realms core (Free Pascal or the C++ reference):
+// cvars, command buffer, PAK filesystem, collision model and frame clock.
+// The cores keep global state, so only one Engine per process, used from one
+// thread.
 #pragma once
 
 #include "realms/MeshMap.h"

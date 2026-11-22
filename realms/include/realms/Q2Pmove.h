@@ -1,14 +1,6 @@
-// Realms Engine - Quake 2 player movement (qcommon/pmove.c) on pmove_t.
-//
-// This is game_import_t::Pmove for the Quake 2 game module: it moves a
-// pmove_t through its own trace / pointcontents callbacks (the game's
-// PM_trace, i.e. GameServer::trace with the player as passent), exactly like
-// the original, including the 12.3 fixed-point origin snapping. It is pure
-// C++ on top of those callbacks, so it gives the same results on the Pascal
-// and the C++ core.
-//
-// realms::MapWalker is the compact variant the sandbox uses when no game
-// module is running.
+// qcommon/pmove.c for game_import_t::Pmove, using the pmove_t's own trace
+// and pointcontents callbacks, including the 12.3 fixed-point snapping.
+// MapWalker is the simpler version used when no game is running.
 #pragma once
 
 #include "realms/q2game.h"

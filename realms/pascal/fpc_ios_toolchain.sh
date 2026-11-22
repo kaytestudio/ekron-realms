@@ -1,25 +1,14 @@
 #!/usr/bin/env bash
-# -----------------------------------------------------------------------------
-# Build the Free Pascal RTL for aarch64-ios (iPhone/iPad devices).
+# Build the FPC RTL for aarch64-ios on an Apple Silicon Mac. The host fpc
+# already targets iOS; only the RTL is missing, and it must come from sources
+# of the same FPC version:
 #
-#   realms/pascal/fpc_ios_toolchain.sh <fpc-source-dir> <install-prefix>
-#
-# Free Pascal compilers target every OS of their CPU, so on an Apple Silicon
-# Mac the native compiler (Homebrew `fpc`, i.e. ppca64) already compiles for
-# `-Tios -Paarch64`. What is missing is the iOS runtime library; this script
-# compiles it from the FPC sources of the *same* version as the host compiler
-# (units are only valid for the compiler that built them):
-#
-#   ver=$(fpc -iV)    # e.g. 3.2.2 -> tag release_3_2_2
+#   ver=$(fpc -iV)
 #   curl -L https://codeload.github.com/fpc/FPCSource/tar.gz/refs/tags/release_${ver//./_} | tar xz
 #   realms/pascal/fpc_ios_toolchain.sh FPCSource-release_${ver//./_} "$HOME/fpc-ios"
 #
-# Result: <prefix>/lib/fpc/<ver>/units/aarch64-ios/rtl, which
-# `FPC_IOS_PREFIX=<prefix> realms/pascal/build_core.sh ios-arm64` uses.
-#
-# Environment: FPC (host compiler, default fpc), IOS_DEPLOYMENT_TARGET
-# (default 16.0, the app's IPHONEOS_DEPLOYMENT_TARGET).
-# -----------------------------------------------------------------------------
+# Output: <prefix>/lib/fpc/<ver>/units/aarch64-ios/rtl.
+# Environment: FPC (default fpc), IOS_DEPLOYMENT_TARGET (default 16.0).
 set -euo pipefail
 
 SRC="${1:?usage: $0 <fpc-source-dir> <install-prefix>}"

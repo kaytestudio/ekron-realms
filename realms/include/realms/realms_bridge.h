@@ -1,29 +1,12 @@
 /*
- * Realms Engine bridge ABI
- * ------------------------
- * The single, language-neutral contract between the Quake 2 derived core
- * (Free Pascal, realms/pascal) and the native C++17 sandbox hosts
- * (Desktop SDL2/OpenGL, Android GameActivity/GLES, iOS UIKit/Metal).
+ * C ABI between the Realms core (Free Pascal in realms/pascal, or the C++
+ * reference core) and the native hosts. Keep realms/pascal/rlm_bridge.pas
+ * in sync.
  *
- *   +-----------------------------+        +------------------------------+
- *   |  C++ host (sys/desktop,     |  host  |  Realms core                 |
- *   |  sys/android, sys/ios)      | -----> |  - Pascal: librealms_core    |
- *   |  realms::Engine facade      | <----- |  - C++ reference: NativeCore |
- *   +-----------------------------+  core  +------------------------------+
- *
- * Rules that keep the ABI portable across FPC and Clang/GCC/MSVC:
- *   - Plain C, fixed-width integers, `const char *` UTF-8 strings, no
- *     exceptions or C++ types cross the boundary.
- *   - Every callback uses the platform C calling convention (`cdecl` in
- *     Pascal).
- *   - Memory is always released by the side that allocated it: strings are
- *     copied into caller-provided buffers; file blobs returned by the host are
- *     released with host->free_file, blobs returned by the core with
- *     core->fs_free.
- *   - Both structs start with struct_size/version so either side can be
- *     extended without breaking older binaries.
- *
- * Keep realms/pascal/rlm_bridge.pas in sync with this header.
+ *   - Plain C, fixed-width integers, UTF-8 `const char *`; cdecl callbacks.
+ *   - Strings are copied into caller buffers. Host file blobs are freed with
+ *     host->free_file, core blobs with core->fs_free.
+ *   - Both structs start with struct_size/version so they can grow.
  */
 #ifndef REALMS_BRIDGE_H
 #define REALMS_BRIDGE_H
@@ -34,7 +17,7 @@
 extern "C" {
 #endif
 
-/* 2: collision model (map_*) appended to RealmsCoreApi. */
+/* 2: collision model (map_*). 3: map_load_mesh. */
 #define REALMS_BRIDGE_VERSION 3u
 
 /* Symbol exported by the Free Pascal core (librealms_core / realms_core.a). */

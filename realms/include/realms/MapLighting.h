@@ -1,18 +1,8 @@
-// Realms Engine - Quake 2 BSP lighting for renderers (ref_gl's gl_rsurf.c /
-// gl_light.c without OpenGL):
-//
-//   * the face lightmaps (LUMP_LIGHTING, up to four light styles per face)
-//     packed into one atlas of 128 x 128 pages with LM_AllocBlock, and the
-//     lightmap coordinates of any point on a face;
-//   * the atlas composed for the current light style values
-//     (R_BuildLightMap: styles summed, gl_modulate 1, colour kept when a
-//     texel saturates);
-//   * R_LightPoint: the light under a point (models), from the lightmap of
-//     the first face below it in the world BSP;
-//   * light styles: the 'a'..'z' strings of CS_LIGHTS at 10 Hz ('m' = 1).
-//
-// Malformed input never reads out of bounds: bad lumps fail load(), faces
-// whose samples don't fit the lighting lump get no lightmap.
+// Quake 2 BSP lighting without OpenGL (gl_rsurf.c / gl_light.c): face
+// lightmaps packed into 128x128 pages (LM_AllocBlock), the atlas built for
+// the current light styles (R_BuildLightMap), R_LightPoint, and CS_LIGHTS
+// style strings at 10 Hz ('m' = 1).
+// Bad lumps fail load(); faces whose samples don't fit get no lightmap.
 #pragma once
 
 #include <array>

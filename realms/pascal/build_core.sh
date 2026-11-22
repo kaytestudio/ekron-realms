@@ -1,54 +1,23 @@
 #!/usr/bin/env bash
-# -----------------------------------------------------------------------------
-# Realms Engine - build the Free Pascal core (librealms_core) for a platform.
+# Build librealms_core (and librealms_game) for a platform.
 #
 #   realms/pascal/build_core.sh <target> [output-dir]
 #
-# Targets:
-#   host              librealms_core.so/.dylib for the machine running fpc
-#                     (the desktop CMake build does this automatically when
-#                     -DENABLE_PASCAL_CORE=ON and fpc is installed)
-#   android-aarch64   -> sys/android/app/src/main/jniLibs/arm64-v8a/
-#   android-armv7     -> sys/android/app/src/main/jniLibs/armeabi-v7a/
-#   android-x86_64    -> sys/android/app/src/main/jniLibs/x86_64/
-#   game-android-aarch64 / game-android-armv7 / game-android-x86_64
-#                     librealms_game.so (game/, the Quake 2 game module) into
-#                     the same jniLibs folder: realms::Quake2Module /
-#                     GameServer dlopen it, so Android map mode runs the game
-#   ios-arm64         -> build/realms-ios/librealms_core.a + librealms_game.a
-#                     (static, device; the game is linked through
-#                     GameServer::setLinkedGame)
-#   macos-arm64-static  -> build/realms-macos-static/librealms_{core,game}.a;
-#                     the same static pipeline as iOS for a CPU/OS that can
-#                     run tests
+#   host                     librealms_core for this machine
+#   android-{aarch64,armv7,x86_64}       core into sys/android/.../jniLibs/<abi>/
+#   game-android-{aarch64,armv7,x86_64}  librealms_game.so into the same folder
+#   ios-arm64                build/realms-ios/librealms_{core,game}.a
+#   macos-arm64-static       the iOS static pipeline on a Mac, for tests
 #
-# Android: needs a Free Pascal cross compiler + Android RTL for the CPU
-# (build one with realms/pascal/fpc_android_toolchain.sh and point
-# FPC_ANDROID_PREFIX at its install prefix), GNU binutils for the CPU
-# (aarch64-linux-gnu-* / x86_64-linux-gnu-*) and the NDK (ANDROID_NDK_HOME)
-# for bionic: the library links only against the NDK sysroot of
-# ANDROID_API (default 30 = the app's minSdk). Once the .so is in jniLibs,
-# realms::Engine loads it automatically (REALMS_CORE=auto) - nothing else
-# changes in the APK build.
+# Android: FPC_ANDROID_PREFIX (from fpc_android_toolchain.sh), GNU binutils
+# for the CPU, ANDROID_NDK_HOME. Links against bionic at ANDROID_API (30).
 #
-# iOS: apps cannot load their own dynamic libraries, so the core is linked
-# statically. FPC compiles it with -Cn (no link step) and records every object
-# the library needs, RTL included, in linkfiles*.res; those are prelinked with
-# `ld -r` into ONE object and archived. That matters: on Darwin FPC starts the
-# RTL from a __mod_init_func entry (FPC_LIBMAIN) in the library's main object,
-# which also defines realms_pascal_get_api - referencing the entry point pulls
-# the whole core, init entry included, into the app. (A plain archive of the
-# unit objects would let the linker drop the init and crash on first use.)
-# Needs the aarch64-ios RTL from realms/pascal/fpc_ios_toolchain.sh
-# (FPC_IOS_PREFIX=<prefix>, or FPC_IOS_UNITS=<units dir>). The script also
-# writes RealmsPascal.generated.xcconfig next to the archive; the Xcode
-# project includes it, so device builds then link the Pascal core and define
-# REALMS_PASCAL_STATIC=1 automatically. Without it iOS uses the C++ core.
-# Whatever links the archive must pass -Wl,-no_fixup_chains: FPC 3.2 emits
-# its unit/threadvar tables as a 32-bit count followed by pointers, and the
-# chained fixups Xcode 15+ uses for current deployment targets reject
-# pointers that are not 8-byte aligned (classic rebase info handles them).
-# -----------------------------------------------------------------------------
+# iOS: FPC_IOS_PREFIX or FPC_IOS_UNITS (from fpc_ios_toolchain.sh). The core
+# is compiled with -Cn and prelinked with `ld -r` into one object, so the
+# FPC_LIBMAIN __mod_init_func entry can't be dropped by the app linker. Also
+# writes RealmsPascal.generated.xcconfig for the Xcode project. Apps linking
+# the archive need -Wl,-no_fixup_chains: FPC 3.2 tables hold pointers that
+# are only 4-byte aligned.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

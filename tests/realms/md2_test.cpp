@@ -1,11 +1,6 @@
-// Realms: Quake 2 alias models (.md2) and PCX images (realms/src/Md2Model.cpp).
-//
-// Models and images are generated with md2_builder.h: parsing, frame
-// decompression, interpolation between frames, normals and winding (both
-// windings must come out counter-clockwise with outward normals), skin
-// coordinates, 23 kinds of corrupt model and a random-corruption fuzz, then
-// PCX decoding (RLE runs, padded lines, the palette, the transparent index)
-// and corrupt PCX files.
+// Md2Model.cpp: parsing, frame blending, normals and winding, skin
+// coordinates, corrupt and fuzzed models, then PCX decoding and corrupt PCX
+// files. Test data comes from md2_builder.h.
 #include "md2_builder.h"
 
 #include "realms/Md2Model.h"

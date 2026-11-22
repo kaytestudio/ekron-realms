@@ -1,17 +1,6 @@
-{ ----------------------------------------------------------------------------
-  Realms Engine - console variables (Pascal core)
-
-  Port of Quake 2 qcommon/cvar.c (via the Quake2 Delphi game/qcommon/CVar.pas
-  conversion) made self-contained so it can be compiled as a shared/static
-  library and driven through the Realms bridge ABI.
-
-  Semantics follow Quake 2:
-    - Cvar_Get creates a variable or ORs new flags into an existing one.
-    - NOSET variables are write protected outside of Cvar_ForceSet.
-    - LATCH variables store the request and apply it on the next restart.
-    - USERINFO/SERVERINFO values may not contain \ " or ;
-  Realms additions: CHEAT flag gated by sv_cheats and a remembered default.
-  ---------------------------------------------------------------------------- }
+{ Console variables, from qcommon/cvar.c via game/qcommon/CVar.pas.
+  Adds the CHEAT flag (needs sv_cheats) and a remembered default.
+  Keep in step with realms/src/NativeCore.cpp. }
 unit rlm_cvar;
 
 {$mode objfpc}{$H+}

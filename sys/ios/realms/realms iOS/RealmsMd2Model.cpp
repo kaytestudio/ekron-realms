@@ -1,10 +1,2 @@
-//
-//  RealmsMd2Model.cpp
-//  realms iOS
-//
-//  The Quake 2 module (realms_quake2: realms/src/Md2Model.cpp) shared with
-//  Desktop and Android. Files in this folder join the app target
-//  automatically, so the shared source is compiled through this wrapper.
-//
-
+// Compiles realms/src/Md2Model.cpp into the iOS app target.
 #include "../../../../realms/src/Md2Model.cpp"

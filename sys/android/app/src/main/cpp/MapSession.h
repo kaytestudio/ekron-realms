@@ -1,14 +1,9 @@
-// Realms map mode, renderer independent: shared by the desktop client
-// (DesktopMapMode) and Android (AndroidMapMode).
-//
-// Spaces: the core works in map units, Z up (Quake 2). The renderers work
-// in metres, Y up: render = (x, z, -y) / unitsPerMetre, with 32 units per
-// metre for BSPs and map_mesh_scale for glTF maps. For glTF maps that makes
-// render space exactly the glTF file's own space, so the textured model
-// (city::LoadOptions::keepSourceSpace) needs no transform.
-//
-// Camera convention (both renderers): yaw in radians, 0 looks down -Z and
-// positive yaw turns left; positive pitch looks up.
+// Loaded map, walker and coordinate conversion, shared by the map modes.
+// The core uses map units, Z up; renderers use metres, Y up:
+// render = (x, z, -y) / unitsPerMetre (32 for BSPs, map_mesh_scale for glTF,
+// which makes render space the glTF file's own space).
+// Camera: yaw in radians, 0 looks down -Z, positive turns left; positive
+// pitch looks up.
 #pragma once
 
 #include "CollisionMesh.h"

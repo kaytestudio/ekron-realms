@@ -1,15 +1,7 @@
-{ ----------------------------------------------------------------------------
-  Realms Engine - the Free Pascal core's RealmsCoreApi table.
-
-  Shared by the two ways the core ships:
-    - realms_core.lpr   library: librealms_core.so/.dylib/.a, loaded or linked
-                        by realms::Engine (desktop, Android, iOS)
-    - Projects/realms.lpr  the `realms-pascal` program: a Pascal executable
-                        that links the C++ sandbox (libekron_sandbox) and
-                        hands it this table directly
-  The including file must use: ctypes, SysUtils, Math, rlm_bridge,
-  rlm_console, rlm_cvar, rlm_cmd, rlm_files, rlm_cmodel.
-  ---------------------------------------------------------------------------- }
+{ The RealmsCoreApi table, included by realms_core.lpr and Projects/realms.lpr.
+  The including file must use ctypes, SysUtils, Math, rlm_bridge, rlm_console,
+  rlm_cvar, rlm_cmd, rlm_files and rlm_cmodel.
+  Every export catches exceptions so none unwind into C++. }
 
 const
   BACKEND_NAME: PChar = 'pascal-quake2';

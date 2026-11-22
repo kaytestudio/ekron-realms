@@ -1,9 +1,2 @@
-//
-//  SharedMapSession.cpp
-//  realms iOS
-//
-//  Realms map mode, renderer independent (mapview::MapSession), shared with
-//  the desktop client and Android.
-//
-
+// Compiles sys/android/app/src/main/cpp/MapSession.cpp into the iOS app target.
 #include "MapSession.cpp"

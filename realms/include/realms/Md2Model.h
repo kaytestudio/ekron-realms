@@ -1,23 +1,10 @@
-// Realms Engine - Quake 2 alias models (.md2) and PCX images.
+// Quake 2 .md2 models (IDP2 v8, as Mod_LoadAliasModel) and 8-bit PCX
+// images. All counts and offsets are checked before use.
 //
-// Md2Model::parse reads an IDP2 version 8 model (models/<name>/tris.md2 in
-// a Quake 2 pak) the way the Quake 2 renderer does (Mod_LoadAliasModel):
-// skins, texture coordinates, triangles and the compressed vertex frames.
-// Every count, offset and index is checked first, so a corrupt file is
-// rejected with an error instead of being read out of bounds.
-//
-// buildVertices produces a triangle list for one blend of two frames, as
-// R_DrawAliasModel does: position = old * backlerp + new * (1 - backlerp),
-// in model space (Quake 2 units, x forward, y left, z up). Normals are the
-// area-weighted vertex normals of each frame, computed at load time (instead
-// of the anorms table). Triangles come out counter-clockwise seen from
-// outside, whichever winding the file uses (decided on frame 0).
-//
-// decodePcx decodes the 8-bit RLE PCX files Quake 2 uses for skins and
-// pics (palette at the end of the file) to RGBA.
-//
-// No renderer types: the desktop client uploads the result to OpenGL, and
-// Android / iOS can do the same with GLES / Metal.
+// buildVertices blends two frames like R_DrawAliasModel
+// (old * backlerp + new * (1 - backlerp)) in model space: units, x forward,
+// y left, z up. Normals are computed per frame at load time. Triangles come
+// out counter-clockwise whatever winding the file uses.
 #pragma once
 
 #include <array>

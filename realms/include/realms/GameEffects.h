@@ -1,32 +1,13 @@
-// Realms Engine - the Quake 2 client's effects for the sandbox renderers
-// (cl_fx.c, cl_tent.c and the effect half of cl_ents.c), with no renderer
-// or audio types, so any front end can draw and play them:
+// Quake 2 client effects (cl_fx.c, cl_tent.c, effect parts of cl_ents.c)
+// without renderer or audio types: temp entities, muzzle flashes (MZ_* and
+// MZ2_*), entity events, per-frame trails and lights, RF_BEAM lasers.
 //
-//   * temp entities (GameEvent::Kind::TempEntity): bullet puffs, blood,
-//     sparks, splashes, blaster impacts, rail trails, explosions with their
-//     animated models and lights, BFG lasers, bubble trails...;
-//   * muzzle flashes (players' MZ_* and monsters' MZ2_*, with the m_flash.c
-//     offsets): a light, smoke and puffs, and the weapon sound, which only
-//     the client plays in Quake 2;
-//   * entity events: item respawn and teleport sparkles;
-//   * entity effects every drawn frame: rocket, grenade, gib and blaster
-//     trails, flies, BFG particles, teleporter pads, flag trails, and the
-//     lights rockets, blaster bolts and BFG balls carry;
-//   * RF_BEAM entities (target_laser) and TE_BFG_LASER as beams.
+// Particles are evaluated from their spawn time like CL_AddParticles, so
+// they don't depend on frame rate. Palette colours come from
+// pics/colormap.pcx when available, otherwise from built-in ramps.
+// Times are client milliseconds (clientTimeMs(server)).
 //
-// Particles move like CL_AddParticles: analytically from their spawn time
-// (org + vel * t + accel * t^2, alpha + alphavel * t), so they look the same
-// at any frame rate. Colours are Quake 2 palette indices, turned into RGB
-// with pics/colormap.pcx when the VFS has it (loadPalette), else with a
-// built-in approximation of its colour ramps.
-//
-// Times are the client clock in milliseconds; with a GameServer use
-// clientTimeMs(server) (the time the drawn frame interpolates at). The
-// sounds the client would start come out of takeSounds() as
-// GameEvent::Kind::Sound events, like the server's own.
-//
-// Rogue's sustained effects (steam, widow beams, nuke), heat beams, tracker
-// and force-wall effects are parsed but not drawn.
+// Not drawn: Rogue's sustained effects, heat beams, tracker, force walls.
 #pragma once
 
 #include "realms/GameServer.h"

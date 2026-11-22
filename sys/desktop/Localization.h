@@ -1,19 +1,10 @@
 #pragma once
 
-// Ekron Realms desktop localization (i18n).
+// Desktop UI strings in en, ru and pt-PT (table in LocalizationStrings.h).
 //
-// Supported languages: English (en), Russian (ru) and Portuguese as spoken in
-// Portugal (pt-PT). All strings live in LocalizationStrings.h; this unit has no
-// SDL/GL dependency so it can be unit-tested on its own
-// (tests/native/localization_test.cpp).
-//
-// Language resolution order used by the desktop client (see main.cpp):
-//   1. --lang <code> command-line flag
-//   2. EKRON_LANG environment variable
-//   3. Language saved from the pause menu (settings.json)
-//   4. Operating-system preferred locales (SDL_GetPreferredLocales, then
-//      LC_ALL / LC_MESSAGES / LANG)
-//   5. English
+// Language order (main.cpp): --lang, $EKRON_LANG, the pause-menu setting,
+// the OS locale (SDL_GetPreferredLocales, then LC_ALL/LC_MESSAGES/LANG),
+// English.
 
 #include <cstddef>
 #include <initializer_list>

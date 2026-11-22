@@ -1,13 +1,6 @@
-// Realms map mode (desktop, Android, iOS): placing Quake 2 entities in the
-// sandbox render space. Header-only and free of SDL / GL / Metal so tests
-// can check the maths (tests/realms/map_entity_transform_test.cpp).
-//
-// Render space is metres, Y up: a map point (x, y, z) is (x, z, -y) / upm
-// (mapview::toRender). entityTransform is R_RotateForEntity in render
-// space: yaw about map +Z, pitch about map -Y, roll about map -X, then the
-// translation to `origin`, as a column-major matrix for uObjectTransform.
-// It acts on render-space vertices: brush models (already converted with
-// the map) and alias models after toRenderModelVertex.
+// Quake 2 entity placement in render space (R_RotateForEntity: yaw about
+// map +Z, pitch about map -Y, roll about map -X, then translate), as a
+// column-major matrix. Header-only so tests can use it.
 #pragma once
 
 #include "realms/Md2Model.h"

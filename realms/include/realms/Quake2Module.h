@@ -1,27 +1,7 @@
-// Realms Engine - the Quake 2 stack as one module for the sandboxes.
-//
-// realms::Quake2Module is everything a sandbox needs to play a Quake 2 map,
-// without any renderer, window or audio API in it. The desktop client
-// (DesktopMapMode), Android (AndroidMapMode) and iOS (MetalMapMode) each own
-// one and only draw / play what it hands out:
-//
-//   * the game: realms::GameServer running librealms_game (game/, the Free
-//     Pascal gamex86) on the map the Engine has loaded, fed with the player's
-//     GameUserCmd every frame (or a linked GetGameAPI on platforms that can't
-//     load libraries, see GameServer::setLinkedGame);
-//   * brush entities: where each inline model ("*n") is drawn this frame,
-//     interpolated between game frames, hidden when nothing uses it;
-//   * entities: .md2 models, fallback boxes, the view weapon and the effect
-//     models as one GameScene, each batch lit from the lightmaps;
-//   * client effects: particles / glows / beams as camera-facing quads and
-//     the dynamic lights closest to the camera (GameEffects);
-//   * sounds: the game's and the effects' sounds to start, the entity loop
-//     sounds and the listener (GameSound);
-//   * lightmaps: the atlas, per-vertex atlas coordinates for MapGeometry and
-//     light styles animated from the game's CS_LIGHTS (MapLighting).
-//
-// Everything is in Quake 2 map space (units, Z up, Quake 2 angles in
-// degrees); each sandbox converts to its own render space.
+// Quake 2 game, entities, effects, sounds and lightmaps for one map, with no
+// renderer or audio code. Each sandbox (DesktopMapMode, AndroidMapMode,
+// MetalMapMode) owns one and draws/plays what it returns.
+// Everything is in Quake 2 map space: units, Z up, angles in degrees.
 #pragma once
 
 #include "realms/Engine.h"

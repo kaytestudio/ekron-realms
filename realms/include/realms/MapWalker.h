@@ -1,10 +1,6 @@
-// Realms Engine - player movement on the loaded map.
-//
-// A compact port of Quake 2's pmove (PM_StepSlideMove / PM_Friction /
-// PM_Accelerate / PM_CheckDuck) running on Engine::boxTrace, so it walks
-// identically on the Pascal and the C++ core, on BSP and glTF mesh maps.
-// Units are map units (Quake 2: 32 units per metre); angles are degrees with
-// Quake 2 conventions (yaw 0 = +X, 90 = +Y; positive pitch looks down).
+// Player movement for walking a map without the game: a small port of
+// Quake 2 pmove on Engine::boxTrace. Map units (32 per metre); Quake 2
+// angles in degrees (yaw 0 = +X, positive pitch looks down).
 #pragma once
 
 #include "realms/Engine.h"

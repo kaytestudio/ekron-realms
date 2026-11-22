@@ -1,31 +1,20 @@
-// Realms Engine - triangle mesh maps (.glb / .gltf).
+// glTF 2.0 (.glb or .gltf) maps converted to a triangle soup in Quake 2 map
+// space for map_load_mesh (bridge v3). The core turns each colliding
+// triangle into a thin brush.
 //
-// A mesh map is a triangle soup in Quake 2 map space (Z up, map units) with a
-// surface table, handed to the core through map_load_mesh (bridge v3). The
-// core turns every colliding triangle into a thin brush, so traces, point
-// contents and the player hull behave exactly like on a BSP map.
+// Axes: glTF (x, y, z) metres -> map (x, -z, y) * scale, 32 units per metre
+// by default. One surface per material (name cut to 31 chars) plus
+// "default".
 //
-// gltfToMeshMap() reads glTF 2.0 (binary .glb or JSON .gltf with embedded or
-// external buffers) without third-party code:
-//   * scene graph: the default scene's nodes with matrix / TRS transforms,
-//     meshes instanced by several nodes are emitted once per node
-//   * primitives: TRIANGLES, TRIANGLE_STRIP, TRIANGLE_FAN; POSITION as float
-//     or (normalized) integer VEC3; u8/u16/u32 indices or none
-//   * axes: glTF is Y up, right handed, metres -> map (x, -z, y) * scale
-//     (Quake 2 player: 56 units tall, so 32 units per metre by default)
-//   * surfaces: one per glTF material (name truncated to 31 chars) plus a
-//     "default" surface for primitives without a material
-//   * collision tags (material name, material extras or node extras):
-//       "nocollide" in a name, or extras {"realms_contents": "none"}
-//                               -> rendered only, no collision
-//       "water" / "slime" / "lava" in a material name -> liquid contents
-//       extras {"realms_contents": "solid|water|slime|lava|playerclip|
-//               monsterclip|window|none" or a number,
-//               "realms_flags": n, "realms_value": n}
-//   * entities: worldspawn, plus one entity per node whose name starts with
-//     "info_" (Blender ".001" suffixes are dropped), e.g. info_player_start,
-//     with its map-space "origin"; node extras {"realms_angle": deg} adds an
-//     "angle" key
+// Collision tags, from material names or material/node extras:
+//   "nocollide" in a name, or {"realms_contents": "none"}: no collision
+//   "water" / "slime" / "lava" in a material name: liquid
+//   {"realms_contents": "solid|water|slime|lava|playerclip|monsterclip|
+//    window|none" or a number, "realms_flags": n, "realms_value": n}
+//
+// Entities: worldspawn, plus one per node named "info_*" (Blender ".001"
+// suffixes dropped) with its "origin"; node extras {"realms_angle": deg}
+// add "angle".
 #pragma once
 
 #include "realms/realms_bridge.h"

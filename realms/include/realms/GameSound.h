@@ -1,8 +1,6 @@
-// Quake 2 game sounds for a sandbox client (snd_dma.c / snd_mem.c without
-// the mixer): .wav decoding, S_SpatializeOrigin, timeofs delays, the
-// channel override rule and the merged entity loop sounds
-// (S_AddLoopSounds). The platform plays the result through its own mixer
-// (the clients: sys/android/app/src/main/cpp/GameSoundPlayer, shared by desktop, Android and iOS).
+// Quake 2 game sounds without a mixer (snd_dma.c / snd_mem.c): .wav
+// decoding, S_SpatializeOrigin, timeofs delays, channel override and merged
+// loop sounds. Played by GameSoundPlayer (sys/android/app/src/main/cpp).
 #pragma once
 
 #include "realms/Engine.h"

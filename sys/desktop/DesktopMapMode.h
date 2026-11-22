@@ -1,16 +1,5 @@
-// Realms map mode for the desktop client: "map <name>" swaps the sandbox for
-// a Quake 2 BSP or a glTF map loaded into the Realms core and drawn by
-// DesktopRenderer::renderMapWorld. The renderer-independent part (spaces,
-// walker, material layers) is mapview::MapSession, shared with Android.
-//
-// The Quake 2 stack is realms::Quake2Module (realms_quake2) behind
-// mapview::Quake2View, both shared with Android and iOS: when the game module (librealms_game, game/) is
-// available and the map has a worldspawn entity string, the map runs the
-// game: the player is the game's client (ClientThink / Pmove), doors,
-// platforms and other brush entities move as the game drives them, items
-// can be picked up, and the HUD shows the game's player stats. Otherwise (or
-// with sv_game 0) the map is walked with realms::MapWalker as before. This
-// class only puts what the module hands out on DesktopRenderer.
+// "map <name>" on desktop: draws mapview::Quake2View with DesktopRenderer
+// and runs the game when the module is available.
 #pragma once
 
 #include "DesktopRenderer.h"

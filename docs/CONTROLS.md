@@ -53,7 +53,13 @@ When the build finds `fpc` it also builds `librealms_game.so` / `.dylib`, the Fr
 - `cl_gun 0`: hide the view weapon.
 - `REALMS_GAME_LIBRARY=/path/to/librealms_game.so`: use another game build.
 
-The Android APK and iOS device builds include the game too; there a Fire button appears above jump. More detail in [realms/README.md](../realms/README.md#the-quake-2-module-realms_quake2).
+### Android and iOS
+
+**Pause menu → Maps…** lists the `.bsp`, `.glb` and `.gltf` files under `maps/` and `models/` in the app, plus imported maps. The APK and iOS device builds include the game; a Fire button appears above jump, and the pause menu has noclip, respawn and leave (`killserver`).
+
+**Import map…** copies files from the system picker into the app's `maps/` folder (Android internal storage, iOS `Application Support/EkronSandbox`). Pick a `.gltf` together with its `.bin` and texture files; folders are not kept. Accepted: `.bsp .glb .gltf .bin .png .jpg .jpeg`, up to 128 MB each, checked by file header. **Remove an imported map…** deletes one.
+
+More detail in [realms/README.md](../realms/README.md#the-quake-2-module-realms_quake2).
 
 ## realms-pascal
 

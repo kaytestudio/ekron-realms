@@ -1,9 +1,2 @@
-//
-//  SharedSoundMixer.cpp
-//  realms iOS
-//
-//  Game sound: the software mixer the AVAudioEngine source node pulls from,
-//  shared with the desktop client and Android.
-//
-
+// Compiles sys/android/app/src/main/cpp/SoundMixer.cpp into the iOS app target.
 #include "SoundMixer.cpp"

@@ -1,26 +1,11 @@
-// Realms Engine - what a Quake 2 client does with the server's frames before
-// drawing them, for the sandbox renderers (CL_AddPacketEntities,
-// CL_AddViewWeapon):
+// Client-side handling of server frames (CL_AddPacketEntities,
+// CL_AddViewWeapon): entities interpolated between the last two 100 ms game
+// frames, no lerp after a teleport (>512 units) or model change, EF_ROTATE
+// and EF_ANIM*, and the view weapon. Call GameEntityLerp::update once per
+// sandbox frame after GameServer::frame.
 //
-//   * entities are drawn between the last two 100 ms game frames: origin and
-//     angles are interpolated, the model blends the previous animation frame
-//     into the current one (oldframe / backlerp);
-//   * no interpolation for an entity that is new, changed model or moved
-//     more than 512 units (teleported, respawned);
-//   * EF_ROTATE items spin at 100 degrees a second (autorotate);
-//   * EF_ANIM01 / ANIM23 / ANIM_ALL / ANIM_ALLFAST cycle the frame on the
-//     client like cl_ents.c does;
-//   * the view weapon (ps.gunindex) blends ps.gunframe the same way and sits
-//     at the view origin + gunoffset, turned by viewangles + gunangles.
-//
-// GameEntityLerp::update must be called once per sandbox frame, after
-// GameServer::frame; it notices new game frames by frameNumber().
-//
-// buildGameScene turns that into triangles a renderer can draw without
-// knowing Quake 2: one batch per alias model (.md2 from the VFS, through
-// GameModelCache) with its skin name, and a coloured box from the entity's
-// bounds when the model file is missing (no id data installed), so items,
-// monsters and projectiles are visible either way.
+// buildGameScene turns the result into triangle batches, one per .md2 model,
+// or a coloured box from the entity bounds when the model file is missing.
 #pragma once
 
 #include "realms/GameServer.h"

@@ -1,13 +1,6 @@
-// Ekron Realms - libekron_sandbox: the C++ desktop sandbox as a library.
-//
-// The desktop client (sys/desktop/main.cpp: SDL2 window, input, GL renderer,
-// audio, world) normally builds as the `ekron-realms` executable. With
-// -DENABLE_FPC_CLIENT=ON and Free Pascal installed, the same sources are also
-// built as libekron_sandbox.so / .dylib so that another program can own the
-// process and run the sandbox in it. The Free Pascal `realms-pascal` program
-// (Projects/realms.lpr) does exactly that, and passes in the Realms core it
-// compiles itself (realms/pascal), so one native binary runs the Pascal game
-// core with the C++ SDL2 platform layer.
+// The desktop sandbox built as a library (libekron_sandbox, with
+// -DENABLE_FPC_CLIENT=ON), so realms-pascal (Projects/realms.lpr) can run it
+// with its own linked Pascal core.
 #pragma once
 
 #include "realms/realms_bridge.h"

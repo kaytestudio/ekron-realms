@@ -1,12 +1,7 @@
 #pragma once
-// Realms Engine host glue for Android.
-//
-// One realms::Engine lives for the whole process (GameActivity recreates the
-// Renderer with every EGL surface). Files resolve from the app's internal
-// storage first (config.cfg written by "writeconfig") and then from the APK
-// assets through AAssetManager. When librealms_core.so (Free Pascal Quake 2
-// core, built with realms/pascal/build_core.sh android-aarch64) is packaged in
-// jniLibs it is loaded automatically; otherwise the C++ reference core runs.
+// The Android realms::Engine, one per process (the Renderer is recreated with
+// each EGL surface). Files come from internal storage first, then the APK
+// assets.
 
 #include "realms/Engine.h"
 
