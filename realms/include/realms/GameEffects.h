@@ -4,7 +4,7 @@
 //
 // Particles are evaluated from their spawn time like CL_AddParticles, so
 // they don't depend on frame rate. Palette colours come from
-// pics/colormap.pcx when available, otherwise from built-in ramps.
+// pics/colormap.pcx when available, otherwise from a copy of Quake 2's.
 // Times are client milliseconds (clientTimeMs(server)).
 //
 // Not drawn: Rogue's sustained effects, heat beams, tracker, force walls.
@@ -114,10 +114,10 @@ public:
     void reset(uint32_t seed = 0x2545f491u);
 
     // A 768-byte RGB palette, or loadPalette from pics/colormap.pcx (its
-    // last 768 bytes). Without either, an approximation is used.
+    // last 768 bytes). Without either (nullptr), Quake 2's built-in palette.
     void setPalette(const uint8_t *rgb768);
     bool loadPalette(const Engine &engine, std::string *error = nullptr);
-    bool realPalette() const { return realPalette_; }
+    bool paletteFromGame() const { return paletteFromGame_; }
     std::array<float, 3> paletteColor(int index) const;
 
     // TempEntity, MuzzleFlash and EntityEvent events (others are ignored).
@@ -234,7 +234,7 @@ private:
 
     uint32_t rng_ = 0x2545f491u;
     std::array<std::array<float, 3>, 256> palette_{};
-    bool realPalette_ = false;
+    bool paletteFromGame_ = false;
     std::vector<Particle> particles_;
     int droppedParticles_ = 0;
     std::array<Explosion, kMaxExplosions> explosions_{};

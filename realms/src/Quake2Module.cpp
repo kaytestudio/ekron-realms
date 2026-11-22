@@ -87,7 +87,7 @@ bool Quake2Module::startGame(Engine &engine, std::string &why) {
     sounds_.clear();
     std::string palette;
     if (!effects_.loadPalette(engine, &palette))
-        engine.print("map: effects use approximate colours (" + palette + ")\n", REALMS_PRINT_DEVELOPER);
+        engine.print("map: effects use the built-in palette (" + palette + ")\n", REALMS_PRINT_DEVELOPER);
     sync();
     return true;
 }

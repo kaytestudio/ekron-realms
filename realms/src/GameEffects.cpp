@@ -13,6 +13,7 @@ namespace realms {
 namespace {
 
 #include "GameEffectTables.inc"
+#include "Quake2Palette.inc"
 
 using A3 = std::array<float, 3>;
 
@@ -69,39 +70,11 @@ A3 dirAngles(const A3 &dir) {
     return a;
 }
 
-// Bright-to-dark ramp of 16 entries from `hi` to `lo`.
-void ramp(std::array<std::array<float, 3>, 256> &pal, int first, int count, A3 hi, A3 lo) {
-    for (int i = 0; i < count; i++) {
-        const float t = count > 1 ? float(i) / float(count - 1) : 0.0f;
-        pal[size_t(first + i)] = {hi[0] + (lo[0] - hi[0]) * t, hi[1] + (lo[1] - hi[1]) * t, hi[2] + (lo[2] - hi[2]) * t};
-    }
-}
-
-// An approximation of pics/colormap.pcx's colour ramps, for when id's data
-// isn't installed: greys, the browns and blues of water splashes, the
-// blue rail spiral (0x70), green BFG / slime (0xd0), yellow rocket sparks
-// (0xd8), the yellow-to-orange fire (0xe0) and the reds of blood (0xe8).
-std::array<std::array<float, 3>, 256> approximatePalette() {
+// Quake 2's palette, for when pics/colormap.pcx isn't installed.
+std::array<std::array<float, 3>, 256> builtinPalette() {
     std::array<std::array<float, 3>, 256> p{};
-    ramp(p, 0x00, 16, {0, 0, 0}, {0.92f, 0.92f, 0.92f});            // greys, dark to light
-    ramp(p, 0x10, 16, {0.62f, 0.48f, 0.30f}, {0.10f, 0.07f, 0.04f}); // browns
-    ramp(p, 0x20, 16, {0.58f, 0.60f, 0.70f}, {0.08f, 0.08f, 0.12f}); // blue greys
-    ramp(p, 0x30, 16, {0.48f, 0.55f, 0.30f}, {0.06f, 0.08f, 0.03f}); // olive
-    ramp(p, 0x40, 16, {0.95f, 0.28f, 0.20f}, {0.15f, 0.03f, 0.02f}); // reds (logout)
-    ramp(p, 0x50, 16, {0.70f, 0.55f, 0.38f}, {0.12f, 0.08f, 0.05f}); // tan (brown water)
-    ramp(p, 0x60, 16, {0.90f, 0.66f, 0.42f}, {0.20f, 0.18f, 0.30f}); // skin tones into blue
-    ramp(p, 0x70, 16, {0.55f, 0.65f, 1.00f}, {0.05f, 0.08f, 0.25f}); // blues (rail, quad)
-    ramp(p, 0x80, 16, {0.62f, 0.48f, 0.58f}, {0.10f, 0.06f, 0.09f}); // mauve
-    ramp(p, 0x90, 16, {0.76f, 0.46f, 0.28f}, {0.12f, 0.06f, 0.03f}); // rust
-    ramp(p, 0xa0, 16, {0.82f, 0.72f, 0.50f}, {0.14f, 0.11f, 0.06f}); // sand
-    ramp(p, 0xb0, 16, {0.45f, 0.65f, 0.95f}, {0.04f, 0.08f, 0.20f}); // water blue
-    ramp(p, 0xc0, 16, {0.58f, 0.44f, 0.34f}, {0.09f, 0.06f, 0.04f}); // dark browns
-    ramp(p, 0xd0, 8, {0.40f, 1.00f, 0.40f}, {0.05f, 0.35f, 0.05f});  // greens (BFG, slime, respawn)
-    ramp(p, 0xd8, 8, {1.00f, 0.96f, 0.40f}, {0.65f, 0.45f, 0.10f});  // yellows (rocket fire)
-    ramp(p, 0xe0, 8, {1.00f, 1.00f, 0.50f}, {1.00f, 0.45f, 0.08f});  // fire: yellow to orange
-    ramp(p, 0xe8, 8, {0.95f, 0.14f, 0.08f}, {0.30f, 0.02f, 0.01f});  // blood
-    ramp(p, 0xf0, 15, {1.00f, 1.00f, 0.85f}, {0.80f, 0.70f, 1.00f}); // fullbright specials
-    p[0xff] = {1.0f, 1.0f, 1.0f};
+    for (size_t i = 0; i < 256; i++)
+        p[i] = {kQuake2Palette[i * 3] / 255.0f, kQuake2Palette[i * 3 + 1] / 255.0f, kQuake2Palette[i * 3 + 2] / 255.0f};
     return p;
 }
 
@@ -145,7 +118,7 @@ double clientTimeMs(const GameServer &server) {
 }
 
 GameEffects::GameEffects() {
-    palette_ = approximatePalette();
+    palette_ = builtinPalette();
     reset();
 }
 
@@ -176,13 +149,13 @@ int GameEffects::rand15() {
 
 void GameEffects::setPalette(const uint8_t *rgb768) {
     if (!rgb768) {
-        palette_ = approximatePalette();
-        realPalette_ = false;
+        palette_ = builtinPalette();
+        paletteFromGame_ = false;
         return;
     }
     for (int i = 0; i < 256; i++)
         palette_[size_t(i)] = {rgb768[i * 3] / 255.0f, rgb768[i * 3 + 1] / 255.0f, rgb768[i * 3 + 2] / 255.0f};
-    realPalette_ = true;
+    paletteFromGame_ = true;
 }
 
 bool GameEffects::loadPalette(const Engine &engine, std::string *error) {
