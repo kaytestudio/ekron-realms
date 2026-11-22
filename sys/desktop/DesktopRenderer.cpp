@@ -663,6 +663,10 @@ void DesktopRenderer::shutdown(ekron::gl::Api &gl) {
     if (mapVbo_) gl.DeleteBuffers(1, &mapVbo_);
     if (mapVao_) gl.DeleteVertexArrays(1, &mapVao_);
     mapCount_ = 0;
+    if (entityVbo_) gl.DeleteBuffers(1, &entityVbo_);
+    if (entityVao_) gl.DeleteVertexArrays(1, &entityVao_);
+    entityVbo_ = entityVao_ = 0;
+    entityBatches_.clear();
     if (emptyVao_) gl.DeleteVertexArrays(1, &emptyVao_);
     if (uiProg_) gl.DeleteProgram(uiProg_);
     if (pipProg_) gl.DeleteProgram(pipProg_);
@@ -853,6 +857,35 @@ void DesktopRenderer::clearMapGeometry(ekron::gl::Api &gl) {
     mapCount_ = 0;
     mapRanges_.clear();
     mapPoses_.clear();
+    entityBatches_.clear();
+}
+
+void DesktopRenderer::setMapEntities(ekron::gl::Api &gl, const std::vector<EntityVertex> &vertices,
+                                     std::vector<EntityBatch> batches) {
+    entityBatches_.clear();
+    if (vertices.empty() || batches.empty()) return;
+    if (!entityVao_) {
+        gl.GenVertexArrays(1, &entityVao_);
+        gl.GenBuffers(1, &entityVbo_);
+        gl.BindVertexArray(entityVao_);
+        gl.BindBuffer(GL_ARRAY_BUFFER, entityVbo_);
+        constexpr GLsizei stride = sizeof(EntityVertex);
+        gl.EnableVertexAttribArray(0);
+        gl.VertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<const void *>(0));
+        gl.EnableVertexAttribArray(1);
+        gl.VertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<const void *>(3 * sizeof(float)));
+        gl.EnableVertexAttribArray(2);
+        gl.VertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<const void *>(6 * sizeof(float)));
+    }
+    gl.BindVertexArray(entityVao_);
+    gl.BindBuffer(GL_ARRAY_BUFFER, entityVbo_);
+    gl.BufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(vertices.size() * sizeof(EntityVertex)), vertices.data(),
+                  GL_DYNAMIC_DRAW);
+    gl.BindVertexArray(0);
+    gl.BindBuffer(GL_ARRAY_BUFFER, 0);
+    const GLsizei total = static_cast<GLsizei>(vertices.size());
+    for (EntityBatch &b : batches)
+        if (b.count > 0 && b.first >= 0 && b.first + b.count <= total) entityBatches_.push_back(b);
 }
 
 void DesktopRenderer::renderMapWorld(ekron::gl::Api &gl,
@@ -916,6 +949,55 @@ void DesktopRenderer::renderMapWorld(ekron::gl::Api &gl,
         gl.ActiveTexture(GL_TEXTURE0);
         gl.BindTexture(GL_TEXTURE_2D_ARRAY, materialArrayTex_);
         drawGltfModel(gl, *mapModel, kIdentityMatrix, eye.x, eye.z, false);
+    }
+
+    if (!entityBatches_.empty() && entityVao_) {
+        gl.UseProgram(modelProg_);
+        applyCommonSceneUniforms(gl, modelProg_, eye, yaw, pitch, roll, aspect, texturesReady_);
+        gl.ActiveTexture(GL_TEXTURE0);
+        gl.BindTexture(GL_TEXTURE_2D_ARRAY, materialArrayTex_);
+        gl.Uniform1i(gl.GetUniformLocation(modelProg_, "uModelPass"), 1);
+        gl.Uniform1i(gl.GetUniformLocation(modelProg_, "uPreviewPass"), 0);
+        gl.Uniform1f(gl.GetUniformLocation(modelProg_, "uModelRoughness"), 0.8f);
+        gl.Uniform1f(gl.GetUniformLocation(modelProg_, "uAlphaCutoff"), 0.5f);
+        const GLint transformLoc = gl.GetUniformLocation(modelProg_, "uObjectTransform");
+        const GLint texturedLoc = gl.GetUniformLocation(modelProg_, "uModelTextured");
+        const GLint colorLoc = gl.GetUniformLocation(modelProg_, "uBaseColorFactor");
+        const GLint alphaModeLoc = gl.GetUniformLocation(modelProg_, "uAlphaMode");
+        gl.BindVertexArray(entityVao_);
+        // opaque entities, then translucent ones, then the view weapon
+        for (int pass = 0; pass < 3; pass++) {
+            if (pass == 2) {
+                bool any = false;
+                for (const EntityBatch &b : entityBatches_) any |= b.viewWeapon;
+                if (!any) break;
+                gl.DepthMask(GL_TRUE); // glClear honours the depth mask
+                gl.Clear(GL_DEPTH_BUFFER_BIT);
+            }
+            for (const EntityBatch &b : entityBatches_) {
+                const bool translucent = b.color.a < 0.999f;
+                if (b.viewWeapon != (pass == 2)) continue;
+                if (pass < 2 && translucent != (pass == 1)) continue;
+                if (translucent) {
+                    gl.Enable(GL_BLEND);
+                    gl.BlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                    gl.DepthMask(GL_FALSE);
+                } else {
+                    gl.Disable(GL_BLEND);
+                    gl.DepthMask(GL_TRUE);
+                }
+                gl.ActiveTexture(GL_TEXTURE1);
+                gl.BindTexture(GL_TEXTURE_2D, b.texture ? b.texture : whiteTex_);
+                gl.Uniform1i(texturedLoc, b.texture ? 1 : 0);
+                gl.Uniform4f(colorLoc, b.color.r, b.color.g, b.color.b, b.color.a);
+                gl.Uniform1i(alphaModeLoc, translucent ? 2 : 0);
+                gl.UniformMatrix4fv(transformLoc, 1, GL_FALSE, b.transform.data());
+                gl.DrawArrays(GL_TRIANGLES, b.first, b.count);
+            }
+        }
+        gl.Disable(GL_BLEND);
+        gl.DepthMask(GL_TRUE);
+        gl.UniformMatrix4fv(transformLoc, 1, GL_FALSE, kIdentityMatrix.data());
     }
     gl.BindVertexArray(0);
     gl.ActiveTexture(GL_TEXTURE0);

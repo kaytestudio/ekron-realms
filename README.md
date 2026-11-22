@@ -168,7 +168,7 @@ The `REALMS_CORE=pascal|native|auto` environment variable selects the Realms cor
 
 ### Quake 2 Maps and the Game Module
 
-`map <name>` in the console (or `+map <name>` on the command line) opens a Quake 2 BSP (`maps/<name>.bsp`, loose or in a `pak0.pak`…) or a `.glb` / `.gltf` scene; `killserver` returns to the sandbox. With `fpc` installed the build also produces `librealms_game.so` / `.dylib`, the Free Pascal port of the Quake 2 game DLL (`game/`). The C++ sandbox hosts it through `realms::GameServer`, a Quake 2 server on the Realms Engine, so a BSP map plays like Quake 2: the player spawns at `info_player_start`, items can be picked up, doors, lifts and triggers work, and monsters and weapons run the original game code, on the Pascal or the C++ core. `--engine-info` shows the module (`Game: … (Quake 2 game API 3)`).
+`map <name>` in the console (or `+map <name>` on the command line) opens a Quake 2 BSP (`maps/<name>.bsp`, loose or in a `pak0.pak`…) or a `.glb` / `.gltf` scene; `killserver` returns to the sandbox. With `fpc` installed the build also produces `librealms_game.so` / `.dylib`, the Free Pascal port of the Quake 2 game DLL (`game/`). The C++ sandbox hosts it through `realms::GameServer`, a Quake 2 server on the Realms Engine, so a BSP map plays like Quake 2: the player spawns at `info_player_start`, items can be picked up, doors, lifts and triggers work, and monsters and weapons run the original game code, on the Pascal or the C++ core. Items, monsters, projectiles and the view weapon are drawn from the `.md2` models and skins in your `pak0.pak`, interpolated between game frames like the Quake 2 client. Without id's data each one is shown as a coloured box of its size. `--engine-info` shows the module (`Game: … (Quake 2 game API 3)`).
 
 | Input (in a map) | Action |
 | :--- | :--- |
@@ -177,7 +177,7 @@ The `REALMS_CORE=pascal|native|auto` environment variable selects the Realms cor
 | `N` / `R` | Noclip / Restart the map (respawn without the game) |
 | `` ` `` | Console: Quake 2 client commands such as `give all`, `give shotgun`, `use blaster`, `god`, `notarget`, `kill`, `weapnext`, `cmd <command>`, server commands with `sv <command>`, and `killserver` |
 
-`sv_game 0` turns the game off (then `map` only walks the map). `REALMS_GAME_LIBRARY=/path/to/librealms_game.so` picks another module build. Details: [realms/README.md](realms/README.md#quake-2-game-module-gameserver).
+`sv_game 0` turns the game off (then `map` only walks the map), and `cl_gun 0` hides the view weapon. `REALMS_GAME_LIBRARY=/path/to/librealms_game.so` picks another module build. Details: [realms/README.md](realms/README.md#quake-2-game-module-gameserver).
 
 ### Free Pascal Client (`realms-pascal`)
 

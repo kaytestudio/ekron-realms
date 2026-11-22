@@ -16,8 +16,10 @@
 
 #include "realms/Engine.h"
 #include "realms/GameServer.h"
+#include "realms/GameView.h"
 
 #include <memory>
+#include <unordered_map>
 #include <string>
 #include <vector>
 
@@ -63,6 +65,13 @@ public:
     std::string gameStatus() const;
     // Centre prints / pickup messages since the last call (for toasts).
     std::vector<std::string> takeGameMessages();
+    // The game's entities for DesktopRenderer::setMapEntities: .md2 models
+    // from the VFS with their PCX skins (uploaded once, kept until close),
+    // coloured boxes where a model is missing, and the view weapon glued to
+    // the camera (renderer yaw / pitch, radians). Empty without a game.
+    void buildEntities(realms::Engine &engine, ekron::gl::Api &gl, float renderYaw, float renderPitch,
+                       std::vector<DesktopRenderer::EntityVertex> &vertices,
+                       std::vector<DesktopRenderer::EntityBatch> &batches);
 
 private:
     bool startGame(realms::Engine &engine, std::string &why);
@@ -74,6 +83,12 @@ private:
     std::string executableDir_;
     std::vector<DesktopRenderer::MapModelPose> poses_;
     std::vector<std::string> messages_;
+    realms::GameEntityLerp lerp_;
+    realms::GameModelCache models_;
+    realms::GameScene scene_;
+    std::unordered_map<std::string, GLuint> skins_; // 0: tried, not loadable
+    void releaseSkins(ekron::gl::Api &gl);
+    GLuint skinTexture(realms::Engine &engine, ekron::gl::Api &gl, const std::string &name);
     int lastPickup_ = 0;
 };
 

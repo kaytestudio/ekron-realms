@@ -917,6 +917,46 @@ int GameServer::inlineModel(int modelindex) const {
     return name.size() > 1 && name[0] == '*' ? std::atoi(name.c_str() + 1) : 0;
 }
 
+double GameServer::lerpFraction() const {
+    if (!running_) return 0.0;
+    return std::clamp(frameAccumulator_ / kFrameSeconds, 0.0, 1.0);
+}
+
+std::vector<GameRenderEntity> GameServer::renderEntities(bool withInline) const {
+    std::vector<GameRenderEntity> out;
+    if (!running_) return out;
+    const int clients = std::max(1, std::atoi(configString(Q2_CS_MAXCLIENTS).c_str()));
+    for (int i = 1; i < numEdicts(); i++) {
+        const q2edict_t *e = edict(i);
+        if (!e || !e->inuse || (e->svflags & Q2_SVF_NOCLIENT)) continue;
+        if (i <= clients) continue; // the local player's body (first person)
+        if (e->s.modelindex <= 0 || e->s.modelindex >= Q2_MAX_MODELS) continue; // 255: player skins
+        if (e->s.renderfx & (Q2_RF_BEAM | Q2_RF_VIEWERMODEL)) continue;
+        GameRenderEntity r;
+        r.number = i;
+        r.modelindex = e->s.modelindex;
+        r.model = modelName(e->s.modelindex);
+        if (r.model.empty() || r.model[0] == '#') continue; // vwep names are per client
+        r.inlineModel = inlineModel(e->s.modelindex);
+        if (r.inlineModel > 0 && !withInline) continue;
+        for (int k = 0; k < 3; k++) {
+            r.origin[size_t(k)] = e->s.origin[k];
+            r.oldOrigin[size_t(k)] = e->s.old_origin[k];
+            r.angles[size_t(k)] = e->s.angles[k];
+            r.mins[size_t(k)] = e->mins[k];
+            r.maxs[size_t(k)] = e->maxs[k];
+        }
+        r.frame = e->s.frame;
+        r.skinnum = e->s.skinnum;
+        r.effects = e->s.effects;
+        r.renderfx = e->s.renderfx;
+        r.svflags = e->svflags;
+        r.solid = int(e->solid);
+        out.push_back(std::move(r));
+    }
+    return out;
+}
+
 std::vector<GameEvent> GameServer::takeEvents() {
     std::vector<GameEvent> out(std::make_move_iterator(events_.begin()), std::make_move_iterator(events_.end()));
     events_.clear();

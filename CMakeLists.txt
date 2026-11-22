@@ -488,6 +488,20 @@ else()
 endif()
 set_tests_properties(realms_game_server_native PROPERTIES ENVIRONMENT "REALMS_CORE=;REALMS_GAME_LIBRARY=")
 
+# Quake 2 .md2 models and PCX skins (realms::Md2Model / decodePcx), generated
+# in memory by tests/realms/md2_builder.h.
+add_executable(realms_md2_test tests/realms/md2_test.cpp)
+target_include_directories(realms_md2_test PRIVATE tests/realms)
+target_link_libraries(realms_md2_test PRIVATE realms_engine)
+add_test(NAME realms_md2 COMMAND realms_md2_test)
+
+# Desktop map mode: entity poses and .md2 vertices in render space (the view
+# weapon follows the camera for every yaw / pitch). Header-only, no SDL / GL.
+add_executable(realms_map_entity_transform_test tests/realms/map_entity_transform_test.cpp)
+target_include_directories(realms_map_entity_transform_test PRIVATE sys/desktop)
+target_link_libraries(realms_map_entity_transform_test PRIVATE realms_engine)
+add_test(NAME realms_map_entity_transform COMMAND realms_map_entity_transform_test)
+
 if(EKRON_SDL2_TARGET)
     # Drop-down console line editing / command submission (no GL needed).
     add_executable(realms_desktop_console_test

@@ -20,6 +20,8 @@ add_library(realms_engine STATIC
     "${CMAKE_CURRENT_LIST_DIR}/src/MapWalker.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/src/Q2Pmove.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/src/GameServer.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/src/GameView.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/src/Md2Model.cpp"
 )
 target_include_directories(realms_engine PUBLIC "${CMAKE_CURRENT_LIST_DIR}/include")
 target_compile_features(realms_engine PUBLIC cxx_std_17)

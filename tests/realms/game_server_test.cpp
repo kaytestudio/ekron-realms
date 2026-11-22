@@ -9,18 +9,23 @@
 //    arena, then the local player walks (ClientThink -> gi.Pmove), picks up
 //    an armor shard (touch -> gi.sound), opens a func_door (trigger field ->
 //    door movement through SV_LinkEdict / gi.trace), runs client commands,
-//    and the server restarts on the same map.
+//    and the server restarts on the same map. What the client draws:
+//    render entities, the interpolated door (GameEntityLerp), the spinning
+//    shard and the view weapon.
 // Every check runs on the core the engine loads (C++ or Free Pascal).
 // Without --game (and no librealms_game on the search path) part 2 is
 // skipped with exit code 77.
 #include "bsp_builder.h"
+#include "md2_builder.h"
 
 #include "realms/Engine.h"
 #include "realms/GameServer.h"
+#include "realms/GameView.h"
 #include "realms/MapGeometry.h"
 #include "realms/Q2Pmove.h"
 #include "realms/q2game.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -75,6 +80,32 @@ bsp_builder::MapDef arena() {
 }
 
 bool near(float a, float b, float eps) { return std::fabs(a - b) <= eps; }
+
+fs::path gGameDir; // the test's VFS root (maps/, models/)
+
+const char *kShardModel = "models/items/armor/shard/tris.md2";
+const char *kShardSkin = "models/items/armor/shard/skin.pcx";
+
+void writeFile(const fs::path &path, const std::vector<unsigned char> &bytes) {
+    std::error_code ec;
+    fs::create_directories(path.parent_path(), ec);
+    std::ofstream(path, std::ios::binary).write(reinterpret_cast<const char *>(bytes.data()), std::streamsize(bytes.size()));
+}
+
+// Generated stand-ins for id's models: the armour shard (with a skin) and
+// the shotgun view model (two frames, its skin left out). The blaster view
+// model is deliberately missing.
+void writeTestModels(const fs::path &dir) {
+    auto shard = md2_builder::boxModel({{{-8, -8, -8}, {8, 8, 8}}});
+    shard.skins = {kShardSkin};
+    writeFile(dir / kShardModel, md2_builder::writeMd2(shard));
+    std::vector<uint8_t> idx(64 * 32);
+    for (size_t i = 0; i < idx.size(); i++) idx[i] = uint8_t(i % 251);
+    writeFile(dir / kShardSkin, md2_builder::writePcx(64, 32, idx));
+    auto gun = md2_builder::boxModel({{{0, -4, -4}, {24, 4, 4}}, {{0, -4, -6}, {20, 4, 4}}});
+    gun.skins = {"models/weapons/v_shotg/skin.pcx"};
+    writeFile(dir / "models/weapons/v_shotg/tris.md2", md2_builder::writeMd2(gun));
+}
 
 // ------------------------------------------------------------ 1. Pmove
 
@@ -302,6 +333,103 @@ void runGameChecks(realms::Engine &engine, const std::string &gameLibrary) {
     CHECK(near(server.viewOrigin()[2], 24.125f + 22, 0.01f));
     CHECK(player->client->ps.pmove.pm_flags & Q2_PMF_ON_GROUND);
 
+    // what the client draws: the shard (spinning, EF_ROTATE) and, with
+    // brush models, the door; never the local player's own body
+    {
+        const auto ents = server.renderEntities();
+        const realms::GameRenderEntity *sh = nullptr;
+        bool selfDrawn = false, inlineListed = false;
+        for (const auto &e : ents) {
+            if (e.model == "models/items/armor/shard/tris.md2") sh = &e;
+            selfDrawn |= e.number == 1;
+            inlineListed |= e.inlineModel > 0;
+        }
+        CHECK(sh != nullptr);
+        CHECK(!selfDrawn && !inlineListed);
+        if (sh) {
+            CHECK(sh->inlineModel == 0 && (sh->effects & Q2_EF_ROTATE));
+            CHECK(near(sh->mins[0], -15, 1e-4f) && near(sh->maxs[2], 15, 1e-4f));
+            CHECK(sh->solid == Q2_SOLID_TRIGGER && near(sh->origin[2], 15, 0.2f));
+        }
+        const auto all = server.renderEntities(true);
+        const realms::GameRenderEntity *dr = nullptr;
+        for (const auto &e : all)
+            if (e.model == "*1") dr = &e;
+        CHECK(dr && dr->inlineModel == 1 && dr->solid == Q2_SOLID_BSP);
+        CHECK(all.size() == ents.size() + 1);
+        CHECK(server.lerpFraction() >= 0 && server.lerpFraction() < 1);
+        realms::GameEntityLerp lerp;
+        lerp.update(server);
+        const auto lerped = lerp.entities(server);
+        CHECK(lerped.size() == all.size());
+        for (const auto &l : lerped) {
+            if (!l.entity) continue;
+            if (l.entity->model == "models/items/armor/shard/tris.md2")
+                CHECK(l.angles[0] == 0 && l.angles[1] >= 0 && l.angles[1] < 360 && l.backlerp == 0);
+        }
+        CHECK(!lerp.viewWeapon(server).visible || lerp.viewWeapon(server).model == "models/weapons/v_blast/tris.md2");
+        CHECK(near(realms::GameEntityLerp::lerpAngle(350, 10, 0.5f), 360, 1e-4f));
+        CHECK(near(realms::GameEntityLerp::lerpAngle(10, 350, 0.25f), 5, 1e-4f));
+        CHECK(near(realms::GameEntityLerp::lerpAngle(0, 90, 0.5f), 45, 1e-4f));
+
+        // the drawable scene: the shard's .md2 with its skin; no blaster
+        // view model in this VFS, so no gun; never the player or the door
+        realms::GameModelCache models;
+        realms::GameScene scene;
+        realms::buildGameScene(engine, server, lerp, models, {}, scene);
+        const realms::GameDrawBatch *sb = nullptr;
+        bool gun = false, bad = false;
+        for (const auto &b : scene.batches) {
+            if (b.model == kShardModel) sb = &b;
+            gun |= b.viewWeapon;
+            bad |= b.entity == 1 || (!b.model.empty() && b.model[0] == '*');
+            bad |= b.first < 0 || b.first + b.count > int(scene.vertices.size());
+        }
+        CHECK(sb && !sb->fallbackBox && sb->count == 36);
+        CHECK(!gun && !bad);
+        if (sb) {
+            CHECK(sb->skin == kShardSkin && sb->color[3] == 1.0f);
+            CHECK(near(sb->origin[2], 15, 0.2f) && sb->angles[0] == 0 && sb->angles[2] == 0);
+            float top = -1e9f;
+            for (int i = sb->first; i < sb->first + sb->count; i++) top = std::max(top, scene.vertices[size_t(i)].z);
+            CHECK(near(top, 8, 0.1f));
+        }
+        CHECK(models.loaded() == 1 && models.missing() == 1);
+        const auto errs = models.takeErrors();
+        CHECK(errs.size() == 1 && errs[0].find("v_blast/tris.md2: not found") != std::string::npos);
+        CHECK(models.takeErrors().empty());
+        realms::buildGameScene(engine, server, lerp, models, {}, scene); // cached: no new errors
+        CHECK(models.takeErrors().empty() && models.loaded() == 1);
+        realms::RgbaImage skin;
+        std::string skinErr;
+        CHECK(realms::GameModelCache::loadSkin(engine, kShardSkin, skin, skinErr) && skin.width == 64 && skin.height == 32);
+        CHECK(!realms::GameModelCache::loadSkin(engine, "models/none/skin.pcx", skin, skinErr));
+
+        // without id's data (model file gone): a box from the item's bounds
+        std::error_code rmErr;
+        fs::rename(gGameDir / kShardModel, gGameDir / "shard.bak", rmErr);
+        realms::GameModelCache noData;
+        realms::buildGameScene(engine, server, lerp, noData, {}, scene);
+        sb = nullptr;
+        for (const auto &b : scene.batches)
+            if (b.model == kShardModel) sb = &b;
+        CHECK(sb && sb->fallbackBox && sb->count == 36 && sb->skin.empty());
+        if (sb) {
+            CHECK(sb->color[0] > 0.9f && sb->color[2] < 0.3f); // item gold
+            float lo = 1e9f, hi = -1e9f;
+            for (int i = sb->first; i < sb->first + sb->count; i++) {
+                lo = std::min(lo, scene.vertices[size_t(i)].x);
+                hi = std::max(hi, scene.vertices[size_t(i)].x);
+            }
+            CHECK(near(lo, -15, 1e-4f) && near(hi, 15, 1e-4f));
+        }
+        realms::GameSceneOptions noBoxes;
+        noBoxes.fallbackBoxes = false;
+        realms::buildGameScene(engine, server, lerp, noData, noBoxes, scene);
+        CHECK(scene.batches.empty() && scene.vertices.empty());
+        fs::rename(gGameDir / "shard.bak", gGameDir / kShardModel, rmErr);
+    }
+
     // walk +X: pick up the shard on the way (touch -> sound, freed)
     realms::GameUserCmd walk;
     walk.forward = 400;
@@ -323,12 +451,32 @@ void runGameChecks(realms::Engine &engine, const std::string &gameLibrary) {
     // (gi.linkentity every frame) and the player walks through
     const float doorZ0 = door ? door->s.origin[2] : 0;
     events.clear();
+    // the client view of the rising door: drawn between the last two game
+    // frames, never ahead of the current one, strictly between them halfway
+    realms::GameEntityLerp doorLerp;
+    float lastSnapZ = doorZ0, prevSnapZ = doorZ0;
+    int lastSnap = -1, inBetween = 0, outOfRange = 0;
     for (int i = 0; i < 40; i++) {
         server.frame(walk, 0.05);
         auto ev = server.takeEvents();
         events.insert(events.end(), ev.begin(), ev.end());
+        doorLerp.update(server);
+        if (server.frameNumber() != lastSnap) {
+            lastSnap = server.frameNumber();
+            prevSnapZ = lastSnapZ;
+            lastSnapZ = door ? door->s.origin[2] : 0;
+        }
+        for (const auto &l : doorLerp.entities(server)) {
+            if (!l.entity || l.entity->model != "*1") continue;
+            const float lo = std::min(prevSnapZ, lastSnapZ) - 1e-3f, hi = std::max(prevSnapZ, lastSnapZ) + 1e-3f;
+            if (l.origin[2] < lo || l.origin[2] > hi) outOfRange++;
+            if (l.origin[2] > lo + 0.5f && l.origin[2] < hi - 0.5f) inBetween++;
+        }
     }
     CHECK(door && door->s.origin[2] > doorZ0 + 60);
+    CHECK(outOfRange == 0);
+    CHECK(inBetween > 0);
+    CHECK(doorLerp.snapshots() >= 19);
     CHECK(hasEvent(events, realms::GameEvent::Kind::Sound, "sound/doors/dr1_strt.wav"));
     CHECK(server.playerOrigin()[0] > 100);
 
@@ -340,6 +488,45 @@ void runGameChecks(realms::Engine &engine, const std::string &gameLibrary) {
     server.clientCommand("use shotgun");
     for (int i = 0; i < 20; i++) server.frame(idle, 0.05);
     CHECK(server.modelName(player->client->ps.gunindex) == "models/weapons/v_shotg/tris.md2");
+    {
+        realms::GameEntityLerp gunLerp;
+        gunLerp.update(server);
+        server.frame(idle, 0.05);
+        gunLerp.update(server);
+        server.frame(idle, 0.05);
+        gunLerp.update(server);
+        const realms::GameViewWeapon gun = gunLerp.viewWeapon(server);
+        CHECK(gun.visible && gun.model == "models/weapons/v_shotg/tris.md2");
+        const realms::Vec3 eye = server.viewOrigin();
+        CHECK(near(gun.origin[0], eye[0] + player->client->ps.gunoffset[0], 1e-3f));
+        CHECK(near(gun.origin[2], eye[2] + player->client->ps.gunoffset[2], 1e-3f));
+        CHECK(near(gun.angles[1], server.viewAngles()[1] + player->client->ps.gunangles[1], 1e-3f));
+        CHECK(gun.frame == player->client->ps.gunframe && gun.backlerp >= 0 && gun.backlerp <= 1);
+
+        // the view weapon follows the drawn camera, pitch negated like any alias model
+        realms::GameModelCache models;
+        realms::GameScene scene;
+        realms::GameSceneOptions opt;
+        opt.hasCamera = true;
+        opt.cameraOrigin = {100, 20, 70};
+        opt.cameraAngles = {10, 45, 0};
+        realms::buildGameScene(engine, server, gunLerp, models, opt, scene);
+        const realms::GameDrawBatch *vw = nullptr;
+        for (const auto &b : scene.batches)
+            if (b.viewWeapon) vw = &b;
+        CHECK(vw && vw->model == "models/weapons/v_shotg/tris.md2" && vw->count == 36 && vw->entity == 0);
+        if (vw) {
+            const q2player_state_t &ps = player->client->ps;
+            CHECK(near(vw->origin[0], 100 + ps.gunoffset[0], 1e-4f) && near(vw->origin[2], 70 + ps.gunoffset[2], 1e-4f));
+            CHECK(near(vw->angles[0], -(10 + ps.gunangles[0]), 1e-4f) && near(vw->angles[1], 45 + ps.gunangles[1], 1e-4f));
+            CHECK(vw->skin == "models/weapons/v_shotg/skin.pcx");
+        }
+        opt.viewWeapon = false; // cl_gun 0
+        realms::buildGameScene(engine, server, gunLerp, models, opt, scene);
+        bool anyGun = false;
+        for (const auto &b : scene.batches) anyGun |= b.viewWeapon;
+        CHECK(!anyGun);
+    }
     // console commands registered on the engine forward to the game
     CHECK(engine.commandExists("give") && engine.commandExists("sv") && engine.commandExists("cmd"));
     engine.exec("notarget\n");
@@ -395,6 +582,8 @@ int main(int argc, char **argv) {
         const std::string bsp = bsp_builder::Builder(arena()).build();
         std::ofstream(tmp / "maps" / "arena.bsp", std::ios::binary).write(bsp.data(), std::streamsize(bsp.size()));
     }
+    gGameDir = tmp;
+    writeTestModels(tmp);
     realms::EngineConfig cfg;
     cfg.backend = pascalLibrary.empty() ? realms::BackendPreference::Native : realms::BackendPreference::Pascal;
     cfg.pascalLibrary = pascalLibrary;

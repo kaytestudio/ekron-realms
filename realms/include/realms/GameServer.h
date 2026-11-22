@@ -53,6 +53,25 @@ struct GameEvent {
     std::string text;    // Print / CenterPrint / Layout / StuffText text, Sound file ("sound/" + name)
 };
 
+// An entity the client would get in its frame (SV_BuildClientFrame, minus
+// the PVS cull): it has a model, is not SVF_NOCLIENT and is not the local
+// player's own body. `model` is the config string ("*3",
+// "models/items/armor/shard/tris.md2"); `inlineModel` > 0 for brush models.
+struct GameRenderEntity {
+    int number = 0;
+    int modelindex = 0;
+    std::string model;
+    int inlineModel = 0;
+    std::array<float, 3> origin{}, oldOrigin{}, angles{};
+    std::array<float, 3> mins{}, maxs{};
+    int frame = 0;
+    int skinnum = 0;
+    uint32_t effects = 0;
+    int renderfx = 0;
+    int svflags = 0;
+    int solid = 0; // q2solid_t
+};
+
 struct GameServerConfig {
     std::string executableDir;    // where to look for librealms_game
     std::string gameLibrary;      // explicit path (else REALMS_GAME_LIBRARY, then the search)
@@ -111,6 +130,11 @@ public:
     Vec3 viewAngles() const;  // ps.viewangles + kick_angles (Quake 2 conventions)
     int frameNumber() const { return frameNum_; }
     double time() const { return frameNum_ * kFrameSeconds; }
+    // How far the sandbox is into the next 100 ms game frame, 0..1 (the
+    // client's lerpfrac: draw entities between the last two frames).
+    double lerpFraction() const;
+    // Entities to draw, in edict order. `withInline` keeps brush models.
+    std::vector<GameRenderEntity> renderEntities(bool withInline = false) const;
     const std::string &configString(int index) const;
     // Model name of an edict ("*3", "models/items/armor/body/tris.md2"), "" if none.
     std::string modelName(int modelindex) const;

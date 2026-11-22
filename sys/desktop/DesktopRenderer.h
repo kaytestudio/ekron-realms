@@ -134,6 +134,27 @@ public:
     // Indexed by model number; empty = every model static and visible.
     void setMapModelPoses(std::vector<MapModelPose> poses) { mapPoses_ = std::move(poses); }
     void clearMapGeometry(ekron::gl::Api &gl);
+
+    // Game entities for this frame (Quake 2 .md2 models, fallback boxes),
+    // drawn by renderMapWorld after the map with the textured model shader.
+    // Vertices are in each batch's model space; `transform` (render space,
+    // column-major) places them. `viewWeapon` batches are drawn last over a
+    // cleared depth buffer, like Quake 2's RF_DEPTHHACK gun.
+    struct EntityVertex {
+        float x, y, z, nx, ny, nz, u, v;
+    };
+    struct EntityBatch {
+        GLint first = 0;
+        GLsizei count = 0;
+        GLuint texture = 0; // 0: untextured (color only)
+        Color color{};
+        std::array<float, 16> transform{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+        bool viewWeapon = false;
+    };
+    void setMapEntities(ekron::gl::Api &gl, const std::vector<EntityVertex> &vertices, std::vector<EntityBatch> batches);
+    void clearMapEntities() { entityBatches_.clear(); }
+    size_t mapEntityBatches() const { return entityBatches_.size(); }
+
     void renderMapWorld(ekron::gl::Api &gl,
                         int drawableW,
                         int drawableH,
@@ -206,6 +227,9 @@ private:
     GLsizei mapCount_ = 0;
     std::vector<MapDrawRange> mapRanges_;
     std::vector<MapModelPose> mapPoses_;
+    GLuint entityVao_ = 0;
+    GLuint entityVbo_ = 0;
+    std::vector<EntityBatch> entityBatches_;
 
     GLuint whiteTex_ = 0;
     GLuint materialArrayTex_ = 0;

@@ -747,6 +747,8 @@ int main(int argc, char **argv)
     if (onlineNameSet) engine.setCvar("name", onlineName);
     ekron::desktop::DesktopConsole console;
     ekron::desktop::DesktopMapMode mapMode;
+    std::vector<ekron::desktop::DesktopRenderer::EntityVertex> mapEntityVertices; // reused every frame
+    std::vector<ekron::desktop::DesktopRenderer::EntityBatch> mapEntityBatches;
 
     // Game sound: assets/sounds (CC0, credited in LICENSE.md there), decoded
     // on a worker thread while the rest loads. No audio device = silence.
@@ -1862,6 +1864,9 @@ int main(int argc, char **argv)
 
         if (mapMode.active()) {
             renderer.setMapModelPoses(mapMode.modelPoses()); // doors / platforms moved by the game
+            // items, monsters, projectiles and the view weapon (.md2, or boxes without id's data)
+            mapMode.buildEntities(engine, gl, world.yaw, world.pitch, mapEntityVertices, mapEntityBatches);
+            renderer.setMapEntities(gl, mapEntityVertices, std::move(mapEntityBatches));
             renderer.renderMapWorld(gl, drawW, drawH, mapMode.model(), mapMode.eye(), world.yaw, world.pitch, 0.0f);
         } else renderer.renderMainWorld(
             gl, drawW, drawH,

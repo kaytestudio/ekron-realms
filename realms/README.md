@@ -116,7 +116,7 @@ Bridge v3 adds nine functions to `RealmsCoreApi`, implemented in both cores:
 On desktop, `map` swaps the sandbox for the loaded map (`sys/desktop/DesktopMapMode.*`). The renderer-independent part is `mapview::MapSession` (`sys/android/app/src/main/cpp/MapSession.*`), shared with Android: the map-to-render space conversion, the camera conventions, material layers and the walker.
 
 - **Movement:** you walk with `realms::MapWalker`, a port of Quake 2's pmove (`PM_StepSlideMove`, friction, acceleration, 18-unit steps, ducking, swimming, jumping). It runs on `Engine::boxTrace` against whichever core is active.
-- **Game:** when the game module is available and the `sv_game` cvar is 1 (the default, archived), the map runs the Quake 2 game through `realms::GameServer`: `info_player_start`, items, doors, platforms, triggers and monsters behave as in Quake 2, and the player moves with the game's own `Pmove`. Set `sv_game 0` (then `map` again) to only walk the map with `MapWalker`. The HUD shows health, ammo and armour; centre prints and pickup messages become toasts. Inline brush models (`*1`, `*2`…, doors and lifts) are drawn at the positions the game gives them.
+- **Game:** when the game module is available and the `sv_game` cvar is 1 (the default, archived), the map runs the Quake 2 game through `realms::GameServer`: `info_player_start`, items, doors, platforms, triggers and monsters behave as in Quake 2, and the player moves with the game's own `Pmove`. Set `sv_game 0` (then `map` again) to only walk the map with `MapWalker`. The HUD shows health, ammo and armour; centre prints and pickup messages become toasts. Inline brush models (`*1`, `*2`…, doors and lifts) are drawn where the game puts them, interpolated between game frames. Items, monsters, projectiles and the view weapon are drawn from their `.md2` models and PCX skins when the VFS has them (a Quake 2 `pak0.pak`); without id's data each entity is a box the size of its bounds (gold items, red monsters, orange projectiles), so the game stays playable. `cl_gun 0` hides the view weapon.
 - **Controls:** WASD, Space to jump, Ctrl to crouch, N for noclip. With the game: left mouse fires (mouse captured), R restarts the map, and the console forwards Quake 2 client commands (`give all`, `give shotgun`, `use blaster`, `god`, `notarget`, `kill`, `weapnext`, `inven`…, or `cmd <anything>`) and `sv <command>` server commands. Without it R respawns. `killserver` returns to the sandbox where you left it.
 - **Spawn:** `MapWalker::spawn` uses `info_player_start`, then the deathmatch and coop spots. glTF scenes rarely have any of these, so for maps without them it searches the map. It scans a 24 × 24 grid of columns for every walkable floor and takes the map's ground level: the lowest height that a tenth of the columns share, so streets beat rooftops and a room's floor beats its roof. On that level it picks the spot with the longest walkable runs in 8 directions. A run ends at a wall or a drop, and it needs floor under the player's centre, so the void past a map's rim and the tops of walls don't count as open. The search is deterministic and uses only box traces, so both cores pick the same spot. The street .glb takes about 0.3 s. Maps with no walkable floor fall back to the map's centre (or top).
 - **BSPs** are drawn from their face lump (sky and nodraw skipped). Maps without faces are drawn from their brush windings. Texture names pick the sandbox material layer (brick, metal, wood, glass, water…).
@@ -147,6 +147,21 @@ cd game && fpc -Mdelphi -dGAMEDLL -Cg -O2 -FUunits -Fu. -Fi. -o../build/librealm
 ```
 
 build it by hand. Android and iOS don't build the game module yet; their map mode walks maps with `MapWalker`.
+
+#### Drawing the game (`GameView`, `Md2Model`)
+
+What a Quake 2 client does with the server's frames lives in `realms/` too, with no renderer types, so other front ends can reuse it:
+
+- `GameServer::renderEntities()` lists the entities a client would receive (`SV_BuildClientFrame` minus the PVS cull): model name, origin, angles, frame, skin, effects, renderfx, bounds. `lerpFraction()` says how far the sandbox is into the next 100 ms frame.
+- `GameEntityLerp` (`realms/include/realms/GameView.h`) keeps the last two game frames and interpolates like `CL_AddPacketEntities`:
+  - origin and angles (`LerpAngle`), with oldframe / backlerp for the animation;
+  - no lerp for new, re-modelled or teleported (> 512 units) entities;
+  - `EF_ROTATE` autorotation and the `EF_ANIM*` client-side frames;
+  - the view weapon (`ps.gunindex`, `gunframe`, `gunoffset`, `gunangles`).
+- `buildGameScene` turns that into triangle batches through `GameModelCache` (`.md2` from the VFS, failures remembered and reported once). Each batch has its skin and tint (`RF_SHELL_*`, `RF_TRANSLUCENT`) and is placed like `R_RotateForEntity`, with the alias-model pitch negation. Models that are missing get a coloured box.
+- `Md2Model` parses IDP2 v8 models (`Mod_LoadAliasModel` limits, every offset and index checked) and blends two frames into a triangle list with normals, always counter-clockwise from outside. `decodePcx` decodes the 8-bit RLE skins.
+
+On desktop, `DesktopMapMode::buildEntities` uploads the skins once, converts the vertices to render space (`sys/desktop/MapEntityTransform.h`) and hands the batches to `DesktopRenderer::setMapEntities`. The renderer draws them after the map with the textured model shader: opaque first, then translucent, then the view weapon over a cleared depth buffer (Quake 2's `RF_DEPTHHACK`).
 
 ### Android and iOS map mode
 
@@ -212,7 +227,14 @@ The other suites:
 
 - `realms_vis_mesh_suite.h` covers PVS/PHS, area portals, box leafs and mesh maps in the core.
 - `realms_meshmap_suite.h` covers the glTF converter, using `gltf_builder.h` to write `.glb` / `.gltf` files in memory.
-- `game_server_test.cpp` (CTest `realms_game_server_native` / `_pascal`) checks `Q2Pmove` on Engine traces (standing, walking, steps, walls, jumping, water), then loads the real `librealms_game` on a generated level, on both cores: spawning on `info_player_start`, walking through `ClientThink` / `Pmove`, picking up an armour shard, the door (`*1`) opening when the player walks into its trigger, server-side traces and per-model geometry, `god` / `give` / `notarget` and the forwarded console commands, weapon fire, game events, latched cvars, and stopping and restarting the server. CTest `ekron_desktop_game_module` checks that `--engine-info` finds the module.
+- `game_server_test.cpp` (CTest `realms_game_server_native` / `_pascal`) checks `Q2Pmove` on Engine traces (standing, walking, steps, walls, jumping, water), then loads the real `librealms_game` on a generated level, on both cores: spawning on `info_player_start`, walking through `ClientThink` / `Pmove`, picking up an armour shard, the door (`*1`) opening when the player walks into its trigger, server-side traces and per-model geometry, `god` / `give` / `notarget` and the forwarded console commands, weapon fire, game events, latched cvars, and stopping and restarting the server. It then checks what the client draws, on both cores:
+  - the render entity list (never the player's own body);
+  - interpolation of the rising door, which is always between the last two game frames and strictly between them partway;
+  - the shard from a generated `.md2` with its PCX skin, and its fallback box once the model is gone;
+  - the missing blaster model, reported once;
+  - the shotgun view model following the camera, and hidden by `cl_gun 0`. CTest `ekron_desktop_game_module` checks that `--engine-info` finds the module.
+- `md2_test.cpp` (CTest `realms_md2`) checks `.md2` parsing, frame blending, normals and winding for both windings, and texel-centred skin coordinates. It also rejects 23 kinds of corrupt model and survives 2,000 randomly corrupted ones, then checks PCX decoding (runs, padded lines, palette, transparency) and corrupt PCX files. `md2_builder.h` writes the models and images.
+- `map_entity_transform_test.cpp` (CTest `realms_map_entity_transform`) checks that, through the desktop's transform and vertex conversion, the view weapon points along the camera's forward, up and left axes for every yaw and pitch, at 1 m per 32 units. It also checks brush-model pitch, translation, yaw and winding.
 - `realms_walker_suite.h` covers map geometry from the face lump and from brush windings, with error paths and a fuzz. It also walks a test level through the Engine on both cores: stepping up a 16-unit step, being stopped by a 40-unit block, sliding along walls, player clip, jump height, crouching under a low ceiling, swimming, noclip, and spawning on BSP and glTF maps: it must find open ground beside a hut that encloses the map's centre, and fall back when there is no floor.
 
 All of these run against:

@@ -1,5 +1,6 @@
 // Realms map mode for the desktop client (see DesktopMapMode.h).
 #include "DesktopMapMode.h"
+#include "MapEntityTransform.h"
 
 #include "realms/MapGeometry.h"
 
@@ -11,34 +12,6 @@
 
 namespace ekron::desktop {
 namespace {
-
-constexpr float kPi = 3.14159265358979323846f;
-
-// Map space (Quake 2: X fwd, Y left, Z up, units) -> render space (metres,
-// Y up, -Z forward): r = C * m, C = (x, z, -y) / upm.
-// A brush entity's pose is T(origin) * Rz(yaw) * Ry(-pitch) * Rx(-roll)
-// (R_RotateForEntity), conjugated into render space: C * M * C^-1.
-std::array<float, 16> entityTransform(const float origin[3], const float angles[3], float upm) {
-    const float s = 1.0f / upm;
-    const float y = angles[1] * kPi / 180.0f, p = -angles[0] * kPi / 180.0f, r = -angles[2] * kPi / 180.0f;
-    const float cy = std::cos(y), sy = std::sin(y), cp = std::cos(p), sp = std::sin(p), cr = std::cos(r),
-                sr = std::sin(r);
-    // R = Rz(y) * Ry(p) * Rx(r), row-major map-space rotation
-    float R[3][3] = {{cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr},
-                     {sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr},
-                     {-sp, cp * sr, cp * cr}};
-    // C maps (x, y, z) -> (x, z, -y); in render space a = C R C^-1 with
-    // C^-1 (X, Y, Z) = (X, -Z, Y). Render axis i takes map axis map[i] with sign sgn[i].
-    const int map[3] = {0, 2, 1};
-    const float sgn[3] = {1, 1, -1};
-    float A[3][3];
-    for (int i = 0; i < 3; i++)
-        for (int j = 0; j < 3; j++) A[i][j] = sgn[i] * sgn[j] * R[map[i]][map[j]];
-    const float t[3] = {origin[0] * s, origin[2] * s, -origin[1] * s};
-    // column-major: m[col * 4 + row]
-    return {A[0][0], A[1][0], A[2][0], 0, A[0][1], A[1][1], A[2][1], 0, A[0][2], A[1][2], A[2][2], 0,
-            t[0], t[1], t[2], 1};
-}
 
 bool startsWithWorldspawn(const realms::Engine &engine) {
     const auto ents = realms::Engine::parseEntities(engine.mapEntities());
@@ -92,6 +65,7 @@ bool DesktopMapMode::open(realms::Engine &engine, ekron::gl::Api &gl, DesktopRen
     if (model_) session_.summary() += ", textured";
 
     engine.registerCvar("sv_game", "1", REALMS_CVAR_ARCHIVE);
+    engine.registerCvar("cl_gun", "1", REALMS_CVAR_ARCHIVE);
     std::string why;
     if (engine.cvarBool("sv_game", true) && startGame(engine, why)) {
         session_.summary() += ", game";
@@ -120,6 +94,7 @@ bool DesktopMapMode::startGame(realms::Engine &engine, std::string &why) {
         return false;
     }
     lastPickup_ = 0;
+    lerp_.reset();
     syncFromGame();
     return true;
 }
@@ -131,6 +106,11 @@ void DesktopMapMode::close(ekron::gl::Api &gl, DesktopRenderer &renderer) {
     }
     poses_.clear();
     messages_.clear();
+    lerp_.reset();
+    models_.clear();
+    scene_.clear();
+    releaseSkins(gl);
+    renderer.clearMapEntities();
     if (model_) {
         model_->release(gl);
         model_.reset();
@@ -193,24 +173,95 @@ void DesktopMapMode::syncFromGame() {
     }
     if (messages_.size() > 16) messages_.erase(messages_.begin(), messages_.end() - 16);
 
-    // Brush entity poses: each inline model drawn where its entity is, hidden
+    // Brush entity poses: each inline model drawn where its entity is
+    // (interpolated between game frames, so doors and lifts glide), hidden
     // when no visible entity uses it (func_wall off, func_explosive gone...).
+    lerp_.update(g);
+    const std::vector<realms::GameLerpedEntity> lerped = lerp_.entities(g);
     int models = 0;
-    for (int i = 1; i < g.numEdicts(); i++) {
-        const q2edict_t *e = g.edict(i);
-        if (e && e->inuse) models = std::max(models, g.inlineModel(e->s.modelindex));
-    }
+    for (const realms::GameLerpedEntity &l : lerped)
+        if (l.entity) models = std::max(models, l.entity->inlineModel);
     poses_.assign(size_t(std::max(models, 0) + 1), DesktopRenderer::MapModelPose{});
     std::vector<bool> used(poses_.size(), false);
-    for (int i = 1; i < g.numEdicts(); i++) {
-        const q2edict_t *e = g.edict(i);
-        if (!e || !e->inuse || (e->svflags & Q2_SVF_NOCLIENT)) continue;
-        const int m = g.inlineModel(e->s.modelindex);
+    for (const realms::GameLerpedEntity &l : lerped) {
+        const int m = l.entity ? l.entity->inlineModel : 0;
         if (m <= 0 || used[size_t(m)]) continue;
         used[size_t(m)] = true;
-        poses_[size_t(m)].transform = entityTransform(e->s.origin, e->s.angles, session_.unitsPerMetre());
+        poses_[size_t(m)].transform = entityTransform(l.origin.data(), l.angles.data(), session_.unitsPerMetre());
     }
     for (size_t m = 1; m < poses_.size(); m++) poses_[m].visible = used[m];
+}
+
+void DesktopMapMode::releaseSkins(ekron::gl::Api &gl) {
+    for (auto &kv : skins_)
+        if (kv.second) gl.DeleteTextures(1, &kv.second);
+    skins_.clear();
+}
+
+GLuint DesktopMapMode::skinTexture(realms::Engine &engine, ekron::gl::Api &gl, const std::string &name) {
+    if (name.empty()) return 0;
+    const auto it = skins_.find(name);
+    if (it != skins_.end()) return it->second;
+    GLuint tex = 0;
+    realms::RgbaImage img;
+    std::string error;
+    if (realms::GameModelCache::loadSkin(engine, name, img, error)) {
+        gl.GenTextures(1, &tex);
+        gl.BindTexture(GL_TEXTURE_2D, tex);
+        gl.PixelStorei(GL_UNPACK_ALIGNMENT, 1);
+        gl.TexImage2D(GL_TEXTURE_2D, 0, static_cast<GLint>(GL_SRGB8_ALPHA8), img.width, img.height, 0, GL_RGBA,
+                      GL_UNSIGNED_BYTE, img.rgba.data());
+        gl.GenerateMipmap(GL_TEXTURE_2D);
+        gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, static_cast<GLint>(GL_LINEAR_MIPMAP_LINEAR));
+        gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, static_cast<GLint>(GL_LINEAR));
+        gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, static_cast<GLint>(GL_CLAMP_TO_EDGE));
+        gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, static_cast<GLint>(GL_CLAMP_TO_EDGE));
+        gl.BindTexture(GL_TEXTURE_2D, 0);
+    } else {
+        engine.print("map: skin " + name + ": " + error + "\n", REALMS_PRINT_DEVELOPER);
+    }
+    skins_[name] = tex;
+    return tex;
+}
+
+void DesktopMapMode::buildEntities(realms::Engine &engine, ekron::gl::Api &gl, float renderYaw, float renderPitch,
+                                   std::vector<DesktopRenderer::EntityVertex> &vertices,
+                                   std::vector<DesktopRenderer::EntityBatch> &batches) {
+    vertices.clear();
+    batches.clear();
+    if (!gameRunning()) return;
+    realms::GameSceneOptions opt;
+    opt.viewWeapon = engine.cvarBool("cl_gun", true) && !noclip();
+    opt.hasCamera = true;
+    opt.cameraOrigin = game_->viewOrigin();
+    const realms::WalkInput view = mapview::walkInput({}, renderYaw, renderPitch);
+    opt.cameraAngles = {view.pitch, view.yaw, 0.0f};
+    realms::buildGameScene(engine, *game_, lerp_, models_, opt, scene_);
+    for (const std::string &e : models_.takeErrors()) engine.print("map: model " + e + "\n", REALMS_PRINT_DEVELOPER);
+
+    // Model space (Quake 2 units, x forward, y left, z up) to the renderer's
+    // axes and metres, like the map: (x, z, -y) / upm. entityTransform then
+    // rotates and places them in render space (a proper rotation, so the
+    // counter-clockwise winding is kept).
+    const float s = 1.0f / session_.unitsPerMetre();
+    vertices.reserve(scene_.vertices.size());
+    for (const realms::Md2Vertex &v : scene_.vertices) {
+        const auto r = toRenderModelVertex(v, s);
+        vertices.push_back({r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7]});
+    }
+    batches.reserve(scene_.batches.size());
+    for (const realms::GameDrawBatch &b : scene_.batches) {
+        DesktopRenderer::EntityBatch out;
+        out.first = b.first;
+        out.count = b.count;
+        out.texture = skinTexture(engine, gl, b.skin);
+        out.color = {b.color[0], b.color[1], b.color[2], b.color[3]};
+        // untextured models (skin missing) get a neutral grey, boxes their colour
+        if (!out.texture && !b.fallbackBox) out.color = {0.7f * b.color[0], 0.7f * b.color[1], 0.72f * b.color[2], b.color[3]};
+        out.transform = entityTransform(b.origin.data(), b.angles.data(), session_.unitsPerMetre());
+        out.viewWeapon = b.viewWeapon;
+        batches.push_back(out);
+    }
 }
 
 bool DesktopMapMode::respawn(realms::Engine &engine) {
