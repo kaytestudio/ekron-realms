@@ -15,10 +15,7 @@ uses
   Unix, // General Unix/Linux utilities
   // Other Linux-specific units if needed
   {$ENDIF}
-  {$IFDEF DARWIN}
-  MacTypes, // Core macOS types
-  // Other macOS-specific units if needed
-  {$ENDIF}
+  // (no Darwin unit: MacTypes is not in the iOS RTL, and nothing here needs it)
   q_shared_add,
   Math;
 
