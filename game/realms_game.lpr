@@ -22,7 +22,13 @@ uses
   p_client, p_hud, p_trail, p_view, p_weapon;
 
 exports
+  { An explicit export name is used verbatim, so Mach-O needs the C symbol
+    prefix itself: dlsym("GetGameAPI") looks up _GetGameAPI on Darwin. }
+  {$IFDEF DARWIN}
+  GetGameApi name '_GetGameAPI';
+  {$ELSE}
   GetGameApi name 'GetGameAPI';
+  {$ENDIF}
 
 begin
 end.
