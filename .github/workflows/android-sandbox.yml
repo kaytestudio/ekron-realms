@@ -10,6 +10,7 @@ on:
       - 'realms/**'
       - 'tools/*android*'
       - 'tools/validate_i18n.py'
+      - 'tools/check_glsl_keywords.py'
       - 'game/qcommon/**'
       - '.github/workflows/android-sandbox.yml'
   pull_request:
@@ -20,6 +21,7 @@ on:
       - 'realms/**'
       - 'tools/*android*'
       - 'tools/validate_i18n.py'
+      - 'tools/check_glsl_keywords.py'
       - 'game/qcommon/**'
       - '.github/workflows/android-sandbox.yml'
 
@@ -282,7 +284,7 @@ jobs:
           [ "$status" = 0 ] || [ "$status" = 77 ] || { echo "::error::realms_q2_compiled_map_test failed ($status)"; exit 1; }
           REALMS_CORE=native run_test ekron-sound-test -O2 -Irealms/include -I$S tests/native/sound_test.cpp $S/SoundDecode.cpp $S/SoundMixer.cpp $S/SoundDirector.cpp $S/SoundSystem.cpp realms/src/Engine.cpp realms/src/NativeCore.cpp realms/src/NativeCModel.cpp realms/src/SandboxBoot.cpp realms/src/MeshMap.cpp realms/src/MapGeometry.cpp realms/src/MapLighting.cpp realms/src/MapWalker.cpp -ldl -lpthread
 
-      - name: Validate translations (English, Russian, Portuguese (Portugal))
+      - name: Validate translations (English, Russian, Portuguese (Portugal), Spanish (Spain))
         run: python3 tools/validate_i18n.py
 
       - name: Validate GLSL ES shaders
@@ -290,6 +292,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y glslang-tools
           python3 tools/validate_android_shaders.py
+          python3 tools/check_glsl_keywords.py
 
       - uses: actions/setup-java@v4
         with:

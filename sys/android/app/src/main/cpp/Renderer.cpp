@@ -111,9 +111,9 @@ void main(){
  float f=1.37638;
  gl_Position=vec4(q.x*f/aspect,q.y*f,-1.001334*q.z-.200134,-q.z);
  tint=color;worldNormal=mat3(objectTransform)*normal;texUV=uv;toEye=p;lmUV=lightUV;
- int packed=int(material+.5),slot=packed>>16;
- vertexLayer=slot>0&&slot<=32?mapAnimation[slot-1]:(packed&4095);
- vertexEffects=(packed>>12)&15;
+ int bits=int(material+.5),slot=bits>>16; // "packed" is reserved in GLSL ES 3.00
+ vertexLayer=slot>0&&slot<=32?mapAnimation[slot-1]:(bits&4095);
+ vertexEffects=(bits>>12)&15;
  if(((vertexEffects&12)!=0)!=(mapPass==1))gl_Position=vec4(0.0,0.0,2.0,1.0);
 })";
 const char *fragment=R"(#version 300 es

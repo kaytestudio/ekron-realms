@@ -483,6 +483,14 @@ add_executable(ekron_localization_test
 target_include_directories(ekron_localization_test PRIVATE sys/desktop)
 add_test(NAME ekron_localization COMMAND ekron_localization_test)
 
+# GLSL embedded in the desktop and Android renderers: no reserved words as
+# names (glslang and NVIDIA accept some, Mesa rejects the whole shader).
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+    add_test(NAME ekron_glsl_keywords
+             COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_glsl_keywords.py")
+endif()
+
 # Intro video through FFmpeg: plays assets/intro.mp4 against a fake audio
 # output and clock (no sound card, faster than real time).
 if(EKRON_INTRO_BACKEND STREQUAL "FFmpeg")

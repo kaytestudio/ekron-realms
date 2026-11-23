@@ -125,10 +125,10 @@ void main() {
     vCol = aCol;
     vNorm = mat3(uObjectTransform) * aNorm;
     vUV = aUV;
-    int packed = int(aLayer + 0.5);
-    int slot = packed >> 16;
-    vLayer = slot > 0 && slot <= 32 ? uMapAnimation[slot - 1] : (packed & 4095);
-    vEffects = (packed >> 12) & 15;
+    int bits = int(aLayer + 0.5); // not "packed": a reserved word in GLSL 1.40+ and ES 3.00
+    int slot = bits >> 16;
+    vLayer = slot > 0 && slot <= 32 ? uMapAnimation[slot - 1] : (bits & 4095);
+    vEffects = (bits >> 12) & 15;
     bool translucent = (vEffects & 12) != 0;
     if (translucent != (uMapPass == 1)) gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
     vLightUV = aLightUV;
