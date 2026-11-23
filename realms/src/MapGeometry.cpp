@@ -489,8 +489,10 @@ void meshMapGeometry(const MeshMap &map, MapGeometry &out, const MapGeometryOpti
             continue;
         }
         for (double &c : n) c /= len;
+        // inline models (doors, platforms) in their own batches
+        const int32_t model = t < map.triangleModels.size() ? map.triangleModels[t] : 0;
         if (!emit.polygon(tri, n, surf ? surf->name : std::string(), surf ? surf->flags : 0,
-                          surf ? surf->contents : 0, nullptr))
+                          surf ? surf->contents : 0, nullptr, model))
             ++out.skipped;
     }
     out.source = out.batches.empty() ? MapGeometrySource::None : MapGeometrySource::Mesh;

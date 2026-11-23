@@ -43,6 +43,13 @@ bool Quake2View::open(realms::Engine &engine, const Quake2ViewOptions &options, 
                       std::string &error) {
     close();
     if (!session_.open(engine, geometry, error)) return false;
+    modelOrigins_.assign(1, {0.0f, 0.0f, 0.0f});
+    const float metresPerUnit = 1.0f / session_.unitsPerMetre();
+    nodeModels_.clear();
+    for (const realms::MeshMapModel &m : engine.meshMap().models) {
+        modelOrigins_.push_back({m.origin[0] * metresPerUnit, m.origin[2] * metresPerUnit, -m.origin[1] * metresPerUnit});
+        nodeModels_[m.node] = int(modelOrigins_.size()) - 1;
+    }
     realms::Quake2ModuleConfig config;
     config.executableDir = options.executableDir;
     config.startGame = options.startGame;
@@ -63,6 +70,8 @@ bool Quake2View::open(realms::Engine &engine, const Quake2ViewOptions &options, 
 void Quake2View::close() {
     q2_.close();
     poses_.clear();
+    modelOrigins_.clear();
+    nodeModels_.clear();
     messages_.clear();
     skyTime_ = 0.0;
     session_.close();
@@ -116,9 +125,19 @@ void Quake2View::syncPoses() {
     poses_.assign(poses.size(), ModelPose{});
     for (size_t m = 1; m < poses.size(); m++) {
         poses_[m].visible = poses[m].visible;
-        if (poses[m].visible)
-            poses_[m].transform = entityTransform(poses[m].origin.data(), poses[m].angles.data(), session_.unitsPerMetre());
+        if (!poses[m].visible) continue;
+        poses_[m].transform = entityTransform(poses[m].origin.data(), poses[m].angles.data(), session_.unitsPerMetre());
+        poses_[m].placed = m < modelOrigins_.size() ? mapview::placedTransform(poses_[m].transform, modelOrigins_[m].data())
+                                                    : poses_[m].transform;
     }
+}
+
+bool Quake2View::placedTransform(int model, std::array<float, 16> &out) const {
+    out = ModelPose{}.placed;
+    if (model <= 0 || size_t(model) >= poses_.size()) return true;
+    if (!poses_[size_t(model)].visible) return false;
+    out = poses_[size_t(model)].placed;
+    return true;
 }
 
 bool Quake2View::respawn(realms::Engine &engine) {

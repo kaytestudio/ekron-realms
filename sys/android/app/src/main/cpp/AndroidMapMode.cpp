@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <exception>
+#include <map>
 #include <vector>
 
 namespace {
@@ -47,8 +48,9 @@ bool AndroidMapMode::open(realms::Engine &engine, const city::GltfRenderer &sand
     }
 
     const city::Scene &cityScene = sandboxCity.scene();
+    // (only without brush models: the sandbox's scene has no per-model batches)
     if (session().mesh() && session().path() == sandboxCityPath && sandboxCity.ready() && cityScene.sourceMapped &&
-        cityScene.sourceScale > 0.0f) {
+        cityScene.sourceScale > 0.0f && view_->gltfNodeModels().empty()) {
         reuseCity_ = true;
         cityScale_ = cityScene.sourceScale;
         cityOffset_ = cityScene.sourceOffset;
@@ -123,13 +125,15 @@ bool AndroidMapMode::open(realms::Engine &engine, const city::GltfRenderer &sand
         // The textured file in its own space; the worker reads storage and
         // assets directly (never the engine, which belongs to this thread).
         const std::string path = session().path();
-        prepare_ = std::async(std::launch::async, [path]() -> std::optional<city::Scene> {
+        const std::map<int, int> nodeModels = view_->gltfNodeModels(); // doors and platforms move
+        prepare_ = std::async(std::launch::async, [path, nodeModels]() -> std::optional<city::Scene> {
             try {
                 city::Scene scene;
                 city::LoadOptions options;
                 options.level = false;
                 options.buildPhysics = false;
                 options.keepSourceSpace = true;
+                options.nodeModels = nodeModels;
                 std::string log;
                 if (scene.load(path, realms_android::readFile, log, options)) return scene;
                 __android_log_print(ANDROID_LOG_WARN, "Realms", "map: %s: no textured model (%s)", path.c_str(),
@@ -275,7 +279,10 @@ void AndroidMapMode::draw(GLuint program, const city::GltfRenderer &sandboxCity,
     // effects first: their dynamic lights light the world and the entities
     view_->effects(renderYaw, renderPitch, mapview::kMaxDynamicLights, effectVertices_, lights_);
     if (model_.ready()) {
-        model_.draw(program, eye.x, eye.z);
+        const city::GltfRenderer::ModelTransform moved = [this](int model, std::array<float, 16> &out) {
+            return view_->placedTransform(model, out);
+        };
+        model_.draw(program, eye.x, eye.z, false, &moved);
     } else if (count_) {
         glUseProgram(program);
         glUniform1i(glGetUniformLocation(program, "modelPass"), 0);

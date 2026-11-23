@@ -30,6 +30,7 @@ bool DesktopMapMode::open(realms::Engine &engine, ekron::gl::Api &gl, DesktopRen
         loadOptions.level = false;
         loadOptions.buildPhysics = false;
         loadOptions.keepSourceSpace = true;
+        loadOptions.nodeModels = view_.gltfNodeModels(); // doors and platforms move
         std::string log;
         if (model->loadWithReader(engine.mapPath(),
                                   [&reader](const std::string &p, std::vector<unsigned char> &out) {
@@ -106,7 +107,7 @@ void DesktopMapMode::update(realms::Engine &engine, const realms::WalkInput &inp
 void DesktopMapMode::syncPoses() {
     const std::vector<mapview::ModelPose> &poses = view_.modelPoses();
     poses_.resize(poses.size());
-    for (size_t m = 0; m < poses.size(); m++) poses_[m] = {poses[m].visible, poses[m].transform};
+    for (size_t m = 0; m < poses.size(); m++) poses_[m] = {poses[m].visible, poses[m].transform, poses[m].placed};
 }
 
 void DesktopMapMode::buildEffects(float renderYaw, float renderPitch,

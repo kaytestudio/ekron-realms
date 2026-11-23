@@ -34,6 +34,16 @@ inline std::array<float, 16> entityTransform(const float origin[3], const float 
             t[0], t[1], t[2], 1};
 }
 
+// `pose` for geometry still at its map position rather than in model
+// space: pose * T(-origin), origin in render space. glTF brush models that
+// turn about an "origin" are drawn from the file that way.
+inline std::array<float, 16> placedTransform(const std::array<float, 16> &pose, const float origin[3]) {
+    std::array<float, 16> out = pose;
+    for (int i = 0; i < 3; i++)
+        out[size_t(12 + i)] -= pose[size_t(i)] * origin[0] + pose[size_t(4 + i)] * origin[1] + pose[size_t(8 + i)] * origin[2];
+    return out;
+}
+
 // A .md2 vertex (model space, Quake 2 units) on the renderer's axes and in
 // metres: position and normal (x, z, -y), position / upm; uv unchanged.
 // The axis change is a proper rotation, so the winding is kept.

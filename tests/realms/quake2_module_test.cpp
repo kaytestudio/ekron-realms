@@ -589,6 +589,19 @@ void viewWithGame(realms::Engine &engine) {
 
 } // namespace
 
+struct ModelPoseCheck {
+    bool visible = false, placedEqualsTransform = false;
+};
+
+ModelPoseCheck poseCheck(const mapview::Quake2View &view, size_t model) {
+    ModelPoseCheck c;
+    if (model >= view.modelPoses().size()) return c;
+    const mapview::ModelPose &p = view.modelPoses()[model];
+    c.visible = p.visible;
+    c.placedEqualsTransform = p.placed == p.transform;
+    return c;
+}
+
 // The game on a glTF map: node names spawn the player, items and monsters
 // (realms/MeshMap.h); the player picks the shotgun up walking +X.
 void gameOnGltf(realms::Engine &engine) {
@@ -647,6 +660,67 @@ void gameOnGltf(realms::Engine &engine) {
     view.close();
 }
 
+// glTF brush entities: the door opens when walked into and lets the player
+// through, the fan turns about its origin.
+void doorsOnGltf(realms::Engine &engine) {
+    CHECK(engine.loadMap("maps/gate.glb"));
+    mapview::Quake2View view;
+    mapview::Quake2ViewOptions options;
+    realms::MapGeometry geometry;
+    std::string error;
+    CHECK(view.open(engine, options, geometry, error));
+    CHECK(view.gameRunning());
+    if (!view.gameRunning()) return;
+    // world + door + fan; the door without meshes is not exported
+    CHECK(engine.meshMap().models.size() == 2);
+    CHECK(view.modelPoses().size() == 3);
+    if (view.modelPoses().size() != 3) return;
+    // geometry batches per model, the fan relative to its origin
+    bool fanLocal = false, doorBatch = false;
+    for (const realms::MapGeometryBatch &b : geometry.batches) {
+        doorBatch |= b.model == 1;
+        if (b.model == 2 && !b.positions.empty()) fanLocal = std::fabs(b.positions[0]) <= 64.5f;
+    }
+    CHECK(doorBatch && fanLocal);
+    std::vector<sandbox::MeshVertex> vertices;
+    std::vector<mapview::ModelRange> ranges;
+    std::vector<float> lightUvs;
+    view.triangles(geometry, vertices, ranges, lightUvs);
+    CHECK(ranges.size() == 3);
+
+    const float yaw = view.spawnRenderYaw();
+    realms::WalkInput in;
+    in.forward = 1.0f;
+    float doorRise = 0.0f;
+    std::array<float, 16> fanStart = view.modelPoses()[2].transform;
+    for (int i = 0; i < 80; i++) {
+        view.update(engine, in, yaw, 0.0f, 0.05f, false);
+        doorRise = std::max(doorRise, view.modelPoses()[1].transform[13]);
+    }
+    CHECK(doorRise > 2.0f);                                  // render metres: 90 units up
+    CHECK(view.session().walker().origin[0] > 32.0f);        // through the doorway
+    const ModelPoseCheck door = poseCheck(view, 1);
+    CHECK(door.visible && door.placedEqualsTransform);       // no origin: the same matrix
+    const mapview::ModelPose &fan = view.modelPoses()[2];
+    CHECK(fan.visible);
+    // the fan turns about map (160, -160, 32) = render (5, 1, 5)
+    CHECK(near(fan.transform[12], 5.0f, 1e-4f) && near(fan.transform[13], 1.0f, 1e-4f) &&
+          near(fan.transform[14], 5.0f, 1e-4f));
+    CHECK(std::fabs(fan.transform[0] - fanStart[0]) > 0.01f || std::fabs(fan.transform[2] - fanStart[2]) > 0.01f);
+    // placed: the file's own vertices; the origin itself stays put
+    std::array<float, 16> placed{};
+    CHECK(view.placedTransform(2, placed));
+    const float o[3] = {5.0f, 1.0f, 5.0f};
+    for (int i = 0; i < 3; i++)
+        CHECK(near(placed[size_t(i)] * o[0] + placed[size_t(4 + i)] * o[1] + placed[size_t(8 + i)] * o[2] +
+                       placed[size_t(12 + i)],
+                   o[i], 1e-4f));
+    CHECK(view.placedTransform(0, placed) && placed[12] == 0.0f && placed[0] == 1.0f);
+    CHECK(view.placedTransform(9, placed) && placed[13] == 0.0f);
+    CHECK(view.gameRunning());
+    view.close();
+}
+
 int main(int argc, char **argv) {
     std::setvbuf(stdout, nullptr, _IOLBF, 0);
     std::string pascalLibrary, gameLibrary;
@@ -668,6 +742,8 @@ int main(int argc, char **argv) {
         const std::string outpost = gltf_builder::outpostGlb();
         std::ofstream(tmp / "maps" / "outpost.glb", std::ios::binary)
             .write(outpost.data(), std::streamsize(outpost.size()));
+        const std::string gate = gltf_builder::gateGlb();
+        std::ofstream(tmp / "maps" / "gate.glb", std::ios::binary).write(gate.data(), std::streamsize(gate.size()));
     }
     writeBlaster(tmp);
     writeSky(tmp);
@@ -712,6 +788,8 @@ int main(int argc, char **argv) {
         viewWithGame(engine);
         step("game on a glTF map");
         gameOnGltf(engine);
+        step("doors on a glTF map");
+        doorsOnGltf(engine);
         std::printf("[module] %d checks, %d failures (%s)\n", gChecks, gFailures, backend.c_str());
         status = gFailures ? 1 : 0;
     } else {

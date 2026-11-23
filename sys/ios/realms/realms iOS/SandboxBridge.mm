@@ -47,6 +47,7 @@
 #include <fstream>
 #include <future>
 #include <iterator>
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -212,9 +213,14 @@ struct UploadedMeshBatch {
     id<MTLBuffer> vbo = nil;
     NSUInteger count = 0;
     int material = -1;
+    int model = 0; // city::Batch::model (glTF map inline model)
     float x = 0.0f;
     float z = 0.0f;
 };
+
+// glTF maps: the objectTransform for a batch of inline model n > 0, false =
+// hidden (mapview::Quake2View::placedTransform).
+using MetalModelTransform = std::function<bool(int model, std::array<float, 16> &out)>;
 
 class MetalGltfModel {
 public:
@@ -292,6 +298,7 @@ public:
                 UploadedMeshBatch mesh;
                 mesh.count = static_cast<NSUInteger>(batch.vertices.size());
                 mesh.material = batch.material;
+                mesh.model = batch.model;
                 const float invCount = 1.0f / float(batch.vertices.size());
                 for (const auto &v : batch.vertices) {
                     mesh.x += v.x * invCount;
@@ -329,7 +336,8 @@ public:
               const matrix_float4x4 &objectTransform,
               float eyeX,
               float eyeZ,
-              bool hologram) const {
+              bool hologram,
+              const MetalModelTransform *modelTransform = nullptr) const {
         if (!ready()) return;
 
         std::vector<size_t> order(meshes_.size());
@@ -350,6 +358,12 @@ public:
         for (size_t idx : order) {
             const auto &mesh = meshes_[idx];
             if (!mesh.vbo || mesh.count == 0) continue;
+            matrix_float4x4 meshTransform = objectTransform;
+            if (modelTransform && *modelTransform && mesh.model > 0) { // glTF map doors / platforms
+                std::array<float, 16> placed{};
+                if (!(*modelTransform)(mesh.model, placed)) continue;
+                meshTransform = matrix_multiply(objectTransform, makeColumnMatrix(placed.data()));
+            }
             city::Material fallback;
             const auto &mat = (mesh.material >= 0 && size_t(mesh.material) < scene_.materials.size())
                 ? scene_.materials[size_t(mesh.material)]
@@ -368,7 +382,7 @@ public:
             [encoder setFragmentSamplerState:samplers[ws][wt] atIndex:0];
 
             SandboxDrawUniforms draw{};
-            draw.objectTransform = objectTransform;
+            draw.objectTransform = meshTransform;
             draw.baseColorFactor = simd_make_float4(mat.color[0], mat.color[1], mat.color[2], mat.color[3]);
             draw.materialParams = simd_make_float4(mat.roughness, mat.cutoff, 0.0f, 0.0f);
             draw.drawFlags = simd_make_int4(1, hologram ? 1 : 0, hasTex ? 1 : 0, mat.alphaMode);
@@ -520,8 +534,9 @@ public:
         }
 
         const city::Scene &cityScene = sandboxCity.scene();
+        // (only without brush models: the sandbox's scene has no per-model batches)
         if (session().mesh() && session().path() == sandboxCityPath && sandboxCity.ready() &&
-            cityScene.sourceMapped && cityScene.sourceScale > 0.0f) {
+            cityScene.sourceMapped && cityScene.sourceScale > 0.0f && view_->gltfNodeModels().empty()) {
             reuseCity_ = true;
             cityScale_ = cityScene.sourceScale;
             cityOffset_ = cityScene.sourceOffset;
@@ -582,13 +597,15 @@ public:
 
         if (session().mesh()) {
             const std::string path = session().path();
-            prepare_ = std::async(std::launch::async, [path, roots]() -> std::optional<city::Scene> {
+            const std::map<int, int> nodeModels = view_->gltfNodeModels(); // doors and platforms move
+            prepare_ = std::async(std::launch::async, [path, roots, nodeModels]() -> std::optional<city::Scene> {
                 try {
                     city::Scene scene;
                     city::LoadOptions options;
                     options.level = false;
                     options.buildPhysics = false;
                     options.keepSourceSpace = true;
+                    options.nodeModels = nodeModels;
                     std::string log;
                     auto reader = [&roots](const std::string &p, std::vector<unsigned char> &bytes) {
                         for (const std::string &root : roots) {
@@ -706,8 +723,11 @@ public:
         [encoder setFragmentTexture:(mapTextures_ ? mapTextures_ : p.whiteArray) atIndex:3];
 
         if (model_.ready()) {
+            const MetalModelTransform moved = [this](int model, std::array<float, 16> &out) {
+                return view_->placedTransform(model, out);
+            };
             model_.draw(encoder, p.modelOpaque, p.modelBlended, p.depthWrite, p.depthRead, samplers, p.white,
-                        identity, eye.x, eye.z, false);
+                        identity, eye.x, eye.z, false, &moved);
         } else if (triangles_ && lightUvs_ && count_ > 0) {
             if (lightmap_ && view_->module().updateLightStyles()) uploadLightmap(); // animated light styles
             quake.modeCount.x = (lightmap_ && engine.cvarBool("r_lightmaps", true)) ? 1 : 0;

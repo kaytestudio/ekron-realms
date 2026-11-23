@@ -119,7 +119,8 @@ type
     contents: cint32;
   end;
 
-  { RealmsMeshDesc (80 bytes on 64-bit targets). }
+  { RealmsMeshDesc (96 bytes on 64-bit targets; hosts built before
+    triangle_models / num_models pass 80, see REALMS_MESH_DESC_V3_SIZE). }
   PRealmsMeshDesc = ^TRealmsMeshDesc;
   TRealmsMeshDesc = record
     struct_size: cuint32;
@@ -134,6 +135,8 @@ type
     num_surfaces: cint32;
     thickness: cfloat;
     entities: PChar;
+    triangle_models: pcint32;
+    num_models: cint32;
   end;
 
   THostPrint = procedure(user: Pointer; level: cint32; text: PChar); cdecl;

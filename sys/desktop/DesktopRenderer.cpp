@@ -434,6 +434,14 @@ const std::array<float, 16> kIdentityMatrix = {
     0, 0, 0, 1
 };
 
+std::array<float, 16> multiplyColumnMajor(const std::array<float, 16> &a, const std::array<float, 16> &b) {
+    std::array<float, 16> r{};
+    for (int c = 0; c < 4; c++)
+        for (int row = 0; row < 4; row++)
+            for (int k = 0; k < 4; k++) r[size_t(c * 4 + row)] += a[size_t(k * 4 + row)] * b[size_t(c * 4 + k)];
+    return r;
+}
+
 } // namespace
 
 bool DesktopGltfModel::loadFromDisk(const std::string &assetRoot,
@@ -492,6 +500,7 @@ void DesktopGltfModel::upload(ekron::gl::Api &gl) {
         UploadedGlMesh mesh;
         mesh.count = static_cast<GLsizei>(batch.vertices.size());
         mesh.material = batch.material;
+        mesh.model = batch.model;
         const float inv = 1.0f / float(batch.vertices.size());
         for (const auto &v : batch.vertices) {
             mesh.x += v.x * inv;
@@ -857,7 +866,8 @@ void DesktopRenderer::drawGltfModel(ekron::gl::Api &gl,
                                     const std::array<float, 16> &transform,
                                     float eyeX,
                                     float eyeZ,
-                                    bool hologram) {
+                                    bool hologram,
+                                    const std::vector<MapModelPose> *poses) {
     if (!model.ready()) return;
     const auto &meshes = model.meshes();
     const auto &scene = model.scene();
@@ -876,13 +886,22 @@ void DesktopRenderer::drawGltfModel(ekron::gl::Api &gl,
         return ba && std::hypot(meshes[a].x - eyeX, meshes[a].z - eyeZ) > std::hypot(meshes[b].x - eyeX, meshes[b].z - eyeZ);
     });
 
-    gl.UniformMatrix4fv(gl.GetUniformLocation(modelProg_, "uObjectTransform"), 1, GL_FALSE, transform.data());
+    const GLint transformLoc = gl.GetUniformLocation(modelProg_, "uObjectTransform");
+    gl.UniformMatrix4fv(transformLoc, 1, GL_FALSE, transform.data());
     gl.Uniform1i(gl.GetUniformLocation(modelProg_, "uModelPass"), 1);
     gl.Uniform1i(gl.GetUniformLocation(modelProg_, "uPreviewPass"), hologram ? 1 : 0);
 
     for (size_t idx : order) {
         const auto &mesh = meshes[idx];
         if (!mesh.vao || mesh.count <= 0) continue;
+        // glTF map doors / platforms where the game has them, hidden when gone
+        const MapModelPose *pose =
+            poses && mesh.model > 0 && size_t(mesh.model) < poses->size() ? &(*poses)[size_t(mesh.model)] : nullptr;
+        if (pose && !pose->visible) continue;
+        if (poses) {
+            const std::array<float, 16> m = pose ? multiplyColumnMajor(transform, pose->placed) : transform;
+            gl.UniformMatrix4fv(transformLoc, 1, GL_FALSE, m.data());
+        }
         city::Material fallback;
         const auto &mat = (mesh.material >= 0 && size_t(mesh.material) < scene.materials.size())
             ? scene.materials[size_t(mesh.material)]
@@ -1290,7 +1309,7 @@ void DesktopRenderer::renderMapWorld(ekron::gl::Api &gl,
         applyMapLights(gl, modelProg_);
         gl.ActiveTexture(GL_TEXTURE0);
         gl.BindTexture(GL_TEXTURE_2D_ARRAY, materialArrayTex_);
-        drawGltfModel(gl, *mapModel, kIdentityMatrix, eye.x, eye.z, false);
+        drawGltfModel(gl, *mapModel, kIdentityMatrix, eye.x, eye.z, false, &mapPoses_);
     }
 
     if (!entityBatches_.empty() && entityVao_) {

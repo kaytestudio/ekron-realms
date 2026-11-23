@@ -48,6 +48,7 @@ struct UploadedGlMesh {
     GLuint vbo = 0;
     GLsizei count = 0;
     int material = -1;
+    int model = 0; // city::Batch::model (glTF map inline model)
     float x = 0.0f;
     float z = 0.0f;
 };
@@ -129,6 +130,8 @@ public:
     struct MapModelPose {
         bool visible = true;
         std::array<float, 16> transform{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}; // render space, column-major
+        // for the glTF map model's batches of this model (mapview::ModelPose::placed)
+        std::array<float, 16> placed{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
     };
     void setMapGeometry(ekron::gl::Api &gl, const std::vector<sandbox::MeshVertex> &vertices,
                         std::vector<MapDrawRange> ranges = {});
@@ -247,12 +250,15 @@ private:
                         float pitch,
                         float roll);
 
+    // `poses` (glTF maps): batches of inline model n > 0 are drawn with
+    // poses[n].placed after `transform`, and skipped while hidden.
     void drawGltfModel(ekron::gl::Api &gl,
                        const DesktopGltfModel &model,
                        const std::array<float, 16> &transform,
                        float eyeX,
                        float eyeZ,
-                       bool hologram);
+                       bool hologram,
+                       const std::vector<MapModelPose> *poses = nullptr);
 
     GLuint compileProgram(ekron::gl::Api &gl, const char *vsSrc, const char *fsSrc, std::string &errOut);
     void applyMapLights(ekron::gl::Api &gl, GLuint prog) const;

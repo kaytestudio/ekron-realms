@@ -10,6 +10,7 @@
 #include "realms/Quake2Module.h"
 
 #include <array>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -29,6 +30,10 @@ struct ModelRange {
 struct ModelPose {
     bool visible = true;
     std::array<float, 16> transform{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}; // column-major
+    // The same pose for the model's triangles where the map file has them
+    // (the textured glTF): differs from `transform` for glTF brush models
+    // stored relative to an "origin" (func_rotating, func_door_rotating).
+    std::array<float, 16> placed{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
 };
 
 // Alias model vertex, model space on the render axes, metres.
@@ -110,6 +115,13 @@ public:
 
     // Brush model poses (index = model number; empty without a game).
     const std::vector<ModelPose> &modelPoses() const { return poses_; }
+    // Transform for an inline model drawn from the textured glTF (the batch
+    // model of city::Scene): identity for the world, without the game or at
+    // rest; false while the game hides the entity.
+    bool placedTransform(int model, std::array<float, 16> &out) const;
+    // glTF maps: node index -> inline model of each brush entity node, for
+    // city::LoadOptions::nodeModels. Empty for BSP maps.
+    const std::map<int, int> &gltfNodeModels() const { return nodeModels_; }
     // The game's entities for this camera. Empty without a game.
     void entities(realms::Engine &engine, float renderYaw, float renderPitch, bool viewWeapon,
                   std::vector<EntityVertex> &vertices, std::vector<EntityBatch> &batches);
@@ -132,6 +144,8 @@ private:
     MapSession session_;
     realms::Quake2Module q2_;
     std::vector<ModelPose> poses_;
+    std::vector<std::array<float, 3>> modelOrigins_; // glTF inline model origins, render space (index = model)
+    std::map<int, int> nodeModels_;
     std::vector<std::string> messages_;
     double skyTime_ = 0.0;
     std::vector<realms::Quake2EffectVertex> fxQuads_;

@@ -38,9 +38,12 @@ glTF maps (`.glb`, `.gltf`) are converted by `realms::gltfToMeshMap`
 a 2-unit slab brush (`map_mesh_thickness`). Material names and extras set
 contents. Nodes named after Quake 2 point entities (`info_player_start`,
 `item_*`, `weapon_*`, `monster_*`, ...) become entities, with their extras as
-keys, so the game runs on glTF maps too. Brush entities are not exported
-(mesh maps have no inline models). See the header for the tags and entity
-rules.
+keys, so the game runs on glTF maps too. Nodes named after brush entities
+(`func_door`, `func_plat`, `trigger_multiple`, ...) become inline models `*n`
+from their own and their children's meshes, so doors and lifts move like in
+a BSP map (`RealmsMeshDesc::triangle_models`; the renderers draw them with
+`mapview::Quake2View::placedTransform`). See the header for the tags and
+entity rules.
 
 ## Choosing a core
 

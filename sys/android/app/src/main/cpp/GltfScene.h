@@ -5,6 +5,7 @@
 #include <vector>
 #include "SandboxWorld.h"
 #include "CollisionMesh.h"
+#include <map>
 #include <memory>
 
 namespace city {
@@ -21,7 +22,8 @@ struct Material {
     float roughness=.9f;
     bool worldSpaceUV=false;
 };
-struct Batch { std::vector<Vertex> vertices;int material=-1;bool decorativeWire=false; };
+// model: the Realms inline model (door, platform) the node belongs to, 0 = world.
+struct Batch { std::vector<Vertex> vertices;int material=-1;bool decorativeWire=false;int model=0; };
 struct LoadOptions {
     bool level=true;
     bool buildPhysics=true;
@@ -30,6 +32,10 @@ struct LoadOptions {
     // in the same space (realms::MeshMap).
     bool keepSourceSpace=false;
     float targetExtent=80.f;
+    // glTF node index -> Realms inline model for brush entity nodes (see
+    // realms::MeshMapModel); their children inherit it. A node used twice
+    // gets it the first time only, as in the collision import.
+    std::map<int,int> nodeModels;
     float x=0,y=0,z=0,yaw=0;
 };
 struct Scene {

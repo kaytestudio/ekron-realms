@@ -11,6 +11,7 @@
 #ifndef REALMS_BRIDGE_H
 #define REALMS_BRIDGE_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -136,7 +137,13 @@ typedef struct RealmsMeshSurface {
 /* Triangle mesh map (glTF levels, see realms::Engine::loadMap). The core
  * copies everything; each triangle becomes a beveled brush (a slab of
  * `thickness` units behind its front face, counter-clockwise winding) in a
- * kd-tree, so traces, point contents and box hulls behave like BSP maps. */
+ * kd-tree, so traces, point contents and box hulls behave like BSP maps.
+ *
+ * Inline models (doors, platforms: "*1", "*2", ...): triangles whose
+ * triangle_models entry is n > 0 go to model n's own tree instead of the
+ * world's, in that model's space (the host subtracts any origin). Its
+ * bounds are those triangles' bounds plus 1 unit. Hosts built before these
+ * fields pass the shorter struct (REALMS_MESH_DESC_V3_SIZE): world only. */
 typedef struct RealmsMeshDesc {
     uint32_t struct_size;            /* sizeof(RealmsMeshDesc) */
     uint32_t checksum;               /* reported by map_info (e.g. CRC-32 of the .glb) */
@@ -150,7 +157,12 @@ typedef struct RealmsMeshDesc {
     int32_t num_surfaces;            /* at least 1 */
     float thickness;                 /* <= 0 selects 2 units */
     const char *entities;            /* entity lump text, may be NULL */
+    const int32_t *triangle_models;  /* per triangle model, 0 = world; NULL = all world */
+    int32_t num_models;              /* 1 (world) + inline models, at most 1024 */
 } RealmsMeshDesc;
+
+/* struct_size of a RealmsMeshDesc without triangle_models / num_models. */
+#define REALMS_MESH_DESC_V3_SIZE ((uint32_t)offsetof(RealmsMeshDesc, triangle_models))
 
 /* Services the C++ host provides to the core. */
 typedef struct RealmsHostApi {

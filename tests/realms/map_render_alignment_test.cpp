@@ -11,11 +11,13 @@
 #include "realms/MeshMap.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <map>
 #include <utility>
 #include <string>
 #include <vector>
@@ -39,6 +41,22 @@ bool loadScene(const std::string &path, const std::string &bytes, city::Scene &s
     options.level = false;
     options.buildPhysics = false;
     options.keepSourceSpace = true;
+    return scene.load(path,
+                      [&](const std::string &p, std::vector<unsigned char> &out) {
+                          if (p != path) return false;
+                          out.assign(bytes.begin(), bytes.end());
+                          return true;
+                      },
+                      log, options);
+}
+
+bool loadScene(const std::string &path, const std::string &bytes, city::Scene &scene, std::string &log,
+               const std::map<int, int> &nodeModels) {
+    city::LoadOptions options;
+    options.level = false;
+    options.buildPhysics = false;
+    options.keepSourceSpace = true;
+    options.nodeModels = nodeModels;
     return scene.load(path,
                       [&](const std::string &p, std::vector<unsigned char> &out) {
                           if (p != path) return false;
@@ -270,8 +288,50 @@ void checkMapSession() {
 
 } // namespace
 
+// Brush entities: with the node -> model table (as Quake2View::gltfNodeModels
+// builds it) the drawn batches carry the collision models, and each drawn
+// vertex is a vertex of its model's triangles, relative to the model origin.
+void checkGate() {
+    const std::string gate = gltf_builder::gateGlb();
+    realms::MeshMap map;
+    std::string error, log;
+    CHECK(convert("gate.glb", gate, map, error) && map.models.size() == 2);
+    std::map<int, int> nodeModels;
+    for (size_t n = 0; n < map.models.size(); ++n) nodeModels[int(map.models[n].node)] = int(n) + 1;
+    city::Scene scene;
+    CHECK(loadScene("gate.glb", gate, scene, log, nodeModels));
+    int perModel[3] = {0, 0, 0};
+    size_t matched = 0, vertices = 0;
+    for (const auto &batch : scene.batches) {
+        CHECK(batch.model >= 0 && batch.model <= 2);
+        if (batch.model < 0 || batch.model > 2) continue;
+        perModel[batch.model] += int(batch.vertices.size());
+        const std::array<float, 3> origin =
+            batch.model > 0 ? map.models[size_t(batch.model) - 1].origin : std::array<float, 3>{0, 0, 0};
+        for (const auto &v : batch.vertices) {
+            ++vertices;
+            const float m[3] = {v.x * kScale - origin[0], -v.z * kScale - origin[1], v.y * kScale - origin[2]};
+            bool found = false;
+            for (size_t t = 0; t < map.triangleModels.size() && !found; ++t) {
+                if (map.triangleModels[t] != batch.model) continue;
+                for (int c = 0; c < 3 && !found; ++c) {
+                    const float *p = &map.vertices[size_t(map.indices[t * 3 + size_t(c)]) * 3];
+                    found = std::fabs(p[0] - m[0]) < 1e-3f && std::fabs(p[1] - m[1]) < 1e-3f &&
+                            std::fabs(p[2] - m[2]) < 1e-3f;
+                }
+            }
+            if (found) ++matched;
+        }
+    }
+    CHECK(perModel[0] == 6 && perModel[1] == 6 && perModel[2] == 6 && matched == vertices);
+    // without the table everything is world
+    CHECK(loadScene("gate.glb", gate, scene, log));
+    for (const auto &batch : scene.batches) CHECK(batch.model == 0);
+}
+
 int main(int argc, char **argv) {
     checkRoom();
+    checkGate();
     checkMapSession();
     if (argc > 1) {
         std::vector<std::filesystem::path> files;

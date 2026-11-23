@@ -1070,12 +1070,18 @@ end;
 
 function LoadMeshInto(var m: TMapState; const d: TRealmsMeshDesc): Boolean;
 var
-  i, j, k, t, surface, contents, nIds: LongInt;
+  i, j, k, t, surface, contents, nIds, numModels, model, n: LongInt;
   thick: Single;
   v: array[0..2] of TVec3;
   ids: TIntArr;
   mins, maxs, nrm: TVec3;
-  world: TModel;
+  world, inl: TModel;
+  triModels: pcint32;
+  haveWorld, any: Boolean;
+  { brush ids per model; inline model bounds from all of its triangles }
+  modelIds: array of TIntArr;
+  modelCounts: array of LongInt;
+  modelMins, modelMaxs: array of TVec3;
 begin
   Result := False;
   if (d.num_vertices < 0) or (d.num_vertices > MAX_MESH_VERTICES) then
@@ -1098,6 +1104,20 @@ begin
         Exit(Fail('bad mesh triangle surface'));
   if (d.entities <> nil) and (StrLen(d.entities) > MAX_MAP_ENTSTRING) then
     Exit(Fail('entity lump is too large'));
+  { inline models: only hosts that pass the longer description }
+  numModels := 1;
+  triModels := nil;
+  if (d.struct_size >= SizeOf(TRealmsMeshDesc)) and (d.num_models > 1) then
+  begin
+    numModels := d.num_models;
+    triModels := d.triangle_models;
+  end;
+  if (numModels > MAX_MAP_MODELS) or ((numModels > 1) and (triModels = nil) and (d.num_triangles > 0)) then
+    Exit(Fail('bad mesh model count'));
+  if triModels <> nil then
+    for i := 0 to d.num_triangles - 1 do
+      if (triModels[i] < 0) or (triModels[i] >= numModels) then
+        Exit(Fail('bad mesh triangle model'));
   if FiniteF(d.thickness) and (d.thickness > 0) then
     thick := d.thickness
   else
@@ -1138,9 +1158,31 @@ begin
   MLeafs := 2;
   m.emptyLeaf := 1;
 
-  ids := nil;
-  SetLength(ids, d.num_triangles);
-  nIds := 0;
+  modelIds := nil;
+  modelCounts := nil;
+  modelMins := nil;
+  modelMaxs := nil;
+  SetLength(modelIds, numModels);
+  SetLength(modelCounts, numModels);
+  SetLength(modelMins, numModels);
+  SetLength(modelMaxs, numModels);
+  for n := 0 to numModels - 1 do
+  begin
+    modelIds[n] := nil;
+    modelCounts[n] := 0;
+    for j := 0 to 2 do
+    begin
+      modelMins[n][j] := 1e30;
+      modelMaxs[n][j] := -1e30;
+    end;
+  end;
+  SetLength(modelIds[0], d.num_triangles);
+  for j := 0 to 2 do
+  begin
+    mins[j] := 0;
+    maxs[j] := 0;
+  end;
+  haveWorld := False;
   for t := 0 to d.num_triangles - 1 do
   begin
     if d.triangle_surfaces <> nil then
@@ -1148,37 +1190,48 @@ begin
     else
       surface := 0;
     contents := d.surfaces[surface].contents;
-    if contents = 0 then
-      Continue;
+    if triModels <> nil then
+      model := triModels[t]
+    else
+      model := 0;
     for k := 0 to 2 do
       for j := 0 to 2 do
         v[k][j] := d.vertices[SizeInt(d.indices[t * 3 + k]) * 3 + j];
-    if MeshAddTriangle(m, v[0], v[1], v[2], thick, surface, contents) then
-    begin
-      ids[nIds] := nIds;
-      Inc(nIds);
-    end;
-  end;
-  SetLength(ids, nIds);
-  for j := 0 to 2 do
-  begin
-    mins[j] := 0;
-    maxs[j] := 0;
-  end;
-  for i := 0 to MBoundsCount - 1 do
+    if model > 0 then
+      for k := 0 to 2 do
+        for j := 0 to 2 do
+        begin
+          if v[k][j] < modelMins[model][j] then
+            modelMins[model][j] := v[k][j];
+          if v[k][j] > modelMaxs[model][j] then
+            modelMaxs[model][j] := v[k][j];
+        end;
+    if (contents = 0) or not MeshAddTriangle(m, v[0], v[1], v[2], thick, surface, contents) then
+      Continue;
+    if modelCounts[model] = Length(modelIds[model]) then
+      SetLength(modelIds[model], modelCounts[model] * 2 + 64);
+    modelIds[model][modelCounts[model]] := MBoundsCount - 1;
+    Inc(modelCounts[model]);
+    if model <> 0 then
+      Continue;
     for j := 0 to 2 do
-      if i = 0 then
+      if not haveWorld then
       begin
-        mins[j] := MBounds[i].mins[j];
-        maxs[j] := MBounds[i].maxs[j];
+        mins[j] := MBounds[MBoundsCount - 1].mins[j];
+        maxs[j] := MBounds[MBoundsCount - 1].maxs[j];
       end
       else
       begin
-        if MBounds[i].mins[j] < mins[j] then
-          mins[j] := MBounds[i].mins[j];
-        if MBounds[i].maxs[j] > maxs[j] then
-          maxs[j] := MBounds[i].maxs[j];
+        if MBounds[MBoundsCount - 1].mins[j] < mins[j] then
+          mins[j] := MBounds[MBoundsCount - 1].mins[j];
+        if MBounds[MBoundsCount - 1].maxs[j] > maxs[j] then
+          maxs[j] := MBounds[MBoundsCount - 1].maxs[j];
       end;
+    haveWorld := True;
+  end;
+  ids := modelIds[0];
+  nIds := modelCounts[0];
+  SetLength(ids, nIds);
 
   if nIds = 0 then
     world.headnode := -1 - m.emptyLeaf
@@ -1205,8 +1258,49 @@ begin
     world.maxs[j] := maxs[j] + 1;
     world.origin[j] := 0;
   end;
-  SetLength(m.models, 1);
+  SetLength(m.models, numModels);
   m.models[0] := world;
+  { inline models after the world (headnode 0 stays the world's root) }
+  for n := 1 to numModels - 1 do
+  begin
+    SetLength(modelIds[n], modelCounts[n]);
+    if modelCounts[n] = 0 then
+      inl.headnode := -1 - m.emptyLeaf
+    else
+      inl.headnode := MeshBuild(m, modelIds[n], 0);
+    if inl.headnode < 0 then
+    begin
+      { a node, as qbsp writes for every model (servers take a negative
+        headnode for "not a BSP model"); both sides lead to the leaf }
+      for j := 0 to 2 do
+        nrm[j] := 0;
+      nrm[2] := 1;
+      k := MeshAddPlane(m, nrm, 0);
+      if MNodes = Length(m.nodes) then
+        SetLength(m.nodes, MNodes * 2 + 16);
+      m.nodes[MNodes].plane := k;
+      m.nodes[MNodes].children[0] := inl.headnode;
+      m.nodes[MNodes].children[1] := inl.headnode;
+      inl.headnode := MNodes;
+      Inc(MNodes);
+    end;
+    for j := 0 to 2 do
+    begin
+      any := modelMins[n][j] <= modelMaxs[n][j];
+      if any then
+      begin
+        inl.mins[j] := modelMins[n][j] - 1;
+        inl.maxs[j] := modelMaxs[n][j] + 1;
+      end
+      else
+      begin
+        inl.mins[j] := 0;
+        inl.maxs[j] := 0;
+      end;
+      inl.origin[j] := 0;
+    end;
+    m.models[n] := inl;
+  end;
 
   SetLength(m.planes, MPlanes);
   SetLength(m.nodes, MNodes);
@@ -2043,7 +2137,9 @@ var
 begin
   error := '';
   CM_UnloadMap;
-  if (desc = nil) or (desc^.struct_size < SizeOf(TRealmsMeshDesc)) then
+  { hosts built before triangle_models / num_models pass the shorter
+    description (REALMS_MESH_DESC_V3_SIZE): world only }
+  if (desc = nil) or (desc^.struct_size < PtrUInt(@PRealmsMeshDesc(nil)^.triangle_models)) then
   begin
     error := 'bad mesh description';
     Exit(False);
