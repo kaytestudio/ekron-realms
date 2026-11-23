@@ -14,12 +14,16 @@ public:
   if(flashes_.size()>=16)flashes_.erase(flashes_.begin());
   flashes_.push_back({point,0});
   // Bouncing embers plus slower growing smoke instead of identical bright cubes.
+  auto addFragment=[&](const Fragment&f){
+   if(fragments_.size()>=128)fragments_.erase(fragments_.begin());
+   fragments_.push_back(f);
+  };
   for(int i=0;i<24;i++){float a=i*2.399963229728653f;float speed=2.2f+float(i%4)*1.1f;
-   Fragment f{point,{std::sin(a)*speed,2.6f+float(i%5)*.7f,std::cos(a)*speed},1.f+float(i%4)*.3f,.05f+.02f*(i%3),0};
-   if(fragments_.size()>=128)fragments_.erase(fragments_.begin());fragments_.push_back(f);}
+   addFragment(Fragment{point,{std::sin(a)*speed,2.6f+float(i%5)*.7f,std::cos(a)*speed},1.f+float(i%4)*.3f,.05f+.02f*(i%3),0});
+  }
   for(int i=0;i<12;i++){float a=i*6.2831853f/12;
-   Fragment f{point,{std::sin(a)*1.5f,.7f+float(i%3)*.5f,std::cos(a)*1.5f},2.4f,.16f+float(i%3)*.07f,1};
-   if(fragments_.size()>=128)fragments_.erase(fragments_.begin());fragments_.push_back(f);}
+   addFragment(Fragment{point,{std::sin(a)*1.5f,.7f+float(i%3)*.5f,std::cos(a)*1.5f},2.4f,.16f+float(i%3)*.07f,1});
+  }
   for(auto&o:w.objects){if(o.destroyed||o.frozen||o.anchored)continue;auto b=World::bounds(o);auto d=physics::Vec3{b.x,b.y,b.z}-point;float distance=physics::length(d);if(distance>6)continue;
    auto direction=physics::normalized(d+physics::Vec3{0,.4f,0});float speed=std::min(12.f,120/std::sqrt(World::mass(o)))*(1-distance/6);o.vx+=direction.x*speed;o.vy+=direction.y*speed+speed*.25f;o.vz+=direction.z*speed;o.awake=true;o.restTime=0;}
  }
