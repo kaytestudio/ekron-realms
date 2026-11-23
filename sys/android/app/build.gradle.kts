@@ -12,10 +12,10 @@ android {
         applicationId = "com.example.realms"
         minSdk = 30
         targetSdk = 34
-        versionCode = 48
-        versionName = "0.48-i18n-en-ru-pt"
+        versionCode = 49
+        versionName = "0.49-i18n-en-ru-pt-es"
         // Shipped UI languages: English (default), Russian, Portuguese (Portugal).
-        resourceConfigurations += listOf("en", "ru", "pt-rPT")
+        resourceConfigurations += listOf("en", "ru", "pt-rPT", "es-rES")
         externalNativeBuild {
             cmake { cppFlags += "-std=c++17" }
         }

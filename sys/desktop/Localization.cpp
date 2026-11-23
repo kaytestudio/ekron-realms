@@ -15,7 +15,7 @@ struct Entry {
 };
 
 constexpr Entry kTable[] = {
-#define EKRON_STR(key, en, ru, pt) {Str::key, {en, ru, pt}},
+#define EKRON_STR(key, en, ru, pt, es) {Str::key, {en, ru, pt, es}},
 #include "LocalizationStrings.h"
 #undef EKRON_STR
 };
@@ -72,6 +72,7 @@ const char *languageCode(Language language) {
     switch (language) {
         case Language::Russian:      return "ru";
         case Language::PortuguesePT: return "pt-PT";
+        case Language::SpanishES:    return "es-ES";
         case Language::English:
         default:                     return "en";
     }
@@ -81,6 +82,7 @@ const char *languageNativeName(Language language) {
     switch (language) {
         case Language::Russian:      return "Русский";
         case Language::PortuguesePT: return "Português (Portugal)";
+        case Language::SpanishES:    return "Español (España)";
         case Language::English:
         default:                     return "English";
     }
@@ -99,6 +101,8 @@ std::optional<Language> parseLanguageTag(std::string_view tag) {
     if (lower == "english") return Language::English;
     if (lower == "russian" || tag == "русский" || tag == "Русский") return Language::Russian;
     if (lower == "portuguese" || lower == "português" || lower == "portugues") return Language::PortuguesePT;
+    if (lower == "spanish" || lower == "español" || lower == "espanol" || lower == "castellano")
+        return Language::SpanishES;
 
     // Primary language subtag: up to the first '-', '_', '.' or '@'.
     const size_t end = lower.find_first_of("-_.@");
@@ -106,6 +110,7 @@ std::optional<Language> parseLanguageTag(std::string_view tag) {
     if (primary == "en" || primary == "eng") return Language::English;
     if (primary == "ru" || primary == "rus") return Language::Russian;
     if (primary == "pt" || primary == "por") return Language::PortuguesePT;
+    if (primary == "es" || primary == "spa") return Language::SpanishES;
     return std::nullopt;
 }
 

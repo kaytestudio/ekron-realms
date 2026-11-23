@@ -610,7 +610,7 @@ void printHelp(const char *exe) {
         << "  --online-port <port>  Server port (default 38475)\n"
         << "  --online-name <name>  Player name (default Player)\n"
         << "                      Set EKRON_JOIN_TOKEN in the environment; players only, no shared world\n"
-        << "  --lang <code>       UI language: en, ru or pt-PT (default: saved choice, then system locale)\n"
+        << "  --lang <code>       UI language: en, ru, pt-PT or es-ES (default: saved choice, then system locale)\n"
         << "                      The EKRON_LANG environment variable is honoured too\n"
         << "  --engine-info       Show which Realms core is active (Free Pascal or C++) and exit\n"
         << "  +<command> [args]   Quake 2 style console commands, e.g. +set sensitivity 4 +exec my.cfg\n"
@@ -630,7 +630,7 @@ void printHelp(const char *exe) {
         << "  E                   Interact (door, UAZ-469, sofa, FPV drone)\n"
         << "  V / H               Toggle FPV/Chase camera / Return drone home\n"
         << "  N / P / F11 / Esc   Noclip flight / Copy spawn.json / Fullscreen / Pause menu\n"
-        << "  L                   Cycle UI language (English / Русский / Português)\n"
+        << "  L                   Cycle UI language (English / Русский / Português / Español)\n"
         << "  `                   Realms console (cvarlist, cmdlist, set, alias, exec, noclip, quit...)\n";
 }
 
@@ -680,7 +680,7 @@ int main(int argc, char **argv)
             const std::string value = argv[++i];
             cliLanguage = i18n::parseLanguageTag(value);
             if (!cliLanguage) {
-                std::cerr << "Unsupported language '" << value << "' (expected en, ru or pt-PT)\n";
+                std::cerr << "Unsupported language '" << value << "' (expected en, ru, pt-PT or es-ES)\n";
                 return 1;
             }
         } else if (arg == "--online-port" && i + 1 < argc) {
@@ -1187,7 +1187,7 @@ int main(int argc, char **argv)
             saveLanguage(settingsPath, *lang);
             SDL_SetWindowTitle(window, i18n::tr(Str::WindowTitle));
         } else {
-            engine.print("lang: expected en, ru or pt-PT", REALMS_PRINT_WARNING);
+            engine.print("lang: expected en, ru, pt-PT or es-ES", REALMS_PRINT_WARNING);
         }
     });
     engine.addCommand("pos", [&](const realms::CommandArgs &) {

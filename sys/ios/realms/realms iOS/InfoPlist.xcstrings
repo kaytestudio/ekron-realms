@@ -11,6 +11,12 @@
             "value" : "Connect to a sandbox server on your local network."
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conectarse a un servidor sandbox de tu red local."
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",

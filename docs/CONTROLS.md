@@ -16,7 +16,7 @@
 | `E` | Contextual interaction (doors, UAZ-469, sofa, FPV drone) |
 | `V` / `H` | Toggle FPV/chase drone camera / Return FPV drone home |
 | `N` / `P` / `F11` / `Esc` | Toggle `noclip` flight / Copy `spawn.json` / Fullscreen / Pause menu |
-| `G` / `L` | Open the in-game store / Cycle UI language (English → Русский → Português) |
+| `G` / `L` | Open the in-game store / Cycle UI language (English → Русский → Português → Español) |
 | `` ` `` | Realms console (Quake 2 style: `set`, `seta`, `alias`, `exec`, `cvarlist`, `cmdlist`, `noclip`, `respawn`, `play`, `soundlist`, `s_volume`, `quit`…) |
 
 ## Command line
@@ -28,7 +28,7 @@
 --online-host <host>   Connect to an experimental TLS presence relay (requires EKRON_JOIN_TOKEN env var)
 --online-port <port>   Presence relay port (default: 38475)
 --online-name <name>   Player display name (default: Player)
---lang <code>          UI language: en, ru or pt-PT (also EKRON_LANG; default: saved choice, then system locale)
+--lang <code>          UI language: en, ru, pt-PT or es-ES (also EKRON_LANG; default: saved choice, then system locale)
 --engine-info          Show which Realms core is active (Free Pascal or C++) and exit
 +<command> [args]      Quake 2 style console commands, e.g. +set sensitivity 4 +exec my.cfg
 --help                 Show CLI usage and controls

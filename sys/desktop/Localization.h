@@ -1,6 +1,6 @@
 #pragma once
 
-// Desktop UI strings in en, ru and pt-PT (table in LocalizationStrings.h).
+// Desktop UI strings in en, ru, pt-PT and es-ES (table in LocalizationStrings.h).
 //
 // Language order (main.cpp): --lang, $EKRON_LANG, the pause-menu setting,
 // the OS locale (SDL_GetPreferredLocales, then LC_ALL/LC_MESSAGES/LANG),
@@ -18,6 +18,7 @@ enum class Language : int {
     English = 0,
     Russian,
     PortuguesePT,
+    SpanishES,
     Count
 };
 
@@ -25,7 +26,7 @@ constexpr size_t kLanguageCount = static_cast<size_t>(Language::Count);
 
 // Translation keys, generated from LocalizationStrings.h.
 enum class Str : int {
-#define EKRON_STR(key, en, ru, pt) key,
+#define EKRON_STR(key, en, ru, pt, es) key,
 #include "LocalizationStrings.h"
 #undef EKRON_STR
     Count
@@ -42,18 +43,20 @@ const char *tr(Str key);
 Language currentLanguage();
 void setLanguage(Language language);
 
-// Cycle English -> Russian -> Portuguese (Portugal) -> English.
+// Cycle English -> Russian -> Portuguese (Portugal) -> Spanish (Spain) -> English.
 Language nextLanguage(Language language);
 
-// BCP-47 code: "en", "ru", "pt-PT".
+// BCP-47 code: "en", "ru", "pt-PT", "es-ES".
 const char *languageCode(Language language);
 
-// Endonym shown in the language picker: "English", "Русский", "Português (Portugal)".
+// Endonym shown in the language picker: "English", "Русский", "Português (Portugal)",
+// "Español (España)".
 const char *languageNativeName(Language language);
 
 // Parse a BCP-47 / POSIX locale tag ("ru", "ru_RU.UTF-8", "pt-PT", "pt_BR",
-// "en-US", "english"...). Any Portuguese variant maps to PortuguesePT, the only
-// Portuguese translation shipped for now. Returns nullopt for unsupported
+// "es_ES", "es-MX", "en-US", "english"...). Any Portuguese variant maps to
+// PortuguesePT and any Spanish one to SpanishES, the only Portuguese and
+// Spanish translations shipped for now. Returns nullopt for unsupported
 // languages and for the neutral "C" / "POSIX" locales.
 std::optional<Language> parseLanguageTag(std::string_view tag);
 

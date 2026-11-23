@@ -76,6 +76,8 @@ doc/generated/
 !sys/android/app/src/main/res/values-ru/*.xml
 !sys/android/app/src/main/res/values-pt-rPT/
 !sys/android/app/src/main/res/values-pt-rPT/*.xml
+!sys/android/app/src/main/res/values-es-rES/
+!sys/android/app/src/main/res/values-es-rES/*.xml
 !sys/android/app/src/main/res/xml/
 !sys/android/app/src/main/res/xml/*.xml
 

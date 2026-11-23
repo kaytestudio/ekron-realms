@@ -1124,7 +1124,7 @@ class GameViewController: UIViewController {
         present(alert, animated: true)
     }
 
-    /// English, Russian and Portuguese (Portugal) follow the per-app language in iOS Settings.
+    /// English, Russian, Portuguese (Portugal) and Spanish (Spain) follow the per-app language in iOS Settings.
     private func openLanguageSettings() {
         if let url = URL(string: UIApplication.openSettingsURLString), UIApplication.shared.canOpenURL(url) {
             UIApplication.shared.open(url)

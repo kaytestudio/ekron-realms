@@ -272,6 +272,7 @@
 				Base,
 				ru,
 				"pt-PT",
+				"es-ES",
 			);
 			mainGroup = EB4DC2042DB8FBC700B0DE7E;
 			minimizedProjectReferenceProxies = 1;

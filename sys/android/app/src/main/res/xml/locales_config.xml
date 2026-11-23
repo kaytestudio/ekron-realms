@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Languages offered in Android 13+ per-app language settings. Keep in sync with
-     values/ (en), values-ru/ and values-pt-rPT/. -->
+     values/ (en), values-ru/, values-pt-rPT/ and values-es-rES/. -->
 <locale-config xmlns:android="http://schemas.android.com/apk/res/android">
     <locale android:name="en" />
     <locale android:name="ru" />
     <locale android:name="pt-PT" />
+    <locale android:name="es-ES" />
 </locale-config>

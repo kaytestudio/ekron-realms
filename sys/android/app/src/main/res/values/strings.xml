@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Ekron Realms Android UI strings: English (default).
-     Keep keys and %1$s-style placeholders identical in values/, values-ru/ and values-pt-rPT/
+     Keep keys and %1$s-style placeholders identical in values/, values-ru/, values-pt-rPT/
+     and values-es-rES/
      (checked by tools/validate_i18n.py). -->
 <resources>
     <string name="app_name">EKRON — Sandbox</string>
@@ -105,7 +106,7 @@
     <string name="pause_online">Online: players (experimental)</string>
     <string name="pause_disconnect">Disconnect from the server</string>
     <string name="pause_language">Language: English</string>
-    <string name="language_settings_hint">Choose English, Русский or Português (Portugal) in the system settings</string>
+    <string name="language_settings_hint">Choose English, Русский, Português (Portugal) or Español (España) in the system settings</string>
     <string name="online_title">Online (experimental)</string>
     <string name="online_disclaimer">Player visibility only. Builds, physics, vehicles and drones are not synchronized. Only use a trusted server.</string>
     <string name="online_server_hint">Server name (TLS certificate)</string>

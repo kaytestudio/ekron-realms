@@ -14,7 +14,7 @@ import javax.net.ssl.SSLSocketFactory
 import kotlin.math.abs
 
 /** Experimental TLS presence client. It does not synchronize sandbox objects.
- *  Status messages are localized string resources (values/, values-ru/, values-pt-rPT/). */
+ *  Status messages are localized string resources (values/, values-ru/, values-pt-rPT/, values-es-rES/). */
 class OnlinePresence(
     private val onPlayers: (FloatArray) -> Unit,
     private val onStatus: (Int) -> Unit

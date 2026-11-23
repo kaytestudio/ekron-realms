@@ -1,9 +1,9 @@
 import Foundation
 
 // Localized UI text for the iOS sandbox.
-// Keys and their English, Russian and Portuguese (Portugal) values live in Localizable.xcstrings;
+// Keys and their English, Russian, Portuguese (Portugal) and Spanish (Spain) values live in Localizable.xcstrings;
 // iOS picks the language from the system or the per-app language in Settings.
-// tools/validate_i18n.py checks that every key used here has all three translations.
+// tools/validate_i18n.py checks that every key used here has all four translations.
 
 /// Returns the localized string for `key` (falls back to the key itself if it is missing).
 func loc(_ key: String) -> String {
