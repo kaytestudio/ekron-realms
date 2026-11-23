@@ -86,7 +86,10 @@ MapSkySettings skySettings(const std::string &entities) {
     for (const MapEntity &e : Engine::parseEntities(entities)) {
         if (Engine::entityValue(e, "classname") != "worldspawn") continue;
         const std::string name = Engine::entityValue(e, "sky");
-        if (!name.empty()) s.name = name;
+        if (!name.empty()) {
+            s.name = name;
+            s.named = true;
+        }
         s.rotate = std::strtof(Engine::entityValue(e, "skyrotate").c_str(), nullptr);
         float a[3] = {0, 0, 0};
         if (std::sscanf(Engine::entityValue(e, "skyaxis").c_str(), "%f %f %f", &a[0], &a[1], &a[2]) == 3)

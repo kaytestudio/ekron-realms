@@ -49,9 +49,14 @@ void Quake2Module::open(Engine &engine, const MapGeometry &geometry, const Quake
         if (textures_.missing())
             engine.print("map: " + std::to_string(textures_.missing()) + " textures not found\n", REALMS_PRINT_DEVELOPER);
     }
-    if (config.sky && (geometry.source == MapGeometrySource::Faces || geometry.source == MapGeometrySource::Brushes)) {
+    // BSP maps fall back to unit1_ like SP_worldspawn; a glTF map has a sky
+    // only when its scene extras name one ("sky", "skyrotate", "skyaxis"),
+    // drawn behind the whole scene.
+    const MapSkySettings sky = skySettings(engine.mapEntities());
+    if (config.sky && (geometry.source == MapGeometrySource::Faces || geometry.source == MapGeometrySource::Brushes ||
+                       (geometry.source == MapGeometrySource::Mesh && sky.named))) {
         std::string error;
-        if (!sky_.load(engine, skySettings(engine.mapEntities()), &error))
+        if (!sky_.load(engine, sky, &error))
             engine.print("map: no sky: " + error + "\n", REALMS_PRINT_DEVELOPER);
     }
     if (config.startGame) startGame(engine, why);

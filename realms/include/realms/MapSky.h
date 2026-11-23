@@ -21,6 +21,7 @@ struct MapSkySettings {
     std::string name = "unit1_"; // SP_worldspawn's default
     float rotate = 0.0f;         // degrees per second
     std::array<float, 3> axis{0.0f, 0.0f, 0.0f};
+    bool named = false;          // the worldspawn sets "sky" (glTF maps need it)
 };
 // The sky keys of the worldspawn in an entity lump.
 MapSkySettings skySettings(const std::string &entities);

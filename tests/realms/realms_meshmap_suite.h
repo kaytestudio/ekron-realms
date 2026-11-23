@@ -101,7 +101,8 @@ inline void runMeshMapChecks() {
     // origin and is stored relative to it; meshless ones are dropped.
     {
         CHECK(convert(gateGlb(), m, error, {}, "maps/gate.glb"));
-        CHECK(m.entities == "{\n\"classname\" \"worldspawn\"\n\"message\" \"gate.glb\"\n}\n"
+        CHECK(m.entities == "{\n\"classname\" \"worldspawn\"\n\"message\" \"gate.glb\"\n\"sky\" \"testsky_\"\n"
+                            "\"skyrotate\" \"20\"\n}\n"
                             "{\n\"classname\" \"info_player_start\"\n\"origin\" \"-96 0 24\"\n}\n"
                             "{\n\"classname\" \"func_door\"\n\"model\" \"*1\"\n\"angle\" \"-1\"\n\"speed\" \"200\"\n"
                             "\"wait\" \"-1\"\n}\n"

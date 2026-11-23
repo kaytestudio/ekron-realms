@@ -67,8 +67,7 @@ bool AndroidMapMode::open(realms::Engine &engine, const city::GltfRenderer &sand
     else if (fresh)
         session().summary() += ", " + std::to_string(textures.count()) + " textures";
     view_->triangles(geometry, vertices, ranges_, lightUvs);
-    if (session().mesh()) view_->disableSky();
-    uploadSky(view_->module().sky());
+    uploadSky(view_->module().sky()); // glTF maps too, when their scene names a sky
     if (skyTexture_ && fresh) session().summary() += ", sky " + view_->module().sky().settings().name;
     if (!vertices.empty()) {
         glGenVertexArrays(1, &vao_);

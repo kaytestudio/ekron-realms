@@ -554,7 +554,7 @@ public:
         else if (fresh_)
             session().summary() += ", " + std::to_string(textures.count()) + " textures";
         view_->triangles(geometry, vertices, ranges_, lightUvs);
-        if (session().mesh() || !uploadSky(device, view_->module().sky())) view_->disableSky();
+        if (!uploadSky(device, view_->module().sky())) view_->disableSky(); // glTF maps too
         else if (fresh_) session().summary() += ", sky " + view_->module().sky().settings().name;
         if (!vertices.empty()) {
             triangles_ = [device newBufferWithBytes:vertices.data()

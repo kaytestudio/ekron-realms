@@ -13,7 +13,8 @@
 //    window|none" or a number, "realms_flags": n, "realms_value": n}
 //
 // Entities, for the Quake 2 game (Quake2Module) and the walker's spawn:
-//   worldspawn: "message" (the file name) plus the scene's extras.
+//   worldspawn: "message" (the file name) plus the scene's extras; "sky"
+//   (with "skyrotate", "skyaxis") gives the map a skybox (MapSky).
 //   One point entity per node named after a Quake 2 classname (lower-cased,
 //   Blender ".001" suffixes dropped): info_*, item_*, weapon_*, ammo_*,
 //   key_*, monster_*, misc_*, target_*, path_*, point_*, light, light_*,

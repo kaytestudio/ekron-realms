@@ -163,6 +163,9 @@ void writeSky(const fs::path &dir) {
         writeFileBytes(dir / "env" / (std::string("testsky_") + realms::MapSky::kSuffixes[i] + ".tga"),
                        tgaBytes(8, 8, kSkyColours[i][0], kSkyColours[i][1], kSkyColours[i][2], i % 2 == 1));
     writeFileBytes(dir / "env/testsky_dn.pcx", md2_builder::writePcx(8, 8, std::vector<uint8_t>(64, 200)));
+    // SP_worldspawn's default, grey: maps without "sky" must only get it when they are BSP maps
+    for (const char *suffix : realms::MapSky::kSuffixes)
+        writeFileBytes(dir / "env" / (std::string("unit1_") + suffix + ".tga"), tgaBytes(4, 4, 90, 90, 90, false));
 }
 
 // decodeTga, skySettings, the face lookup against R_DrawSkyBox, renderToSky.
@@ -189,10 +192,11 @@ void skyMath() {
     CHECK(!realms::decodeTga(mapped.data(), mapped.size(), img, error));
 
     realms::MapSkySettings s = realms::skySettings("{\n\"classname\" \"worldspawn\"\n}\n");
-    CHECK(s.name == "unit1_" && s.rotate == 0.0f);
+    CHECK(s.name == "unit1_" && s.rotate == 0.0f && !s.named);
     s = realms::skySettings("{\n\"sky\" \"space1_\"\n\"skyrotate\" \"-4.5\"\n\"skyaxis\" \"0 1 2\"\n"
                             "\"classname\" \"worldspawn\"\n}\n{\n\"classname\" \"light\"\n\"sky\" \"x\"\n}\n");
     CHECK(s.name == "space1_" && near(s.rotate, -4.5f, 1e-6f) && s.axis[0] == 0 && s.axis[1] == 1 && s.axis[2] == 2);
+    CHECK(s.named);
 
     // MakeSkyVec(s, t, axis): every point of every face maps back
     const int stToVec[6][3] = {{3, -1, 2}, {-3, 1, 2}, {1, 3, 2}, {-1, -3, 2}, {-2, -1, 3}, {2, -1, -3}};
@@ -541,6 +545,8 @@ void surfaceEffects(realms::Engine &engine) {
     std::string error;
     CHECK(view.open(engine, options, geometry, error));
     if (!view.active()) return;
+    // no "sky" in this worldspawn: a BSP map falls back to unit1_
+    CHECK(!view.module().sky().empty() && view.module().sky().settings().name == "unit1_");
 
     // the geometry: flags and closed chains (frames), per model
     const std::vector<std::string> cycle{"e1u1/anim0", "e1u1/anim1", "e1u1/anim2"};
@@ -801,6 +807,9 @@ void gameOnGltf(realms::Engine &engine) {
     const realms::MapWalker &w = view.session().walker();
     CHECK(near(w.origin[0], -96, 0.2f) && near(w.origin[1], 0, 0.2f));
     CHECK(view.modelPoses().size() <= 1); // no brush models on mesh maps
+    // no "sky" in the scene extras: no skybox, though env/unit1_ exists
+    CHECK(q2.sky().empty());
+    CHECK(view.session().summary().find(", sky") == std::string::npos);
 
     // a couple of frames: items and monsters drop to the floor
     const float yaw = view.spawnRenderYaw();
@@ -863,6 +872,12 @@ void doorsOnGltf(realms::Engine &engine) {
         if (b.model == 2 && !b.positions.empty()) fanLocal = std::fabs(b.positions[0]) <= 64.5f;
     }
     CHECK(doorBatch && fanLocal);
+    // the scene extras name a sky: drawn behind the glTF scene, turning
+    const realms::MapSky &sky = view.module().sky();
+    CHECK(!sky.empty() && sky.settings().name == "testsky_" && near(sky.settings().rotate, 20.0f, 1e-6f));
+    CHECK(sky.size() == 16 && sky.pixels().size() == 6 * 16 * 16 * 4);
+    if (sky.pixels().size() == 6 * 16 * 16 * 4)
+        CHECK(rgbIs(sky.pixels().data() + 4 * 37, kSkyColours[0][0], kSkyColours[0][1], kSkyColours[0][2]));
     std::vector<sandbox::MeshVertex> vertices;
     std::vector<mapview::ModelRange> ranges;
     std::vector<float> lightUvs;

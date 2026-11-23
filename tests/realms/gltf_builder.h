@@ -131,9 +131,10 @@ inline std::string outpostGlb() { return glb(outpostJson(), quadBin()); }
 //   func_rotating at (5, 1, 5) m (map 160 -160 32) holds a 4 x 1 m blade
 //   ("spawnflags" 1: starts turning), stored relative to that origin.
 //   A func_door node without meshes is not exported.
+//   Scene extras name a skybox: env/testsky_, turning 20 degrees a second.
 inline std::string gateJson() {
     return std::string("{\"asset\":{\"version\":\"2.0\"},\"scene\":0,") +
-           "\"scenes\":[{\"nodes\":[0,1,2,4,6]}]," +
+           "\"scenes\":[{\"nodes\":[0,1,2,4,6],\"extras\":{\"sky\":\"testsky_\",\"skyrotate\":20}}]," +
            "\"nodes\":[{\"name\":\"Floor\",\"mesh\":0,\"scale\":[2,1,2]}," +
            "{\"name\":\"info_player_start\",\"translation\":[-3,0.75,0]}," +
            "{\"name\":\"func_door.001\",\"children\":[3],"

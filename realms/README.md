@@ -68,7 +68,7 @@ is missing). `ekron-realms --engine-info` shows what was picked.
 | `MapWalker` | Quake 2 style movement for walking a map without the game |
 | `MapLighting` | BSP lightmap atlas, light styles, `R_LightPoint` |
 | `MapTextures` | `textures/*.wal` of the map's faces and their animation frames in one texture array, Quake 2 palette |
-| `MapSky` | Skybox from worldspawn `sky`, `skyrotate`, `skyaxis`: `env/*.tga` or `.pcx` |
+| `MapSky` | Skybox from worldspawn `sky`, `skyrotate`, `skyaxis`: `env/*.tga` or `.pcx`; `unit1_` by default on BSP maps, only when the scene's extras set `sky` on glTF maps |
 | `GameServer`, `Q2Pmove` | Server side of Quake 2 hosting the game module |
 | `GameView`, `Md2Model` | Entity interpolation, `.md2` models, PCX skins |
 | `GameEffects`, `GameSound` | Particles, temp entities, dynamic lights, beams; `.wav` decoding and spatialisation |
@@ -159,7 +159,7 @@ the game module exit 77 (skipped) without it.
 | :--- | :--- |
 | `realms_bridge_test.cpp` | Cvars, commands, PAK files, collision (`realms_map_suite.h`), vis and mesh maps, glTF import, walker, Engine |
 | `game_server_test.cpp` | `Q2Pmove`, the game module on a generated level, client-side entities |
-| `quake2_module_test.cpp` | `Quake2Module` and `Quake2View` on a lightmapped arena, `.wal` decoding and texture layers, surface effects and animated textures, TGA decoding and the skybox, the game on a glTF map |
+| `quake2_module_test.cpp` | `Quake2Module` and `Quake2View` on a lightmapped arena, `.wal` decoding and texture layers, surface effects and animated textures, TGA decoding and the skybox, the game and a skybox on glTF maps |
 | `q2_compiled_map_test.cpp` | `q2room.bsp`: collision, areaportals, PVS, qrad lightmaps and styles, a walk with the game |
 | `md2_test.cpp` | `.md2` and PCX parsing, corrupt files |
 | `map_render_alignment_test.cpp` | glTF collision vs. drawn model, map import rules |

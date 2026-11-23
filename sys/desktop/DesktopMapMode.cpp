@@ -56,7 +56,7 @@ bool DesktopMapMode::open(realms::Engine &engine, ekron::gl::Api &gl, DesktopRen
         session.summary() += ", " + std::to_string(textures.count()) + " textures";
     if (!model_) view_.triangles(geometry, vertices, ranges, lightUvs);
     const realms::MapSky &sky = quake2().sky();
-    if (!model_ && !sky.empty()) {
+    if (!sky.empty()) { // BSP sky faces, and the background of every map
         renderer.setMapSky(gl, sky.size(), sky.pixels());
         session.summary() += ", sky " + sky.settings().name;
     } else {
