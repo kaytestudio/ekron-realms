@@ -476,6 +476,7 @@ struct MetalMapPipelines {
     id<MTLRenderPipelineState> modelOpaque = nil;  // modelVertex / sandboxFragment
     id<MTLRenderPipelineState> modelBlended = nil;
     id<MTLRenderPipelineState> quakeMap = nil;     // quakeMapVertex / quakeMapFragment
+    id<MTLRenderPipelineState> quakeMapBlended = nil; // the same, alpha blended (translucent faces)
     id<MTLRenderPipelineState> quakeEntityOpaque = nil; // modelVertex / quakeMapFragment
     id<MTLRenderPipelineState> quakeEntityBlended = nil;
     id<MTLRenderPipelineState> quakeEffect = nil;  // quakeEffectVertex / quakeEffectFragment
@@ -731,42 +732,21 @@ public:
         } else if (triangles_ && lightUvs_ && count_ > 0) {
             if (lightmap_ && view_->module().updateLightStyles()) uploadLightmap(); // animated light styles
             quake.modeCount.x = (lightmap_ && engine.cvarBool("r_lightmaps", true)) ? 1 : 0;
-            SandboxDrawUniforms draw{};
-            draw.objectTransform = identity;
-            draw.baseColorFactor = simd_make_float4(1.0f, 1.0f, 1.0f, 1.0f);
-            draw.materialParams = simd_make_float4(0.94f, 0.5f, 0.0f, 0.0f);
-            draw.drawFlags = simd_make_int4(0, 0, 0, 0);
-            [encoder setRenderPipelineState:p.quakeMap];
-            [encoder setDepthStencilState:p.depthWrite];
-            [encoder setVertexBuffer:triangles_ offset:0 atIndex:0];
-            [encoder setVertexBuffer:lightUvs_ offset:0 atIndex:3];
-            [encoder setFragmentTexture:(lightmap_ ? lightmap_ : p.white) atIndex:2];
-            [encoder setFragmentBytes:&quake length:sizeof(quake) atIndex:3];
-            if (ranges_.empty()) {
-                [encoder setVertexBytes:&draw length:sizeof(draw) atIndex:2];
-                [encoder setFragmentBytes:&draw length:sizeof(draw) atIndex:2];
-                [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:count_];
-            } else {
-                // brush models where the game has them (doors, platforms), hidden when gone
-                const std::vector<mapview::ModelPose> &poses = view_->modelPoses();
-                for (const mapview::ModelRange &r : ranges_) {
-                    const mapview::ModelPose *pose =
-                        r.model > 0 && size_t(r.model) < poses.size() ? &poses[size_t(r.model)] : nullptr;
-                    if (pose && !pose->visible) continue;
-                    if (r.count <= 0 || NSUInteger(r.first) + NSUInteger(r.count) > count_) continue;
-                    draw.objectTransform = pose ? makeColumnMatrix(pose->transform.data()) : identity;
-                    [encoder setVertexBytes:&draw length:sizeof(draw) atIndex:2];
-                    [encoder setFragmentBytes:&draw length:sizeof(draw) atIndex:2];
-                    [encoder drawPrimitives:MTLPrimitiveTypeTriangle
-                                vertexStart:NSUInteger(r.first)
-                                vertexCount:NSUInteger(r.count)];
-                }
-            }
+            drawTriangles(encoder, p, quake, identity, 0);
         }
-        if (!view_->gameRunning()) return;
+        // translucent faces (water, glass) after the entities, before the effects
+        const bool translucent = !model_.ready() && triangles_ && lightUvs_ && count_ > 0 &&
+                                 view_->hasTranslucentFaces();
+        SandboxQuakeUniforms mapQuake = quake;
+        mapQuake.modeCount.x = (lightmap_ && engine.cvarBool("r_lightmaps", true)) ? 1 : 0;
+        if (!view_->gameRunning()) {
+            if (translucent) drawTriangles(encoder, p, mapQuake, identity, 1);
+            return;
+        }
         view_->entities(engine, renderYaw, renderPitch, engine.cvarBool("cl_gun", true), entityVertices_,
                         entityBatches_);
         drawEntities(encoder, p, samplers, engine, device, queue, quake, drawableSize);
+        if (translucent) drawTriangles(encoder, p, mapQuake, identity, 1);
         drawEffects(encoder, p, device);
     }
 
@@ -921,6 +901,59 @@ private:
 
     // Opaque entities, then translucent ones (shells, BFG / plasma); the view
     // weapon never sinks into walls (ref_gl's depth range 0...0.3).
+    // The map's triangles: pass 0 the opaque faces, 1 the translucent ones
+    // (blended, depth not written; R_DrawAlphaSurfaces).
+    void drawTriangles(id<MTLRenderCommandEncoder> encoder,
+                       const MetalMapPipelines &p,
+                       SandboxQuakeUniforms quake,
+                       const matrix_float4x4 &identity,
+                       int pass) {
+        const std::array<float, 4> motion = view_->surfaceMotion();
+        quake.surface = simd_make_float4(motion[0], motion[1], motion[2], motion[3]);
+        quake.modeCount.w = pass;
+        SandboxDrawUniforms draw{};
+        draw.objectTransform = identity;
+        draw.baseColorFactor = simd_make_float4(1.0f, 1.0f, 1.0f, 1.0f);
+        draw.materialParams = simd_make_float4(0.94f, 0.5f, 0.0f, 0.0f);
+        draw.drawFlags = simd_make_int4(0, 0, 0, 0);
+        [encoder setRenderPipelineState:(pass == 1 ? p.quakeMapBlended : p.quakeMap)];
+        [encoder setDepthStencilState:(pass == 1 ? p.depthRead : p.depthWrite)];
+        [encoder setVertexBuffer:triangles_ offset:0 atIndex:0];
+        [encoder setVertexBuffer:lightUvs_ offset:0 atIndex:3];
+        [encoder setFragmentTexture:(lightmap_ ? lightmap_ : p.white) atIndex:2];
+        [encoder setFragmentBytes:&quake length:sizeof(quake) atIndex:3];
+        std::vector<int> layers;
+        const auto animate = [&](int model) {
+            if (view_->animationCount()) {
+                view_->animationLayers(model, layers);
+                for (size_t i = 0; i < layers.size() && i < 32; ++i) quake.animation[i / 4][i % 4] = layers[i];
+            }
+            [encoder setVertexBytes:&quake length:sizeof(quake) atIndex:4];
+        };
+        if (ranges_.empty()) {
+            animate(0);
+            [encoder setVertexBytes:&draw length:sizeof(draw) atIndex:2];
+            [encoder setFragmentBytes:&draw length:sizeof(draw) atIndex:2];
+            [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:count_];
+            return;
+        }
+        // brush models where the game has them (doors, platforms), hidden when gone
+        const std::vector<mapview::ModelPose> &poses = view_->modelPoses();
+        for (const mapview::ModelRange &r : ranges_) {
+            const mapview::ModelPose *pose =
+                r.model > 0 && size_t(r.model) < poses.size() ? &poses[size_t(r.model)] : nullptr;
+            if (pose && !pose->visible) continue;
+            if (r.count <= 0 || NSUInteger(r.first) + NSUInteger(r.count) > count_) continue;
+            draw.objectTransform = pose ? makeColumnMatrix(pose->transform.data()) : identity;
+            animate(r.model);
+            [encoder setVertexBytes:&draw length:sizeof(draw) atIndex:2];
+            [encoder setFragmentBytes:&draw length:sizeof(draw) atIndex:2];
+            [encoder drawPrimitives:MTLPrimitiveTypeTriangle
+                        vertexStart:NSUInteger(r.first)
+                        vertexCount:NSUInteger(r.count)];
+        }
+    }
+
     void drawEntities(id<MTLRenderCommandEncoder> encoder,
                       const MetalMapPipelines &p,
                       id<MTLSamplerState> const samplers[3][3],
@@ -1141,6 +1174,7 @@ void IosSoundStart(const std::string &bundleRoot, realms::Engine &engine) {
     id<MTLRenderPipelineState> pipPipeline_;
     // Realms map mode with the Quake 2 stack
     id<MTLRenderPipelineState> quakeMapPipeline_;
+    id<MTLRenderPipelineState> quakeMapBlendedPipeline_;
     id<MTLRenderPipelineState> quakeEntityOpaquePipeline_;
     id<MTLRenderPipelineState> quakeEntityBlendedPipeline_;
     id<MTLRenderPipelineState> quakeEffectPipeline_;
@@ -1538,13 +1572,14 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
     modelBlendedPipeline_ = makePipeline(@"modelVertex", @"sandboxFragment", YES, YES);
     pipPipeline_ = makePipeline(@"pipVertex", @"pipFragment", NO, YES);
     quakeMapPipeline_ = makePipeline(@"quakeMapVertex", @"quakeMapFragment", NO, YES);
+    quakeMapBlendedPipeline_ = makePipeline(@"quakeMapVertex", @"quakeMapFragment", YES, YES);
     quakeEntityOpaquePipeline_ = makePipeline(@"modelVertex", @"quakeMapFragment", NO, YES);
     quakeEntityBlendedPipeline_ = makePipeline(@"modelVertex", @"quakeMapFragment", YES, YES);
     quakeEffectPipeline_ = makePipeline(@"quakeEffectVertex", @"quakeEffectFragment", YES, YES);
 
     return skyPipeline_ && sandboxOpaquePipeline_ && sandboxBlendedPipeline_ &&
            modelOpaquePipeline_ && modelBlendedPipeline_ && pipPipeline_ &&
-           quakeMapPipeline_ && quakeEntityOpaquePipeline_ && quakeEntityBlendedPipeline_ && quakeEffectPipeline_;
+           quakeMapPipeline_ && quakeMapBlendedPipeline_ && quakeEntityOpaquePipeline_ && quakeEntityBlendedPipeline_ && quakeEffectPipeline_;
 }
 
 - (void)buildDepthAndSamplers {
@@ -2973,6 +3008,7 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
         pipelines.modelOpaque = modelOpaquePipeline_;
         pipelines.modelBlended = modelBlendedPipeline_;
         pipelines.quakeMap = quakeMapPipeline_;
+        pipelines.quakeMapBlended = quakeMapBlendedPipeline_;
         pipelines.quakeEntityOpaque = quakeEntityOpaquePipeline_;
         pipelines.quakeEntityBlended = quakeEntityBlendedPipeline_;
         pipelines.quakeEffect = quakeEffectPipeline_;

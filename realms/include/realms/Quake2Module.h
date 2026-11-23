@@ -36,6 +36,7 @@ struct Quake2ModuleConfig {
 struct Quake2ModelPose {
     bool visible = true;
     std::array<float, 3> origin{}, angles{};
+    int frame = 0; // the entity's frame (EF_ANIM_* applied): its texture animation frame
 };
 
 // One corner of an effect quad, map space. shape 0: a round particle with

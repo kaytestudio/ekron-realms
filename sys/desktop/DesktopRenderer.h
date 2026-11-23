@@ -137,6 +137,16 @@ public:
                         std::vector<MapDrawRange> ranges = {});
     // Indexed by model number; empty = every model static and visible.
     void setMapModelPoses(std::vector<MapModelPose> poses) { mapPoses_ = std::move(poses); }
+    // Quake 2 surface effects of the map geometry (mapview::kMapEffectShift):
+    // the surface motion (mapview::mapSurfaceMotion), the current layer of
+    // each animation slot per model (mapview::Quake2View::animationLayers;
+    // empty = no animated faces) and whether there are translucent faces.
+    struct MapSurfaces {
+        std::array<float, 4> motion{};
+        std::vector<std::vector<int32_t>> animations; // [model][slot]
+        bool translucent = false;
+    };
+    void setMapSurfaces(MapSurfaces surfaces) { mapSurfaces_ = std::move(surfaces); }
     void clearMapGeometry(ekron::gl::Api &gl);
     // Quake 2 lightmaps (realms::MapLighting) for the map set with
     // setMapGeometry: atlas coordinates per vertex (u, v; u < 0 = no
@@ -263,6 +273,9 @@ private:
     GLuint compileProgram(ekron::gl::Api &gl, const char *vsSrc, const char *fsSrc, std::string &errOut);
     void applyMapLights(ekron::gl::Api &gl, GLuint prog) const;
     void drawMapEffects(ekron::gl::Api &gl, physics::Vec3 eye, float yaw, float pitch, float roll, float aspect);
+    // The map geometry: pass 0 the opaque faces, 1 the translucent ones (blended).
+    void drawMapTriangles(ekron::gl::Api &gl, physics::Vec3 eye, float yaw, float pitch, float roll, float aspect,
+                          int pass);
     bool loadMaterialArray(ekron::gl::Api &gl, const std::string &assetRoot);
 
     GLuint worldProg_ = 0;
@@ -293,6 +306,7 @@ private:
     void uploadMapLightUvs(ekron::gl::Api &gl, const std::vector<float> &uvs);
     std::vector<MapDrawRange> mapRanges_;
     std::vector<MapModelPose> mapPoses_;
+    MapSurfaces mapSurfaces_;
     GLuint entityVao_ = 0;
     GLuint entityVbo_ = 0;
     std::vector<EntityBatch> entityBatches_;

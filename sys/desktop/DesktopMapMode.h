@@ -41,6 +41,8 @@ public:
     const DesktopGltfModel *model() const { return model_ && model_->ready() ? model_.get() : nullptr; }
     // Inline model poses for DesktopRenderer::setMapModelPoses (empty without a game).
     const std::vector<DesktopRenderer::MapModelPose> &modelPoses() const { return poses_; }
+    // Surface effects for DesktopRenderer::setMapSurfaces (updated by update()).
+    const DesktopRenderer::MapSurfaces &surfaces() const { return surfaces_; }
 
     realms::MapWalker &walker() { return view_.session().walker(); }
     const realms::MapWalker &walker() const { return view_.session().walker(); }
@@ -96,6 +98,8 @@ private:
     mapview::Quake2View view_;
     std::unique_ptr<DesktopGltfModel> model_;
     std::vector<DesktopRenderer::MapModelPose> poses_;
+    DesktopRenderer::MapSurfaces surfaces_;
+    size_t modelCount_ = 1; // world + inline models drawn from the map geometry
     std::unordered_map<std::string, GLuint> skins_; // 0: tried, not loadable
     std::vector<mapview::EntityVertex> entityVertices_;
     std::vector<mapview::EntityBatch> entityBatches_;

@@ -34,6 +34,7 @@ struct ModelPose {
     // (the textured glTF): differs from `transform` for glTF brush models
     // stored relative to an "origin" (func_rotating, func_door_rotating).
     std::array<float, 16> placed{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+    int frame = 0; // the entity's frame: its texture animation frame
 };
 
 // Alias model vertex, model space on the render axes, metres.
@@ -74,6 +75,40 @@ constexpr int mapTextureLayer(int texture, int materialClass) {
     return kMapTextureLayer + 8 * texture + (materialClass & 7);
 }
 
+// Quake 2 surface effects and texture animation ride above that layer
+// (bits 0..11, at most mapTextureLayer(255, 7)): bits 12..15 hold the
+// kMapEffect* bits of the face's texinfo flags, bits 16..21 its animation
+// slot + 1. The shaders draw a slot's current layer instead
+// (Quake2View::animationLayers, per BSP model), warp and scroll the
+// coordinates with mapSurfaceMotion, draw warp and translucent faces
+// fullbright like ref_gl, and draw translucent faces in a second, blended
+// pass after the entities (R_DrawAlphaSurfaces).
+constexpr int kMapLayerMask = 0xFFF;
+constexpr int kMapEffectShift = 12;
+constexpr int kMapEffectWarp = 1;    // SURF_WARP: water, slime, lava (EmitWaterPolys)
+constexpr int kMapEffectFlowing = 2; // SURF_FLOWING: scrolls towards -s
+constexpr int kMapEffectTrans33 = 4; // SURF_TRANS33: alpha 0.33
+constexpr int kMapEffectTrans66 = 8; // SURF_TRANS66: alpha 0.66
+constexpr int kMapAnimationShift = 16;
+constexpr size_t kMaxMapAnimations = 32;
+// kMapEffect* bits of REALMS_SURF_* flags.
+int mapEffects(int32_t surfaceFlags);
+// The parts of a vertex layer, as the shaders take them apart.
+struct MapLayerParts {
+    int layer = 0;     // mapTextureLayer or a material class
+    int effects = 0;   // kMapEffect*
+    int animation = 0; // slot + 1, 0 = none
+};
+MapLayerParts mapLayerParts(float layer);
+// The shaders' surface motion at `seconds` since the map opened:
+//   x  warp phase, radians in [0, 2 pi): with (u, v) in texels / 64 the warp
+//      samples (u, v) + 0.125 * sin(8 * (v, u) + x) (r_turbsin, TURBSCALE);
+//   y  SURF_FLOWING scroll added to u: -64 * frac(time / 40) texture
+//      widths (DrawGLFlowingPoly), wrapped to [0, 1);
+//   z  the same for flowing warp faces: -frac(time / 2), wrapped;
+//   w  0.
+std::array<float, 4> mapSurfaceMotion(double seconds);
+
 class Quake2View {
 public:
     // Opens the engine's loaded map: the session, then the module (lightmaps
@@ -87,9 +122,21 @@ public:
     // The map's triangles grouped by BSP model (ranges: empty when there is
     // only the world) and their lightmap coordinates (u, v per vertex, -1 =
     // none; empty without lightmaps). Faces with a texture from the map use
-    // mapTextureLayer.
+    // mapTextureLayer; surface effects and animation slots are packed above
+    // it (kMapEffectShift). Warp faces keep coordinates in texels / 64, as
+    // Quake 2 draws them whatever the texture size.
     void triangles(const realms::MapGeometry &geometry, std::vector<sandbox::MeshVertex> &vertices,
-                   std::vector<ModelRange> &ranges, std::vector<float> &lightUvs) const;
+                   std::vector<ModelRange> &ranges, std::vector<float> &lightUvs);
+    // Animation slots of the last triangles() (at most kMaxMapAnimations),
+    // and the layer each one shows now on BSP model `model`'s faces: the
+    // world steps 2 frames a second, brush models follow their entity's
+    // frame (R_TextureAnimation). Empty without animated textured faces.
+    size_t animationCount() const { return animations_.size(); }
+    void animationLayers(int model, std::vector<int> &layers) const;
+    // mapSurfaceMotion for the time update() has run since open().
+    std::array<float, 4> surfaceMotion() const { return mapSurfaceMotion(skyTime_); }
+    // The last triangles() had translucent faces (a second pass is needed).
+    bool hasTranslucentFaces() const { return translucent_; }
     // The platform can't draw lightmaps for this map (textured model...).
     void disableLightmaps() { q2_.disableLightmaps(); }
     // ... or the map's textures (call before triangles()).
@@ -146,6 +193,8 @@ private:
     std::vector<ModelPose> poses_;
     std::vector<std::array<float, 3>> modelOrigins_; // glTF inline model origins, render space (index = model)
     std::map<int, int> nodeModels_;
+    std::vector<std::vector<int>> animations_; // per slot: the layer of each frame
+    bool translucent_ = false;
     std::vector<std::string> messages_;
     double skyTime_ = 0.0;
     std::vector<realms::Quake2EffectVertex> fxQuads_;

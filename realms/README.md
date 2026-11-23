@@ -64,10 +64,10 @@ is missing). `ekron-realms --engine-info` shows what was picked.
 | :--- | :--- |
 | `SandboxBoot` | Boot order and cvars shared by all hosts, plus the `map`, `mapinfo` and `killserver` commands |
 | `MeshMap` | glTF to collision mesh |
-| `MapGeometry` | Drawable triangles from BSP faces, brush windings or glTF |
+| `MapGeometry` | Drawable triangles from BSP faces, brush windings or glTF; surface flags and texture animation chains |
 | `MapWalker` | Quake 2 style movement for walking a map without the game |
 | `MapLighting` | BSP lightmap atlas, light styles, `R_LightPoint` |
-| `MapTextures` | `textures/*.wal` of the map's faces in one texture array, Quake 2 palette |
+| `MapTextures` | `textures/*.wal` of the map's faces and their animation frames in one texture array, Quake 2 palette |
 | `MapSky` | Skybox from worldspawn `sky`, `skyrotate`, `skyaxis`: `env/*.tga` or `.pcx` |
 | `GameServer`, `Q2Pmove` | Server side of Quake 2 hosting the game module |
 | `GameView`, `Md2Model` | Entity interpolation, `.md2` models, PCX skins |
@@ -112,6 +112,12 @@ this to render space (metres, Y up) for the map modes:
 | Android | `AndroidMapMode` + `Quake2Gles` (GLES 3) | `jniLibs/<abi>/librealms_game.so` (`build_core.sh game-android-aarch64`/`-x86_64`) |
 | iOS | `MetalMapMode` in `SandboxBridge.mm` | device builds link `librealms_game.a` (`build_core.sh ios-arm64`); the simulator walks maps only |
 
+Each vertex's layer packs the texture layer (bits 0-11), the face's surface
+effects (12-15: warp, flowing, 33% and 66% translucency) and an animation slot
+(16-21) whose current layer `animationLayers()` gives per brush model. The
+renderers warp and scroll the texture coordinates with `surfaceMotion()` and
+draw translucent faces in a second, blended pass after the entities.
+
 Without the game (or with `sv_game 0`) the map is walked with `MapWalker`.
 glTF maps run the game as BSP maps do, with the entities their node names
 spawn. Controls and map import are in [docs/CONTROLS.md](../docs/CONTROLS.md).
@@ -153,7 +159,7 @@ the game module exit 77 (skipped) without it.
 | :--- | :--- |
 | `realms_bridge_test.cpp` | Cvars, commands, PAK files, collision (`realms_map_suite.h`), vis and mesh maps, glTF import, walker, Engine |
 | `game_server_test.cpp` | `Q2Pmove`, the game module on a generated level, client-side entities |
-| `quake2_module_test.cpp` | `Quake2Module` and `Quake2View` on a lightmapped arena, `.wal` decoding and texture layers, TGA decoding and the skybox, the game on a glTF map |
+| `quake2_module_test.cpp` | `Quake2Module` and `Quake2View` on a lightmapped arena, `.wal` decoding and texture layers, surface effects and animated textures, TGA decoding and the skybox, the game on a glTF map |
 | `q2_compiled_map_test.cpp` | `q2room.bsp`: collision, areaportals, PVS, qrad lightmaps and styles, a walk with the game |
 | `md2_test.cpp` | `.md2` and PCX parsing, corrupt files |
 | `map_render_alignment_test.cpp` | glTF collision vs. drawn model, map import rules |

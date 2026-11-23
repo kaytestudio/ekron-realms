@@ -148,9 +148,14 @@ size_t MapTextures::load(const Engine &engine, const MapGeometry &geometry, int 
 
     std::vector<RgbaImage> images;
     std::vector<std::string> tried;
-    for (const MapGeometryBatch &b : geometry.batches) {
-        if (b.material.empty() || std::find(tried.begin(), tried.end(), b.material) != tried.end()) continue;
-        tried.push_back(b.material);
+    // each material, then the animation frames (MapGeometryBatch::frames)
+    // that no face starts with
+    std::vector<std::string> materials;
+    for (const MapGeometryBatch &b : geometry.batches) materials.push_back(b.material);
+    for (const MapGeometryBatch &b : geometry.batches) materials.insert(materials.end(), b.frames.begin(), b.frames.end());
+    for (const std::string &material : materials) {
+        if (material.empty() || std::find(tried.begin(), tried.end(), material) != tried.end()) continue;
+        tried.push_back(material);
         if (textures_.size() >= kMaxTextures) {
             missing_++;
             continue;
@@ -158,14 +163,14 @@ size_t MapTextures::load(const Engine &engine, const MapGeometry &geometry, int 
         std::vector<unsigned char> bytes;
         RgbaImage image;
         std::string error;
-        const std::string path = "textures/" + b.material + ".wal";
+        const std::string path = "textures/" + material + ".wal";
         if ((!engine.loadFile(path, bytes) && !engine.loadFile(lower(path), bytes)) ||
             !decodeWal(bytes.data(), bytes.size(), palette, image, error)) {
             missing_++;
             continue;
         }
-        index_.emplace(b.material, int(textures_.size()));
-        textures_.push_back({b.material, image.width, image.height});
+        index_.emplace(material, int(textures_.size()));
+        textures_.push_back({material, image.width, image.height});
         images.push_back(std::move(image));
     }
     if (textures_.empty()) return 0;

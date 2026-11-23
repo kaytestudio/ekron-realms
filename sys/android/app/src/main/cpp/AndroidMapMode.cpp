@@ -269,6 +269,89 @@ physics::Vec3 AndroidMapMode::drawEye() const {
     return reuseCity_ ? mapview::toLevelScene(e, cityScale_, cityOffset_) : e;
 }
 
+// The map's triangles: pass 0 the opaque faces, 1 the translucent ones
+// (blended, depth not written).
+void AndroidMapMode::drawTriangles(GLuint program, realms::Engine &engine, int pass) {
+    glUseProgram(program);
+    glUniform1i(glGetUniformLocation(program, "modelPass"), 0);
+    glDisable(GL_BLEND);
+    glDepthMask(GL_TRUE);
+    // Map faces have a consistent winding, but brush-built maps and glTF
+    // slabs can be seen from either side.
+    glDisable(GL_CULL_FACE);
+    if (lightmapTexture_) {
+        realms::Quake2Module &q2 = view_->module();
+        glActiveTexture(GL_TEXTURE2);
+        glBindTexture(GL_TEXTURE_2D, lightmapTexture_);
+        if (pass == 0 && q2.updateLightStyles()) { // animated light styles: the atlas again
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, q2.lighting().width(), q2.lighting().height(), GL_RGBA,
+                            GL_UNSIGNED_BYTE, q2.lightmap().data());
+        }
+        glActiveTexture(GL_TEXTURE0);
+        glUniform1i(glGetUniformLocation(program, "mapLightmap"), engine.cvarBool("r_lightmaps", true) ? 1 : 0);
+    }
+    if (mapTextures_) {
+        glActiveTexture(GL_TEXTURE3);
+        glBindTexture(GL_TEXTURE_2D_ARRAY, mapTextures_);
+        glActiveTexture(GL_TEXTURE0);
+        glUniform1i(glGetUniformLocation(program, "mapTextured"), 1);
+    }
+    float pos[mapview::kMaxDynamicLights * 4] = {}, col[mapview::kMaxDynamicLights * 4] = {};
+    const int lightCount = int(std::min(lights_.size(), mapview::kMaxDynamicLights));
+    for (int i = 0; i < lightCount; i++) {
+        const mapview::DynamicLight &l = lights_[size_t(i)];
+        const float p[4] = {l.x, l.y, l.z, l.radius}, c[4] = {l.r, l.g, l.b, 1.0f};
+        std::copy(p, p + 4, pos + i * 4);
+        std::copy(c, c + 4, col + i * 4);
+    }
+    glUniform1i(glGetUniformLocation(program, "dlightCount"), lightCount);
+    glUniform4fv(glGetUniformLocation(program, "dlights"), GLsizei(mapview::kMaxDynamicLights), pos);
+    glUniform4fv(glGetUniformLocation(program, "dlightColors"), GLsizei(mapview::kMaxDynamicLights), col);
+    const std::array<float, 4> motion = view_->surfaceMotion();
+    glUniform4fv(glGetUniformLocation(program, "mapSurface"), 1, motion.data());
+    glUniform1i(glGetUniformLocation(program, "mapPass"), pass);
+    if (pass == 1) { // R_DrawAlphaSurfaces
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glDepthMask(GL_FALSE);
+    }
+    const GLint animationLoc = glGetUniformLocation(program, "mapAnimation");
+    std::vector<int> layers;
+    const auto animate = [&](int model) {
+        if (!view_->animationCount()) return;
+        view_->animationLayers(model, layers);
+        glUniform1iv(animationLoc, GLsizei(std::min<size_t>(layers.size(), mapview::kMaxMapAnimations)), layers.data());
+    };
+    const GLint transformLoc = glGetUniformLocation(program, "objectTransform");
+    glBindVertexArray(vao_);
+    if (ranges_.empty()) {
+        animate(0);
+        glDrawArrays(GL_TRIANGLES, 0, count_);
+    } else {
+        // brush models where the game has them (doors, platforms), hidden when gone
+        const std::vector<mapview::ModelPose> &poses = view_->modelPoses();
+        for (const mapview::ModelRange &r : ranges_) {
+            const mapview::ModelPose *pose =
+                r.model > 0 && size_t(r.model) < poses.size() ? &poses[size_t(r.model)] : nullptr;
+            if (pose && !pose->visible) continue;
+            glUniformMatrix4fv(transformLoc, 1, GL_FALSE, pose ? pose->transform.data() : kIdentity);
+            animate(r.model);
+            glDrawArrays(GL_TRIANGLES, r.first, r.count);
+        }
+        glUniformMatrix4fv(transformLoc, 1, GL_FALSE, kIdentity);
+    }
+    glBindVertexArray(0);
+    glUniform1i(glGetUniformLocation(program, "mapPass"), 0);
+    if (pass == 1) {
+        glDisable(GL_BLEND);
+        glDepthMask(GL_TRUE);
+    }
+    glUniform1i(glGetUniformLocation(program, "mapLightmap"), 0);
+    glUniform1i(glGetUniformLocation(program, "mapTextured"), 0);
+    glUniform1i(glGetUniformLocation(program, "dlightCount"), 0);
+}
+
 void AndroidMapMode::draw(GLuint program, const city::GltfRenderer &sandboxCity, realms::Engine &engine,
                           float renderYaw, float renderPitch, float aspect) {
     const physics::Vec3 eye = drawEye();
@@ -284,64 +367,14 @@ void AndroidMapMode::draw(GLuint program, const city::GltfRenderer &sandboxCity,
         };
         model_.draw(program, eye.x, eye.z, false, &moved);
     } else if (count_) {
-        glUseProgram(program);
-        glUniform1i(glGetUniformLocation(program, "modelPass"), 0);
-        glDisable(GL_BLEND);
-        glDepthMask(GL_TRUE);
-        // Map faces have a consistent winding, but brush-built maps and glTF
-        // slabs can be seen from either side.
-        glDisable(GL_CULL_FACE);
-        if (lightmapTexture_) {
-            realms::Quake2Module &q2 = view_->module();
-            glActiveTexture(GL_TEXTURE2);
-            glBindTexture(GL_TEXTURE_2D, lightmapTexture_);
-            if (q2.updateLightStyles()) { // animated light styles: the atlas again
-                glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-                glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, q2.lighting().width(), q2.lighting().height(), GL_RGBA,
-                                GL_UNSIGNED_BYTE, q2.lightmap().data());
-            }
-            glActiveTexture(GL_TEXTURE0);
-            glUniform1i(glGetUniformLocation(program, "mapLightmap"), engine.cvarBool("r_lightmaps", true) ? 1 : 0);
-        }
-        if (mapTextures_) {
-            glActiveTexture(GL_TEXTURE3);
-            glBindTexture(GL_TEXTURE_2D_ARRAY, mapTextures_);
-            glActiveTexture(GL_TEXTURE0);
-            glUniform1i(glGetUniformLocation(program, "mapTextured"), 1);
-        }
-        float pos[mapview::kMaxDynamicLights * 4] = {}, col[mapview::kMaxDynamicLights * 4] = {};
-        const int lightCount = int(std::min(lights_.size(), mapview::kMaxDynamicLights));
-        for (int i = 0; i < lightCount; i++) {
-            const mapview::DynamicLight &l = lights_[size_t(i)];
-            const float p[4] = {l.x, l.y, l.z, l.radius}, c[4] = {l.r, l.g, l.b, 1.0f};
-            std::copy(p, p + 4, pos + i * 4);
-            std::copy(c, c + 4, col + i * 4);
-        }
-        glUniform1i(glGetUniformLocation(program, "dlightCount"), lightCount);
-        glUniform4fv(glGetUniformLocation(program, "dlights"), GLsizei(mapview::kMaxDynamicLights), pos);
-        glUniform4fv(glGetUniformLocation(program, "dlightColors"), GLsizei(mapview::kMaxDynamicLights), col);
-        const GLint transformLoc = glGetUniformLocation(program, "objectTransform");
-        glBindVertexArray(vao_);
-        if (ranges_.empty()) {
-            glDrawArrays(GL_TRIANGLES, 0, count_);
-        } else {
-            // brush models where the game has them (doors, platforms), hidden when gone
-            const std::vector<mapview::ModelPose> &poses = view_->modelPoses();
-            for (const mapview::ModelRange &r : ranges_) {
-                const mapview::ModelPose *pose =
-                    r.model > 0 && size_t(r.model) < poses.size() ? &poses[size_t(r.model)] : nullptr;
-                if (pose && !pose->visible) continue;
-                glUniformMatrix4fv(transformLoc, 1, GL_FALSE, pose ? pose->transform.data() : kIdentity);
-                glDrawArrays(GL_TRIANGLES, r.first, r.count);
-            }
-            glUniformMatrix4fv(transformLoc, 1, GL_FALSE, kIdentity);
-        }
-        glBindVertexArray(0);
-        glUniform1i(glGetUniformLocation(program, "mapLightmap"), 0);
-        glUniform1i(glGetUniformLocation(program, "mapTextured"), 0);
-        glUniform1i(glGetUniformLocation(program, "dlightCount"), 0);
+        drawTriangles(program, engine, 0);
     }
-    if (!view_->gameRunning()) return;
+    // translucent faces (water, glass) after the entities, before the effects
+    const bool translucent = !model_.ready() && count_ && view_->hasTranslucentFaces();
+    if (!view_->gameRunning()) {
+        if (translucent) drawTriangles(program, engine, 1);
+        return;
+    }
     Quake2Gles::Camera camera;
     camera.eye = eye;
     camera.yaw = renderYaw;
@@ -349,6 +382,10 @@ void AndroidMapMode::draw(GLuint program, const city::GltfRenderer &sandboxCity,
     camera.aspect = aspect;
     view_->entities(engine, renderYaw, renderPitch, engine.cvarBool("cl_gun", true), entityVertices_, entityBatches_);
     gles_.drawEntities(engine, entityVertices_, entityBatches_, lights_, camera);
+    if (translucent) {
+        glUseProgram(program);
+        drawTriangles(program, engine, 1);
+    }
     gles_.drawEffects(effectVertices_, camera);
     glUseProgram(program);
 }

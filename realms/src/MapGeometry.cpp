@@ -44,6 +44,7 @@ enum {
     kNumLumps = 19
 };
 constexpr size_t kModelSize = 48, kNodeSize = 28, kLeafSize = 28, kLeafBrushSize = 2;
+constexpr size_t kMaxAnimationFrames = 64; // MapGeometryBatch::frames
 constexpr size_t kPlaneSize = 20, kVertexSize = 12, kFaceSize = 20, kTexinfoSize = 76, kEdgeSize = 4,
                  kSurfEdgeSize = 4, kBrushSize = 12, kBrushSideSize = 4;
 constexpr int kMaxFaceEdges = 64;    // qbsp MAXEDGES
@@ -85,6 +86,8 @@ struct Texinfo {
     int32_t flags = 0;
     int32_t value = 0;
     std::string name;
+    int32_t next = -1;               // nexttexinfo
+    std::vector<std::string> frames; // texture animation (MapGeometryBatch::frames)
 };
 
 struct Plane {
@@ -125,7 +128,7 @@ public:
         if (std::fabs(a) < 1e-6) return false; // degenerate (bevel sides, slivers)
         if (a < 0) std::reverse(pts.begin(), pts.end());
 
-        MapGeometryBatch &batch = batchFor(material, flags, contents, model);
+        MapGeometryBatch &batch = batchFor(material, flags, contents, model, tex);
         for (size_t i = 1; i + 1 < pts.size(); ++i) {
             for (const DVec *p : {&pts[0], &pts[i], &pts[i + 1]}) vertex(batch, *p, normal, tex);
             batch.faces.push_back(face);
@@ -134,8 +137,11 @@ public:
     }
 
 private:
-    MapGeometryBatch &batchFor(const std::string &material, int32_t flags, int32_t contents, int32_t model) {
-        const auto key = std::make_tuple(model, material, flags, contents);
+    MapGeometryBatch &batchFor(const std::string &material, int32_t flags, int32_t contents, int32_t model,
+                               const Texinfo *tex) {
+        static const std::vector<std::string> still;
+        const std::vector<std::string> &frames = tex ? tex->frames : still;
+        const auto key = std::make_tuple(model, material, flags, contents, frames);
         auto it = index_.find(key);
         if (it != index_.end()) return out_.batches[it->second];
         index_.emplace(key, out_.batches.size());
@@ -145,6 +151,7 @@ private:
         b.surfaceFlags = flags;
         b.contents = contents;
         b.model = model;
+        b.frames = frames;
         return b;
     }
 
@@ -184,7 +191,7 @@ private:
     }
 
     MapGeometry &out_;
-    std::map<std::tuple<int32_t, std::string, int32_t, int32_t>, size_t> index_;
+    std::map<std::tuple<int32_t, std::string, int32_t, int32_t, std::vector<std::string>>, size_t> index_;
     bool first_ = true;
 };
 
@@ -209,6 +216,26 @@ std::vector<Texinfo> readTexinfo(const Lump &lump) {
         t.flags = rdI32(p + 32);
         t.value = rdI32(p + 36);
         t.name = nameField(p + 40, 32);
+        t.next = rdI32(p + 72);
+    }
+    // Animation chains like Mod_LoadTexinfo (nexttexinfo <= 0: none) and
+    // R_TextureAnimation, which steps frame % numframes along the chain. A
+    // chain that doesn't come back to its start would hang Quake 2: dropped.
+    for (size_t i = 0; i < out.size(); ++i) {
+        std::vector<std::string> frames{out[i].name};
+        size_t at = i;
+        bool closed = false;
+        while (frames.size() <= kMaxAnimationFrames) {
+            const int32_t next = out[at].next;
+            if (next <= 0 || size_t(next) >= out.size()) break;
+            at = size_t(next);
+            if (at == i) {
+                closed = true;
+                break;
+            }
+            frames.push_back(out[at].name);
+        }
+        if (closed && frames.size() > 1) out[i].frames = std::move(frames);
     }
     return out;
 }

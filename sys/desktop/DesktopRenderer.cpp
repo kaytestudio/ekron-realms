@@ -94,11 +94,19 @@ uniform vec2 uAngles;
 uniform float uRoll;
 uniform float uAspect;
 uniform mat4 uObjectTransform;
+// Map mode (mapview::kMapEffectShift): aLayer packs the layer (bits 0..11),
+// Quake 2 surface effects (12..15) and an animation slot + 1 (16..21) whose
+// current layer is uMapAnimation[slot]. uMapPass 0 draws the opaque faces,
+// 1 the translucent ones (SURF_TRANS33 / TRANS66); the others are moved
+// out of the view.
+uniform int uMapPass;
+uniform int uMapAnimation[32];
 
 out vec3 vCol;
 out vec3 vNorm;
 out vec2 vUV;
 flat out int vLayer;
+flat out int vEffects;
 out vec3 vToEye;
 out vec2 vLightUV;
 
@@ -117,7 +125,12 @@ void main() {
     vCol = aCol;
     vNorm = mat3(uObjectTransform) * aNorm;
     vUV = aUV;
-    vLayer = int(aLayer + 0.5);
+    int packed = int(aLayer + 0.5);
+    int slot = packed >> 16;
+    vLayer = slot > 0 && slot <= 32 ? uMapAnimation[slot - 1] : (packed & 4095);
+    vEffects = (packed >> 12) & 15;
+    bool translucent = (vEffects & 12) != 0;
+    if (translucent != (uMapPass == 1)) gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
     vLightUV = aLightUV;
 }
 )GLSL";
@@ -137,6 +150,7 @@ out vec3 vCol;
 out vec3 vNorm;
 out vec2 vUV;
 flat out int vLayer;
+flat out int vEffects;
 out vec3 vToEye;
 out vec2 vLightUV;
 
@@ -156,6 +170,7 @@ void main() {
     vNorm = mat3(uObjectTransform) * aNorm;
     vUV = aUV;
     vLayer = 4;
+    vEffects = 0;
     vLightUV = vec2(-1.0);
 }
 )GLSL";
@@ -211,9 +226,13 @@ in vec3 vCol;
 in vec3 vNorm;
 in vec2 vUV;
 flat in int vLayer;
+flat in int vEffects;
 in vec3 vToEye;
 
 uniform vec3 uEye;
+// Quake 2 surface motion (mapview::mapSurfaceMotion): warp phase, flowing
+// scroll, flowing warp scroll.
+uniform vec4 uMapSurface;
 uniform sampler2DArray uAlbedoArray;
 uniform int uTexturesReady;
 // Map faces with the map's own texture: vLayer = 8 + 8 * layer of
@@ -252,23 +271,32 @@ out vec4 fragColor;
 void main() {
     bool mapTexture = uModelPass == 0 && vLayer >= 8;
     int layer = mapTexture ? (vLayer & 7) : vLayer;
+    int effects = uModelPass == 0 ? vEffects : 0;
+    bool translucent = (effects & 12) != 0;
+    vec2 uv = vUV;
+    if ((effects & 1) != 0) { // SURF_WARP (EmitWaterPolys)
+        uv = vUV + 0.125 * sin(vUV.yx * 8.0 + uMapSurface.x);
+        if ((effects & 2) != 0) uv.x += uMapSurface.z;
+    } else if ((effects & 2) != 0) { // SURF_FLOWING
+        uv.x += uMapSurface.y;
+    }
     vec3 base = pow(max(vCol, vec3(0.0)), vec3(2.2));
     if (mapTexture && uMapTextured != 0) {
-        base *= texture(uMapTextures, vec3(vUV, float((vLayer >> 3) - 1))).rgb;
+        base *= texture(uMapTextures, vec3(uv, float((vLayer >> 3) - 1))).rgb;
     } else if (uModelPass == 0 && uTexturesReady != 0) {
-        base *= texture(uAlbedoArray, vec3(vUV, clamp(layer, 0, 7))).rgb;
+        base *= texture(uAlbedoArray, vec3(uv, clamp(layer, 0, 7))).rgb;
     }
     if (uModelPass == 0 && layer != 4 && !mapTexture) {
         vec3 world = vToEye + uEye;
         base *= 0.94 + 0.035 * sin(world.x * 0.21 + world.z * 0.17)
                      + 0.025 * sin(world.y * 0.33 - world.x * 0.13);
     }
-    if (uModelPass == 0 && layer == 7) {
+    if (uModelPass == 0 && layer == 7 && !translucent) {
         float pattern = mod(floor(gl_FragCoord.x) + floor(gl_FragCoord.y) * 2.0, 4.0);
         if (pattern > 0.0) discard;
     }
 
-    float alpha = 1.0;
+    float alpha = (effects & 4) != 0 ? 0.33 : ((effects & 8) != 0 ? 0.66 : 1.0);
     if (uModelPass != 0) {
         vec4 s = uModelTextured != 0 ? texture(uModelAlbedo, vUV) : vec4(1.0);
         base = uBaseColorFactor.rgb * s.rgb;
@@ -314,6 +342,8 @@ void main() {
     if (!baked) lit += uLightColor * (shine * strength * diffuse);
 
     if (uFullbright != 0) lit = base;
+    // warp and translucent faces: no lightmap or dynamic lights in ref_gl
+    if ((effects & 13) != 0) lit = base;
 
     float d = max(length(vToEye) - 22.0, 0.0);
     float fog = 1.0 - exp(-d * d * 0.00022);
@@ -1257,51 +1287,7 @@ void DesktopRenderer::renderMapWorld(ekron::gl::Api &gl,
     gl.Uniform1i(gl.GetUniformLocation(skyProg_, "uSkyBox"), 0);
     gl.DepthMask(GL_TRUE);
 
-    if (mapCount_ > 0) {
-        gl.UseProgram(worldProg_);
-        applyCommonSceneUniforms(gl, worldProg_, eye, yaw, pitch, roll, aspect, texturesReady_);
-        applyMapLights(gl, worldProg_);
-        gl.UniformMatrix4fv(gl.GetUniformLocation(worldProg_, "uObjectTransform"), 1, GL_FALSE, kIdentityMatrix.data());
-        gl.Uniform1i(gl.GetUniformLocation(worldProg_, "uModelPass"), 0);
-        gl.Uniform1i(gl.GetUniformLocation(worldProg_, "uPreviewPass"), 0);
-        gl.ActiveTexture(GL_TEXTURE0);
-        gl.BindTexture(GL_TEXTURE_2D_ARRAY, materialArrayTex_);
-        gl.ActiveTexture(GL_TEXTURE1);
-        gl.BindTexture(GL_TEXTURE_2D, whiteTex_);
-        if (mapLightmapped()) {
-            gl.ActiveTexture(GL_TEXTURE2);
-            gl.BindTexture(GL_TEXTURE_2D, lightmapTex_);
-            gl.Uniform1i(gl.GetUniformLocation(worldProg_, "uLightmapped"), 1);
-        }
-        if (mapTexturesTex_) {
-            gl.ActiveTexture(GL_TEXTURE3);
-            gl.BindTexture(GL_TEXTURE_2D_ARRAY, mapTexturesTex_);
-            gl.Uniform1i(gl.GetUniformLocation(worldProg_, "uMapTextured"), 1);
-        }
-        gl.BindVertexArray(mapVao_);
-        if (mapRanges_.empty()) {
-            gl.DrawArrays(GL_TRIANGLES, 0, mapCount_);
-        } else {
-            const GLint transformLoc = gl.GetUniformLocation(worldProg_, "uObjectTransform");
-            for (const MapDrawRange &r : mapRanges_) {
-                if (r.count <= 0 || r.first < 0 || r.first + r.count > mapCount_) continue;
-                const MapModelPose *pose =
-                    r.model > 0 && size_t(r.model) < mapPoses_.size() ? &mapPoses_[size_t(r.model)] : nullptr;
-                if (pose && !pose->visible) continue;
-                gl.UniformMatrix4fv(transformLoc, 1, GL_FALSE, pose ? pose->transform.data() : kIdentityMatrix.data());
-                gl.DrawArrays(GL_TRIANGLES, r.first, r.count);
-            }
-            gl.UniformMatrix4fv(transformLoc, 1, GL_FALSE, kIdentityMatrix.data());
-        }
-        gl.Uniform1i(gl.GetUniformLocation(worldProg_, "uDlightCount"), 0);
-        gl.Uniform1i(gl.GetUniformLocation(worldProg_, "uLightmapped"), 0);
-        gl.Uniform1i(gl.GetUniformLocation(worldProg_, "uMapTextured"), 0);
-        gl.ActiveTexture(GL_TEXTURE3);
-        gl.BindTexture(GL_TEXTURE_2D_ARRAY, 0);
-        gl.ActiveTexture(GL_TEXTURE2);
-        gl.BindTexture(GL_TEXTURE_2D, 0);
-        gl.ActiveTexture(GL_TEXTURE0);
-    }
+    drawMapTriangles(gl, eye, yaw, pitch, roll, aspect, 0);
 
     if (mapModel && mapModel->ready()) {
         gl.UseProgram(modelProg_);
@@ -1334,6 +1320,7 @@ void DesktopRenderer::renderMapWorld(ekron::gl::Api &gl,
         // beams), then the view weapon
         for (int pass = 0; pass < 3; pass++) {
             if (pass == 2) {
+                drawMapTriangles(gl, eye, yaw, pitch, roll, aspect, 1); // water, glass
                 drawMapEffects(gl, eye, yaw, pitch, roll, aspect);
                 gl.UseProgram(modelProg_);
                 gl.BindVertexArray(entityVao_);
@@ -1374,11 +1361,80 @@ void DesktopRenderer::renderMapWorld(ekron::gl::Api &gl,
         gl.Uniform1i(gl.GetUniformLocation(modelProg_, "uDlightCount"), 0);
         gl.UniformMatrix4fv(transformLoc, 1, GL_FALSE, kIdentityMatrix.data());
     } else {
+        drawMapTriangles(gl, eye, yaw, pitch, roll, aspect, 1);
         drawMapEffects(gl, eye, yaw, pitch, roll, aspect);
     }
     gl.UseProgram(modelProg_);
     gl.Uniform1i(gl.GetUniformLocation(modelProg_, "uDlightCount"), 0);
     gl.BindVertexArray(0);
+    gl.ActiveTexture(GL_TEXTURE0);
+}
+
+void DesktopRenderer::drawMapTriangles(ekron::gl::Api &gl, physics::Vec3 eye, float yaw, float pitch, float roll,
+                                       float aspect, int pass) {
+    if (mapCount_ <= 0 || (pass == 1 && !mapSurfaces_.translucent)) return;
+    gl.UseProgram(worldProg_);
+    applyCommonSceneUniforms(gl, worldProg_, eye, yaw, pitch, roll, aspect, texturesReady_);
+    applyMapLights(gl, worldProg_);
+    gl.UniformMatrix4fv(gl.GetUniformLocation(worldProg_, "uObjectTransform"), 1, GL_FALSE, kIdentityMatrix.data());
+    gl.Uniform1i(gl.GetUniformLocation(worldProg_, "uModelPass"), 0);
+    gl.Uniform1i(gl.GetUniformLocation(worldProg_, "uPreviewPass"), 0);
+    gl.ActiveTexture(GL_TEXTURE0);
+    gl.BindTexture(GL_TEXTURE_2D_ARRAY, materialArrayTex_);
+    gl.ActiveTexture(GL_TEXTURE1);
+    gl.BindTexture(GL_TEXTURE_2D, whiteTex_);
+    if (mapLightmapped()) {
+        gl.ActiveTexture(GL_TEXTURE2);
+        gl.BindTexture(GL_TEXTURE_2D, lightmapTex_);
+        gl.Uniform1i(gl.GetUniformLocation(worldProg_, "uLightmapped"), 1);
+    }
+    if (mapTexturesTex_) {
+        gl.ActiveTexture(GL_TEXTURE3);
+        gl.BindTexture(GL_TEXTURE_2D_ARRAY, mapTexturesTex_);
+        gl.Uniform1i(gl.GetUniformLocation(worldProg_, "uMapTextured"), 1);
+    }
+    gl.Uniform4fv(gl.GetUniformLocation(worldProg_, "uMapSurface"), 1, mapSurfaces_.motion.data());
+    gl.Uniform1i(gl.GetUniformLocation(worldProg_, "uMapPass"), pass);
+    if (pass == 1) { // R_DrawAlphaSurfaces
+        gl.Enable(GL_BLEND);
+        gl.BlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        gl.DepthMask(GL_FALSE);
+    }
+    const GLint animationLoc = gl.GetUniformLocation(worldProg_, "uMapAnimation");
+    auto animate = [&](int model) {
+        const auto &a = mapSurfaces_.animations;
+        if (model < 0 || size_t(model) >= a.size() || a[size_t(model)].empty()) return;
+        gl.Uniform1iv(animationLoc, GLsizei(std::min<size_t>(a[size_t(model)].size(), 32)), a[size_t(model)].data());
+    };
+    gl.BindVertexArray(mapVao_);
+    if (mapRanges_.empty()) {
+        animate(0);
+        gl.DrawArrays(GL_TRIANGLES, 0, mapCount_);
+    } else {
+        const GLint transformLoc = gl.GetUniformLocation(worldProg_, "uObjectTransform");
+        for (const MapDrawRange &r : mapRanges_) {
+            if (r.count <= 0 || r.first < 0 || r.first + r.count > mapCount_) continue;
+            const MapModelPose *pose =
+                r.model > 0 && size_t(r.model) < mapPoses_.size() ? &mapPoses_[size_t(r.model)] : nullptr;
+            if (pose && !pose->visible) continue;
+            gl.UniformMatrix4fv(transformLoc, 1, GL_FALSE, pose ? pose->transform.data() : kIdentityMatrix.data());
+            animate(r.model);
+            gl.DrawArrays(GL_TRIANGLES, r.first, r.count);
+        }
+        gl.UniformMatrix4fv(transformLoc, 1, GL_FALSE, kIdentityMatrix.data());
+    }
+    gl.Uniform1i(gl.GetUniformLocation(worldProg_, "uMapPass"), 0);
+    if (pass == 1) {
+        gl.Disable(GL_BLEND);
+        gl.DepthMask(GL_TRUE);
+    }
+    gl.Uniform1i(gl.GetUniformLocation(worldProg_, "uDlightCount"), 0);
+    gl.Uniform1i(gl.GetUniformLocation(worldProg_, "uLightmapped"), 0);
+    gl.Uniform1i(gl.GetUniformLocation(worldProg_, "uMapTextured"), 0);
+    gl.ActiveTexture(GL_TEXTURE3);
+    gl.BindTexture(GL_TEXTURE_2D_ARRAY, 0);
+    gl.ActiveTexture(GL_TEXTURE2);
+    gl.BindTexture(GL_TEXTURE_2D, 0);
     gl.ActiveTexture(GL_TEXTURE0);
 }
 

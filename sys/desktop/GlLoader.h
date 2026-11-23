@@ -147,6 +147,7 @@ using PFN_glGetProgramInfoLog      = void (APIENTRYP)(GLuint, GLsizei, GLsizei *
 using PFN_glUseProgram             = void (APIENTRYP)(GLuint);
 using PFN_glGetUniformLocation     = GLint (APIENTRYP)(GLuint, const GLchar *);
 using PFN_glUniform1i              = void (APIENTRYP)(GLint, GLint);
+using PFN_glUniform1iv             = void (APIENTRYP)(GLint, GLsizei, const GLint *);
 using PFN_glUniform1f              = void (APIENTRYP)(GLint, GLfloat);
 using PFN_glUniform2f              = void (APIENTRYP)(GLint, GLfloat, GLfloat);
 using PFN_glUniform3f              = void (APIENTRYP)(GLint, GLfloat, GLfloat, GLfloat);
@@ -210,6 +211,7 @@ struct Api {
     PFN_glUseProgram              UseProgram = nullptr;
     PFN_glGetUniformLocation      GetUniformLocation = nullptr;
     PFN_glUniform1i               Uniform1i = nullptr;
+    PFN_glUniform1iv              Uniform1iv = nullptr;
     PFN_glUniform1f               Uniform1f = nullptr;
     PFN_glUniform2f               Uniform2f = nullptr;
     PFN_glUniform3f               Uniform3f = nullptr;
@@ -279,6 +281,7 @@ struct Api {
         resolve(UseProgram, "glUseProgram");
         resolve(GetUniformLocation, "glGetUniformLocation");
         resolve(Uniform1i, "glUniform1i");
+        resolve(Uniform1iv, "glUniform1iv");
         resolve(Uniform1f, "glUniform1f");
         resolve(Uniform2f, "glUniform2f");
         resolve(Uniform3f, "glUniform3f");

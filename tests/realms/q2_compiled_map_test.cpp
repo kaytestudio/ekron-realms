@@ -113,6 +113,17 @@ void lightingChecks(realms::Engine &engine) {
     realms::MapGeometry geometry;
     std::string error;
     CHECK(realms::loadMapGeometry(engine, geometry, error));
+    // qbsp3 gives water SURF_WARP | SURF_TRANS33 (the renderers' warp and
+    // translucent pass); nothing in this map is animated
+    size_t waterTriangles = 0, animated = 0;
+    for (const realms::MapGeometryBatch &b : geometry.batches) {
+        if (b.material == "e1u1/water") {
+            CHECK(b.surfaceFlags == (REALMS_SURF_WARP | REALMS_SURF_TRANS33));
+            waterTriangles += b.triangleCount();
+        }
+        if (!b.frames.empty()) animated++;
+    }
+    CHECK(waterTriangles == 36 && animated == 0);
     realms::Quake2Module q2;
     realms::Quake2ModuleConfig config;
     config.startGame = false;

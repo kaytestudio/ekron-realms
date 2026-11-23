@@ -24,6 +24,11 @@ struct MapGeometryBatch {
     std::vector<float> normals;   // xyz per vertex (flat)
     std::vector<float> uvs;       // texinfo texels (BSP) or map units (planar)
     std::vector<int32_t> faces;   // per triangle: BSP face number (realms::MapLighting), -1 otherwise
+    // Texture animation (BSP texinfo nexttexinfo chains): the textures the
+    // faces cycle through, starting with `material`, for frame % size() as
+    // in R_TextureAnimation (the world at 2 frames a second, brush models at
+    // their entity's frame). Empty when not animated.
+    std::vector<std::string> frames;
     size_t triangleCount() const { return positions.size() / 9; }
 };
 

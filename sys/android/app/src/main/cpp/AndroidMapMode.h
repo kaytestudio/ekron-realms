@@ -75,6 +75,7 @@ public:
     const mapview::MapSession &session() const { return view_->session(); }
 
 private:
+    void drawTriangles(GLuint program, realms::Engine &engine, int pass);
     void releaseTriangles();
     void releaseGl();
 

@@ -186,6 +186,7 @@ void Quake2Module::sync() {
         used[size_t(m)] = true;
         poses_[size_t(m)].origin = l.origin;
         poses_[size_t(m)].angles = l.angles;
+        poses_[size_t(m)].frame = l.frame;
     }
     for (size_t m = 1; m < poses_.size(); m++) poses_[m].visible = used[m];
 

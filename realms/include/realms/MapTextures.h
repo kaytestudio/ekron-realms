@@ -40,10 +40,11 @@ public:
     // GL_MAX_ARRAY_TEXTURE_LAYERS is at least 256 in GL 3.3 and GLES 3.0.
     static constexpr size_t kMaxTextures = 256;
 
-    // The .wal of every material in `geometry` (BSP faces or brushes),
-    // through loadQuake2Palette. The layer size is the largest texture side
-    // rounded up to a power of two (16 to maxLayerSize), halved down to 16
-    // until all layers fit in maxBytes. Returns the number of textures loaded.
+    // The .wal of every material in `geometry` (BSP faces or brushes) and of
+    // their animation frames, through loadQuake2Palette. The layer size is
+    // the largest texture side rounded up to a power of two (16 to
+    // maxLayerSize), halved down to 16 until all layers fit in maxBytes.
+    // Returns the number of textures loaded.
     size_t load(const Engine &engine, const MapGeometry &geometry, int maxLayerSize = 256,
                 size_t maxBytes = size_t(48) << 20);
     void clear();

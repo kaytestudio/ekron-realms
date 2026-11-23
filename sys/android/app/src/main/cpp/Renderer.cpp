@@ -89,10 +89,17 @@ uniform vec3 eye;
 uniform vec2 angles;
 uniform float cameraRoll;
 uniform float aspect;
+// Map mode (mapview::kMapEffectShift): material packs the layer (bits
+// 0..11), Quake 2 surface effects (12..15) and an animation slot + 1
+// (16..21) whose current layer is mapAnimation[slot]. mapPass 0 draws the
+// opaque faces, 1 the translucent ones; the others leave the view.
+uniform int mapPass;
+uniform int mapAnimation[32];
 out vec3 tint;
 out vec3 worldNormal;
 out vec2 texUV;
 flat out int vertexLayer;
+flat out int vertexEffects;
 out vec3 toEye;
 out vec2 lmUV;
 void main(){
@@ -103,7 +110,11 @@ void main(){
  q.xy=mat2(cos(cameraRoll),sin(cameraRoll),-sin(cameraRoll),cos(cameraRoll))*q.xy;
  float f=1.37638;
  gl_Position=vec4(q.x*f/aspect,q.y*f,-1.001334*q.z-.200134,-q.z);
- tint=color;worldNormal=mat3(objectTransform)*normal;texUV=uv;vertexLayer=int(material+.5);toEye=p;lmUV=lightUV;
+ tint=color;worldNormal=mat3(objectTransform)*normal;texUV=uv;toEye=p;lmUV=lightUV;
+ int packed=int(material+.5),slot=packed>>16;
+ vertexLayer=slot>0&&slot<=32?mapAnimation[slot-1]:(packed&4095);
+ vertexEffects=(packed>>12)&15;
+ if(((vertexEffects&12)!=0)!=(mapPass==1))gl_Position=vec4(0.0,0.0,2.0,1.0);
 })";
 const char *fragment=R"(#version 300 es
 precision highp float;
@@ -114,9 +125,13 @@ in vec3 tint;
 in vec3 worldNormal;
 in vec2 texUV;
 flat in int vertexLayer;
+flat in int vertexEffects;
 in vec3 toEye;
 in vec2 lmUV;
 uniform sampler2DArray albedo;
+// Quake 2 surface motion (mapview::mapSurfaceMotion): warp phase, flowing
+// scroll, flowing warp scroll.
+uniform vec4 mapSurface;
 // The map's own textures on unit 3 (map mode): vertexLayer = 8 + 8 * layer
 // + material class (mapview::mapTextureLayer).
 uniform bool mapTextured;
@@ -146,17 +161,22 @@ out vec4 outColor;
 void main(){
  bool mapTexture=!modelPass&&vertexLayer>=8;
  int layer=mapTexture?(vertexLayer&7):vertexLayer;
+ int effects=modelPass?0:vertexEffects;
+ bool translucent=(effects&12)!=0;
+ vec2 st=texUV;
+ if((effects&1)!=0){st=texUV+.125*sin(texUV.yx*8.0+mapSurface.x);if((effects&2)!=0)st.x+=mapSurface.z;} // SURF_WARP
+ else if((effects&2)!=0)st.x+=mapSurface.y; // SURF_FLOWING
  vec3 base=pow(tint,vec3(2.2));
- if(mapTexture&&mapTextured)base*=texture(mapTextures,vec3(texUV,float((vertexLayer>>3)-1))).rgb;
- else if(texturesReady)base*=texture(albedo,vec3(texUV,float(layer))).rgb;
+ if(mapTexture&&mapTextured)base*=texture(mapTextures,vec3(st,float((vertexLayer>>3)-1))).rgb;
+ else if(texturesReady)base*=texture(albedo,vec3(st,float(layer))).rgb;
  if(!modelPass && layer!=4 && !mapTexture){
   vec3 world=toEye+eye;
   base*=.94+.035*sin(world.x*.21+world.z*.17)+.025*sin(world.y*.33-world.x*.13);
  }
  // Screen-door transparency writes depth only for the retained glass samples;
  // no object-order-dependent blending or opaque blue pane.
- if(!modelPass && layer==7 && mod(floor(gl_FragCoord.x)+floor(gl_FragCoord.y)*2.0,4.0)>0.0)discard;
- float alpha=1.0;
+ if(!modelPass && layer==7 && !translucent && mod(floor(gl_FragCoord.x)+floor(gl_FragCoord.y)*2.0,4.0)>0.0)discard;
+ float alpha=(effects&4)!=0?.33:((effects&8)!=0?.66:1.0);
  if(modelPass){
   vec4 sampleColor=modelTextured?texture(modelAlbedo,texUV):vec4(1.0);
   base=baseColorFactor.rgb*sampleColor.rgb;alpha=baseColorFactor.a*sampleColor.a;
@@ -182,6 +202,7 @@ void main(){
   float facing=dot(toLight,toLight)>1e-8?.35+.65*max(dot(n,normalize(toLight)),0.0):1.0;
   lit+=base*dlightColors[i].rgb*(1.6*f*f*facing);
  }
+ if((effects&13)!=0)lit=base; // warp and translucent faces: fullbright like ref_gl
  float d=max(length(toEye)-22.0,0.0);
  float fog=1.0-exp(-d*d*.00022);
  vec3 fogColor=pow(vec3(.56,.61,.63),vec3(2.2));

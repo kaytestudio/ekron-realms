@@ -3,36 +3,100 @@
 
 #include "MapEntityTransform.h"
 
+#include "realms/realms_bridge.h"
+
 #include <algorithm>
+#include <cmath>
 #include <map>
 
 namespace mapview {
 
 namespace {
 
-// Faces whose material has a texture: white, coordinates over the texture's
-// size (texinfo texels / width, height), mapTextureLayer.
-void applyTextures(const realms::MapGeometry &g, const realms::MapTextures &textures,
-                   std::vector<sandbox::MeshVertex> &vertices) {
+// The map's textures (mapTextureLayer, white, coordinates over the texture
+// size), then the effect bits and animation slots of every face.
+void applySurfaces(const realms::MapGeometry &g, const realms::MapTextures &textures,
+                   std::vector<sandbox::MeshVertex> &vertices, std::vector<std::vector<int>> &animations,
+                   bool &translucent) {
     size_t at = 0;
     for (const auto &b : g.batches) {
         const size_t n = b.positions.size() / 3;
+        if (at + n > vertices.size()) break;
+        const int effects = mapEffects(b.surfaceFlags);
+        if (effects & (kMapEffectTrans33 | kMapEffectTrans66)) translucent = true;
         const int index = textures.find(b.material);
-        if (index >= 0 && b.uvs.size() == n * 2 && at + n <= vertices.size()) {
+        int slot = 0;
+        if (index >= 0 && b.uvs.size() == n * 2) {
             const realms::MapTextures::Texture &t = textures.texture(size_t(index));
+            // warp faces: texels / 64 like EmitWaterPolys (toRenderVertices' scale)
+            const bool warp = (effects & kMapEffectWarp) != 0;
+            const float w = warp ? 64.0f : float(t.width), h = warp ? 64.0f : float(t.height);
+            const int materialClass = n ? int(vertices[at].layer + 0.5f) & 7 : 0;
+            // animated: every frame needs its texture, else the face stays still
+            std::vector<int> frames;
+            for (const std::string &name : b.frames) {
+                const int f = textures.find(name);
+                if (f < 0) {
+                    frames.clear();
+                    break;
+                }
+                frames.push_back(mapTextureLayer(f, materialClass));
+            }
+            if (frames.size() > 1) {
+                const auto found = std::find(animations.begin(), animations.end(), frames);
+                if (found != animations.end()) {
+                    slot = int(found - animations.begin()) + 1;
+                } else if (animations.size() < kMaxMapAnimations) {
+                    animations.push_back(frames);
+                    slot = int(animations.size());
+                }
+            }
             for (size_t i = 0; i < n; i++) {
                 sandbox::MeshVertex &v = vertices[at + i];
-                v.u = b.uvs[i * 2] / float(t.width);
-                v.v = b.uvs[i * 2 + 1] / float(t.height);
+                v.u = b.uvs[i * 2] / w;
+                v.v = b.uvs[i * 2 + 1] / h;
                 v.r = v.g = v.b = 1.0f;
                 v.layer = float(mapTextureLayer(index, int(v.layer + 0.5f)));
             }
+        }
+        for (size_t i = 0; i < n; i++) {
+            sandbox::MeshVertex &v = vertices[at + i];
+            v.layer = float((int(v.layer + 0.5f) & kMapLayerMask) | effects << kMapEffectShift |
+                            slot << kMapAnimationShift);
         }
         at += n;
     }
 }
 
 } // namespace
+
+int mapEffects(int32_t surfaceFlags) {
+    int effects = 0;
+    if (surfaceFlags & REALMS_SURF_WARP) effects |= kMapEffectWarp;
+    if (surfaceFlags & REALMS_SURF_FLOWING) effects |= kMapEffectFlowing;
+    // R_DrawAlphaSurfaces: TRANS33 wins
+    if (surfaceFlags & REALMS_SURF_TRANS33) effects |= kMapEffectTrans33;
+    else if (surfaceFlags & REALMS_SURF_TRANS66) effects |= kMapEffectTrans66;
+    return effects;
+}
+
+MapLayerParts mapLayerParts(float layer) {
+    const int packed = int(layer + 0.5f);
+    MapLayerParts out;
+    out.layer = packed & kMapLayerMask;
+    out.effects = (packed >> kMapEffectShift) & 15;
+    out.animation = packed >> kMapAnimationShift;
+    return out;
+}
+
+std::array<float, 4> mapSurfaceMotion(double seconds) {
+    const double t = std::isfinite(seconds) ? std::max(seconds, 0.0) : 0.0;
+    auto wrap = [](double v) { return float(v - std::floor(v)); };
+    const double flow = -64.0 * (t / 40.0 - std::floor(t / 40.0));
+    const double warpFlow = -(t * 0.5 - std::floor(t * 0.5));
+    const double twoPi = 6.283185307179586;
+    return {float(std::fmod(t, twoPi)), wrap(flow), wrap(warpFlow), 0.0f};
+}
 
 realms::Vec3 Quake2View::cameraAngles(float renderYaw, float renderPitch) {
     const realms::WalkInput view = walkInput({}, renderYaw, renderPitch);
@@ -72,16 +136,20 @@ void Quake2View::close() {
     poses_.clear();
     modelOrigins_.clear();
     nodeModels_.clear();
+    animations_.clear();
+    translucent_ = false;
     messages_.clear();
     skyTime_ = 0.0;
     session_.close();
 }
 
 void Quake2View::triangles(const realms::MapGeometry &geometry, std::vector<sandbox::MeshVertex> &vertices,
-                           std::vector<ModelRange> &ranges, std::vector<float> &lightUvs) const {
+                           std::vector<ModelRange> &ranges, std::vector<float> &lightUvs) {
     vertices.clear();
     ranges.clear();
     lightUvs.clear();
+    animations_.clear();
+    translucent_ = false;
     std::map<int32_t, realms::MapGeometry> byModel;
     for (const auto &b : geometry.batches) byModel[std::max(b.model, 0)].batches.push_back(b);
     std::vector<sandbox::MeshVertex> part;
@@ -90,7 +158,7 @@ void Quake2View::triangles(const realms::MapGeometry &geometry, std::vector<sand
     for (auto &[model, g] : byModel) {
         toRenderVertices(g, session_.unitsPerMetre(), part);
         if (part.empty()) continue;
-        applyTextures(g, q2_.textures(), part);
+        applySurfaces(g, q2_.textures(), part, animations_, translucent_);
         ranges.push_back({model, int(vertices.size()), int(part.size())});
         vertices.insert(vertices.end(), part.begin(), part.end());
         if (lit && q2_.lightmapUvs(g, uvs) && uvs.size() == part.size() * 2)
@@ -125,10 +193,23 @@ void Quake2View::syncPoses() {
     poses_.assign(poses.size(), ModelPose{});
     for (size_t m = 1; m < poses.size(); m++) {
         poses_[m].visible = poses[m].visible;
+        poses_[m].frame = poses[m].frame;
         if (!poses[m].visible) continue;
         poses_[m].transform = entityTransform(poses[m].origin.data(), poses[m].angles.data(), session_.unitsPerMetre());
         poses_[m].placed = m < modelOrigins_.size() ? mapview::placedTransform(poses_[m].transform, modelOrigins_[m].data())
                                                     : poses_[m].transform;
+    }
+}
+
+void Quake2View::animationLayers(int model, std::vector<int> &layers) const {
+    layers.resize(animations_.size());
+    // r_worldentity.frame = time * 2; brush models: currententity->frame
+    long long frame = 0;
+    if (model <= 0) frame = static_cast<long long>(skyTime_ * 2.0);
+    else if (size_t(model) < poses_.size()) frame = poses_[size_t(model)].frame;
+    for (size_t s = 0; s < animations_.size(); s++) {
+        const long long n = static_cast<long long>(animations_[s].size());
+        layers[s] = animations_[s][size_t(((frame % n) + n) % n)];
     }
 }
 

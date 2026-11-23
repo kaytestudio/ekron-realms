@@ -15,10 +15,12 @@
 #include "realms/MapTextures.h"
 #include "realms/Quake2Module.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -257,6 +259,50 @@ bsp_builder::MapDef arena() {
     return def;
 }
 
+// Surface effects: water (SURF_WARP + TRANS33), a conveyor (FLOWING), glass
+// (TRANS66), an animated texture (anim0 -> anim1 -> anim2 -> anim0) on a
+// world box and a brush model (*1), an open chain and a chain with a frame
+// that has no texture (both stay still). Lightmapped, so the faces use the
+// builder's per-axis texinfo copies and their chains.
+bsp_builder::MapDef surfaces() {
+    bsp_builder::MapDef def;
+    def.texinfo = {{"e1u1/floor"},
+                   {"e1u1/water", REALMS_SURF_WARP | REALMS_SURF_TRANS33, 0},
+                   {"e1u1/conveyor", REALMS_SURF_FLOWING, 0},
+                   {"e1u1/glass", REALMS_SURF_TRANS66, 0},
+                   {"e1u1/anim0", 0, 0, 5},
+                   {"e1u1/anim1", 0, 0, 6},
+                   {"e1u1/anim2", 0, 0, 4},
+                   {"e1u1/open0", 0, 0, 8},
+                   {"e1u1/open1", 0, 0, -1},
+                   {"e1u1/missing0", 0, 0, 10},
+                   {"e1u1/missing1", 0, 0, 9}};
+    def.world.brushes = {
+        {{-256, -256, -64}, {256, 256, 0}, REALMS_CONTENTS_SOLID, 0}, // floor
+        {{-272, -256, 0}, {-256, 256, 128}, REALMS_CONTENTS_SOLID, 0}, // walls
+        {{256, -256, 0}, {272, 256, 128}, REALMS_CONTENTS_SOLID, 0},
+        {{-272, -272, 0}, {272, -256, 128}, REALMS_CONTENTS_SOLID, 0},
+        {{-272, 256, 0}, {272, 272, 128}, REALMS_CONTENTS_SOLID, 0},
+        {{-272, -272, 128}, {272, 272, 144}, REALMS_CONTENTS_SOLID, 0}, // ceiling
+        {{-192, -192, 0}, {-128, -128, 16}, REALMS_CONTENTS_SOLID, 1}, // water
+        {{-64, -192, 0}, {0, -128, 16}, REALMS_CONTENTS_SOLID, 2},     // conveyor
+        {{64, -192, 0}, {128, -128, 64}, REALMS_CONTENTS_SOLID, 3},    // glass
+        {{-192, 64, 0}, {-128, 128, 64}, REALMS_CONTENTS_SOLID, 4},    // animated
+        {{-64, 64, 0}, {0, 128, 64}, REALMS_CONTENTS_SOLID, 7},        // open chain
+        {{64, 64, 0}, {128, 128, 64}, REALMS_CONTENTS_SOLID, 9},       // missing frame
+    };
+    bsp_builder::ModelDef wall;
+    wall.brushes = {{{160, -32, 0}, {192, 32, 64}, REALMS_CONTENTS_SOLID, 4}};
+    def.inlineModels.push_back(wall);
+    def.entities = "{\n\"classname\" \"worldspawn\"\n}\n"
+                   "{\n\"classname\" \"info_player_start\"\n\"origin\" \"0 0 24\"\n}\n"
+                   "{\n\"classname\" \"func_wall\"\n\"model\" \"*1\"\n}\n";
+    def.emitFaces = true;
+    def.light = arenaLight;
+    def.faceStyles = {{0, 255, 255, 255}};
+    return def;
+}
+
 void moduleWithoutGame(realms::Engine &engine) {
     realms::MapGeometry geometry;
     std::string error;
@@ -463,6 +509,141 @@ void viewWithoutGame(realms::Engine &engine) {
     CHECK(near(view.eye().x, start.x, 0.05f));
     view.close();
     CHECK(!view.active());
+}
+
+// Surface flags and texture animation through the view: the packed layers,
+// the animation slots and frames, the motion uniforms.
+void surfaceEffects(realms::Engine &engine) {
+    // the encoding
+    CHECK(mapview::mapEffects(0) == 0);
+    CHECK(mapview::mapEffects(REALMS_SURF_WARP | REALMS_SURF_FLOWING) ==
+          (mapview::kMapEffectWarp | mapview::kMapEffectFlowing));
+    CHECK(mapview::mapEffects(REALMS_SURF_TRANS33 | REALMS_SURF_TRANS66) == mapview::kMapEffectTrans33);
+    CHECK(mapview::mapEffects(REALMS_SURF_TRANS66 | REALMS_SURF_SKY) == mapview::kMapEffectTrans66);
+    const mapview::MapLayerParts parts =
+        mapview::mapLayerParts(float(4093 | (mapview::kMapEffectWarp << mapview::kMapEffectShift) |
+                                     (32 << mapview::kMapAnimationShift)));
+    CHECK(parts.layer == 4093 && parts.effects == mapview::kMapEffectWarp && parts.animation == 32);
+    std::array<float, 4> motion = mapview::mapSurfaceMotion(0.0);
+    CHECK(motion[0] == 0.0f && motion[1] == 0.0f && motion[2] == 0.0f && motion[3] == 0.0f);
+    motion = mapview::mapSurfaceMotion(1.0); // flowing: -64 * 1/40 = -1.6; warp flow: -0.5
+    CHECK(near(motion[0], 1.0f, 1e-6f) && near(motion[1], 0.4f, 1e-5f) && near(motion[2], 0.5f, 1e-6f));
+    motion = mapview::mapSurfaceMotion(10.0);
+    CHECK(near(motion[0], float(10.0 - 6.283185307179586), 1e-5f) && motion[1] >= 0.0f && motion[1] < 1.0f);
+    motion = mapview::mapSurfaceMotion(std::nan(""));
+    CHECK(motion[0] == 0.0f && motion[1] == 0.0f && motion[2] == 0.0f);
+
+    CHECK(engine.loadMap("maps/surfaces.bsp"));
+    mapview::Quake2View view;
+    mapview::Quake2ViewOptions options;
+    options.startGame = false;
+    realms::MapGeometry geometry;
+    std::string error;
+    CHECK(view.open(engine, options, geometry, error));
+    if (!view.active()) return;
+
+    // the geometry: flags and closed chains (frames), per model
+    const std::vector<std::string> cycle{"e1u1/anim0", "e1u1/anim1", "e1u1/anim2"};
+    const std::vector<std::string> missingCycle{"e1u1/missing0", "e1u1/missing1"};
+    int water = 0, worldAnim = 0, modelAnim = 0, open = 0, missing = 0, unexpectedFrames = 0;
+    for (const realms::MapGeometryBatch &b : geometry.batches) {
+        if (b.material == "e1u1/water") {
+            water++;
+            CHECK((b.surfaceFlags & REALMS_SURF_WARP) && (b.surfaceFlags & REALMS_SURF_TRANS33));
+        }
+        if (b.material == "e1u1/anim0") {
+            (b.model > 0 ? modelAnim : worldAnim)++;
+            CHECK(b.frames == cycle);
+        } else if (b.material == "e1u1/missing0") {
+            missing++;
+            CHECK(b.frames == missingCycle);
+        } else {
+            if (b.material == "e1u1/open0") open++;
+            if (!b.frames.empty()) unexpectedFrames++;
+        }
+    }
+    CHECK(water > 0 && worldAnim > 0 && modelAnim > 0 && open > 0 && missing > 0 && unexpectedFrames == 0);
+
+    // textures: frames no face starts with load too; open chains stop at the face
+    const realms::MapTextures &tex = view.module().textures();
+    const int anim0 = tex.find("e1u1/anim0"), anim1 = tex.find("e1u1/anim1"), anim2 = tex.find("e1u1/anim2");
+    const int waterIndex = tex.find("e1u1/water"), conveyor = tex.find("e1u1/conveyor"), glass = tex.find("e1u1/glass");
+    CHECK(anim0 >= 0 && anim1 >= 0 && anim2 >= 0 && waterIndex >= 0 && conveyor >= 0 && glass >= 0);
+    CHECK(tex.find("e1u1/open1") < 0 && tex.find("e1u1/missing0") >= 0 && tex.find("e1u1/missing1") < 0);
+
+    std::vector<sandbox::MeshVertex> vertices;
+    std::vector<mapview::ModelRange> ranges;
+    std::vector<float> lightUvs;
+    view.triangles(geometry, vertices, ranges, lightUvs);
+    CHECK(ranges.size() == 2 && lightUvs.size() == vertices.size() * 2);
+    CHECK(view.animationCount() == 1); // the world's and the model's anim0 share a slot
+    CHECK(view.hasTranslucentFaces());
+    const size_t modelFirst = ranges.size() == 2 ? size_t(ranges[1].first) : vertices.size();
+    size_t warpVertices = 0, flowing = 0, trans66 = 0, animatedWorld = 0, animatedModel = 0, still = 0, wrong = 0;
+    int animClass = -1;
+    float warpSpan = 0.0f;
+    for (size_t i = 0; i < vertices.size(); i++) {
+        const mapview::MapLayerParts p = mapview::mapLayerParts(vertices[i].layer);
+        const int index = p.layer >= mapview::kMapTextureLayer ? (p.layer >> 3) - 1 : -1;
+        if (index == waterIndex) {
+            warpVertices++;
+            if (p.effects != (mapview::kMapEffectWarp | mapview::kMapEffectTrans33) || p.animation) wrong++;
+            if (i % 3 == 0 && i + 2 < vertices.size()) // texels / 64, not / the texture's 128
+                for (size_t a = i; a < i + 3; a++)
+                    for (size_t b = i; b < i + 3; b++) warpSpan = std::max(warpSpan, vertices[a].u - vertices[b].u);
+        } else if (index == conveyor) {
+            flowing++;
+            if (p.effects != mapview::kMapEffectFlowing || p.animation) wrong++;
+        } else if (index == glass) {
+            trans66++;
+            if (p.effects != mapview::kMapEffectTrans66 || p.animation) wrong++;
+        } else if (index == anim0) {
+            (i >= modelFirst ? animatedModel : animatedWorld)++;
+            if (p.effects || p.animation != 1) wrong++;
+            animClass = p.layer & 7;
+        } else {
+            still++;
+            if (p.effects || p.animation) wrong++;
+        }
+    }
+    CHECK(warpVertices > 0 && flowing > 0 && trans66 > 0 && animatedWorld > 0 && animatedModel > 0 && still > 0);
+    CHECK(wrong == 0);
+    CHECK(near(warpSpan, 1.0f, 1e-4f));
+
+    // the world at 2 frames a second, models at their entity's frame (none
+    // without the game: frame 0)
+    std::vector<int> layers;
+    const auto worldFrame = [&]() {
+        view.animationLayers(0, layers);
+        return layers.size() == 1 ? (layers[0] >> 3) - 1 : -2;
+    };
+    CHECK(worldFrame() == anim0 && animClass >= 0 && (layers.empty() || (layers[0] & 7) == animClass));
+    view.update(engine, realms::WalkInput{}, 0.0f, 0.0f, 0.5f, false);
+    CHECK(worldFrame() == anim1);
+    view.update(engine, realms::WalkInput{}, 0.0f, 0.0f, 0.5f, false);
+    CHECK(worldFrame() == anim2);
+    view.update(engine, realms::WalkInput{}, 0.0f, 0.0f, 0.5f, false);
+    CHECK(worldFrame() == anim0);
+    view.animationLayers(1, layers);
+    CHECK(layers.size() == 1 && !layers.empty() && (layers[0] >> 3) - 1 == anim0);
+    motion = view.surfaceMotion();
+    CHECK(near(motion[0], 1.5f, 1e-4f));
+
+    // without the map's textures: effects stay, animation slots don't
+    view.disableTextures();
+    view.triangles(geometry, vertices, ranges, lightUvs);
+    CHECK(view.animationCount() == 0 && view.hasTranslucentFaces());
+    size_t slots = 0, effects = 0, textured = 0;
+    for (const sandbox::MeshVertex &v : vertices) {
+        const mapview::MapLayerParts p = mapview::mapLayerParts(v.layer);
+        if (p.animation) slots++;
+        if (p.effects) effects++;
+        if (p.layer >= mapview::kMapTextureLayer) textured++;
+    }
+    CHECK(slots == 0 && textured == 0 && effects == warpVertices + flowing + trans66);
+    view.close();
+    CHECK(view.animationCount() == 0 && !view.hasTranslucentFaces());
+    CHECK(engine.loadMap("maps/arena.bsp"));
 }
 
 bool hasSound(const std::vector<realms::GameEvent> &events, const std::string &name) {
@@ -737,6 +918,9 @@ int main(int argc, char **argv) {
     {
         const std::string bsp = bsp_builder::Builder(arena()).build();
         std::ofstream(tmp / "maps" / "arena.bsp", std::ios::binary).write(bsp.data(), std::streamsize(bsp.size()));
+        const std::string pool = bsp_builder::Builder(surfaces()).build();
+        std::ofstream(tmp / "maps" / "surfaces.bsp", std::ios::binary)
+            .write(pool.data(), std::streamsize(pool.size()));
     }
     {
         const std::string outpost = gltf_builder::outpostGlb();
@@ -749,6 +933,10 @@ int main(int argc, char **argv) {
     writeSky(tmp);
     writeWal(tmp, "e1u1/floor", 64, 64, [](uint32_t, uint32_t) { return 0xd0; });
     writeWal(tmp, "e1u1/wall", 32, 128, [](uint32_t, uint32_t y) { return y < 64 ? 0xf0 : 0x0f; });
+    writeWal(tmp, "e1u1/water", 128, 32, [](uint32_t x, uint32_t) { return 0x60 + (x & 7); });
+    for (const char *name : {"e1u1/conveyor", "e1u1/glass", "e1u1/anim0", "e1u1/anim1", "e1u1/anim2", "e1u1/open0",
+                             "e1u1/open1", "e1u1/missing0"})
+        writeWal(tmp, name, 64, 64, [name](uint32_t, uint32_t) { return uint8_t(0x20 + std::strlen(name)); });
     realms::EngineConfig cfg;
     cfg.backend = pascalLibrary.empty() ? realms::BackendPreference::Native : realms::BackendPreference::Pascal;
     cfg.pascalLibrary = pascalLibrary;
@@ -767,6 +955,8 @@ int main(int argc, char **argv) {
     moduleWithoutGame(engine);
     step("view without game");
     viewWithoutGame(engine);
+    step("surface effects");
+    surfaceEffects(engine);
 
     if (gameLibrary == "linked") {
 #if defined(REALMS_GAME_STATIC)

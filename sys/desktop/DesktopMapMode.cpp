@@ -63,7 +63,11 @@ bool DesktopMapMode::open(realms::Engine &engine, ekron::gl::Api &gl, DesktopRen
         view_.disableSky();
     }
     std::vector<DesktopRenderer::MapDrawRange> drawRanges;
-    for (const mapview::ModelRange &r : ranges) drawRanges.push_back({r.model, GLint(r.first), GLsizei(r.count)});
+    modelCount_ = 1;
+    for (const mapview::ModelRange &r : ranges) {
+        drawRanges.push_back({r.model, GLint(r.first), GLsizei(r.count)});
+        modelCount_ = std::max(modelCount_, size_t(std::max(r.model, 0)) + 1);
+    }
     renderer.setMapGeometry(gl, vertices, drawRanges);
     if (model_) session.summary() += ", textured";
     const realms::MapLighting &lighting = quake2().lighting();
@@ -82,6 +86,8 @@ bool DesktopMapMode::open(realms::Engine &engine, ekron::gl::Api &gl, DesktopRen
 
 void DesktopMapMode::close(ekron::gl::Api &gl, DesktopRenderer &renderer) {
     poses_.clear();
+    surfaces_ = {};
+    modelCount_ = 1;
     renderer.clearMapEffects();
     releaseSkins(gl);
     renderer.clearMapEntities();
@@ -108,6 +114,18 @@ void DesktopMapMode::syncPoses() {
     const std::vector<mapview::ModelPose> &poses = view_.modelPoses();
     poses_.resize(poses.size());
     for (size_t m = 0; m < poses.size(); m++) poses_[m] = {poses[m].visible, poses[m].transform, poses[m].placed};
+    // surface effects: motion, and the animation frames of every model's faces
+    surfaces_.motion = view_.surfaceMotion();
+    surfaces_.translucent = view_.hasTranslucentFaces();
+    surfaces_.animations.clear();
+    if (view_.animationCount()) {
+        surfaces_.animations.resize(std::max(modelCount_, poses.size()));
+        std::vector<int> layers;
+        for (size_t m = 0; m < surfaces_.animations.size(); m++) {
+            view_.animationLayers(int(m), layers);
+            surfaces_.animations[m].assign(layers.begin(), layers.end());
+        }
+    }
 }
 
 void DesktopMapMode::buildEffects(float renderYaw, float renderPitch,
