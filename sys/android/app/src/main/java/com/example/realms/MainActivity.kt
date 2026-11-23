@@ -39,6 +39,7 @@ class MainActivity : GameActivity() {
     private external fun nativeVertical(value: Float)
     private external fun nativeDroneInput(throttle:Float,yaw:Float,pitch:Float,roll:Float)
     private external fun nativeMove(right: Float, forward: Float)
+    private external fun nativeDrive(steer: Float, throttle: Float)
     private external fun nativeLook(dx: Float, dy: Float)
     private lateinit var lookArea: LookView
     private lateinit var fpvLayer: FrameLayout
@@ -51,6 +52,7 @@ class MainActivity : GameActivity() {
     private var worldReady = false
     private var flyingNow = false
     private lateinit var joystick: StickView
+    private lateinit var driveStick: StickView
     private val toolsState = ToolState()
     private var requestedTool: HandTool? = null
     private lateinit var toolActions: LinearLayout
@@ -65,6 +67,7 @@ class MainActivity : GameActivity() {
     private lateinit var rotateHeldControl: HudButton
     private lateinit var crouchControl: HudButton
     private lateinit var proneControl: HudButton
+    private lateinit var viewToggle: HudButton
     private val items = BuildCatalog.entries.map { it.label }.toTypedArray()
     private val catalogImages=arrayOfNulls<Bitmap>(BuildCatalog.entries.size)
     private val catalogExecutor=Executors.newSingleThreadExecutor()
@@ -112,8 +115,10 @@ class MainActivity : GameActivity() {
                     if(state.size>=12){interactionCode=state[11].toInt();interactionControl.visibility=if(interactionCode>0)View.VISIBLE else View.GONE
                         interactionControl.caption=when(interactionCode){6->"Подключиться";1->"Открыть";2->"Закрыть";3->"Сесть";4->"Выйти";else->""}
                         interactionControl.contentDescription=interactionControl.caption;interactionControl.invalidate()
+                        if(::driveStick.isInitialized){val driving=interactionCode==4;driveStick.visibility=if(driving)View.VISIBLE else View.GONE;if(!driving)driveStick.reset()}
                     }
                     if(state.size>=13){freezeControl.caption=if(state[12]>.5f) "Разморозить" else "Заморозить";freezeControl.contentDescription=freezeControl.caption;freezeControl.invalidate()}
+                    if(state.size>=15 && ::viewToggle.isInitialized){ viewToggle.isSelected=state[14]>.5f }
                     renderTools()
                 }
                 latest = state.copyOfRange(0, 3)
@@ -228,12 +233,18 @@ class MainActivity : GameActivity() {
         overlay.addView(joystick, FrameLayout.LayoutParams(dp(stickSize), dp(stickSize), Gravity.BOTTOM or Gravity.START).apply {
             leftMargin = dp(14); bottomMargin = dp(22)
         })
+        driveStick = StickView(this) { steer, throttle -> nativeDrive(steer, throttle) }.apply { visibility = View.GONE }
+        overlay.addView(driveStick, FrameLayout.LayoutParams(dp(stickSize), dp(stickSize), Gravity.BOTTOM or Gravity.END).apply {
+            rightMargin = dp(14); bottomMargin = dp(22)
+        })
         fun action(caption: String, icon: String, click: () -> Unit): HudButton = HudButton(this, caption, icon).apply {
             setOnClickListener { click() }
         }
         val pause = action("", "pause") { showPauseMenu() }.apply { visualScale=.73f }
         pause.contentDescription = "Пауза"
         overlay.addView(pause, FrameLayout.LayoutParams(dp(60), dp(60), Gravity.TOP or Gravity.END).apply { topMargin=dp(6); rightMargin=dp(8) })
+        viewToggle=action("", "eye") { if(worldReady && active && !paused){ nativeCommand(46); viewToggle.isSelected=!viewToggle.isSelected } }.apply { visualScale=.73f; contentDescription="Сменить вид: от первого или от третьего лица" }
+        overlay.addView(viewToggle, FrameLayout.LayoutParams(dp(60), dp(60), Gravity.TOP or Gravity.END).apply { topMargin=dp(126); rightMargin=dp(8) })
         val movement = LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; gravity=Gravity.CENTER; isMotionEventSplittingEnabled=true }
         val jump = action("Прыжок", "jump") { nativeCommand(8) }
         // Fire on press, not release. The joystick keeps its own pointer and axes untouched.
@@ -480,9 +491,7 @@ class MainActivity : GameActivity() {
                 contentDescription=items[position];minimumHeight=dp(84)
                 layoutParams=AbsListView.LayoutParams(-1,dp(84))
                 background=GradientDrawable().apply {setColor(if(position==selected)0xaa477264.toInt() else 0x443b4652);cornerRadius=dp(6).toFloat();if(position==selected)setStroke(dp(1),0xff92d9ac.toInt())}
-                val item=BuildCatalog.entries[position]
-                val illustration: View=if(item.nativeType==0||item.nativeType==9||item.nativeType==10||item.nativeType==11||item.nativeType==12||item.nativeType>=13)MaterialBlockView(this@MainActivity,item.defaultSurface).apply { texture=BuildCatalog.materialPreview(materialImages,item.defaultSurface) }
-                else ImageView(this@MainActivity).apply {
+                val illustration: View = ImageView(this@MainActivity).apply {
                     scaleType=ImageView.ScaleType.FIT_CENTER
                     val image=catalogImages[position]
                     if(image!=null)setImageBitmap(image) else setImageResource(android.R.drawable.ic_menu_gallery)
