@@ -99,6 +99,43 @@ bool hasExpectedAssets(const fs::path &dir) {
            fs::is_regular_file(dir / "config" / "spawn.json", ec);
 }
 
+// A Quake 2 install from --quake2 or EKRON_QUAKE2_DIR, searched after the
+// assets (the folder that holds baseq2/; baseq2 itself is accepted too).
+std::string gQuake2Root;
+
+std::string quake2Root(const std::string &dir) {
+    std::error_code ec;
+    fs::path p = fs::weakly_canonical(fs::path(dir), ec);
+    if (ec) p = fs::path(dir);
+    std::string leaf = p.filename().string();
+    std::transform(leaf.begin(), leaf.end(), leaf.begin(), [](unsigned char c) { return char(std::tolower(c)); });
+    if (leaf == realms::kBaseGameDir) p = p.parent_path();
+    return p.string();
+}
+
+// Folders holding pak0.pak .. pak9.pak, as sandbox::boot finds them (each
+// search root and its baseq2/), or a hint where to put them.
+std::string quake2DataReport(const realms::EngineConfig &cfg) {
+    std::vector<std::string> roots = cfg.searchRoots;
+    if (!cfg.writableRoot.empty()) roots.insert(roots.begin(), cfg.writableRoot);
+    std::string found;
+    for (const std::string &root : roots) {
+        for (const fs::path &dir : {fs::path(root), fs::path(root) / realms::kBaseGameDir}) {
+            std::string paks;
+            std::error_code ec;
+            for (int i = 0; i < 10; ++i) {
+                const std::string name = "pak" + std::to_string(i) + ".pak";
+                if (fs::is_regular_file(dir / name, ec)) paks += (paks.empty() ? "" : ", ") + name;
+            }
+            if (!paks.empty()) found += (found.empty() ? "" : "; ") + dir.string() + " (" + paks + ")";
+        }
+    }
+    if (!found.empty()) return found;
+    const std::string where = cfg.writableRoot.empty() ? (roots.empty() ? std::string("the assets folder") : roots.front())
+                                                       : cfg.writableRoot;
+    return "none; copy Quake 2's baseq2 folder (with pak0.pak) into " + where + ", or pass --quake2 <dir>";
+}
+
 std::string resolveAssetRoot(const std::string &cliOverride, const char *argv0) {
     std::vector<fs::path> candidates;
     if (!cliOverride.empty()) {
@@ -275,6 +312,7 @@ realms::EngineConfig makeEngineConfig(const std::string &assetRoot, const std::s
     realms::EngineConfig cfg;
     cfg.executableDir = executableDir(argv0);
     if (!assetRoot.empty()) cfg.searchRoots.push_back(assetRoot);
+    if (!gQuake2Root.empty()) cfg.searchRoots.push_back(gQuake2Root);
     cfg.writableRoot = writableRoot;
     cfg.printSink = [](int level, const std::string &text) {
         if (level == REALMS_PRINT_DEVELOPER && !std::getenv("REALMS_DEVELOPER")) return;
@@ -304,7 +342,8 @@ realms::sandbox::BootOptions makeBootOptions(const realms::EngineConfig &cfg, st
 
 int printEngineInfo(const std::string &assetRoot, const char *argv0) {
     realms::Engine engine;
-    realms::EngineConfig cfg = makeEngineConfig(assetRoot, {}, argv0);
+    // The user data folder as the game uses it, so "Quake 2:" shows what it finds
+    realms::EngineConfig cfg = makeEngineConfig(assetRoot, fs::path(resolveSettingsPath()).parent_path().string(), argv0);
     cfg.printSink = nullptr;
     if (!engine.init(cfg)) {
         std::cerr << "Realms engine failed to start: "
@@ -316,7 +355,8 @@ int printEngineInfo(const std::string &assetRoot, const char *argv0) {
               << "Core:     " << engine.backendName() << (engine.pascalBackend() ? " (Free Pascal)" : " (C++)") << "\n"
               << "Origin:   " << engine.backendOrigin() << "\n"
               << "Platform: " << engine.cvarString("realms_platform") << "\n"
-              << "Assets:   " << (assetRoot.empty() ? "<not found>" : assetRoot) << "\n";
+              << "Assets:   " << (assetRoot.empty() ? "<not found>" : assetRoot) << "\n"
+              << "Quake 2:  " << quake2DataReport(cfg) << "\n";
     if (!engine.pascalBackend() && !engine.pascalLoadError().empty())
         std::cout << "Pascal:   " << engine.pascalLoadError() << "\n";
     // The Quake 2 game module realms::GameServer runs BSP maps with.
@@ -620,6 +660,9 @@ void printHelp(const char *exe) {
         << "  --no-intro          Start without the intro video (also EKRON_NO_INTRO=1);\n"
         << "                      Esc, Space, Enter or a click skip it\n"
         << "  --engine-info       Show which Realms core is active (Free Pascal or C++) and exit\n"
+        << "  --quake2 <dir>      A Quake 2 install (the folder holding baseq2/) for its maps, models,\n"
+        << "                      textures and sounds (also EKRON_QUAKE2_DIR). baseq2/ in the assets or\n"
+        << "                      user data folder is found without it; --engine-info shows what is found\n"
         << "  +<command> [args]   Quake 2 style console commands, e.g. +set sensitivity 4 +exec my.cfg\n"
         << "                      REALMS_CORE=pascal|native|auto selects the Realms core\n"
         << "  --help              Show this help message\n\n"
@@ -683,6 +726,8 @@ int main(int argc, char **argv)
             engineInfo = true;
         } else if (arg == "--assets" && i + 1 < argc) {
             cliAssets = argv[++i];
+        } else if (arg == "--quake2" && i + 1 < argc) {
+            gQuake2Root = quake2Root(argv[++i]);
         } else if (arg == "--online-host" && i + 1 < argc) {
             onlineHost = argv[++i];
         } else if (arg == "--online-name" && i + 1 < argc) {
@@ -703,6 +748,11 @@ int main(int argc, char **argv)
             } catch (const std::exception &) { std::cerr << "Invalid online port\n"; return 1; }
         }
     }
+
+    if (const char *env = std::getenv("EKRON_QUAKE2_DIR"); gQuake2Root.empty() && env && env[0] != '\0')
+        gQuake2Root = quake2Root(env);
+    if (!gQuake2Root.empty() && !fs::is_directory(gQuake2Root))
+        std::cerr << "[Ekron] Quake 2 folder not found: " << gQuake2Root << "\n";
 
     SDL_SetMainReady();
     const std::string assetRoot = resolveAssetRoot(cliAssets, argc > 0 ? argv[0] : nullptr);
@@ -757,6 +807,7 @@ int main(int argc, char **argv)
                                                           pendingMapChange = path;
                                                       }));
     }
+    std::cout << "[Ekron] Quake 2 data: " << quake2DataReport(engineCfg) << "\n";
     if (onlineNameSet) engine.setCvar("name", onlineName);
     ekron::desktop::DesktopConsole console;
     ekron::desktop::DesktopMapMode mapMode;

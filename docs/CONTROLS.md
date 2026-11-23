@@ -41,6 +41,16 @@ The `REALMS_CORE=pascal|native|auto` environment variable selects the Realms cor
 
 `map <name>` (console) or `+map <name>` (command line) opens `maps/<name>.bsp`, loose or from a `pak0.pak`, or a `.glb` / `.gltf` scene. `killserver` returns to the sandbox.
 
+### Quake 2 data (`baseq2`)
+
+Copy the `baseq2` folder of a Quake 2 install, with its `pak0.pak`, into one of these places:
+
+- the user data folder (the desktop's settings folder: `~/.local/share/KayteStudio/EkronRealms/baseq2/` on Linux, `~/Library/Application Support/KayteStudio/EkronRealms/baseq2/` on macOS);
+- the assets folder (`<assets>/baseq2/`; on Android, `sys/android/app/src/main/assets/baseq2/` before building the APK; on iOS, add `baseq2` to the Xcode project as a folder reference like `maps`);
+- anywhere else, then pass `--quake2 <dir>` or set `EKRON_QUAKE2_DIR=<dir>` (desktop). `<dir>` can be the Quake 2 folder or its `baseq2` folder.
+
+The engine mounts `pak0.pak` … `pak9.pak` from each place, at the top and in `baseq2/`; later paks win, and paks win over loose files. A loose file such as `maps/mymap.bsp` is looked up as `<place>/maps/mymap.bsp` in every place first, then as `<place>/baseq2/maps/mymap.bsp`. A `pak0.pak` at the top of the assets folder still works. On desktop, `--engine-info` prints a `Quake 2:` line and the log prints `[Ekron] Quake 2 data:` at startup, listing the folders where paks were found or where to copy them. Put options such as `--quake2` before `+map`; an option after a `+command` ends that command.
+
 The apps ship one sample glTF map, `courtyard` (`map courtyard`, or `courtyard.glb` under **Maps…**). It has a walled yard under its own skybox, a bunker with a sliding door, a lift up to a platform whose button opens the vault, a pool, crates, barrels, items and weapons. It needs no Quake 2 files; without the game's models, items show as boxes. `tools/build_sample_map.py` rebuilds it, and it is a working example of the glTF rules below.
 
 When the build finds `fpc` it also builds `librealms_game.so` / `.dylib`, the Free Pascal port of the Quake 2 game code in `game/`. `realms::GameServer` runs it, so BSP maps play as in Quake 2: spawn points, items, doors, lifts, triggers, monsters and weapons. Models, skins and sounds come from your `pak0.pak`; without it, entities are drawn as boxes. Maps built with `qrad3` use their lightmaps (`r_lightmaps 0` turns them off). With `pak0.pak` installed, map faces use their `.wal` textures; otherwise they get one of eight generic materials picked from the texture name. Faces draw their surface flags as Quake 2 does: water, slime and lava warp (`SURF_WARP`), conveyors scroll (`SURF_FLOWING`), and `SURF_TRANS33`/`SURF_TRANS66` faces such as water and glass are 33% or 66% opaque and drawn after the entities. Animated textures (texinfo `nexttexinfo` chains) step at 2 frames a second, or with the entity's frame on doors and buttons. The sky is the map's skybox (`env/`), turning when the map sets `skyrotate`.

@@ -490,7 +490,8 @@ For Android `jniLibs` and the iOS static archive, use `realms/pascal/build_core.
 ```bash
 cmake --build build --target realms_game_module
 ./build/ekron-realms --engine-info                    # Game: …/librealms_game.so (Quake 2 game API 3)
-./build/ekron-realms +map base1                       # needs maps/base1.bsp (e.g. from a pak0.pak)
+./build/ekron-realms --quake2 ~/quake2 +map base1    # needs maps/base1.bsp, e.g. from ~/quake2/baseq2/pak0.pak
+./build/ekron-realms --engine-info --quake2 ~/quake2  # Quake 2: …/baseq2 (pak0.pak, …)
 ctest --test-dir build -R game --output-on-failure    # realms_game_server_native / _pascal, realms_game_effects
 ctest --test-dir build -R map_lighting --output-on-failure   # realms_map_lighting (BSP lightmaps)
 ctest --test-dir build -R quake2_module --output-on-failure  # realms_quake2_module_native / _pascal (Quake2Module + Quake2View)

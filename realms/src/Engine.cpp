@@ -356,6 +356,12 @@ std::string Engine::commandLineScript(const std::vector<std::string> &args) {
             if (active && !line.empty()) script += line + "\n";
             line = arg.substr(1);
             active = true;
+        } else if (arg.size() > 2 && arg.compare(0, 2, "--") == 0) {
+            // A program option such as --quake2 <dir> ends the command; it and
+            // its value are not part of the console script.
+            if (active && !line.empty()) script += line + "\n";
+            line.clear();
+            active = false;
         } else if (active) {
             const bool quote = arg.find_first_of(" \t") != std::string::npos;
             line += quote ? " \"" + arg + "\"" : " " + arg;
@@ -707,9 +713,20 @@ void Engine::hostPrint(void *user, int32_t level, const char *text) {
     static_cast<Engine *>(user)->print(text ? text : "", level);
 }
 
+namespace {
+// The same path in Quake 2's game folder, or "" when there is none to try
+// (absolute paths, paths already in it).
+std::string inBaseGameDir(const std::string &path) {
+    const std::string prefix = std::string(kBaseGameDir) + "/";
+    if (!safeRelative(path) || path.compare(0, prefix.size(), prefix) == 0) return {};
+    return prefix + path;
+}
+} // namespace
+
 bool Engine::readHostFile(const std::string &rawPath, std::vector<unsigned char> &out) const {
     const std::string path = normalizeSlashes(rawPath);
-    if (config_.readFile) return config_.readFile(path, out);
+    const std::string base = inBaseGameDir(path);
+    if (config_.readFile) return config_.readFile(path, out) || (!base.empty() && config_.readFile(base, out));
     if (!safeRelative(path)) {
         // Absolute paths are only honoured for explicit host-side mounts.
         std::ifstream f(path, std::ios::binary);
@@ -719,11 +736,14 @@ bool Engine::readHostFile(const std::string &rawPath, std::vector<unsigned char>
     }
     std::vector<std::string> roots = config_.searchRoots;
     if (!config_.writableRoot.empty()) roots.insert(roots.begin(), config_.writableRoot);
-    for (const auto &root : roots) {
-        std::ifstream f(fs::path(root) / path, std::ios::binary);
-        if (!f) continue;
-        out.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
-        return true;
+    for (const std::string &name : {path, base}) {
+        if (name.empty()) continue;
+        for (const auto &root : roots) {
+            std::ifstream f(fs::path(root) / name, std::ios::binary);
+            if (!f) continue;
+            out.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+            return true;
+        }
     }
     return false;
 }
@@ -749,10 +769,15 @@ int32_t Engine::hostReadRange(void *user, const char *rawPath, int64_t offset, i
     auto *self = static_cast<Engine *>(user);
     if (!rawPath || !out || size < 0 || offset < 0) return -1;
     const std::string path = normalizeSlashes(rawPath);
-    if (self->config_.readRange) return self->config_.readRange(path, offset, size, out);
+    const std::string base = inBaseGameDir(path);
+    if (self->config_.readRange) {
+        const int32_t got = self->config_.readRange(path, offset, size, out);
+        return got >= 0 || base.empty() ? got : self->config_.readRange(base, offset, size, out);
+    }
     if (self->config_.readFile) {
         std::vector<unsigned char> bytes;
-        if (!self->config_.readFile(path, bytes) || uint64_t(offset) > bytes.size()) return -1;
+        if (!self->config_.readFile(path, bytes) && (base.empty() || !self->config_.readFile(base, bytes))) return -1;
+        if (uint64_t(offset) > bytes.size()) return -1;
         const size_t n = std::min(size_t(size), bytes.size() - size_t(offset));
         std::memcpy(out, bytes.data() + offset, n);
         return int32_t(n);
@@ -763,13 +788,16 @@ int32_t Engine::hostReadRange(void *user, const char *rawPath, int64_t offset, i
         if (!self->config_.writableRoot.empty()) roots.push_back(self->config_.writableRoot);
         roots.insert(roots.end(), self->config_.searchRoots.begin(), self->config_.searchRoots.end());
     }
-    for (const auto &root : roots) {
-        std::ifstream f(root.empty() ? fs::path(path) : fs::path(root) / path, std::ios::binary);
-        if (!f) continue;
-        f.seekg(offset, std::ios::beg);
-        if (!f) return -1;
-        f.read(static_cast<char *>(out), size);
-        return int32_t(f.gcount());
+    for (const std::string &name : {path, base}) {
+        if (name.empty()) continue;
+        for (const auto &root : roots) {
+            std::ifstream f(root.empty() ? fs::path(name) : fs::path(root) / name, std::ios::binary);
+            if (!f) continue;
+            f.seekg(offset, std::ios::beg);
+            if (!f) return -1;
+            f.read(static_cast<char *>(out), size);
+            return int32_t(f.gcount());
+        }
     }
     return -1;
 }

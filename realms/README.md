@@ -131,10 +131,12 @@ faults once `setenv()` has moved `environ` to the heap.
 `realms::sandbox::boot()` on every platform:
 
 1. registers `sensitivity`, `m_invert`, `name` and the read-only `realms_platform`;
-2. mounts `pak0.pak` … `pak9.pak`;
+2. mounts `pak0.pak` … `pak9.pak`, each from the top of every search root and from its `baseq2/` folder (`realms::kBaseGameDir`);
 3. runs `config/realms.cfg`, `config.cfg`, `autoexec.cfg`;
 4. registers the map commands and `map_mesh_*` cvars;
 5. runs `+command` arguments (desktop).
+
+Loose files are looked up as `<root>/<path>` in every root (the writable root first), then as `<root>/baseq2/<path>`; the platform `readFile` / `readRange` callbacks get the same `baseq2/` retry. So a Quake 2 install's `baseq2` folder works as it is. The desktop adds `--quake2 <dir>` / `EKRON_QUAKE2_DIR` as a last search root.
 
 ## Building the Pascal core
 

@@ -91,3 +91,7 @@ tests/native/.bin/
 # KCC checkout (cmake -DENABLE_KCC=ON or git clone ... tools/kcc)
 /tools/kcc/
 a.out
+
+# Quake 2 game data (copyrighted; users supply their own)
+sys/android/app/src/main/assets/baseq2/
+sys/android/app/src/main/assets/pak[0-9].pak

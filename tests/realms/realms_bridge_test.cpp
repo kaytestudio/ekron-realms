@@ -392,6 +392,9 @@ void runEngineSuite(const std::string &pascalLibrary, RealmsGetApiFn pascalGetAp
     const std::string script = realms::Engine::commandLineScript(
         {"--assets", "x", "+set", "sensitivity", "6", "+set", "name", "Big Boss", "+noclip"});
     CHECK(script == "set sensitivity 6\nset name \"Big Boss\"\nnoclip\n");
+    // Program options after a +command are not passed to it.
+    CHECK(realms::Engine::commandLineScript({"+map", "q2room", "--quake2", "/q2 dir", "--no-intro", "+noclip"}) ==
+          "map q2room\nnoclip\n");
     engine.exec(script);
     CHECK(engine.cvarFloat("sensitivity") == 6.0f);
     CHECK(engine.cvarString("name") == "Big Boss");
@@ -552,12 +555,69 @@ void runEngineSuite(const std::string &pascalLibrary, RealmsGetApiFn pascalGetAp
     engine.frame(0.016);
     CHECK(engine.cvarInt("later") == 2);
 
+    // Quake 2's baseq2 folder: sandbox::boot mounts its paks, loose files are
+    // found under <root>/baseq2/ after <root>/ in every root (save first).
+    {
+        fs::create_directories(tmp / "assets" / "baseq2" / "maps", ec);
+        fs::create_directories(tmp / "save" / "baseq2", ec);
+        std::ofstream(tmp / "assets" / "baseq2" / "pak0.pak", std::ios::binary)
+            << makePak({{"maps/q2base.bsp", bsp_builder::build(map_suite::testMap())}, {"pics/q2.txt", "pak"}});
+        std::ofstream(tmp / "assets" / "baseq2" / "maps" / "loose.bsp", std::ios::binary)
+            << bsp_builder::build(map_suite::testMap());
+        std::ofstream(tmp / "assets" / "baseq2" / "env.txt") << "assets baseq2";
+        std::ofstream(tmp / "save" / "baseq2" / "both.txt") << "save baseq2";
+        std::ofstream(tmp / "assets" / "both.txt") << "assets";
+        realms::sandbox::BootOptions boot;
+        boot.platform = "test";
+        boot.fileExists = [&](const std::string &p) {
+            return fs::is_regular_file(tmp / "save" / p, ec) || fs::is_regular_file(tmp / "assets" / p, ec);
+        };
+        const int32_t paksBefore = engine.pakCount();
+        CHECK(realms::sandbox::boot(engine, boot) == 1);
+        CHECK(engine.pakCount() == paksBefore + 1);
+        auto text = [&](const std::string &p) {
+            std::vector<unsigned char> b;
+            return engine.loadFile(p, b) ? std::string(b.begin(), b.end()) : std::string("<missing>");
+        };
+        CHECK(text("pics/q2.txt") == "pak");
+        CHECK(text("env.txt") == "assets baseq2");
+        CHECK(text("both.txt") == "assets");          // <root>/ before any baseq2/
+        CHECK(text("baseq2/env.txt") == "assets baseq2"); // spelt out works too
+        CHECK(text("nothere.txt") == "<missing>");
+        CHECK(engine.findMap("q2base") == "maps/q2base.bsp");
+        CHECK(engine.findMap("loose") == "maps/loose.bsp");
+        CHECK(engine.loadMap("maps/loose.bsp") && engine.mapLoaded());
+    }
+
     engine.removeCommand("noclip");
     CHECK(!engine.commandExists("noclip"));
     engine.shutdown();
     CHECK(!engine.initialized());
     CHECK(second.init(cfg)); // slot released
     second.shutdown();
+
+    // A platform readFile (Android assets, ...) gets the baseq2/ retry as well
+    {
+        realms::EngineConfig platformCfg = cfg;
+        platformCfg.searchRoots.clear();
+        platformCfg.writableRoot.clear();
+        std::vector<std::string> asked;
+        platformCfg.readFile = [&asked](const std::string &p, std::vector<unsigned char> &out) {
+            asked.push_back(p);
+            if (p != "baseq2/pics/only.txt") return false;
+            out.assign({'o', 'k'});
+            return true;
+        };
+        realms::Engine platform;
+        CHECK(platform.init(platformCfg));
+        std::vector<unsigned char> b;
+        asked.clear();
+        CHECK(platform.loadFile("pics/only.txt", b) && std::string(b.begin(), b.end()) == "ok");
+        CHECK(asked == std::vector<std::string>({"pics/only.txt", "baseq2/pics/only.txt"}));
+        asked.clear();
+        CHECK(!platform.loadFile("baseq2/none.txt", b) && asked == std::vector<std::string>({"baseq2/none.txt"}));
+        platform.shutdown();
+    }
 
     // A core linked into the program (the realms-pascal executable) wins over
     // library probing, for Pascal and Auto preferences alike.
