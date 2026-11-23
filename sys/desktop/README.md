@@ -19,6 +19,23 @@
 - **`N` / `P` / `F11` / `Esc`** — режим полёта (noclip) / копировать `spawn.json` / полный экран / меню паузы
 - **`L`** — сменить язык интерфейса (English → Русский → Português → Español)
 
+## Заставка
+
+При запуске, как на Android и iOS, проигрывается видео-заставка `intro.mp4` (из каталога ассетов) со звуком,
+с чёрными полями по краям, если пропорции окна отличаются от 16:9. Пока она идёт, модели мира загружаются
+в фоновом потоке; если заставку пропустить раньше, до конца загрузки показывается экран «Загрузка мира…».
+
+- **`Esc` / `Пробел` / `Enter` / щелчок мыши** — пропустить заставку;
+- флаг **`--no-intro`** или переменная окружения **`EKRON_NO_INTRO=1`** — запуск без заставки.
+
+Видео декодирует `IntroVideo.h` с одной из реализаций, выбираемой при сборке:
+**AVFoundation** на macOS (`IntroVideoApple.mm`, ничего ставить не нужно) и **FFmpeg** на Linux
+(`IntroVideoFFmpeg.cpp`, библиотеки `libavformat` / `libavcodec` / `libswscale` / `libswresample` версии 5.1+).
+Звук FFmpeg-реализации подмешивается к звуку игры в `DesktopAudio`. Если FFmpeg не найден, клиент собирается
+без заставки (`IntroVideoNone.cpp`) и пишет об этом при конфигурации CMake; `-DEKRON_REQUIRE_INTRO_VIDEO=ON`
+(так собирают CI и Docker) превращает это в ошибку, а `-DEKRON_INTRO_VIDEO=OFF` отключает заставку совсем.
+Тест `tests/native/intro_video_test.cpp` проигрывает заставку через FFmpeg с поддельными часами и аудиовыходом.
+
 ## Язык интерфейса
 
 Клиент полностью переведён на **английский** (`en`), **русский** (`ru`), **европейский португальский** (`pt-PT`)
@@ -43,6 +60,7 @@ API — в `Localization.h`. Тест `tests/native/localization_test.cpp` пр�
 
 ### Linux (Debian/Ubuntu `.deb`)
 ```sh
+# Для заставки: sudo apt-get install libavformat-dev libavcodec-dev libswscale-dev libswresample-dev
 cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr
 cmake --build build -j
 (cd build && cpack -G DEB)

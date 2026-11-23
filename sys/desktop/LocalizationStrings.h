@@ -30,6 +30,16 @@ EKRON_STR(WindowTitle,
           "EKRON — Sandbox Urbano (Ekron Realms)",
           "EKRON — Sandbox urbano (Ekron Realms)")
 EKRON_STR(BrandName, "EKRON", "ЭКРОН", "EKRON", "EKRON")
+EKRON_STR(IntroSkip,
+          "[Esc] Skip intro",
+          "[Esc] Пропустить заставку",
+          "[Esc] Saltar introdução",
+          "[Esc] Saltar intro")
+EKRON_STR(LoadingWorld,
+          "Loading the world…",
+          "Загрузка мира…",
+          "A carregar o mundo…",
+          "Cargando el mundo…")
 
 // ---------------------------------------------------------------------------
 // Toasts

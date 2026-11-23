@@ -29,6 +29,7 @@
 --online-port <port>   Presence relay port (default: 38475)
 --online-name <name>   Player display name (default: Player)
 --lang <code>          UI language: en, ru, pt-PT or es-ES (also EKRON_LANG; default: saved choice, then system locale)
+--no-intro             Start without the intro video (also EKRON_NO_INTRO=1)
 --engine-info          Show which Realms core is active (Free Pascal or C++) and exit
 +<command> [args]      Quake 2 style console commands, e.g. +set sensitivity 4 +exec my.cfg
 --help                 Show CLI usage and controls

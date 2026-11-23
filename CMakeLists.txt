@@ -151,7 +151,45 @@ if(ENABLE_DESKTOP_SANDBOX)
         "${SHARED_CPP_DIR}/Quake2View.cpp"
         "${SHARED_CPP_DIR}/GltfScene.cpp"
         "${SHARED_CPP_DIR}/ImageDecode.cpp"
+        "${DESKTOP_SRC_DIR}/IntroScreen.cpp"
     )
+
+    # Intro video (assets/intro.mp4) backend, see sys/desktop/IntroVideo.h:
+    # AVFoundation on macOS, FFmpeg's libraries elsewhere when found, else none.
+    option(EKRON_INTRO_VIDEO "Play the intro video at startup (AVFoundation / FFmpeg)" ON)
+    option(EKRON_REQUIRE_INTRO_VIDEO "Fail instead of building without an intro video backend (release builds)" OFF)
+    set(EKRON_INTRO_BACKEND "none")
+    if(EKRON_INTRO_VIDEO AND APPLE)
+        set(CMAKE_OBJCXX_STANDARD 17)
+        set(CMAKE_OBJCXX_STANDARD_REQUIRED ON)
+        enable_language(OBJCXX)
+        list(APPEND DESKTOP_SOURCES "${DESKTOP_SRC_DIR}/IntroVideoApple.mm")
+        set_source_files_properties("${DESKTOP_SRC_DIR}/IntroVideoApple.mm" PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+        set(EKRON_INTRO_BACKEND "AVFoundation")
+    elseif(EKRON_INTRO_VIDEO)
+        find_package(PkgConfig QUIET)
+        if(PKG_CONFIG_FOUND)
+            pkg_check_modules(EKRON_FFMPEG QUIET IMPORTED_TARGET
+                libavformat libavcodec>=59.37.100 libswscale libswresample libavutil)
+        endif()
+        if(EKRON_FFMPEG_FOUND)
+            list(APPEND DESKTOP_SOURCES "${DESKTOP_SRC_DIR}/IntroVideoFFmpeg.cpp")
+            set(EKRON_INTRO_BACKEND "FFmpeg")
+        endif()
+    endif()
+    if(EKRON_INTRO_BACKEND STREQUAL "none")
+        if(EKRON_REQUIRE_INTRO_VIDEO)
+            message(FATAL_ERROR "EKRON_REQUIRE_INTRO_VIDEO: no intro video backend. Install FFmpeg 5.1+ development "
+                                "files (libavformat-dev libavcodec-dev libswscale-dev libswresample-dev).")
+        endif()
+        list(APPEND DESKTOP_SOURCES "${DESKTOP_SRC_DIR}/IntroVideoNone.cpp")
+        if(EKRON_INTRO_VIDEO)
+            message(STATUS "FFmpeg 5.1+ development files not found: the desktop client starts without the intro video "
+                           "(install libavformat-dev libavcodec-dev libswscale-dev libswresample-dev)")
+        endif()
+    endif()
+    message(STATUS "Intro video backend: ${EKRON_INTRO_BACKEND}")
+
     add_library(ekron_sandbox_objects OBJECT ${DESKTOP_SOURCES})
     set_target_properties(ekron_sandbox_objects PROPERTIES POSITION_INDEPENDENT_CODE ON)
     target_include_directories(ekron_sandbox_objects PUBLIC
@@ -164,6 +202,13 @@ if(ENABLE_DESKTOP_SANDBOX)
         Threads::Threads
         $<$<PLATFORM_ID:Linux>:${CMAKE_DL_LIBS}>
     )
+
+    if(EKRON_INTRO_BACKEND STREQUAL "AVFoundation")
+        target_link_libraries(ekron_sandbox_objects PUBLIC
+            "-framework AVFoundation" "-framework CoreMedia" "-framework CoreVideo" "-framework Foundation")
+    elseif(EKRON_INTRO_BACKEND STREQUAL "FFmpeg")
+        target_link_libraries(ekron_sandbox_objects PUBLIC PkgConfig::EKRON_FFMPEG)
+    endif()
 
     # Presence remains optional when OpenSSL development files are unavailable.
     if(UNIX)
@@ -303,6 +348,9 @@ if(ENABLE_FPC_CLIENT)
                     get_filename_component(_sdl2_lib_dir "${EKRON_SDL2_LIBRARY}" DIRECTORY)
                     list(APPEND _realms_pascal_flags "-k-rpath-link" "-k${_sdl2_lib_dir}")
                 endif()
+                foreach(_ffmpeg_lib_dir IN LISTS EKRON_FFMPEG_LIBRARY_DIRS) # and FFmpeg's
+                    list(APPEND _realms_pascal_flags "-k-rpath-link" "-k${_ffmpeg_lib_dir}")
+                endforeach()
             endif()
             add_fpc_executable(realms_pascal_client
                 SOURCES
@@ -426,7 +474,7 @@ target_include_directories(ekron_shop_catalog_test PRIVATE
 )
 add_test(NAME ekron_shop_catalog COMMAND ekron_shop_catalog_test)
 
-# Desktop i18n: English / Russian / Portuguese (Portugal) string table,
+# Desktop i18n: English / Russian / Portuguese (Portugal) / Spanish (Spain) string table,
 # placeholders, locale parsing and pixel-font glyph coverage (SDL-independent).
 add_executable(ekron_localization_test
     tests/native/localization_test.cpp
@@ -434,6 +482,18 @@ add_executable(ekron_localization_test
 )
 target_include_directories(ekron_localization_test PRIVATE sys/desktop)
 add_test(NAME ekron_localization COMMAND ekron_localization_test)
+
+# Intro video through FFmpeg: plays assets/intro.mp4 against a fake audio
+# output and clock (no sound card, faster than real time).
+if(EKRON_INTRO_BACKEND STREQUAL "FFmpeg")
+    add_executable(ekron_intro_video_test
+        tests/native/intro_video_test.cpp
+        sys/desktop/IntroVideoFFmpeg.cpp
+    )
+    target_include_directories(ekron_intro_video_test PRIVATE sys/desktop)
+    target_link_libraries(ekron_intro_video_test PRIVATE PkgConfig::EKRON_FFMPEG)
+    add_test(NAME ekron_intro_video COMMAND ekron_intro_video_test "${SHARED_ASSETS_DIR}/intro.mp4")
+endif()
 
 # Realms bridge conformance: C++ reference core (+ Free Pascal core below).
 add_executable(realms_bridge_test tests/realms/realms_bridge_test.cpp)
@@ -694,6 +754,14 @@ elseif(UNIX)
         set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
     else()
         set(CPACK_DEBIAN_PACKAGE_DEPENDS "libsdl2-2.0-0, libc6, libstdc++6")
+        if(EKRON_INTRO_BACKEND STREQUAL "FFmpeg") # runtime packages are named after the soname
+            foreach(_lib avformat avcodec swscale swresample avutil)
+                string(REGEX MATCH "^[0-9]+" _major "${EKRON_FFMPEG_lib${_lib}_VERSION}")
+                if(_major)
+                    string(APPEND CPACK_DEBIAN_PACKAGE_DEPENDS ", lib${_lib}${_major}")
+                endif()
+            endforeach()
+        endif()
     endif()
 endif()
 

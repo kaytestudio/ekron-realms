@@ -28,5 +28,18 @@ int main() {
     assert(fitHudTextScale(1.3f, 600.0f, 800.0f) == 1.3f);
     assert(std::abs(fitHudTextScale(1.3f, 1200.0f, 600.0f) - 0.65f) < 0.0001f);
     assert(fitHudTextScale(1.3f, 0.0f, 600.0f) == 1.3f);
+
+    // Intro video letterboxing: 16:9 picture, whole picture visible, centred.
+    using ekron::desktop::letterbox;
+    const auto same = letterbox(1280, 720, 1280.0f, 720.0f);
+    assert(same.x == 0.0f && same.y == 0.0f && same.w == 1280.0f && same.h == 720.0f);
+    const auto tall = letterbox(1280, 720, 800.0f, 800.0f); // bars top and bottom
+    assert(tall.x == 0.0f && tall.w == 800.0f && std::abs(tall.h - 450.0f) < 0.001f);
+    assert(std::abs(tall.y - 175.0f) < 0.001f);
+    const auto wide = letterbox(1280, 720, 2560.0f, 1080.0f); // bars left and right
+    assert(wide.y == 0.0f && wide.h == 1080.0f && std::abs(wide.w - 1920.0f) < 0.001f);
+    assert(std::abs(wide.x - 320.0f) < 0.001f);
+    const auto none = letterbox(0, 720, 800.0f, 600.0f);
+    assert(none.w == 0.0f && none.h == 0.0f);
     std::cout << "Desktop HUD layout checks passed\n";
 }

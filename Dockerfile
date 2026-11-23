@@ -21,6 +21,7 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         build-essential cmake ninja-build pkg-config \
         libsdl2-dev libgl1-mesa-dev libssl-dev \
+        libavformat-dev libavcodec-dev libswscale-dev libswresample-dev \
         fpc fp-units-fcl \
         file dpkg-dev ca-certificates && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
@@ -32,7 +33,8 @@ RUN cmake -S . -B build -G Ninja \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX=/usr \
         -DENABLE_FPC_CLIENT=ON \
-        -DENABLE_PASCAL_CORE=ON && \
+        -DENABLE_PASCAL_CORE=ON \
+        -DEKRON_REQUIRE_INTRO_VIDEO=ON && \
     cmake --build build -j"$(nproc)"
 
 RUN ctest --test-dir build --output-on-failure

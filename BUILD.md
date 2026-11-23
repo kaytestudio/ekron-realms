@@ -56,11 +56,12 @@ Alternatively, install FPC standalone from [FreePascal.org](https://www.freepasc
 ```bash
 sudo apt-get update
 sudo apt-get install -y build-essential cmake ninja-build pkg-config \
-  libsdl2-dev libgl1-mesa-dev libssl-dev fpc fp-units-fcl file dpkg-dev
+  libsdl2-dev libgl1-mesa-dev libssl-dev fpc fp-units-fcl file dpkg-dev \
+  libavformat-dev libavcodec-dev libswscale-dev libswresample-dev
 sudo apt-get install -y lazarus   # optional, for lazbuild
 ```
 
-`fpc` is only needed for the Pascal core, the game module and `realms-pascal`; `libssl-dev` only for the online presence client.
+`fpc` is only needed for the Pascal core, the game module and `realms-pascal`; `libssl-dev` only for the online presence client; the FFmpeg packages only for the intro video (`intro.mp4` at startup; without them the game starts straight away). macOS plays the intro through AVFoundation and needs nothing extra.
 
 #### Linux (Fedora/RHEL)
 

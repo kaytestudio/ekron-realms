@@ -19,6 +19,8 @@
 #include "DesktopRenderer.h"
 #include "ekron_sandbox.h"
 #include "DesktopHudLayout.h"
+#include "IntroScreen.h"
+#include "IntroVideo.h"
 #include "DesktopOnlineClient.h"
 #include "FpvDrone.h"
 #include "ShopCatalog.h"
@@ -42,6 +44,9 @@
 #include "realms/SandboxBoot.h"
 
 #include <algorithm>
+#include <memory>
+#include <thread>
+#include <atomic>
 #include <array>
 #include <chrono>
 #include <cmath>
@@ -612,6 +617,8 @@ void printHelp(const char *exe) {
         << "                      Set EKRON_JOIN_TOKEN in the environment; players only, no shared world\n"
         << "  --lang <code>       UI language: en, ru, pt-PT or es-ES (default: saved choice, then system locale)\n"
         << "                      The EKRON_LANG environment variable is honoured too\n"
+        << "  --no-intro          Start without the intro video (also EKRON_NO_INTRO=1);\n"
+        << "                      Esc, Space, Enter or a click skip it\n"
         << "  --engine-info       Show which Realms core is active (Free Pascal or C++) and exit\n"
         << "  +<command> [args]   Quake 2 style console commands, e.g. +set sensitivity 4 +exec my.cfg\n"
         << "                      REALMS_CORE=pascal|native|auto selects the Realms core\n"
@@ -651,6 +658,9 @@ int main(int argc, char **argv)
     bool engineInfo = false;
     int onlinePort = 38475;
     bool headlessSmoke = false;
+    bool playIntro = true;
+    if (const char *env = std::getenv("EKRON_NO_INTRO"); env && env[0] != '\0' && std::string(env) != "0")
+        playIntro = false;
     std::optional<i18n::Language> cliLanguage;
 
     for (int i = 1; i < argc; ++i) {
@@ -667,6 +677,8 @@ int main(int argc, char **argv)
         }
         if (arg == "--headless-smoke") {
             headlessSmoke = true;
+        } else if (arg == "--no-intro") {
+            playIntro = false;
         } else if (arg == "--engine-info") {
             engineInfo = true;
         } else if (arg == "--assets" && i + 1 < argc) {
@@ -826,14 +838,54 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    // Load 3D GLB models & world state
+    // Load 3D GLB models & world state. Parsing runs on a worker thread while
+    // the intro video (or the loading screen) plays; GL uploads stay here.
     std::string loadLog;
     ekron::desktop::DesktopGltfModel cityModel;
     ekron::desktop::DesktopGltfModel carModel;
     ekron::desktop::DesktopGltfModel remoteModel;
     ekron::desktop::DesktopGltfModel droneModel;
+    bool cityLoaded = false, carLoaded = false, remoteLoaded = false, droneLoaded = false;
+    std::atomic<bool> modelsLoading{true};
+    std::thread modelLoader([&] {
+        cityLoaded = cityModel.loadFromDisk(assetRoot, "models/abandoned_city_street_for_games.glb", loadLog);
+        std::string ignored; // the optional models fail quietly, as before
+        city::LoadOptions carOpts;
+        carOpts.level = false;
+        carOpts.buildPhysics = false;
+        carOpts.targetExtent = 4.025f;
+        carOpts.yaw = 1.57079632679f;
+        carLoaded = carModel.loadFromDisk(assetRoot, "models/uaz_469_1973_classic.glb", ignored, carOpts);
+        city::LoadOptions remoteOpts;
+        remoteOpts.level = false;
+        remoteOpts.buildPhysics = false;
+        remoteOpts.targetExtent = 0.38f;
+        remoteLoaded = remoteModel.loadFromDisk(assetRoot, "models/chasing_m2_rc_underwater_drone_remote.glb",
+                                                ignored, remoteOpts);
+        remoteOpts.targetExtent = 0.50f;
+        droneLoaded = droneModel.loadFromDisk(assetRoot, "models/fpv_drone.glb", ignored, remoteOpts);
+        modelsLoading.store(false);
+    });
 
-    if (!cityModel.loadFromDisk(assetRoot, "models/abandoned_city_street_for_games.glb", loadLog)) {
+    // Intro video (assets/intro.mp4), skippable; --no-intro / EKRON_NO_INTRO turn it off.
+    bool startupQuit = false;
+    {
+        std::unique_ptr<ekron::desktop::IntroVideo> intro;
+        const fs::path introPath = fs::path(assetRoot) / "intro.mp4";
+        if (playIntro && fs::exists(introPath)) {
+            ekron::desktop::IntroOptions introOptions;
+            introOptions.audio = &audio;
+            std::string introError;
+            intro = ekron::desktop::openIntroVideo(introPath.string(), introOptions, introError);
+            engine.print(intro ? std::string("intro: ") + ekron::desktop::introVideoBackend()
+                               : "intro skipped: " + introError);
+        }
+        startupQuit = !ekron::desktop::runStartupScreens(window, gl, renderer, intro,
+                                                         [&] { return modelsLoading.load(); });
+    }
+    modelLoader.join();
+
+    if (!cityLoaded) {
         std::cerr << "[Ekron] Failed loading city GLB: " << loadLog << "\n";
         renderer.shutdown(gl);
         SDL_GL_DeleteContext(glCtx);
@@ -842,27 +894,9 @@ int main(int argc, char **argv)
         return 1;
     }
     cityModel.upload(gl);
-
-    city::LoadOptions carOpts;
-    carOpts.level = false;
-    carOpts.buildPhysics = false;
-    carOpts.targetExtent = 4.025f;
-    carOpts.yaw = 1.57079632679f;
-    if (carModel.loadFromDisk(assetRoot, "models/uaz_469_1973_classic.glb", loadLog, carOpts)) {
-        carModel.upload(gl);
-    }
-
-    city::LoadOptions remoteOpts;
-    remoteOpts.level = false;
-    remoteOpts.buildPhysics = false;
-    remoteOpts.targetExtent = 0.38f;
-    if (remoteModel.loadFromDisk(assetRoot, "models/chasing_m2_rc_underwater_drone_remote.glb", loadLog, remoteOpts)) {
-        remoteModel.upload(gl);
-    }
-    remoteOpts.targetExtent = 0.50f;
-    if (droneModel.loadFromDisk(assetRoot, "models/fpv_drone.glb", loadLog, remoteOpts)) {
-        droneModel.upload(gl);
-    }
+    if (carLoaded) carModel.upload(gl);
+    if (remoteLoaded) remoteModel.upload(gl);
+    if (droneLoaded) droneModel.upload(gl);
 
     sandbox::World world;
     world.scenery.clear();
@@ -946,7 +980,7 @@ int main(int argc, char **argv)
         const char *token = std::getenv("EKRON_JOIN_TOKEN");
         online.connect(onlineHost, onlinePort, engine.cvarString("name", onlineName), token ? token : "");
     }
-    bool running = true;
+    bool running = !startupQuit; // the window was closed during the intro or loading
     bool catalogOpen = false;
     bool pauseOpen = false;
     bool shopOpen = false;

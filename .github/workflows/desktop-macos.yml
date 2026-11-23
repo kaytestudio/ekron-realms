@@ -17,6 +17,7 @@ on:
       - 'tests/native/localization_test.cpp'
       - 'tests/native/shop_catalog_test.cpp'
       - 'tests/native/sound_test.cpp'
+      - 'tests/native/intro_video_test.cpp'
       - 'sys/mac/**'
       - 'tests/pascal/**'
       - '.gitmodules'
@@ -39,6 +40,7 @@ on:
       - 'tests/native/localization_test.cpp'
       - 'tests/native/shop_catalog_test.cpp'
       - 'tests/native/sound_test.cpp'
+      - 'tests/native/intro_video_test.cpp'
       - 'sys/mac/**'
       - 'tests/pascal/**'
       - '.gitmodules'
@@ -82,7 +84,8 @@ jobs:
             cmake -S . -B build -G Ninja \
               -DCMAKE_BUILD_TYPE=Release \
               -DENABLE_FPC_CLIENT=ON \
-              -DENABLE_PASCAL_CORE=ON &&
+              -DENABLE_PASCAL_CORE=ON \
+              -DEKRON_REQUIRE_INTRO_VIDEO=ON &&
             cmake --build build -j"$(sysctl -n hw.ncpu)"
           } 2>&1 | tee /tmp/macos-build.log || {
             { grep -B2 -A6 -E 'Undefined symbols|error:|Error:' /tmp/macos-build.log | head -n 40; tail -n 8 /tmp/macos-build.log; } | while IFS= read -r line; do
