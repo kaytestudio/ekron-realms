@@ -250,6 +250,8 @@ if(ENABLE_DESKTOP_SANDBOX)
             COMMAND ${CMAKE_COMMAND} -E copy_directory "${SHARED_ASSETS_DIR}/catalog" "${MAC_APP_RESOURCES}/catalog"
             COMMAND ${CMAKE_COMMAND} -E copy_directory "${SHARED_ASSETS_DIR}/config" "${MAC_APP_RESOURCES}/config"
             COMMAND ${CMAKE_COMMAND} -E copy_directory "${SHARED_ASSETS_DIR}/sounds" "${MAC_APP_RESOURCES}/sounds"
+            COMMAND ${CMAKE_COMMAND} -E copy_directory "${SHARED_ASSETS_DIR}/maps" "${MAC_APP_RESOURCES}/maps"
+            COMMAND ${CMAKE_COMMAND} -E copy_directory "${SHARED_ASSETS_DIR}/env" "${MAC_APP_RESOURCES}/env"
             COMMAND ${CMAKE_COMMAND} -E copy_if_different "${SHARED_ASSETS_DIR}/intro.mp4" "${MAC_APP_RESOURCES}/intro.mp4"
             COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/RINGSCE_v2.png" "${MAC_APP_RESOURCES}/RINGSCE_v2.png"
             COMMENT "Copying Ekron 3D assets into EkronRealms.app/Contents/Resources"
@@ -434,6 +436,8 @@ if(TARGET ekron-realms)
             "${SHARED_ASSETS_DIR}/catalog"
             "${SHARED_ASSETS_DIR}/config"
             "${SHARED_ASSETS_DIR}/sounds"
+            "${SHARED_ASSETS_DIR}/maps"
+            "${SHARED_ASSETS_DIR}/env"
             DESTINATION "${CMAKE_INSTALL_DATADIR}/ekron-realms"
         )
         install(FILES "${SHARED_ASSETS_DIR}/intro.mp4"
@@ -609,6 +613,32 @@ else()
     set_tests_properties(realms_q2_compiled_map_native PROPERTIES SKIP_RETURN_CODE 77)
 endif()
 set_tests_properties(realms_q2_compiled_map_native PROPERTIES ENVIRONMENT "REALMS_CORE=;REALMS_GAME_LIBRARY=")
+
+# The sample glTF map the apps ship (assets/maps/courtyard.glb, its skybox in
+# assets/env; tools/build_sample_map.py): entities, sky seams, then the game
+# through its doors, lift and button.
+add_executable(realms_sample_map_test
+    tests/realms/sample_map_test.cpp
+    "${SHARED_CPP_DIR}/MapSession.cpp"
+    "${SHARED_CPP_DIR}/Quake2View.cpp"
+)
+target_include_directories(realms_sample_map_test PRIVATE "${SHARED_CPP_DIR}")
+target_link_libraries(realms_sample_map_test PRIVATE realms_quake2)
+if(REALMS_GAME_MODULE_BUILT)
+    add_dependencies(realms_sample_map_test realms_game_module)
+    add_test(NAME realms_sample_map_native
+             COMMAND realms_sample_map_test --assets "${SHARED_ASSETS_DIR}" --game "${REALMS_GAME_MODULE_PATH}")
+    if(REALMS_PASCAL_CORE_BUILT)
+        add_dependencies(realms_sample_map_test realms_pascal_core)
+        add_test(NAME realms_sample_map_pascal
+                 COMMAND realms_sample_map_test --assets "${SHARED_ASSETS_DIR}" --game "${REALMS_GAME_MODULE_PATH}"
+                         --pascal "${REALMS_PASCAL_CORE_PATH}")
+    endif()
+else()
+    add_test(NAME realms_sample_map_native COMMAND realms_sample_map_test --assets "${SHARED_ASSETS_DIR}")
+    set_tests_properties(realms_sample_map_native PROPERTIES SKIP_RETURN_CODE 77)
+endif()
+set_tests_properties(realms_sample_map_native PROPERTIES ENVIRONMENT "REALMS_CORE=;REALMS_GAME_LIBRARY=")
 
 # Quake 2 .md2 models and PCX skins (realms::Md2Model / decodePcx), generated
 # in memory by tests/realms/md2_builder.h.

@@ -13,6 +13,8 @@
 		EB4DC3142DB8FBCA00B0DE7E /* config in Resources */ = {isa = PBXBuildFile; fileRef = EB4DC3042DB8FBCA00B0DE7E /* config */; };
 		EB4DC3152DB8FBCA00B0DE7E /* intro.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = EB4DC3052DB8FBCA00B0DE7E /* intro.mp4 */; };
 		EB4DC3162DB8FBCA00B0DE7E /* sounds in Resources */ = {isa = PBXBuildFile; fileRef = EB4DC3062DB8FBCA00B0DE7E /* sounds */; };
+		EB4DC3172DB8FBCA00B0DE7E /* maps in Resources */ = {isa = PBXBuildFile; fileRef = EB4DC3072DB8FBCA00B0DE7E /* maps */; };
+		EB4DC3182DB8FBCA00B0DE7E /* env in Resources */ = {isa = PBXBuildFile; fileRef = EB4DC3082DB8FBCA00B0DE7E /* env */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -25,6 +27,8 @@
 		EB4DC3042DB8FBCA00B0DE7E /* config */ = {isa = PBXFileReference; lastKnownFileType = folder; name = config; path = ../../android/app/src/main/assets/config; sourceTree = "<group>"; };
 		EB4DC3052DB8FBCA00B0DE7E /* intro.mp4 */ = {isa = PBXFileReference; lastKnownFileType = file; name = intro.mp4; path = ../../android/app/src/main/assets/intro.mp4; sourceTree = "<group>"; };
 		EB4DC3062DB8FBCA00B0DE7E /* sounds */ = {isa = PBXFileReference; lastKnownFileType = folder; name = sounds; path = ../../android/app/src/main/assets/sounds; sourceTree = "<group>"; };
+		EB4DC3072DB8FBCA00B0DE7E /* maps */ = {isa = PBXFileReference; lastKnownFileType = folder; name = maps; path = ../../android/app/src/main/assets/maps; sourceTree = "<group>"; };
+		EB4DC3082DB8FBCA00B0DE7E /* env */ = {isa = PBXFileReference; lastKnownFileType = folder; name = env; path = ../../android/app/src/main/assets/env; sourceTree = "<group>"; };
 		EB4DC3202DB8FBCA00B0DE7E /* RealmsPascal.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = RealmsPascal.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -160,6 +164,8 @@
 				EB4DC3042DB8FBCA00B0DE7E /* config */,
 				EB4DC3052DB8FBCA00B0DE7E /* intro.mp4 */,
 				EB4DC3062DB8FBCA00B0DE7E /* sounds */,
+				EB4DC3072DB8FBCA00B0DE7E /* maps */,
+				EB4DC3082DB8FBCA00B0DE7E /* env */,
 			);
 			name = "Shared Assets";
 			sourceTree = "<group>";
@@ -299,6 +305,8 @@
 				EB4DC3142DB8FBCA00B0DE7E /* config in Resources */,
 				EB4DC3152DB8FBCA00B0DE7E /* intro.mp4 in Resources */,
 				EB4DC3162DB8FBCA00B0DE7E /* sounds in Resources */,
+				EB4DC3172DB8FBCA00B0DE7E /* maps in Resources */,
+				EB4DC3182DB8FBCA00B0DE7E /* env in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -5,7 +5,7 @@
 ## Архитектура
 
 - **Общее ядро мира и физики (`sys/android/app/src/main/cpp/`)**: без дублирования кода напрямую подключены `SandboxWorld.h`, `ObjectDynamics.h`, `PlayerPhysics.h`, `ToolInteraction.h`, `FpvDrone.h`, `RaycastPlacement.h`, `Interaction.h`, `WorldRecovery.h`, `LevelPlacement.h`, `GltfScene.h/.cpp` и `ImageDecode.cpp`.
-- **Общие ассеты (`sys/android/app/src/main/assets/`)**: модели города (`abandoned_city_street_for_games.glb`), УАЗ-469 (`uaz_469_1973_classic.glb`), пульта и FPV-дрона, текстуры материалов, иконки каталога, `config/spawn.json` и `intro.mp4` упаковываются в `realms.app` по ссылкам в `realms.xcodeproj` без дублирования бинарных файлов в Git.
+- **Общие ассеты (`sys/android/app/src/main/assets/`)**: модели города (`abandoned_city_street_for_games.glb`), УАЗ-469 (`uaz_469_1973_classic.glb`), пульта и FPV-дрона, текстуры материалов, иконки каталога, `config/spawn.json`, `intro.mp4`, а также пример карты Quake 2 `maps/courtyard.glb` и её скайбокс `env/` упаковываются в `realms.app` по ссылкам в `realms.xcodeproj` без дублирования бинарных файлов в Git.
 - **Metal-рендерер (`SandboxBridge.h/.mm`, `realms Shared/Shaders.metal`)**:
   - 8-слойный `MTLTextureType2DArray` (`sRGB` + mipmaps) для процедурных и строительных материалов;
   - glTF-рендеринг города, УАЗ-469, 3D-пульта и FPV-дрона с сортировкой прозрачных батчей и голографическим предпросмотром строительства;
