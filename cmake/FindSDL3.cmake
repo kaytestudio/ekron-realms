@@ -189,7 +189,7 @@ if(SDL3_FOUND)
 endif()
 
 # =============================================================================
-# Helper function to add SDL3 to FPC projects
+# target_link_sdl3(<target>): adds the SDL3 Pascal unit path to an FPC target
 # =============================================================================
 function(target_link_sdl3 target_name)
     if(NOT SDL3_FOUND)
@@ -203,7 +203,7 @@ function(target_link_sdl3 target_name)
     message(STATUS "Target ${target_name} will use SDL3 Pascal bindings")
 endfunction()
 
-# =F===========================================================================
+# ============================================================================
 # Platform-specific installation hints
 # =============================================================================
 if(SDL3_FOUND AND NOT SDL3_LIBRARIES)

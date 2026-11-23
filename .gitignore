@@ -38,6 +38,8 @@ lib/*
 *.tmp
 .DS_Store
 Thumbs.db
+__history/
+xcuserdata/
 
 # Ignore logs and caches
 *.log
