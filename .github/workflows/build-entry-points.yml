@@ -100,7 +100,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build pkg-config \
-            libsdl2-dev libgl1-mesa-dev fpc fp-units-fcl
+            libsdl2-dev libgl1-mesa-dev fpc fp-units-fcl \
+            libavformat-dev libavcodec-dev libswscale-dev libswresample-dev
           # Debian/Ubuntu ship lazbuild in lcl-utils(-X.Y); it needs a complete
           # Lazarus directory (lcl/, packager/globallinks: lazarus-src, lcl).
           for pkg in "lcl-utils lcl-nogui lazarus-src" lazarus; do

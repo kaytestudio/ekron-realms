@@ -2,7 +2,7 @@ package com.example.realms
 
 import androidx.annotation.StringRes
 
-/** [labelRes] is a localized string resource (values/, values-ru/, values-pt-rPT/). */
+/** [labelRes] is a localized string resource (values/, values-ru/, values-pt-rPT/, values-es-rES/). */
 data class CatalogItem(val nativeType: Int, @StringRes val labelRes: Int, val asset: String, val defaultSurface: Int = 1)
 
 object BuildCatalog {

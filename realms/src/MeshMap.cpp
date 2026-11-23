@@ -8,8 +8,10 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <map>
+#include <set>
 #include <utility>
 
 // Bit-exact with the Free Pascal core: no fused multiply-add contraction
@@ -433,6 +435,104 @@ bool extrasContents(const JValue *owner, int32_t &contents) {
     return ok;
 }
 
+bool entityClassChars(const std::string &c) {
+    for (char ch : c)
+        if (!std::isalnum(static_cast<unsigned char>(ch)) && ch != '_') return false;
+    return !c.empty();
+}
+
+// Quake 2 point entities a node name may spawn.
+bool pointEntityClass(const std::string &c) {
+    static const char *const prefixes[] = {"info_",    "item_",   "weapon_", "ammo_",  "key_",
+                                           "monster_", "misc_",   "target_", "path_",  "point_", "light_"};
+    static const char *const names[] = {"light",       "trigger_relay", "trigger_always", "trigger_counter",
+                                        "trigger_key", "func_timer",    "func_clock",     "turret_driver"};
+    if (!entityClassChars(c)) return false;
+    for (const char *p : prefixes)
+        if (c.size() > std::strlen(p) && c.compare(0, std::strlen(p), p) == 0) return true;
+    for (const char *n : names)
+        if (c == n) return true;
+    return false;
+}
+
+// Brush entities (func_door, func_plat, trigger_multiple, ...): the node's
+// meshes, and its children's, become an inline model ("*n").
+bool brushEntityClass(const std::string &c) {
+    if (!entityClassChars(c) || pointEntityClass(c)) return false;
+    for (const char *p : {"func_", "trigger_", "turret_"})
+        if (c.size() > std::strlen(p) && c.compare(0, std::strlen(p), p) == 0) return true;
+    return false;
+}
+
+// Brush entities that turn about their "origin" (an origin brush in BSP
+// maps): their model is stored relative to the node's position.
+bool rotatingEntityClass(const std::string &c) { return c == "func_rotating" || c == "func_door_rotating"; }
+
+// An extras key that can become an entity key: printable, no quotes or
+// braces, not one the converter sets itself or a realms_ tag.
+bool entityKeyAllowed(const std::string &key) {
+    if (key.empty() || key.size() > 63) return false;
+    for (char ch : key) {
+        const unsigned char c = static_cast<unsigned char>(ch);
+        if (c <= ' ' || c >= 127 || c == '"' || c == '{' || c == '}') return false;
+    }
+    const std::string l = lower(key);
+    return l != "classname" && l != "origin" && l.rfind("realms_", 0) != 0;
+}
+
+std::string entityNumber(double v) {
+    char buf[32];
+    if (v == std::floor(v) && std::fabs(v) < 1e9) std::snprintf(buf, sizeof(buf), "%lld", static_cast<long long>(v));
+    else std::snprintf(buf, sizeof(buf), "%g", v);
+    return buf;
+}
+
+// Entity value text for an extras value: strings (without quotes, braces
+// or control characters: ED_ParseEdict stops on a value starting with "}"),
+// numbers, booleans (1/0) and arrays of up to 4 numbers ("_color":
+// [1, 0.5, 0] -> "1 0.5 0").
+bool entityValueText(const JValue &v, std::string &out) {
+    out.clear();
+    switch (v.kind) {
+    case JValue::String:
+        for (char c : v.string)
+            if (c != '"' && c != '{' && c != '}' && static_cast<unsigned char>(c) >= ' ') out += c;
+        if (out.size() > 255) out.resize(255);
+        return true;
+    case JValue::Number:
+        if (!std::isfinite(v.number)) return false;
+        out = entityNumber(v.number);
+        return true;
+    case JValue::Bool:
+        out = v.boolean ? "1" : "0";
+        return true;
+    case JValue::Array:
+        if (v.size() == 0 || v.size() > 4) return false;
+        for (size_t i = 0; i < v.size(); ++i) {
+            const JValue *e = v.at(i);
+            if (e->kind != JValue::Number || !std::isfinite(e->number)) return false;
+            out += (i ? " " : "") + entityNumber(e->number);
+        }
+        return true;
+    default:
+        return false;
+    }
+}
+
+// "key" "value" lines for an extras object, skipping `skip` keys.
+std::string entityKeys(const JValue *extras, const std::vector<std::string> &skip) {
+    std::string r, value;
+    if (!extras || extras->kind != JValue::Object) return r;
+    for (size_t i = 0; i < extras->keys.size(); ++i) {
+        const std::string &k = extras->keys[i];
+        if (!entityKeyAllowed(k) || std::find(skip.begin(), skip.end(), lower(k)) != skip.end()) continue;
+        if (!entityValueText(extras->items[i], value)) continue;
+        if (lower(k) == "model" && !value.empty() && value[0] == '*') continue; // no inline models
+        r += "\"" + k + "\" \"" + value + "\"\n";
+    }
+    return r;
+}
+
 class Converter {
 public:
     Converter(const JValue &root, const std::vector<BufferView> &buffers, const GltfMapOptions &options, MeshMap &out)
@@ -444,10 +544,27 @@ public:
         std::vector<int64_t> roots;
         if (!sceneRoots(roots)) return fail(error, "bad scene");
         for (int64_t r : roots)
-            if (!visit(r, identity(), 0, error)) return false;
+            if (!visit(r, identity(), 0, 0, error)) return false;
+        finishModels();
         if (out_.surfaces.empty()) out_.surfaces.push_back(MeshMapSurface{"default", 0, 0, REALMS_CONTENTS_SOLID});
         if (!haveBounds_) out_.sourceMins = out_.sourceMaxs = {0, 0, 0};
-        out_.entities = "{\n\"classname\" \"worldspawn\"\n\"message\" \"" + clean(mapName) + "\"\n}\n" + entities_;
+        // worldspawn: the scene's extras ("sky", "gravity", "message", ...).
+        const JValue *extras = sceneExtras();
+        out_.entities = "{\n\"classname\" \"worldspawn\"\n";
+        if (!extras || !extras->get("message")) out_.entities += "\"message\" \"" + clean(mapName) + "\"\n";
+        out_.entities += entityKeys(extras, {}) + "}\n";
+        for (const PendingEntity &e : entities_) {
+            if (e.model < 0) {
+                out_.entities += e.text;
+                continue;
+            }
+            const int32_t n = modelNumber_[size_t(e.model)];
+            if (n <= 0) continue; // no triangles: the game would stop on it
+            // "classname" line first, then the model
+            const size_t eol = e.text.find('\n', 2);
+            out_.entities += e.text.substr(0, eol + 1) + "\"model\" \"*" + std::to_string(n) + "\"\n" +
+                             e.text.substr(eol + 1);
+        }
         return true;
     }
 
@@ -524,6 +641,14 @@ private:
         out_.surfaces.push_back(s);
         variants_[key] = index;
         return index;
+    }
+
+    const JValue *sceneExtras() const {
+        const JValue *scenes = array("scenes");
+        if (!scenes || scenes->size() == 0) return nullptr;
+        int64_t scene = jint(root_.get("scene"), 0);
+        if (scene < 0 || size_t(scene) >= scenes->size()) scene = 0;
+        return scenes->at(size_t(scene))->get("extras");
     }
 
     bool sceneRoots(std::vector<int64_t> &roots) const {
@@ -634,7 +759,10 @@ private:
         }
     }
 
-    bool emitPrimitive(const JValue &prim, const Mat4 &world, bool overridden, int32_t contents, std::string &error) {
+    bool emitPrimitive(const JValue &prim, const Mat4 &world, bool overridden, int32_t contents, int32_t model,
+                       std::string &error) {
+        // Rotating brush models are stored relative to their origin.
+        const std::array<float, 3> origin = model > 0 ? models_[size_t(model - 1)].origin : std::array<float, 3>{};
         const int64_t mode = jint(prim.get("mode"), 4);
         if (mode != 4 && mode != 5 && mode != 6) return true; // points / lines: nothing to collide with
         const JValue *attrs = prim.get("attributes");
@@ -688,9 +816,10 @@ private:
             }
             haveBounds_ = true;
             const double mapped[3] = {wx * opt_.scale, -wz * opt_.scale, wy * opt_.scale};
-            for (double m : mapped) {
+            for (int k = 0; k < 3; ++k) {
+                const double m = mapped[k];
                 if (!(std::fabs(m) <= 1e6)) return fail(error, "mesh does not fit in map space (lower map_mesh_scale)");
-                out_.vertices.push_back(float(m));
+                out_.vertices.push_back(float(m - double(origin[size_t(k)])));
             }
         }
         const int32_t surface = surfaceFor(jint(prim.get("material"), -1), overridden, contents);
@@ -701,6 +830,8 @@ private:
             out_.indices.push_back(int32_t(base + b));
             out_.indices.push_back(int32_t(base + c));
             out_.triangleSurfaces.push_back(surface);
+            out_.triangleModels.push_back(model);
+            if (model > 0) ++models_[size_t(model - 1)].triangles;
         };
         if (mode == 4) {
             for (size_t t = 0; t < tris; ++t) tri(idx[t * 3], idx[t * 3 + 1], idx[t * 3 + 2]);
@@ -715,20 +846,91 @@ private:
         return true;
     }
 
-    void addEntity(const JValue &node, const std::string &name, const Mat4 &world) {
-        std::string classname = name;
-        const size_t dot = classname.find('.');
-        if (dot != std::string::npos) classname.resize(dot);
-        const double o[3] = {world[12] * opt_.scale, -world[14] * opt_.scale, world[13] * opt_.scale};
-        entities_ += "{\n\"classname\" \"" + clean(classname) + "\"\n\"origin\" \"" + std::to_string(std::lround(o[0])) +
-                     " " + std::to_string(std::lround(o[1])) + " " + std::to_string(std::lround(o[2])) + "\"\n";
-        if (const JValue *extras = node.get("extras"))
-            if (const JValue *angle = extras->get("realms_angle"))
-                entities_ += "\"angle\" \"" + std::to_string(std::lround(jnum(angle, 0.0))) + "\"\n";
-        entities_ += "}\n";
+    // The node's world position in map units, rounded; false when it does
+    // not fit in map space.
+    bool nodeOrigin(const Mat4 &world, std::array<long, 3> &o) const {
+        const double v[3] = {world[12] * opt_.scale, -world[14] * opt_.scale, world[13] * opt_.scale};
+        for (int k = 0; k < 3; ++k) {
+            if (!(std::fabs(v[k]) <= 1e6)) return false;
+            o[size_t(k)] = std::lround(v[k]);
+        }
+        return true;
     }
 
-    bool visit(int64_t index, const Mat4 &parent, int depth, std::string &error) {
+    static std::string originKey(const std::array<long, 3> &o) {
+        return "\"origin\" \"" + std::to_string(o[0]) + " " + std::to_string(o[1]) + " " + std::to_string(o[2]) + "\"\n";
+    }
+
+    // "angle" from extras: "angle"/"angles" are copied as keys; else
+    // "realms_angle". `yawFromNode` adds the yaw of the node's +X axis.
+    static std::string angleKey(const JValue *extras, const Mat4 &world, bool yawFromNode) {
+        const JValue *realmsAngle = extras ? extras->get("realms_angle") : nullptr;
+        const bool explicitAngle = extras && (extras->get("angle") || extras->get("angles"));
+        if (explicitAngle) return std::string();
+        if (realmsAngle) return "\"angle\" \"" + std::to_string(std::lround(jnum(realmsAngle, 0.0))) + "\"\n";
+        if (!yawFromNode) return std::string();
+        // glTF +X axis (wx, wy, wz) -> map (wx, -wz): yaw about map +Z.
+        const double fx = world[0], fy = -world[2];
+        if (!(fx * fx + fy * fy > 1e-12)) return std::string();
+        long yaw = std::lround(std::atan2(fy, fx) * 180.0 / 3.14159265358979323846);
+        if (yaw < 0) yaw += 360;
+        return yaw % 360 != 0 ? "\"angle\" \"" + std::to_string(yaw % 360) + "\"\n" : std::string();
+    }
+
+    static const JValue *objectExtras(const JValue &node) {
+        const JValue *extras = node.get("extras");
+        return extras && extras->kind == JValue::Object ? extras : nullptr;
+    }
+
+    // A point entity at the node's origin. Facing: extras "angle" /
+    // "angles" / "realms_angle", else the yaw of the node's +X axis.
+    void addEntity(const JValue &node, const std::string &classname, const Mat4 &world) {
+        std::array<long, 3> o{};
+        if (!nodeOrigin(world, o)) return;
+        const JValue *extras = objectExtras(node);
+        entities_.push_back({"{\n\"classname\" \"" + classname + "\"\n" + originKey(o) + angleKey(extras, world, true) +
+                                 entityKeys(extras, {}) + "}\n",
+                             -1});
+    }
+
+    // A brush entity: a new inline model for the node's subtree. Returns
+    // its model index (1-based, before unused models are dropped), or 0.
+    int32_t addBrushEntity(int64_t index, const JValue &node, const std::string &classname, const Mat4 &world) {
+        if (models_.size() + 1 >= size_t(kMaxModels)) return 0;
+        const bool rotating = rotatingEntityClass(classname);
+        std::array<long, 3> o{};
+        if (rotating && !nodeOrigin(world, o)) return 0;
+        MeshMapModel m;
+        m.node = int32_t(index);
+        m.classname = classname;
+        if (rotating) m.origin = {float(o[0]), float(o[1]), float(o[2])};
+        models_.push_back(m);
+        const int32_t model = int32_t(models_.size());
+        const JValue *extras = objectExtras(node);
+        // Movement directions ("angle" -1 = up) are not taken from the node.
+        entities_.push_back({"{\n\"classname\" \"" + classname + "\"\n" + (rotating ? originKey(o) : std::string()) +
+                                 angleKey(extras, world, false) + entityKeys(extras, {}) + "}\n",
+                             model - 1});
+        return model;
+    }
+
+    // Models without triangles are dropped (with their entity); the rest
+    // are numbered in order.
+    void finishModels() {
+        modelNumber_.assign(models_.size(), 0);
+        std::vector<int32_t> remap(models_.size() + 1, 0);
+        for (size_t i = 0; i < models_.size(); ++i) {
+            if (models_[i].triangles == 0) continue;
+            out_.models.push_back(models_[i]);
+            modelNumber_[i] = int32_t(out_.models.size());
+            remap[i + 1] = modelNumber_[i];
+        }
+        for (int32_t &m : out_.triangleModels) m = remap[size_t(m)];
+        if (out_.models.empty()) out_.triangleModels.clear();
+    }
+
+    // `model`: the inline model the subtree belongs to (0 = world).
+    bool visit(int64_t index, const Mat4 &parent, int depth, int32_t model, std::string &error) {
         if (depth > 64) return fail(error, "node hierarchy is too deep");
         if (++visits_ > (size_t(1) << 20)) return fail(error, "too many node instances");
         const JValue &node = *array("nodes")->at(size_t(index));
@@ -736,7 +938,15 @@ private:
         if (!nodeMatrix(node, local)) return fail(error, "bad node matrix");
         const Mat4 world = mul(parent, local);
         const std::string name = jstr(node.get("name"));
-        if (lower(name).rfind("info_", 0) == 0) addEntity(node, lower(name), world);
+        std::string classname = lower(name);
+        const size_t dot = classname.find('.'); // Blender ".001" suffixes
+        if (dot != std::string::npos) classname.resize(dot);
+        if (pointEntityClass(classname)) {
+            addEntity(node, classname, world);
+        } else if (brushEntityClass(classname) && brushNodes_.insert(index).second) {
+            // first instance only: a repeated node stays part of its parent
+            if (const int32_t m = addBrushEntity(index, node, classname, world)) model = m;
+        }
 
         int32_t contents = REALMS_CONTENTS_SOLID;
         bool overridden = extrasContents(&node, contents);
@@ -750,14 +960,14 @@ private:
             if (!meshes || size_t(mesh) >= meshes->size()) return fail(error, "bad node mesh");
             const JValue *prims = meshes->at(size_t(mesh))->get("primitives");
             for (size_t p = 0; prims && p < prims->size(); ++p)
-                if (!emitPrimitive(*prims->at(p), world, overridden, contents, error)) return false;
+                if (!emitPrimitive(*prims->at(p), world, overridden, contents, model, error)) return false;
         }
         const JValue *kids = node.get("children");
         const size_t numNodes = array("nodes")->size();
         for (size_t k = 0; kids && k < kids->size(); ++k) {
             const int64_t c = jint(kids->at(k), -1);
             if (c < 0 || size_t(c) >= numNodes) return fail(error, "bad node child");
-            if (!visit(c, world, depth + 1, error)) return false;
+            if (!visit(c, world, depth + 1, model, error)) return false;
         }
         return true;
     }
@@ -769,7 +979,15 @@ private:
     std::vector<int32_t> materialSurface_;
     int32_t defaultSurface_ = -1;
     std::map<std::pair<int32_t, int32_t>, int32_t> variants_;
-    std::string entities_;
+    struct PendingEntity {
+        std::string text;
+        int32_t model; // index into models_, -1 for point entities
+    };
+    static constexpr int32_t kMaxModels = 1024; // MAX_MAP_MODELS, world included
+    std::vector<PendingEntity> entities_;
+    std::vector<MeshMapModel> models_; // every brush entity node, in visit order
+    std::vector<int32_t> modelNumber_; // models_ index -> final model, 0 = dropped
+    std::set<int64_t> brushNodes_;
     size_t visits_ = 0;
     bool haveBounds_ = false;
 };
@@ -961,6 +1179,9 @@ RealmsMeshDesc meshMapDesc(const MeshMap &map, std::vector<RealmsMeshSurface> &s
     d.num_surfaces = int32_t(surfaceStorage.size());
     d.thickness = map.thickness;
     d.entities = map.entities.c_str();
+    const bool models = !map.models.empty() && map.triangleModels.size() == map.triangleCount();
+    d.triangle_models = models ? map.triangleModels.data() : nullptr;
+    d.num_models = models ? int32_t(map.models.size()) + 1 : 1;
     return d;
 }
 

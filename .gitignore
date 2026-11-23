@@ -10,6 +10,7 @@
 *.rlf
 *.dbg
 *.map
+!tests/realms/maps/*.map
 *.s
 
 # Ignore build directories
@@ -37,6 +38,8 @@ lib/*
 *.tmp
 .DS_Store
 Thumbs.db
+__history/
+xcuserdata/
 
 # Ignore logs and caches
 *.log
@@ -75,6 +78,8 @@ doc/generated/
 !sys/android/app/src/main/res/values-ru/*.xml
 !sys/android/app/src/main/res/values-pt-rPT/
 !sys/android/app/src/main/res/values-pt-rPT/*.xml
+!sys/android/app/src/main/res/values-es-rES/
+!sys/android/app/src/main/res/values-es-rES/*.xml
 !sys/android/app/src/main/res/xml/
 !sys/android/app/src/main/res/xml/*.xml
 
@@ -88,3 +93,7 @@ tests/native/.bin/
 # KCC checkout (cmake -DENABLE_KCC=ON or git clone ... tools/kcc)
 /tools/kcc/
 a.out
+
+# Quake 2 game data (copyrighted; users supply their own)
+sys/android/app/src/main/assets/baseq2/
+sys/android/app/src/main/assets/pak[0-9].pak

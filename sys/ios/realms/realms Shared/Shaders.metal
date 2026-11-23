@@ -69,6 +69,7 @@ struct SandboxVaryings
     float3 worldNormal;
     float2 texUV;
     int    layer [[flat]];
+    int    effects [[flat]]; // mapview::kMapEffect* (quakeMapVertex), else 0
     float3 toEye;
     float2 lmUV; // Quake 2 lightmap atlas coordinates (quakeMapVertex), -1 = none
 };
@@ -114,17 +115,23 @@ vertex SandboxVaryings sandboxVertex(uint vid [[vertex_id]],
     out.worldNormal = normalMatrix * float3(v.normal);
     out.texUV = float2(v.uv);
     out.layer = int(v.layer + 0.5f);
+    out.effects = 0;
     out.lmUV = float2(-1.0f);
     return out;
 }
 
 // Realms map mode: the sandbox vertex plus the map's lightmap atlas
-// coordinates, one packed (u, v) per vertex in buffer 3.
+// coordinates, one packed (u, v) per vertex in buffer 3. The layer packs
+// the layer (bits 0..11), Quake 2 surface effects (12..15) and an animation
+// slot + 1 (16..21) whose current layer is quake.animation[slot]
+// (mapview::kMapEffectShift). Pass quake.modeCount.w 0 draws the opaque
+// faces, 1 the translucent ones; the others leave the view.
 vertex SandboxVaryings quakeMapVertex(uint vid [[vertex_id]],
                                       device const PackedSandboxVertex *vertices [[buffer(0)]],
                                       constant SandboxSceneUniforms &scene [[buffer(1)]],
                                       constant SandboxDrawUniforms &draw [[buffer(2)]],
-                                      device const packed_float2 *lightUVs [[buffer(3)]])
+                                      device const packed_float2 *lightUVs [[buffer(3)]],
+                                      constant SandboxQuakeUniforms &quake [[buffer(4)]])
 {
     SandboxVaryings out;
     PackedSandboxVertex v = vertices[vid];
@@ -136,7 +143,14 @@ vertex SandboxVaryings quakeMapVertex(uint vid [[vertex_id]],
     out.tint = float3(v.color);
     out.worldNormal = normalMatrix * float3(v.normal);
     out.texUV = float2(v.uv);
-    out.layer = int(v.layer + 0.5f);
+    const int packed = int(v.layer + 0.5f);
+    const int slot = packed >> 16;
+    out.layer = (slot > 0 && slot <= 32) ? quake.animation[(slot - 1) / 4][(slot - 1) % 4] : (packed & 4095);
+    out.effects = (packed >> 12) & 15;
+    const bool translucent = (out.effects & 12) != 0;
+    if (translucent != (quake.modeCount.w == 1)) {
+        out.position = float4(0.0f, 0.0f, 2.0f, 1.0f);
+    }
     out.lmUV = float2(lightUVs[vid]);
     return out;
 }
@@ -157,6 +171,7 @@ vertex SandboxVaryings modelVertex(uint vid [[vertex_id]],
     out.worldNormal = normalMatrix * float3(v.normal);
     out.texUV = float2(v.uv);
     out.layer = 4;
+    out.effects = 0;
     out.lmUV = float2(-1.0f);
     return out;
 }
@@ -178,7 +193,10 @@ static SandboxShade shadeSandbox(SandboxVaryings in,
                                  constant SandboxDrawUniforms &draw,
                                  texture2d_array<float> albedoArray,
                                  texture2d<float> modelAlbedo,
-                                 sampler modelSampler)
+                                 sampler modelSampler,
+                                 texture2d_array<float> mapTextures,
+                                 bool mapTextured,
+                                 float4 surfaceMotion)
 {
     SandboxShade out;
     out.discarded = false;
@@ -196,24 +214,41 @@ static SandboxShade shadeSandbox(SandboxVaryings in,
     const float modelRoughness = draw.materialParams.x;
     const float alphaCutoff = draw.materialParams.y;
 
-    float3 base = pow(max(in.tint, float3(0.0f)), float3(2.2f));
-    if (!modelPass && texturesReady) {
-        uint slice = uint(clamp(in.layer, 0, 7));
-        base *= albedoArray.sample(arraySampler, in.texUV, slice).rgb;
+    // Map faces with the map's own texture: layer = 8 + 8 * slice of
+    // mapTextures + material class (mapview::mapTextureLayer).
+    const bool mapTexture = !modelPass && in.layer >= 8;
+    const int layer = mapTexture ? (in.layer & 7) : in.layer;
+    const int effects = modelPass ? 0 : in.effects;
+    const bool translucent = (effects & 12) != 0;
+    float2 uv = in.texUV;
+    if ((effects & 1) != 0) { // SURF_WARP (EmitWaterPolys)
+        uv = in.texUV + 0.125f * sin(in.texUV.yx * 8.0f + surfaceMotion.x);
+        if ((effects & 2) != 0) {
+            uv.x += surfaceMotion.z;
+        }
+    } else if ((effects & 2) != 0) { // SURF_FLOWING
+        uv.x += surfaceMotion.y;
     }
-    if (!modelPass && in.layer != 4) {
+    float3 base = pow(max(in.tint, float3(0.0f)), float3(2.2f));
+    if (mapTexture && mapTextured) {
+        base *= mapTextures.sample(arraySampler, uv, uint((in.layer >> 3) - 1)).rgb;
+    } else if (!modelPass && texturesReady) {
+        uint slice = uint(clamp(layer, 0, 7));
+        base *= albedoArray.sample(arraySampler, uv, slice).rgb;
+    }
+    if (!modelPass && layer != 4 && !mapTexture) {
         float3 world = in.toEye + scene.eyeAspect.xyz;
         base *= 0.94f + 0.035f * sin(world.x * 0.21f + world.z * 0.17f)
                       + 0.025f * sin(world.y * 0.33f - world.x * 0.13f);
     }
-    if (!modelPass && in.layer == 7) {
+    if (!modelPass && layer == 7 && !translucent) {
         float pattern = fmod(floor(in.position.x) + floor(in.position.y) * 2.0f, 4.0f);
         if (pattern > 0.0f) {
             out.discarded = true;
         }
     }
 
-    float alpha = 1.0f;
+    float alpha = (effects & 4) != 0 ? 0.33f : ((effects & 8) != 0 ? 0.66f : 1.0f);
     if (modelPass) {
         float4 sampleColor = modelTextured ? modelAlbedo.sample(modelSampler, in.texUV) : float4(1.0f);
         base = draw.baseColorFactor.rgb * sampleColor.rgb;
@@ -242,8 +277,8 @@ static SandboxShade shadeSandbox(SandboxVaryings in,
     float sky = 0.78f + 0.22f * max(n.y, 0.0f);
     float3 lit = base * (scene.ambientColor.xyz * sky + scene.lightColor.xyz * diffuse);
 
-    float roughness = modelPass ? modelRoughness : (in.layer == 7 ? 0.18f : (in.layer == 3 ? 0.48f : 0.94f));
-    float strength = modelPass ? 0.035f : (in.layer == 7 ? 0.28f : (in.layer == 3 ? 0.12f : 0.006f));
+    float roughness = modelPass ? modelRoughness : (layer == 7 ? 0.18f : (layer == 3 ? 0.48f : 0.94f));
+    float strength = modelPass ? 0.035f : (layer == 7 ? 0.28f : (layer == 3 ? 0.12f : 0.006f));
     float3 viewDir = length_squared(in.toEye) > 1e-12f ? -normalize(in.toEye) : float3(0.0f, 0.0f, 1.0f);
     float3 halfVector = normalize(lightDir + viewDir);
     float shine = pow(max(dot(n, halfVector), 0.0f), mix(90.0f, 8.0f, clamp(roughness, 0.0f, 1.0f)));
@@ -273,7 +308,8 @@ fragment float4 sandboxFragment(SandboxVaryings in [[stage_in]],
                                 texture2d<float> modelAlbedo [[texture(1)]],
                                 sampler modelSampler [[sampler(0)]])
 {
-    SandboxShade s = shadeSandbox(in, frontFacing, scene, draw, albedoArray, modelAlbedo, modelSampler);
+    SandboxShade s = shadeSandbox(in, frontFacing, scene, draw, albedoArray, modelAlbedo, modelSampler, albedoArray,
+                                  false, float4(0.0f));
     if (s.discarded) {
         discard_fragment();
     }
@@ -284,7 +320,8 @@ fragment float4 sandboxFragment(SandboxVaryings in [[stage_in]],
 // Renderer.cpp / Quake2Gles.cpp): the lightmap atlas replaces the sun and sky
 // light on the world like ref_gl, base * (2 * lightmap)^2.2; entities take
 // the Quake 2 light at their origin; dynamic lights (muzzle flashes,
-// rockets...) add on top; effect models are fullbright.
+// rockets...) add on top; effect models are fullbright. Faces with the map's
+// own texture sample texture(3) (quake.modeCount.z = 1 when it is bound).
 fragment float4 quakeMapFragment(SandboxVaryings in [[stage_in]],
                                  bool frontFacing [[front_facing]],
                                  constant SandboxSceneUniforms &scene [[buffer(1)]],
@@ -293,13 +330,15 @@ fragment float4 quakeMapFragment(SandboxVaryings in [[stage_in]],
                                  texture2d_array<float> albedoArray [[texture(0)]],
                                  texture2d<float> modelAlbedo [[texture(1)]],
                                  texture2d<float> lightmap [[texture(2)]],
+                                 texture2d_array<float> mapTextures [[texture(3)]],
                                  sampler modelSampler [[sampler(0)]])
 {
     constexpr sampler lightmapSampler(coord::normalized,
                                       address::clamp_to_edge,
                                       mag_filter::linear,
                                       min_filter::linear);
-    SandboxShade s = shadeSandbox(in, frontFacing, scene, draw, albedoArray, modelAlbedo, modelSampler);
+    SandboxShade s = shadeSandbox(in, frontFacing, scene, draw, albedoArray, modelAlbedo, modelSampler, mapTextures,
+                                  quake.modeCount.z != 0, quake.surface);
     if (s.discarded) {
         discard_fragment();
     }
@@ -312,14 +351,16 @@ fragment float4 quakeMapFragment(SandboxVaryings in [[stage_in]],
         lit = s.base * pow(2.0f * max(quake.light.xyz, float3(0.0f)), float3(2.2f)) * (0.72f + 0.56f * diffuse);
     }
     const float3 world = in.toEye + scene.eyeAspect.xyz;
-    const int count = clamp(quake.modeCount.y, 0, 8);
+    // lit entities (mode 2) already have the dynamic lights in quake.light
+    const int count = mode == 2 ? 0 : clamp(quake.modeCount.y, 0, SANDBOX_MAX_DLIGHTS);
     for (int i = 0; i < count; ++i) {
         float3 toLight = quake.lights[i].xyz - world;
         float f = clamp(1.0f - length(toLight) / max(quake.lights[i].w, 1e-4f), 0.0f, 1.0f);
         float facing = length_squared(toLight) > 1e-8f ? 0.35f + 0.65f * max(dot(s.normal, normalize(toLight)), 0.0f) : 1.0f;
         lit += s.base * quake.lightColors[i].xyz * (1.6f * f * f * facing);
     }
-    if (mode == 3) {
+    // mode 3 fullbright models; warp and translucent faces, fullbright like ref_gl
+    if (mode == 3 || (draw.drawFlags.x == 0 && (in.effects & 13) != 0)) {
         lit = s.base;
     }
     return sandboxFog(lit, s.alpha, in.toEye);
@@ -384,15 +425,41 @@ vertex SkyVaryings skyVertex(uint vid [[vertex_id]])
     return out;
 }
 
+// The sky gradient, or in map mode the Quake 2 skybox (realms::MapSky):
+// layers rt lf bk ft up dn of texture(0), always bound.
 fragment float4 skyFragment(SkyVaryings in [[stage_in]],
-                            constant SandboxSkyUniforms &sky [[buffer(0)]])
+                            constant SandboxSkyUniforms &sky [[buffer(0)]],
+                            texture2d_array<float> skyTextures [[texture(0)]])
 {
+    float yaw = sky.anglesRollAspect.x;
     float pitch = sky.anglesRollAspect.y;
     float roll = sky.anglesRollAspect.z;
     float aspect = max(sky.anglesRollAspect.w, 0.001f);
     float3 ray = normalize(float3(in.screen.x * aspect / 1.37638f, in.screen.y / 1.37638f, -1.0f));
     float cr = cos(roll), sr = sin(roll);
     ray.xy = float2(cr * ray.x + sr * ray.y, -sr * ray.x + cr * ray.y);
+    if (sky.skyFlags.x != 0) {
+        // undo pitch, then yaw; then R_DrawSkyBox inverted (MapSky::faceCoords)
+        float cp = cos(pitch), sp = sin(pitch), cy = cos(yaw), sy = sin(yaw);
+        float3 r = float3(ray.x, cp * ray.y - sp * ray.z, sp * ray.y + cp * ray.z);
+        r = float3(cy * r.x + sy * r.z, r.y, -sy * r.x + cy * r.z);
+        float3x3 m = float3x3(sky.skyAxes[0].xyz, sky.skyAxes[1].xyz, sky.skyAxes[2].xyz);
+        float3 d = m * r, a = abs(d);
+        uint layer;
+        float2 st;
+        if (a.x >= a.y && a.x >= a.z) {
+            layer = d.x > 0.0f ? 0u : 1u;
+            st = float2(d.x > 0.0f ? -d.y : d.y, d.z) / a.x;
+        } else if (a.y >= a.z) {
+            layer = d.y > 0.0f ? 2u : 3u;
+            st = float2(d.y > 0.0f ? d.x : -d.x, d.z) / a.y;
+        } else {
+            layer = d.z > 0.0f ? 4u : 5u;
+            st = float2(-d.y, d.z > 0.0f ? -d.x : d.x) / a.z;
+        }
+        constexpr sampler skySampler(coord::normalized, address::clamp_to_edge, filter::linear);
+        return float4(skyTextures.sample(skySampler, float2((st.x + 1.0f) * 0.5f, (1.0f - st.y) * 0.5f), layer).rgb, 1.0f);
+    }
     float altitude = cos(pitch) * ray.y - sin(pitch) * ray.z;
     float blend = smoothstep(0.0f, 0.85f, max(altitude, 0.0f));
     return float4(mix(float3(0.56f, 0.61f, 0.63f), float3(0.32f, 0.41f, 0.51f), blend), 1.0f);

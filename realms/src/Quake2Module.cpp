@@ -43,6 +43,22 @@ void Quake2Module::open(Engine &engine, const MapGeometry &geometry, const Quake
             engine.print("map: no lightmaps: " + error + "\n", REALMS_PRINT_DEVELOPER);
         if (!lighting_.empty()) lighting_.compose(lightStyles_, lightmapRgba_);
     }
+    if (config.textures &&
+        (geometry.source == MapGeometrySource::Faces || geometry.source == MapGeometrySource::Brushes)) {
+        textures_.load(engine, geometry);
+        if (textures_.missing())
+            engine.print("map: " + std::to_string(textures_.missing()) + " textures not found\n", REALMS_PRINT_DEVELOPER);
+    }
+    // BSP maps fall back to unit1_ like SP_worldspawn; a glTF map has a sky
+    // only when its scene extras name one ("sky", "skyrotate", "skyaxis"),
+    // drawn behind the whole scene.
+    const MapSkySettings sky = skySettings(engine.mapEntities());
+    if (config.sky && (geometry.source == MapGeometrySource::Faces || geometry.source == MapGeometrySource::Brushes ||
+                       (geometry.source == MapGeometrySource::Mesh && sky.named))) {
+        std::string error;
+        if (!sky_.load(engine, sky, &error))
+            engine.print("map: no sky: " + error + "\n", REALMS_PRINT_DEVELOPER);
+    }
     if (config.startGame) startGame(engine, why);
 }
 
@@ -61,6 +77,8 @@ void Quake2Module::close() {
     effects_.reset();
     sounds_.clear();
     lighting_.clear();
+    textures_.clear();
+    sky_.clear();
     lightStyles_ = defaultLightStyles();
     lightmapRgba_.clear();
 }
@@ -87,7 +105,7 @@ bool Quake2Module::startGame(Engine &engine, std::string &why) {
     sounds_.clear();
     std::string palette;
     if (!effects_.loadPalette(engine, &palette))
-        engine.print("map: effects use approximate colours (" + palette + ")\n", REALMS_PRINT_DEVELOPER);
+        engine.print("map: effects use the built-in palette (" + palette + ")\n", REALMS_PRINT_DEVELOPER);
     sync();
     return true;
 }
@@ -173,6 +191,7 @@ void Quake2Module::sync() {
         used[size_t(m)] = true;
         poses_[size_t(m)].origin = l.origin;
         poses_[size_t(m)].angles = l.angles;
+        poses_[size_t(m)].frame = l.frame;
     }
     for (size_t m = 1; m < poses_.size(); m++) poses_[m].visible = used[m];
 
@@ -248,8 +267,9 @@ const GameScene &Quake2Module::buildScene(Engine &engine, const Vec3 &cameraOrig
     effects_.models(clientTimeMs(*game_), fxModels_);
     appendEffectModels(engine, models_, fxModels_, scene_);
     for (const std::string &e : models_.takeErrors()) engine.print("map: model " + e + "\n", REALMS_PRINT_DEVELOPER);
+    effects_.lights(clientTimeMs(*game_), fxLights_);
     for (GameDrawBatch &b : scene_.batches)
-        if (!b.fullbright) b.lit = lightAt(b.origin, b.light);
+        if (!b.fullbright) b.lit = lightAt(b.origin, fxLights_, b.light);
     return scene_;
 }
 
@@ -382,9 +402,17 @@ bool Quake2Module::updateLightStyles() {
 }
 
 bool Quake2Module::lightAt(const Vec3 &p, std::array<float, 3> &rgb) const {
+    std::vector<GameDynamicLight> dlights;
+    if (gameRunning()) effects_.lights(clientTimeMs(*game_), dlights);
+    return lightAt(p, dlights, rgb);
+}
+
+bool Quake2Module::lightAt(const Vec3 &p, const std::vector<GameDynamicLight> &dlights,
+                           std::array<float, 3> &rgb) const {
     rgb = {1.0f, 1.0f, 1.0f};
     if (lighting_.empty()) return false;
     lighting_.lightPoint(p.data(), lightStyles_, rgb.data());
+    addDynamicLights(p, dlights, rgb);
     if (std::max({rgb[0], rgb[1], rgb[2]}) < 0.1f) rgb = {0.1f, 0.1f, 0.1f};
     return true;
 }

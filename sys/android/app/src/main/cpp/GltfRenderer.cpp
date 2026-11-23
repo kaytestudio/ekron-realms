@@ -38,7 +38,7 @@ bool GltfRenderer::uploadStep(std::string &log){
         glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR_MIPMAP_LINEAR);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);glGenerateMipmap(GL_TEXTURE_2D);
     }else if(nextBatch_<scene_.batches.size()){
         const auto&batch=scene_.batches[nextBatch_++];
-        if(batch.vertices.empty())return false;Mesh mesh;mesh.count=static_cast<GLsizei>(batch.vertices.size());mesh.material=batch.material;
+        if(batch.vertices.empty())return false;Mesh mesh;mesh.count=static_cast<GLsizei>(batch.vertices.size());mesh.material=batch.material;mesh.model=batch.model;
         for(const auto&v:batch.vertices){mesh.x+=v.x/mesh.count;mesh.z+=v.z/mesh.count;}
         glGenVertexArrays(1,&mesh.vao);glGenBuffers(1,&mesh.vbo);glBindVertexArray(mesh.vao);glBindBuffer(GL_ARRAY_BUFFER,mesh.vbo);
         glBufferData(GL_ARRAY_BUFFER,batch.vertices.size()*sizeof(Vertex),batch.vertices.data(),GL_STATIC_DRAW);
@@ -57,14 +57,22 @@ bool GltfRenderer::uploadStep(std::string &log){
     for(auto&batch:scene_.batches)std::vector<Vertex>().swap(batch.vertices);
     return ready();
 }
-void GltfRenderer::draw(GLuint program,float eyeX,float eyeZ,bool hologram)const{
+void GltfRenderer::draw(GLuint program,float eyeX,float eyeZ,bool hologram,const ModelTransform *modelTransform)const{
     if(!ready())return;
     glUniform1i(glGetUniformLocation(program,"modelPass"),1);glUniform1i(glGetUniformLocation(program,"modelAlbedo"),1);
     glActiveTexture(GL_TEXTURE1);glVertexAttrib3f(1,1,1,1);glVertexAttrib1f(4,4);
     std::vector<size_t> order(meshes_.size());std::iota(order.begin(),order.end(),0);
     auto blended=[&](const Mesh&m){return m.material>=0&&size_t(m.material)<scene_.materials.size()&&scene_.materials[m.material].alphaMode==2;};
     std::stable_sort(order.begin(),order.end(),[&](size_t a,size_t b){const auto&ma=meshes_[a],&mb=meshes_[b];if(blended(ma)!=blended(mb))return !blended(ma);return blended(ma)&&std::hypot(ma.x-eyeX,ma.z-eyeZ)>std::hypot(mb.x-eyeX,mb.z-eyeZ);});
-    for(size_t i:order){const auto&mesh=meshes_[i];Material fallback;const auto &material=mesh.material>=0&&size_t(mesh.material)<scene_.materials.size()?scene_.materials[mesh.material]:fallback;
+    const GLint transformLoc=glGetUniformLocation(program,"objectTransform");bool moved=false;
+    for(size_t i:order){const auto&mesh=meshes_[i];Material fallback;
+        if(modelTransform&&*modelTransform&&mesh.model>0){ // glTF map doors / platforms
+            std::array<float,16> m{};if(!(*modelTransform)(mesh.model,m))continue;
+            glUniformMatrix4fv(transformLoc,1,GL_FALSE,m.data());moved=true;
+        }else if(moved){
+            static const float identity[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
+            glUniformMatrix4fv(transformLoc,1,GL_FALSE,identity);moved=false;
+        }const auto &material=mesh.material>=0&&size_t(mesh.material)<scene_.materials.size()?scene_.materials[mesh.material]:fallback;
         glUniform1f(glGetUniformLocation(program,"modelRoughness"),material.roughness);
         glUniform4fv(glGetUniformLocation(program,"baseColorFactor"),1,material.color.data());glUniform1i(glGetUniformLocation(program,"modelTextured"),material.image>=0&&mesh.material>=0&&size_t(mesh.material)<textures_.size());
         glUniform1i(glGetUniformLocation(program,"alphaMode"),material.alphaMode);glUniform1f(glGetUniformLocation(program,"alphaCutoff"),material.cutoff);
@@ -73,6 +81,7 @@ void GltfRenderer::draw(GLuint program,float eyeX,float eyeZ,bool hologram)const
         // Reflected/baked scene nodes and double-sided walls are rendered without culling.
         glDisable(GL_CULL_FACE);glBindVertexArray(mesh.vao);glDrawArrays(GL_TRIANGLES,0,mesh.count);
     }
+    if(moved){static const float identity[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};glUniformMatrix4fv(transformLoc,1,GL_FALSE,identity);}
     glDisable(GL_BLEND);glDepthMask(GL_TRUE);glActiveTexture(GL_TEXTURE0);glUniform1i(glGetUniformLocation(program,"modelPass"),0);
 }
 void GltfRenderer::release(){for(auto&m:meshes_){if(m.vbo)glDeleteBuffers(1,&m.vbo);if(m.vao)glDeleteVertexArrays(1,&m.vao);}meshes_.clear();if(!textures_.empty())glDeleteTextures(static_cast<GLsizei>(textures_.size()),textures_.data());textures_.clear();scene_=Scene{};uploading_=false;}

@@ -5,9 +5,10 @@
 //   * Russian  -- Cyrillic U+0401 'Ё', U+0410..U+044F 'А'..'я', U+0451 'ё'
 //   * Portuguese (Portugal) -- Latin-1 accented letters
 //     À Á Â Ã Ç É Ê Í Ó Ô Õ Ú / à á â ã ç é ê í ó ô õ ú
+//   * Spanish (Spain) -- the letters above plus Ñ ñ Ü ü and '¡', '¿'
 //   * Punctuation -- '—', '×', '°', '•', '«', '»', '…'
-// Zero external font file or SDL2_ttf dependency required. The 16x12 atlas is
-// completely filled (192 slots); grow kAtlasRows before adding more glyphs.
+// Zero external font file or SDL2_ttf dependency required. The 16x13 atlas has
+// 198 of its 208 slots in use; grow kAtlasRows past that.
 
 #include <array>
 #include <cstdint>
@@ -19,7 +20,7 @@ namespace ekron::font {
 constexpr int kGlyphW = 8;
 constexpr int kGlyphH = 8;
 constexpr int kAtlasCols = 16;
-constexpr int kAtlasRows = 12; // 192 glyph slots -> 128 x 96 texture
+constexpr int kAtlasRows = 13; // 208 glyph slots -> 128 x 104 texture
 constexpr int kAtlasW = kAtlasCols * kGlyphW;
 constexpr int kAtlasH = kAtlasRows * kGlyphH;
 
@@ -67,6 +68,8 @@ constexpr int kFallbackSlot = int('?' - 0x20);
 //   189     : U+00AB ('«')
 //   190     : U+00BB ('»')
 //   191     : U+2026 ('…')
+//   192..197: Spanish U+00D1 ('Ñ'), U+00F1 ('ñ'), U+00DC ('Ü'), U+00FC ('ü'),
+//             U+00A1 ('¡'), U+00BF ('¿')
 // Unsupported codepoints fall back to '?' (kFallbackSlot).
 inline int glyphSlot(uint32_t cp) {
     if (cp >= 0x20 && cp <= 0x7E) return int(cp - 0x20);
@@ -82,12 +85,18 @@ inline int glyphSlot(uint32_t cp) {
     if (cp == 0x00AB) return 189;
     if (cp == 0x00BB) return 190;
     if (cp == 0x2026) return 191;
+    if (cp == 0x00D1) return 192;
+    if (cp == 0x00F1) return 193;
+    if (cp == 0x00DC) return 194;
+    if (cp == 0x00FC) return 195;
+    if (cp == 0x00A1) return 196;
+    if (cp == 0x00BF) return 197;
     return kFallbackSlot;
 }
 
-inline const std::array<uint64_t, 192> &glyphBitmaps() {
+inline const std::array<uint64_t, 198> &glyphBitmaps() {
     // Each uint64_t encodes 8 rows (MSB row 0 -> LSB row 7), MSB bit 7 = leftmost pixel.
-    static const std::array<uint64_t, 192> kGlyphs = {
+    static const std::array<uint64_t, 198> kGlyphs = {
         // 0x20..0x2F:  !"#$%&'()*+,-./
         0x0000000000000000ULL, 0x183C3C1818001800ULL, 0x6C6C240000000000ULL, 0x6C6CFE6CFE6C6C00ULL,
         0x183E603C067C1800ULL, 0x00C6CC183066C600ULL, 0x386C3876DCCE7600ULL, 0x1818300000000000ULL,
@@ -218,7 +227,14 @@ inline const std::array<uint64_t, 192> &glyphBitmaps() {
         0x0C18666666663E00ULL, // ú U+00FA
         0x00003366CC663300ULL, // « U+00AB
         0x0000CC663366CC00ULL, // » U+00BB
-        0x000000000000DB00ULL  // … U+2026
+        0x000000000000DB00ULL, // … U+2026
+        // 192..197: Spanish letters and inverted marks
+        0x7600C6E6D6CEC600ULL, // Ñ U+00D1
+        0x324C7C6666666600ULL, // ñ U+00F1
+        0x6600666666663C00ULL, // Ü U+00DC
+        0x2400666666663E00ULL, // ü U+00FC
+        0x00180018183C3C18ULL, // ¡ U+00A1
+        0x001800183060663CULL  // ¿ U+00BF
     };
     return kGlyphs;
 }

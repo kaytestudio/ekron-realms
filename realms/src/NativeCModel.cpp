@@ -4,6 +4,7 @@
 #include "NativeCModel.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <utility>
@@ -718,6 +719,15 @@ bool loadMeshInto(MapState &m, const RealmsMeshDesc &d, std::string &error) {
             if (d.triangle_surfaces[i] < 0 || d.triangle_surfaces[i] >= d.num_surfaces)
                 return fail("bad mesh triangle surface");
     if (d.entities && std::strlen(d.entities) > size_t(kMaxEntString)) return fail("entity lump is too large");
+    // Inline models: only hosts that pass the longer description.
+    const bool withModels = d.struct_size >= sizeof(RealmsMeshDesc);
+    const int32_t numModels = withModels && d.num_models > 1 ? d.num_models : 1;
+    const int32_t *triModels = withModels && numModels > 1 ? d.triangle_models : nullptr;
+    if (numModels > kMaxModels || (numModels > 1 && !triModels && d.num_triangles > 0))
+        return fail("bad mesh model count");
+    if (triModels)
+        for (int32_t i = 0; i < d.num_triangles; ++i)
+            if (triModels[i] < 0 || triModels[i] >= numModels) return fail("bad mesh triangle model");
     const float thick = d.thickness > 0 && std::isfinite(d.thickness) ? d.thickness : 2.0f;
 
     m.surfaces.resize(size_t(d.num_surfaces));
@@ -739,23 +749,38 @@ bool loadMeshInto(MapState &m, const RealmsMeshDesc &d, std::string &error) {
     m.emptyLeaf = 1;
 
     MeshBuilder b(m);
-    std::vector<int32_t> ids;
+    // Brush ids per model; inline model bounds from all of its triangles.
+    std::vector<std::vector<int32_t>> modelIds(static_cast<size_t>(numModels));
+    const std::array<float, 6> noBounds{{1e30f, 1e30f, 1e30f, -1e30f, -1e30f, -1e30f}};
+    std::vector<std::array<float, 6>> modelBounds(size_t(numModels), noBounds);
     float mins[3] = {0, 0, 0}, maxs[3] = {0, 0, 0};
+    bool haveWorld = false;
     for (int32_t t = 0; t < d.num_triangles; ++t) {
         const int32_t surface = d.triangle_surfaces ? d.triangle_surfaces[t] : 0;
         const int32_t contents = d.surfaces[surface].contents;
-        if (!contents) continue;
+        const int32_t model = triModels ? triModels[t] : 0;
         Vec v[3];
         for (int k = 0; k < 3; ++k)
             for (int j = 0; j < 3; ++j) v[k].v[j] = d.vertices[size_t(d.indices[t * 3 + k]) * 3 + size_t(j)];
-        if (b.addTriangle(v[0], v[1], v[2], thick, surface, contents)) ids.push_back(int32_t(ids.size()));
-    }
-    for (size_t i = 0; i < b.bounds().size(); ++i) {
-        for (int j = 0; j < 3; ++j) {
-            mins[j] = i == 0 ? b.bounds()[i].mins[j] : std::min(mins[j], b.bounds()[i].mins[j]);
-            maxs[j] = i == 0 ? b.bounds()[i].maxs[j] : std::max(maxs[j], b.bounds()[i].maxs[j]);
+        if (model > 0) {
+            std::array<float, 6> &mb = modelBounds[size_t(model)];
+            for (int k = 0; k < 3; ++k)
+                for (int j = 0; j < 3; ++j) {
+                    mb[size_t(j)] = std::min(mb[size_t(j)], v[k].v[j]);
+                    mb[size_t(j) + 3] = std::max(mb[size_t(j) + 3], v[k].v[j]);
+                }
         }
+        if (!contents || !b.addTriangle(v[0], v[1], v[2], thick, surface, contents)) continue;
+        const MeshBrush &added = b.bounds().back();
+        modelIds[size_t(model)].push_back(int32_t(b.bounds().size()) - 1);
+        if (model != 0) continue;
+        for (int j = 0; j < 3; ++j) {
+            mins[j] = haveWorld ? std::min(mins[j], added.mins[j]) : added.mins[j];
+            maxs[j] = haveWorld ? std::max(maxs[j], added.maxs[j]) : added.maxs[j];
+        }
+        haveWorld = true;
     }
+    std::vector<int32_t> &ids = modelIds[0];
     Model world;
     world.headnode = ids.empty() ? -1 - m.emptyLeaf : b.build(ids, 0);
     if (world.headnode < 0) {
@@ -773,6 +798,29 @@ bool loadMeshInto(MapState &m, const RealmsMeshDesc &d, std::string &error) {
         world.maxs[j] = maxs[j] + 1;
     }
     m.models = {world};
+    // Inline models after the world (headnode 0 stays the world's root).
+    for (int32_t n = 1; n < numModels; ++n) {
+        Model inl;
+        std::vector<int32_t> &mids = modelIds[size_t(n)];
+        inl.headnode = mids.empty() ? -1 - m.emptyLeaf : b.build(mids, 0);
+        if (inl.headnode < 0) {
+            // A node, as qbsp writes for every model (servers take a negative
+            // headnode for "not a BSP model"); both sides lead to the leaf.
+            Node root;
+            Vec up{{0, 0, 1}};
+            root.plane = b.addPlane(up, 0);
+            root.children[0] = root.children[1] = inl.headnode;
+            m.nodes.push_back(root);
+            inl.headnode = int32_t(m.nodes.size()) - 1;
+        }
+        const std::array<float, 6> &mb = modelBounds[size_t(n)];
+        for (int j = 0; j < 3; ++j) {
+            const bool any = mb[size_t(j)] <= mb[size_t(j) + 3];
+            inl.mins[j] = any ? mb[size_t(j)] - 1 : 0;
+            inl.maxs[j] = any ? mb[size_t(j) + 3] + 1 : 0;
+        }
+        m.models.push_back(inl);
+    }
     m.numPlanes = int32_t(m.planes.size());
     m.numNodes = int32_t(m.nodes.size());
     m.numLeafs = int32_t(m.leafs.size());
@@ -1327,7 +1375,7 @@ void cmBoxTrace(const float *start, const float *end, const float *mins, const f
 
 bool cmLoadMesh(const RealmsMeshDesc *desc, std::string &error) {
     cmUnloadMap();
-    if (!desc || desc->struct_size < sizeof(RealmsMeshDesc)) {
+    if (!desc || desc->struct_size < REALMS_MESH_DESC_V3_SIZE) {
         error = "bad mesh description";
         return false;
     }

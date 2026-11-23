@@ -17,6 +17,8 @@ on:
       - 'tests/native/localization_test.cpp'
       - 'tests/native/shop_catalog_test.cpp'
       - 'tests/native/sound_test.cpp'
+      - 'tests/native/intro_video_test.cpp'
+      - 'tools/check_glsl_keywords.py'
       - 'sys/linux/**'
       - 'tests/pascal/**'
       - '.gitmodules'
@@ -39,6 +41,8 @@ on:
       - 'tests/native/localization_test.cpp'
       - 'tests/native/shop_catalog_test.cpp'
       - 'tests/native/sound_test.cpp'
+      - 'tests/native/intro_video_test.cpp'
+      - 'tools/check_glsl_keywords.py'
       - 'sys/linux/**'
       - 'tests/pascal/**'
       - '.gitmodules'
@@ -75,6 +79,10 @@ jobs:
             pkg-config \
             libsdl2-dev \
             libgl1-mesa-dev \
+            libavformat-dev \
+            libavcodec-dev \
+            libswscale-dev \
+            libswresample-dev \
             fpc \
             fp-units-fcl \
             file \
@@ -89,7 +97,8 @@ jobs:
               -DCMAKE_BUILD_TYPE=Release \
               -DCMAKE_INSTALL_PREFIX=/usr \
               -DENABLE_FPC_CLIENT=ON \
-              -DENABLE_PASCAL_CORE=ON &&
+              -DENABLE_PASCAL_CORE=ON \
+              -DEKRON_REQUIRE_INTRO_VIDEO=ON &&
             cmake --build build -j"$(nproc)" &&
             test -x build/ekron-realms &&
             test -x build/realms-launcher &&

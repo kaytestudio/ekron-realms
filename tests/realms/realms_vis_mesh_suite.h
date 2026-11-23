@@ -462,6 +462,79 @@ inline void runMeshChecks(const RealmsCoreApi *api) {
         CHECK(contents(api, vec(0, 0, -1)) == 0);
     }
 
+    // Inline models (glTF brush entities): triangles of model n > 0 get
+    // their own tree under map_model(n), outside the world.
+    {
+        Mesh g;
+        const int32_t solid = g.surface("concrete", REALMS_CONTENTS_SOLID);
+        const float up[3] = {0, 0, 1}, west[3] = {-1, 0, 0};
+        const float floorQuad[4][3] = {{-256, -256, 0}, {256, -256, 0}, {256, 256, 0}, {-256, 256, 0}};
+        const float doorQuad[4][3] = {{0, -64, 0}, {0, 64, 0}, {0, 64, 96}, {0, -64, 96}};
+        const float bladeQuad[4][3] = {{-64, -16, 0}, {64, -16, 0}, {64, 16, 0}, {-64, 16, 0}};
+        g.quad(floorQuad, up, solid);
+        g.quad(doorQuad, west, solid);
+        g.quad(bladeQuad, up, solid);
+        std::vector<int32_t> models = {0, 0, 1, 1, 2, 2};
+        RealmsMeshDesc gd = g.desc("maps/gate.glb");
+        gd.triangle_models = models.data();
+        gd.num_models = 3;
+        CHECK(api->map_load_mesh(&gd) == 1);
+        RealmsMapInfo gi{};
+        gi.struct_size = sizeof(gi);
+        CHECK(api->map_info(&gi) == 1 && gi.num_models == 3);
+        float mn[3], mx[3], org[3];
+        int32_t door = -1, blade = -1, world = -1;
+        CHECK(api->map_model(0, nullptr, nullptr, nullptr, &world) == 1 && world == 0);
+        CHECK(api->map_model(1, mn, mx, org, &door) == 1 && door > 0); // a node: pushers need one
+        CHECK(mn[0] == -1 && mn[1] == -65 && mn[2] == -1 && mx[0] == 1 && mx[1] == 65 && mx[2] == 97);
+        CHECK(org[0] == 0 && org[1] == 0 && org[2] == 0);
+        CHECK(api->map_model(2, mn, mx, nullptr, &blade) == 1 && blade > 0 && blade != door);
+        CHECK(mn[0] == -65 && mx[0] == 65 && mn[1] == -17 && mx[1] == 17 && mn[2] == -1 && mx[2] == 1);
+        CHECK(api->map_model(3, nullptr, nullptr, nullptr, nullptr) == 0);
+        // the world doesn't hold the door; the door's own tree does, where it is moved
+        const map_suite::V3 a = vec(-100, 0, 48), b = vec(100, 0, 48);
+        CHECK(trace(api, a, b, pmin, pmax, world, REALMS_MASK_PLAYERSOLID).fraction == 1.0f);
+        const RealmsTrace hit = trace(api, a, b, pmin, pmax, door, REALMS_MASK_PLAYERSOLID);
+        CHECK(hit.fraction > 0.40f && hit.fraction < 0.42f && hit.plane_normal[0] == -1.0f);
+        const float raised[3] = {0, 0, 200}, turned[3] = {0, 90, 0}, fan[3] = {160, -160, 32};
+        CHECK(trace(api, a, b, pmin, pmax, door, REALMS_MASK_PLAYERSOLID, raised).fraction == 1.0f);
+        // the blade turned 90 degrees about its origin spans y -64..64 at x = 160
+        CHECK(ptrace(api, vec(160, -100, 48), vec(160, -100, 8), REALMS_MASK_ALL, world).fraction == 1.0f);
+        const RealmsTrace spun = trace(api, vec(160, -100, 48), vec(160, -100, 8), zero, zero, blade, REALMS_MASK_ALL,
+                                       fan, turned);
+        CHECK(spun.fraction > 0.39f && spun.fraction < 0.41f && !spun.startsolid); // its top face at z = 32
+        CHECK(trace(api, vec(110, -160, 48), vec(110, -160, 8), zero, zero, blade, REALMS_MASK_ALL, fan, turned)
+                  .fraction == 1.0f);
+        // an inline model without triangles is valid empty space
+        models = {0, 0, 0, 0, 2, 2};
+        CHECK(api->map_load_mesh(&gd) == 1);
+        CHECK(api->map_model(1, nullptr, nullptr, nullptr, &door) == 1);
+        CHECK(trace(api, a, b, pmin, pmax, door, REALMS_MASK_PLAYERSOLID).fraction == 1.0f);
+        CHECK(trace(api, a, b, pmin, pmax, world, REALMS_MASK_PLAYERSOLID).fraction < 0.42f);
+        // hosts built before inline models pass the shorter description: all world
+        models = {0, 0, 1, 1, 2, 2};
+        RealmsMeshDesc old = gd;
+        old.struct_size = REALMS_MESH_DESC_V3_SIZE;
+        CHECK(api->map_load_mesh(&old) == 1);
+        CHECK(api->map_info(&gi) == 1 && gi.num_models == 1);
+        CHECK(trace(api, a, b, pmin, pmax, 0, REALMS_MASK_PLAYERSOLID).fraction < 0.42f);
+        // bad model tables are rejected
+        models[3] = 3;
+        CHECK(api->map_load_mesh(&gd) == 0 && map_suite::noMap(api));
+        models[3] = -1;
+        CHECK(api->map_load_mesh(&gd) == 0);
+        models[3] = 1;
+        RealmsMeshDesc bad = gd;
+        bad.triangle_models = nullptr;
+        CHECK(api->map_load_mesh(&bad) == 0);
+        bad = gd;
+        bad.num_models = 1025;
+        CHECK(api->map_load_mesh(&bad) == 0);
+        bad.num_models = 1; // a model table with one model: everything is world
+        bad.triangle_models = nullptr;
+        CHECK(api->map_load_mesh(&bad) == 1 && trace(api, a, b, pmin, pmax, 0, REALMS_MASK_PLAYERSOLID).fraction < 1);
+    }
+
     // The kd-tree must give exactly the answer of testing every triangle:
     // compare against the minimum over single-triangle maps.
     {

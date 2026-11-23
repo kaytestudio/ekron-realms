@@ -48,6 +48,7 @@ struct UploadedGlMesh {
     GLuint vbo = 0;
     GLsizei count = 0;
     int material = -1;
+    int model = 0; // city::Batch::model (glTF map inline model)
     float x = 0.0f;
     float z = 0.0f;
 };
@@ -129,11 +130,23 @@ public:
     struct MapModelPose {
         bool visible = true;
         std::array<float, 16> transform{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}; // render space, column-major
+        // for the glTF map model's batches of this model (mapview::ModelPose::placed)
+        std::array<float, 16> placed{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
     };
     void setMapGeometry(ekron::gl::Api &gl, const std::vector<sandbox::MeshVertex> &vertices,
                         std::vector<MapDrawRange> ranges = {});
     // Indexed by model number; empty = every model static and visible.
     void setMapModelPoses(std::vector<MapModelPose> poses) { mapPoses_ = std::move(poses); }
+    // Quake 2 surface effects of the map geometry (mapview::kMapEffectShift):
+    // the surface motion (mapview::mapSurfaceMotion), the current layer of
+    // each animation slot per model (mapview::Quake2View::animationLayers;
+    // empty = no animated faces) and whether there are translucent faces.
+    struct MapSurfaces {
+        std::array<float, 4> motion{};
+        std::vector<std::vector<int32_t>> animations; // [model][slot]
+        bool translucent = false;
+    };
+    void setMapSurfaces(MapSurfaces surfaces) { mapSurfaces_ = std::move(surfaces); }
     void clearMapGeometry(ekron::gl::Api &gl);
     // Quake 2 lightmaps (realms::MapLighting) for the map set with
     // setMapGeometry: atlas coordinates per vertex (u, v; u < 0 = no
@@ -145,6 +158,18 @@ public:
     void updateMapLightmap(ekron::gl::Api &gl, const std::vector<uint8_t> &rgba);
     void setMapLightmapEnabled(bool on) { lightmapEnabled_ = on; }
     bool mapLightmapped() const { return lightmapTex_ != 0 && lightmapEnabled_; }
+    // The map's own textures (realms::MapTextures::pixels(): `count` RGBA
+    // layers of size x size) for faces with mapview::mapTextureLayer;
+    // false when they can't be uploaded (those faces fall back to the
+    // material layers). Kept until clearMapGeometry.
+    bool setMapTextures(ekron::gl::Api &gl, int size, int count, const std::vector<uint8_t> &rgba);
+    bool mapTextured() const { return mapTexturesTex_ != 0; }
+    // The Quake 2 skybox (realms::MapSky::pixels(): six RGBA layers of size
+    // x size) drawn by renderMapWorld instead of the sky gradient, turned by
+    // setMapSkyMatrix (MapSky::renderToSky). Kept until clearMapGeometry.
+    void setMapSky(ekron::gl::Api &gl, int size, const std::vector<uint8_t> &rgba);
+    void setMapSkyMatrix(const std::array<float, 9> &m) { skyMatrix_ = m; }
+    bool mapSky() const { return skyTex_ != 0; }
 
     // Game entities for this frame (Quake 2 .md2 models, fallback boxes),
     // drawn by renderMapWorld after the map with the textured model shader.
@@ -182,7 +207,7 @@ public:
     struct DynamicLight {
         float x = 0, y = 0, z = 0, radius = 0, r = 1, g = 1, b = 1;
     };
-    static constexpr size_t kMaxMapLights = 8;
+    static constexpr size_t kMaxMapLights = 32; // MAX_DLIGHTS; the shader arrays match
     void setMapEffects(ekron::gl::Api &gl, const std::vector<EffectVertex> &vertices, std::vector<DynamicLight> lights);
     void clearMapEffects() {
         effectCount_ = 0;
@@ -235,16 +260,22 @@ private:
                         float pitch,
                         float roll);
 
+    // `poses` (glTF maps): batches of inline model n > 0 are drawn with
+    // poses[n].placed after `transform`, and skipped while hidden.
     void drawGltfModel(ekron::gl::Api &gl,
                        const DesktopGltfModel &model,
                        const std::array<float, 16> &transform,
                        float eyeX,
                        float eyeZ,
-                       bool hologram);
+                       bool hologram,
+                       const std::vector<MapModelPose> *poses = nullptr);
 
     GLuint compileProgram(ekron::gl::Api &gl, const char *vsSrc, const char *fsSrc, std::string &errOut);
     void applyMapLights(ekron::gl::Api &gl, GLuint prog) const;
     void drawMapEffects(ekron::gl::Api &gl, physics::Vec3 eye, float yaw, float pitch, float roll, float aspect);
+    // The map geometry: pass 0 the opaque faces, 1 the translucent ones (blended).
+    void drawMapTriangles(ekron::gl::Api &gl, physics::Vec3 eye, float yaw, float pitch, float roll, float aspect,
+                          int pass);
     bool loadMaterialArray(ekron::gl::Api &gl, const std::string &assetRoot);
 
     GLuint worldProg_ = 0;
@@ -266,10 +297,16 @@ private:
     GLuint mapLightVbo_ = 0; // attribute 5 of mapVao_: lightmap coordinates
     GLuint lightmapTex_ = 0;
     int lightmapW_ = 0, lightmapH_ = 0;
+    GLuint mapTexturesTex_ = 0; // unit 3: the map's own textures
+    void releaseMapTextures(ekron::gl::Api &gl);
+    GLuint skyTex_ = 0; // unit 4 (sky program): the skybox
+    std::array<float, 9> skyMatrix_{1, 0, 0, 0, 1, 0, 0, 0, 1};
+    void releaseMapSky(ekron::gl::Api &gl);
     bool lightmapEnabled_ = true;
     void uploadMapLightUvs(ekron::gl::Api &gl, const std::vector<float> &uvs);
     std::vector<MapDrawRange> mapRanges_;
     std::vector<MapModelPose> mapPoses_;
+    MapSurfaces mapSurfaces_;
     GLuint entityVao_ = 0;
     GLuint entityVbo_ = 0;
     std::vector<EntityBatch> entityBatches_;

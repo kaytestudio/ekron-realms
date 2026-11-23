@@ -56,11 +56,12 @@ Alternatively, install FPC standalone from [FreePascal.org](https://www.freepasc
 ```bash
 sudo apt-get update
 sudo apt-get install -y build-essential cmake ninja-build pkg-config \
-  libsdl2-dev libgl1-mesa-dev libssl-dev fpc fp-units-fcl file dpkg-dev
+  libsdl2-dev libgl1-mesa-dev libssl-dev fpc fp-units-fcl file dpkg-dev \
+  libavformat-dev libavcodec-dev libswscale-dev libswresample-dev
 sudo apt-get install -y lazarus   # optional, for lazbuild
 ```
 
-`fpc` is only needed for the Pascal core, the game module and `realms-pascal`; `libssl-dev` only for the online presence client.
+`fpc` is only needed for the Pascal core, the game module and `realms-pascal`; `libssl-dev` only for the online presence client; the FFmpeg packages only for the intro video (`intro.mp4` at startup; without them the game starts straight away). macOS plays the intro through AVFoundation and needs nothing extra.
 
 #### Linux (Fedora/RHEL)
 
@@ -489,10 +490,15 @@ For Android `jniLibs` and the iOS static archive, use `realms/pascal/build_core.
 ```bash
 cmake --build build --target realms_game_module
 ./build/ekron-realms --engine-info                    # Game: …/librealms_game.so (Quake 2 game API 3)
-./build/ekron-realms +map base1                       # needs maps/base1.bsp (e.g. from a pak0.pak)
+./build/ekron-realms --quake2 ~/quake2 +map base1    # needs maps/base1.bsp, e.g. from ~/quake2/baseq2/pak0.pak
+./build/ekron-realms --engine-info --quake2 ~/quake2  # Quake 2: …/baseq2 (pak0.pak, …)
 ctest --test-dir build -R game --output-on-failure    # realms_game_server_native / _pascal, realms_game_effects
 ctest --test-dir build -R map_lighting --output-on-failure   # realms_map_lighting (BSP lightmaps)
 ctest --test-dir build -R quake2_module --output-on-failure  # realms_quake2_module_native / _pascal (Quake2Module + Quake2View)
+ctest --test-dir build -R q2_compiled --output-on-failure    # realms_q2_compiled_map_native / _pascal (a qbsp3/qrad3 map)
+tools/build_q2_test_map.sh                                   # rebuilds tests/realms/maps/q2room.bsp (curl, make, cc)
+ctest --test-dir build -R sample_map --output-on-failure     # realms_sample_map_native / _pascal (the shipped courtyard.glb)
+python3 tools/build_sample_map.py                            # rebuilds assets maps/courtyard.glb and env/courtyard_*.tga
 ```
 
 `realms/src/GameEffectTables.inc` is generated and committed. It holds the byte directions and the monster muzzle flashes used by the client effects. If `game/m_flash.pas` or `engine/client/cl_fx.pas` changes, regenerate it with `python3 tools/gen_game_effect_tables.py` (plain Python 3, no packages needed).

@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Validate the Android and iOS translations (English, Russian, Portuguese (Portugal)).
+"""Validate the Android and iOS translations (English, Russian, Portuguese (Portugal),
+Spanish (Spain)).
 
 Checks:
-  * Android: values/, values-ru/ and values-pt-rPT/ strings.xml define the same keys,
+  * Android: values/, values-ru/, values-pt-rPT/ and values-es-rES/ strings.xml define the same keys,
     no value is empty, and format placeholders (%1$s, %d, ...) match between languages.
   * Android: every R.string.<key> used in Kotlin exists in values/strings.xml.
   * iOS: every loc("key")/locF("key", ...) used in Swift exists in Localizable.xcstrings
-    with en, ru and pt-PT values, and placeholders match between languages.
+    with en, ru, pt-PT and es-ES values, and placeholders match between languages.
   * Kotlin and Swift UI sources contain no hard-coded Cyrillic text (it belongs in the
     resource files so every language gets a translation).
 
@@ -24,9 +25,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 ANDROID_MAIN = ROOT / "sys/android/app/src/main"
 ANDROID_RES = ANDROID_MAIN / "res"
-ANDROID_LOCALES = {"en": "values", "ru": "values-ru", "pt-PT": "values-pt-rPT"}
+ANDROID_LOCALES = {"en": "values", "ru": "values-ru", "pt-PT": "values-pt-rPT", "es-ES": "values-es-rES"}
 IOS_DIR = ROOT / "sys/ios/realms/realms iOS"
-IOS_LOCALES = ("en", "ru", "pt-PT")
+IOS_LOCALES = ("en", "ru", "pt-PT", "es-ES")
 
 PLACEHOLDER = re.compile(r"%(?:\d+\$)?[-#+ 0,(]*\d*(?:\.\d+)?[@a-zA-Z]")
 CYRILLIC = re.compile(r"[\u0400-\u04FF]")
@@ -128,7 +129,7 @@ def main() -> int:
         for error in errors:
             print(f"  - {error}", file=sys.stderr)
         return 1
-    print(f"i18n OK: Android {android} strings and iOS {ios} strings in English, Russian and Portuguese (Portugal)")
+    print(f"i18n OK: Android {android} strings and iOS {ios} strings in English, Russian, Portuguese (Portugal) and Spanish (Spain)")
     return 0
 
 

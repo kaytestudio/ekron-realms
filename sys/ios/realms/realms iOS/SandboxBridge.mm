@@ -47,6 +47,7 @@
 #include <fstream>
 #include <future>
 #include <iterator>
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -212,9 +213,14 @@ struct UploadedMeshBatch {
     id<MTLBuffer> vbo = nil;
     NSUInteger count = 0;
     int material = -1;
+    int model = 0; // city::Batch::model (glTF map inline model)
     float x = 0.0f;
     float z = 0.0f;
 };
+
+// glTF maps: the objectTransform for a batch of inline model n > 0, false =
+// hidden (mapview::Quake2View::placedTransform).
+using MetalModelTransform = std::function<bool(int model, std::array<float, 16> &out)>;
 
 class MetalGltfModel {
 public:
@@ -292,6 +298,7 @@ public:
                 UploadedMeshBatch mesh;
                 mesh.count = static_cast<NSUInteger>(batch.vertices.size());
                 mesh.material = batch.material;
+                mesh.model = batch.model;
                 const float invCount = 1.0f / float(batch.vertices.size());
                 for (const auto &v : batch.vertices) {
                     mesh.x += v.x * invCount;
@@ -329,7 +336,8 @@ public:
               const matrix_float4x4 &objectTransform,
               float eyeX,
               float eyeZ,
-              bool hologram) const {
+              bool hologram,
+              const MetalModelTransform *modelTransform = nullptr) const {
         if (!ready()) return;
 
         std::vector<size_t> order(meshes_.size());
@@ -350,6 +358,12 @@ public:
         for (size_t idx : order) {
             const auto &mesh = meshes_[idx];
             if (!mesh.vbo || mesh.count == 0) continue;
+            matrix_float4x4 meshTransform = objectTransform;
+            if (modelTransform && *modelTransform && mesh.model > 0) { // glTF map doors / platforms
+                std::array<float, 16> placed{};
+                if (!(*modelTransform)(mesh.model, placed)) continue;
+                meshTransform = matrix_multiply(objectTransform, makeColumnMatrix(placed.data()));
+            }
             city::Material fallback;
             const auto &mat = (mesh.material >= 0 && size_t(mesh.material) < scene_.materials.size())
                 ? scene_.materials[size_t(mesh.material)]
@@ -368,7 +382,7 @@ public:
             [encoder setFragmentSamplerState:samplers[ws][wt] atIndex:0];
 
             SandboxDrawUniforms draw{};
-            draw.objectTransform = objectTransform;
+            draw.objectTransform = meshTransform;
             draw.baseColorFactor = simd_make_float4(mat.color[0], mat.color[1], mat.color[2], mat.color[3]);
             draw.materialParams = simd_make_float4(mat.roughness, mat.cutoff, 0.0f, 0.0f);
             draw.drawFlags = simd_make_int4(1, hologram ? 1 : 0, hasTex ? 1 : 0, mat.alphaMode);
@@ -462,12 +476,14 @@ struct MetalMapPipelines {
     id<MTLRenderPipelineState> modelOpaque = nil;  // modelVertex / sandboxFragment
     id<MTLRenderPipelineState> modelBlended = nil;
     id<MTLRenderPipelineState> quakeMap = nil;     // quakeMapVertex / quakeMapFragment
+    id<MTLRenderPipelineState> quakeMapBlended = nil; // the same, alpha blended (translucent faces)
     id<MTLRenderPipelineState> quakeEntityOpaque = nil; // modelVertex / quakeMapFragment
     id<MTLRenderPipelineState> quakeEntityBlended = nil;
     id<MTLRenderPipelineState> quakeEffect = nil;  // quakeEffectVertex / quakeEffectFragment
     id<MTLDepthStencilState> depthWrite = nil;
     id<MTLDepthStencilState> depthRead = nil;
     id<MTLTexture> white = nil;
+    id<MTLTexture> whiteArray = nil; // texture(3) of quakeMapFragment without map textures
 };
 
 class MetalMapMode {
@@ -487,6 +503,7 @@ public:
     // worker - never through the engine, which belongs to the render thread.
     bool open(realms::Engine &engine,
               id<MTLDevice> device,
+              id<MTLCommandQueue> queue,
               const MetalGltfModel &sandboxCity,
               const std::string &sandboxCityPath,
               const std::vector<std::string> &roots,
@@ -518,8 +535,9 @@ public:
         }
 
         const city::Scene &cityScene = sandboxCity.scene();
+        // (only without brush models: the sandbox's scene has no per-model batches)
         if (session().mesh() && session().path() == sandboxCityPath && sandboxCity.ready() &&
-            cityScene.sourceMapped && cityScene.sourceScale > 0.0f) {
+            cityScene.sourceMapped && cityScene.sourceScale > 0.0f && view_->gltfNodeModels().empty()) {
             reuseCity_ = true;
             cityScale_ = cityScene.sourceScale;
             cityOffset_ = cityScene.sourceOffset;
@@ -530,7 +548,14 @@ public:
 
         std::vector<sandbox::MeshVertex> vertices;
         std::vector<float> lightUvs;
+        const realms::MapTextures &textures = view_->module().textures();
+        if (session().mesh() || !uploadMapTextures(device, queue, textures))
+            view_->disableTextures();
+        else if (fresh_)
+            session().summary() += ", " + std::to_string(textures.count()) + " textures";
         view_->triangles(geometry, vertices, ranges_, lightUvs);
+        if (!uploadSky(device, view_->module().sky())) view_->disableSky(); // glTF maps too
+        else if (fresh_) session().summary() += ", sky " + view_->module().sky().settings().name;
         if (!vertices.empty()) {
             triangles_ = [device newBufferWithBytes:vertices.data()
                                              length:vertices.size() * sizeof(sandbox::MeshVertex)
@@ -573,13 +598,15 @@ public:
 
         if (session().mesh()) {
             const std::string path = session().path();
-            prepare_ = std::async(std::launch::async, [path, roots]() -> std::optional<city::Scene> {
+            const std::map<int, int> nodeModels = view_->gltfNodeModels(); // doors and platforms move
+            prepare_ = std::async(std::launch::async, [path, roots, nodeModels]() -> std::optional<city::Scene> {
                 try {
                     city::Scene scene;
                     city::LoadOptions options;
                     options.level = false;
                     options.buildPhysics = false;
                     options.keepSourceSpace = true;
+                    options.nodeModels = nodeModels;
                     std::string log;
                     auto reader = [&roots](const std::string &p, std::vector<unsigned char> &bytes) {
                         for (const std::string &root : roots) {
@@ -685,58 +712,41 @@ public:
             return;
         }
         // effects first: their dynamic lights light the world and the entities
-        view_->effects(renderYaw, renderPitch, 8, effectVertices_, lights_);
+        view_->effects(renderYaw, renderPitch, SANDBOX_MAX_DLIGHTS, effectVertices_, lights_);
         SandboxQuakeUniforms quake{};
-        const int lightCount = int(std::min<size_t>(lights_.size(), 8));
+        const int lightCount = int(std::min<size_t>(lights_.size(), SANDBOX_MAX_DLIGHTS));
         for (int i = 0; i < lightCount; ++i) {
             const mapview::DynamicLight &l = lights_[size_t(i)];
             quake.lights[i] = simd_make_float4(l.x, l.y, l.z, l.radius);
             quake.lightColors[i] = simd_make_float4(l.r, l.g, l.b, 1.0f);
         }
-        quake.modeCount = simd_make_int4(0, lightCount, 0, 0);
+        quake.modeCount = simd_make_int4(0, lightCount, mapTextures_ ? 1 : 0, 0);
+        [encoder setFragmentTexture:(mapTextures_ ? mapTextures_ : p.whiteArray) atIndex:3];
 
         if (model_.ready()) {
+            const MetalModelTransform moved = [this](int model, std::array<float, 16> &out) {
+                return view_->placedTransform(model, out);
+            };
             model_.draw(encoder, p.modelOpaque, p.modelBlended, p.depthWrite, p.depthRead, samplers, p.white,
-                        identity, eye.x, eye.z, false);
+                        identity, eye.x, eye.z, false, &moved);
         } else if (triangles_ && lightUvs_ && count_ > 0) {
             if (lightmap_ && view_->module().updateLightStyles()) uploadLightmap(); // animated light styles
             quake.modeCount.x = (lightmap_ && engine.cvarBool("r_lightmaps", true)) ? 1 : 0;
-            SandboxDrawUniforms draw{};
-            draw.objectTransform = identity;
-            draw.baseColorFactor = simd_make_float4(1.0f, 1.0f, 1.0f, 1.0f);
-            draw.materialParams = simd_make_float4(0.94f, 0.5f, 0.0f, 0.0f);
-            draw.drawFlags = simd_make_int4(0, 0, 0, 0);
-            [encoder setRenderPipelineState:p.quakeMap];
-            [encoder setDepthStencilState:p.depthWrite];
-            [encoder setVertexBuffer:triangles_ offset:0 atIndex:0];
-            [encoder setVertexBuffer:lightUvs_ offset:0 atIndex:3];
-            [encoder setFragmentTexture:(lightmap_ ? lightmap_ : p.white) atIndex:2];
-            [encoder setFragmentBytes:&quake length:sizeof(quake) atIndex:3];
-            if (ranges_.empty()) {
-                [encoder setVertexBytes:&draw length:sizeof(draw) atIndex:2];
-                [encoder setFragmentBytes:&draw length:sizeof(draw) atIndex:2];
-                [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:count_];
-            } else {
-                // brush models where the game has them (doors, platforms), hidden when gone
-                const std::vector<mapview::ModelPose> &poses = view_->modelPoses();
-                for (const mapview::ModelRange &r : ranges_) {
-                    const mapview::ModelPose *pose =
-                        r.model > 0 && size_t(r.model) < poses.size() ? &poses[size_t(r.model)] : nullptr;
-                    if (pose && !pose->visible) continue;
-                    if (r.count <= 0 || NSUInteger(r.first) + NSUInteger(r.count) > count_) continue;
-                    draw.objectTransform = pose ? makeColumnMatrix(pose->transform.data()) : identity;
-                    [encoder setVertexBytes:&draw length:sizeof(draw) atIndex:2];
-                    [encoder setFragmentBytes:&draw length:sizeof(draw) atIndex:2];
-                    [encoder drawPrimitives:MTLPrimitiveTypeTriangle
-                                vertexStart:NSUInteger(r.first)
-                                vertexCount:NSUInteger(r.count)];
-                }
-            }
+            drawTriangles(encoder, p, quake, identity, 0);
         }
-        if (!view_->gameRunning()) return;
+        // translucent faces (water, glass) after the entities, before the effects
+        const bool translucent = !model_.ready() && triangles_ && lightUvs_ && count_ > 0 &&
+                                 view_->hasTranslucentFaces();
+        SandboxQuakeUniforms mapQuake = quake;
+        mapQuake.modeCount.x = (lightmap_ && engine.cvarBool("r_lightmaps", true)) ? 1 : 0;
+        if (!view_->gameRunning()) {
+            if (translucent) drawTriangles(encoder, p, mapQuake, identity, 1);
+            return;
+        }
         view_->entities(engine, renderYaw, renderPitch, engine.cvarBool("cl_gun", true), entityVertices_,
                         entityBatches_);
         drawEntities(encoder, p, samplers, engine, device, queue, quake, drawableSize);
+        if (translucent) drawTriangles(encoder, p, mapQuake, identity, 1);
         drawEffects(encoder, p, device);
     }
 
@@ -754,6 +764,9 @@ public:
 
     mapview::MapSession &session() { return view_->session(); }
     const mapview::MapSession &session() const { return view_->session(); }
+    // The skybox for the sky pass (nil without one) and its direction matrix.
+    id<MTLTexture> skyTexture() const { return skyTexture_; }
+    std::array<float, 9> skyMatrix() const { return view_->skyMatrix(); }
 
 private:
     void releaseGpu() {
@@ -763,6 +776,8 @@ private:
         triangles_ = nil;
         lightUvs_ = nil;
         lightmap_ = nil;
+        mapTextures_ = nil;
+        skyTexture_ = nil;
         count_ = 0;
         ranges_.clear();
         skins_.clear();
@@ -780,6 +795,71 @@ private:
                      mipmapLevel:0
                        withBytes:q2.lightmap().data()
                      bytesPerRow:NSUInteger(w) * 4];
+    }
+
+    // The skybox's six faces as a 2D array, drawn as is (no mipmaps: they
+    // would seam where the faces meet).
+    bool uploadSky(id<MTLDevice> device, const realms::MapSky &sky) {
+        skyTexture_ = nil;
+        if (sky.empty() || !device) return false;
+        const NSUInteger size = NSUInteger(sky.size());
+        MTLTextureDescriptor *desc = [[MTLTextureDescriptor alloc] init];
+        desc.textureType = MTLTextureType2DArray;
+        desc.pixelFormat = MTLPixelFormatRGBA8Unorm;
+        desc.width = size;
+        desc.height = size;
+        desc.arrayLength = realms::MapSky::kFaces;
+        desc.mipmapLevelCount = 1;
+        desc.usage = MTLTextureUsageShaderRead;
+        id<MTLTexture> tex = [device newTextureWithDescriptor:desc];
+        if (!tex) return false;
+        const size_t layerBytes = size_t(size) * size_t(size) * 4;
+        for (NSUInteger i = 0; i < NSUInteger(realms::MapSky::kFaces); ++i) {
+            [tex replaceRegion:MTLRegionMake2D(0, 0, size, size)
+                   mipmapLevel:0
+                         slice:i
+                     withBytes:sky.pixels().data() + i * layerBytes
+                   bytesPerRow:size * 4
+                 bytesPerImage:layerBytes];
+        }
+        skyTexture_ = tex;
+        return true;
+    }
+
+    // The map's textures as an sRGB 2D array with mipmaps; false (nil) when
+    // there are none or Metal refuses them.
+    bool uploadMapTextures(id<MTLDevice> device, id<MTLCommandQueue> queue, const realms::MapTextures &textures) {
+        mapTextures_ = nil;
+        if (textures.empty() || !device || !queue) return false;
+        const NSUInteger size = NSUInteger(textures.layerSize()), count = NSUInteger(textures.count());
+        MTLTextureDescriptor *desc = [[MTLTextureDescriptor alloc] init];
+        desc.textureType = MTLTextureType2DArray;
+        desc.pixelFormat = MTLPixelFormatRGBA8Unorm_sRGB;
+        desc.width = size;
+        desc.height = size;
+        desc.arrayLength = count;
+        desc.mipmapLevelCount = mipCountForDimensions(size, size);
+        desc.usage = MTLTextureUsageShaderRead;
+        id<MTLTexture> tex = [device newTextureWithDescriptor:desc];
+        if (!tex) return false;
+        const size_t layerBytes = size_t(size) * size_t(size) * 4;
+        for (NSUInteger i = 0; i < count; ++i) {
+            [tex replaceRegion:MTLRegionMake2D(0, 0, size, size)
+                   mipmapLevel:0
+                         slice:i
+                     withBytes:textures.pixels().data() + i * layerBytes
+                   bytesPerRow:size * 4
+                 bytesPerImage:layerBytes];
+        }
+        if (desc.mipmapLevelCount > 1) {
+            id<MTLCommandBuffer> cmd = [queue commandBuffer];
+            id<MTLBlitCommandEncoder> blit = [cmd blitCommandEncoder];
+            [blit generateMipmapsForTexture:tex];
+            [blit endEncoding];
+            [cmd commit];
+        }
+        mapTextures_ = tex;
+        return true;
     }
 
     // A skin from the game's files (.pcx / .wal through the VFS), uploaded
@@ -821,6 +901,59 @@ private:
 
     // Opaque entities, then translucent ones (shells, BFG / plasma); the view
     // weapon never sinks into walls (ref_gl's depth range 0...0.3).
+    // The map's triangles: pass 0 the opaque faces, 1 the translucent ones
+    // (blended, depth not written; R_DrawAlphaSurfaces).
+    void drawTriangles(id<MTLRenderCommandEncoder> encoder,
+                       const MetalMapPipelines &p,
+                       SandboxQuakeUniforms quake,
+                       const matrix_float4x4 &identity,
+                       int pass) {
+        const std::array<float, 4> motion = view_->surfaceMotion();
+        quake.surface = simd_make_float4(motion[0], motion[1], motion[2], motion[3]);
+        quake.modeCount.w = pass;
+        SandboxDrawUniforms draw{};
+        draw.objectTransform = identity;
+        draw.baseColorFactor = simd_make_float4(1.0f, 1.0f, 1.0f, 1.0f);
+        draw.materialParams = simd_make_float4(0.94f, 0.5f, 0.0f, 0.0f);
+        draw.drawFlags = simd_make_int4(0, 0, 0, 0);
+        [encoder setRenderPipelineState:(pass == 1 ? p.quakeMapBlended : p.quakeMap)];
+        [encoder setDepthStencilState:(pass == 1 ? p.depthRead : p.depthWrite)];
+        [encoder setVertexBuffer:triangles_ offset:0 atIndex:0];
+        [encoder setVertexBuffer:lightUvs_ offset:0 atIndex:3];
+        [encoder setFragmentTexture:(lightmap_ ? lightmap_ : p.white) atIndex:2];
+        [encoder setFragmentBytes:&quake length:sizeof(quake) atIndex:3];
+        std::vector<int> layers;
+        const auto animate = [&](int model) {
+            if (view_->animationCount()) {
+                view_->animationLayers(model, layers);
+                for (size_t i = 0; i < layers.size() && i < 32; ++i) quake.animation[i / 4][i % 4] = layers[i];
+            }
+            [encoder setVertexBytes:&quake length:sizeof(quake) atIndex:4];
+        };
+        if (ranges_.empty()) {
+            animate(0);
+            [encoder setVertexBytes:&draw length:sizeof(draw) atIndex:2];
+            [encoder setFragmentBytes:&draw length:sizeof(draw) atIndex:2];
+            [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:count_];
+            return;
+        }
+        // brush models where the game has them (doors, platforms), hidden when gone
+        const std::vector<mapview::ModelPose> &poses = view_->modelPoses();
+        for (const mapview::ModelRange &r : ranges_) {
+            const mapview::ModelPose *pose =
+                r.model > 0 && size_t(r.model) < poses.size() ? &poses[size_t(r.model)] : nullptr;
+            if (pose && !pose->visible) continue;
+            if (r.count <= 0 || NSUInteger(r.first) + NSUInteger(r.count) > count_) continue;
+            draw.objectTransform = pose ? makeColumnMatrix(pose->transform.data()) : identity;
+            animate(r.model);
+            [encoder setVertexBytes:&draw length:sizeof(draw) atIndex:2];
+            [encoder setFragmentBytes:&draw length:sizeof(draw) atIndex:2];
+            [encoder drawPrimitives:MTLPrimitiveTypeTriangle
+                        vertexStart:NSUInteger(r.first)
+                        vertexCount:NSUInteger(r.count)];
+        }
+    }
+
     void drawEntities(id<MTLRenderCommandEncoder> encoder,
                       const MetalMapPipelines &p,
                       id<MTLSamplerState> const samplers[3][3],
@@ -894,6 +1027,8 @@ private:
     id<MTLBuffer> triangles_ = nil;
     id<MTLBuffer> lightUvs_ = nil;
     id<MTLTexture> lightmap_ = nil;
+    id<MTLTexture> mapTextures_ = nil; // texture(3): the map's own textures
+    id<MTLTexture> skyTexture_ = nil;  // the skybox (sky pass)
     NSUInteger count_ = 0;
     std::vector<mapview::ModelRange> ranges_;
     MetalGltfModel model_;
@@ -1039,6 +1174,7 @@ void IosSoundStart(const std::string &bundleRoot, realms::Engine &engine) {
     id<MTLRenderPipelineState> pipPipeline_;
     // Realms map mode with the Quake 2 stack
     id<MTLRenderPipelineState> quakeMapPipeline_;
+    id<MTLRenderPipelineState> quakeMapBlendedPipeline_;
     id<MTLRenderPipelineState> quakeEntityOpaquePipeline_;
     id<MTLRenderPipelineState> quakeEntityBlendedPipeline_;
     id<MTLRenderPipelineState> quakeEffectPipeline_;
@@ -1436,13 +1572,14 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
     modelBlendedPipeline_ = makePipeline(@"modelVertex", @"sandboxFragment", YES, YES);
     pipPipeline_ = makePipeline(@"pipVertex", @"pipFragment", NO, YES);
     quakeMapPipeline_ = makePipeline(@"quakeMapVertex", @"quakeMapFragment", NO, YES);
+    quakeMapBlendedPipeline_ = makePipeline(@"quakeMapVertex", @"quakeMapFragment", YES, YES);
     quakeEntityOpaquePipeline_ = makePipeline(@"modelVertex", @"quakeMapFragment", NO, YES);
     quakeEntityBlendedPipeline_ = makePipeline(@"modelVertex", @"quakeMapFragment", YES, YES);
     quakeEffectPipeline_ = makePipeline(@"quakeEffectVertex", @"quakeEffectFragment", YES, YES);
 
     return skyPipeline_ && sandboxOpaquePipeline_ && sandboxBlendedPipeline_ &&
            modelOpaquePipeline_ && modelBlendedPipeline_ && pipPipeline_ &&
-           quakeMapPipeline_ && quakeEntityOpaquePipeline_ && quakeEntityBlendedPipeline_ && quakeEffectPipeline_;
+           quakeMapPipeline_ && quakeMapBlendedPipeline_ && quakeEntityOpaquePipeline_ && quakeEntityBlendedPipeline_ && quakeEffectPipeline_;
 }
 
 - (void)buildDepthAndSamplers {
@@ -2072,15 +2209,34 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
                    pitch:(float)pitch
                     roll:(float)roll
                   aspect:(float)aspect {
+    [self encodeSceneSetup:encoder cameraEye:eye yaw:yaw pitch:pitch roll:roll aspect:aspect skyBox:nil skyMatrix:nullptr];
+}
+
+// skyBox: map mode's MapSky layers (nil: the gradient); skyMatrix: its
+// MapSky::renderToSky, column-major.
+- (void)encodeSceneSetup:(id<MTLRenderCommandEncoder>)encoder
+               cameraEye:(physics::Vec3)eye
+                     yaw:(float)yaw
+                   pitch:(float)pitch
+                    roll:(float)roll
+                  aspect:(float)aspect
+                  skyBox:(id<MTLTexture>)skyBox
+               skyMatrix:(const float *)skyMatrix {
     [encoder setCullMode:MTLCullModeNone];
     [encoder setFrontFacingWinding:MTLWindingCounterClockwise];
 
     // Sky pass
     SandboxSkyUniforms sky{};
     sky.anglesRollAspect = simd_make_float4(yaw, pitch, roll, aspect);
+    if (skyBox && skyMatrix) {
+        sky.skyFlags = simd_make_int4(1, 0, 0, 0);
+        for (int c = 0; c < 3; ++c)
+            sky.skyAxes[c] = simd_make_float4(skyMatrix[c * 3], skyMatrix[c * 3 + 1], skyMatrix[c * 3 + 2], 0.0f);
+    }
     [encoder setRenderPipelineState:skyPipeline_];
     [encoder setDepthStencilState:skyDepthState_];
     [encoder setFragmentBytes:&sky length:sizeof(sky) atIndex:0];
+    [encoder setFragmentTexture:(sky.skyFlags.x ? skyBox : fallbackArrayTexture_) atIndex:0];
     [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
 
     // Shared scene uniforms
@@ -2745,7 +2901,7 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
     std::unique_ptr<mapview::Quake2View> retainedGame;
     if (gRetainedMap) retainedGame = std::move(gRetainedMap->game);
     mapAttack_ = false;
-    if (!mapMode_.open(engine, device_, cityModel_, kCityAsset, {supportDir_, bundleRoot_}, error,
+    if (!mapMode_.open(engine, device_, commandQueue_, cityModel_, kCityAsset, {supportDir_, bundleRoot_}, error,
                        std::move(retainedGame))) {
         NSLog(@"[Realms] map mode: %s: %s", path.c_str(), error.c_str());
         gRetainedMap.reset();
@@ -2838,18 +2994,28 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
 
     id<MTLRenderCommandEncoder> encoder = [commandBuffer renderCommandEncoderWithDescriptor:passDesc];
     if (encoder) {
-        [self encodeSceneSetup:encoder cameraEye:mapMode_.drawEye() yaw:mapYaw_ pitch:mapPitch_ roll:0.0f aspect:aspect];
+        const std::array<float, 9> skyMatrix = mapMode_.skyMatrix();
+        [self encodeSceneSetup:encoder
+                     cameraEye:mapMode_.drawEye()
+                           yaw:mapYaw_
+                         pitch:mapPitch_
+                          roll:0.0f
+                        aspect:aspect
+                        skyBox:mapMode_.skyTexture()
+                     skyMatrix:skyMatrix.data()];
         MetalMapPipelines pipelines;
         pipelines.sandbox = sandboxOpaquePipeline_;
         pipelines.modelOpaque = modelOpaquePipeline_;
         pipelines.modelBlended = modelBlendedPipeline_;
         pipelines.quakeMap = quakeMapPipeline_;
+        pipelines.quakeMapBlended = quakeMapBlendedPipeline_;
         pipelines.quakeEntityOpaque = quakeEntityOpaquePipeline_;
         pipelines.quakeEntityBlended = quakeEntityBlendedPipeline_;
         pipelines.quakeEffect = quakeEffectPipeline_;
         pipelines.depthWrite = depthWriteState_;
         pipelines.depthRead = depthReadOnlyState_;
         pipelines.white = whiteTexture_;
+        pipelines.whiteArray = fallbackArrayTexture_;
         mapMode_.draw(encoder, pipelines, gltfSamplers_, cityModel_, engine, device_, commandQueue_, mapYaw_, mapPitch_,
                       drawSize);
         [encoder endEncoding];

@@ -20,6 +20,11 @@ namespace realms {
 
 constexpr const char *kEngineName = "Realms";
 constexpr const char *kEngineVersion = "0.1.0";
+// Quake 2's game folder. A relative file not found at <root>/<path> is looked
+// for at <root>/baseq2/<path>, in every search root (the writable root and
+// EngineConfig::readFile included), so a copy of Quake 2's baseq2 folder
+// works where it lies; sandbox::boot mounts baseq2/pak0.pak .. pak9.pak.
+constexpr const char *kBaseGameDir = "baseq2";
 
 enum class BackendPreference {
     Auto,   // Pascal core when it can be loaded, otherwise the C++ core

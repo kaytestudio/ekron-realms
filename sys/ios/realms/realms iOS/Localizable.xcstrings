@@ -10,6 +10,12 @@
             "value" : "Crouch"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agacharse"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -31,6 +37,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Return"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Volver"
           }
         },
         "pt-PT" : {
@@ -56,6 +68,12 @@
             "value" : "Fire"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Disparar"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -77,6 +95,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Freeze"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Congelar"
           }
         },
         "pt-PT" : {
@@ -102,6 +126,12 @@
             "value" : "Grab"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agarrar"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -123,6 +153,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Jump"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saltar"
           }
         },
         "pt-PT" : {
@@ -148,6 +184,12 @@
             "value" : "Place the selected item"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Colocar el objeto seleccionado"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -169,6 +211,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Put away"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Guardar"
           }
         },
         "pt-PT" : {
@@ -194,6 +242,12 @@
             "value" : "Remove"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eliminar"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -215,6 +269,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Rotate"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Girar"
           }
         },
         "pt-PT" : {
@@ -240,6 +300,12 @@
             "value" : "Throw"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lanzar"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -261,6 +327,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Rotate left"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Girar a la izquierda"
           }
         },
         "pt-PT" : {
@@ -286,6 +358,12 @@
             "value" : "Rotate right"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Girar a la derecha"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -307,6 +385,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Unfreeze"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Descongelar"
           }
         },
         "pt-PT" : {
@@ -332,6 +416,12 @@
             "value" : "Cancel"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cancelar"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -353,6 +443,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "FPV drone · take out"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dron FPV · sacar"
           }
         },
         "pt-PT" : {
@@ -378,6 +474,12 @@
             "value" : "FPV remote · take"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mando FPV · coger"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -399,6 +501,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Close the catalog"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cerrar el catálogo"
           }
         },
         "pt-PT" : {
@@ -424,6 +532,12 @@
             "value" : "No items in this section yet"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Todavía no hay objetos en esta sección"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -445,6 +559,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Spawn: open the catalog"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Spawn: abrir el catálogo"
           }
         },
         "pt-PT" : {
@@ -470,6 +590,12 @@
             "value" : "Construction"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Construcción"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -491,6 +617,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "FPV Drones"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Drones FPV"
           }
         },
         "pt-PT" : {
@@ -516,6 +648,12 @@
             "value" : "Furniture"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Muebles"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -539,6 +677,12 @@
             "value" : "Weapons"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Armas"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -557,6 +701,12 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Spawn"
+          }
+        },
+        "es-ES" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Spawn"
@@ -585,6 +735,12 @@
             "value" : "Place drone"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Posar el dron"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -606,6 +762,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "↓ Down"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "↓ Bajar"
           }
         },
         "pt-PT" : {
@@ -631,6 +793,12 @@
             "value" : "↑ Up"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "↑ Subir"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -652,6 +820,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Left — altitude and yaw. Right — tilt. × — back to the remote."
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Izquierda — altitud y guiñada. Derecha — inclinación. × — volver al mando."
           }
         },
         "pt-PT" : {
@@ -677,6 +851,12 @@
             "value" : "Exit FPV"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Salir del FPV"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -698,6 +878,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "FPV left stick: altitude and yaw"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stick izquierdo FPV: altitud y guiñada"
           }
         },
         "pt-PT" : {
@@ -723,6 +909,12 @@
             "value" : "FPV right stick: pitch and roll"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stick derecho FPV: cabeceo y alabeo"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -746,6 +938,12 @@
             "value" : "Switch view"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cambiar vista"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -764,6 +962,12 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "EKRON • SANDBOX"
+          }
+        },
+        "es-ES" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "EKRON • SANDBOX"
@@ -792,6 +996,12 @@
             "value" : "Close"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cerrar"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -813,6 +1023,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Connect"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conectar"
           }
         },
         "pt-PT" : {
@@ -838,6 +1054,12 @@
             "value" : "Exit"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Salir"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -859,6 +1081,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Open"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Abrir"
           }
         },
         "pt-PT" : {
@@ -884,6 +1112,12 @@
             "value" : "Sit"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sentarse"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -905,6 +1139,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Brick block"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bloque de ladrillo"
           }
         },
         "pt-PT" : {
@@ -930,6 +1170,12 @@
             "value" : "Cabinet"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Armario"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -951,6 +1197,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Chair"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Silla"
           }
         },
         "pt-PT" : {
@@ -976,6 +1228,12 @@
             "value" : "Concrete block"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bloque de hormigón"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -997,6 +1255,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Cube 1×1×1"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cubo 1×1×1"
           }
         },
         "pt-PT" : {
@@ -1022,6 +1286,12 @@
             "value" : "Door"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Puerta"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -1043,6 +1313,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Slab (floor)"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Losa (suelo)"
           }
         },
         "pt-PT" : {
@@ -1068,6 +1344,12 @@
             "value" : "Metal block"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bloque de metal"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -1089,6 +1371,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sofa"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sofá"
           }
         },
         "pt-PT" : {
@@ -1114,6 +1402,12 @@
             "value" : "Table"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mesa"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -1132,6 +1426,12 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "UAZ-469"
+          }
+        },
+        "es-ES" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "UAZ-469"
@@ -1160,6 +1460,12 @@
             "value" : "Window"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ventana"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -1181,6 +1487,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Wooden block"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bloque de madera"
           }
         },
         "pt-PT" : {
@@ -1206,6 +1518,12 @@
             "value" : "Movement joystick"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Joystick de movimiento"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -1226,19 +1544,25 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Choose English, Русский or Português (Portugal) in Settings › Ekron › Language"
+            "value" : "Choose English, Русский, Português (Portugal) or Español (España) in Settings › Ekron › Language"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elige English, Русский, Português (Portugal) o Español (España) en Ajustes › Ekron › Idioma"
           }
         },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Escolha English, Русский ou Português (Portugal) em Definições › Ekron › Idioma"
+            "value" : "Escolha English, Русский, Português (Portugal) ou Español (España) em Definições › Ekron › Idioma"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Выберите English, Русский или Português (Portugal) в Настройках › Ekron › Язык"
+            "value" : "Выберите English, Русский, Português (Portugal) или Español (España) в Настройках › Ekron › Язык"
           }
         }
       }
@@ -1250,6 +1574,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Could not load the world resources.\nRestart the app."
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se han podido cargar los recursos del mundo.\nReinicia la aplicación."
           }
         },
         "pt-PT" : {
@@ -1275,6 +1605,12 @@
             "value" : "Preparing the world…"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Preparando el mundo…"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -1296,6 +1632,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Loading the city and materials…"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cargando la ciudad y los materiales…"
           }
         },
         "pt-PT" : {
@@ -1321,6 +1663,12 @@
             "value" : "Preparing the first frame…"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Preparando el primer fotograma…"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -1342,6 +1690,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Uploading models to the GPU…"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Subiendo los modelos a la GPU…"
           }
         },
         "pt-PT" : {
@@ -1367,6 +1721,12 @@
             "value" : "Preparing graphics…"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Preparando los gráficos…"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -1388,6 +1748,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "World ready"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mundo listo"
           }
         },
         "pt-PT" : {
@@ -1413,6 +1779,12 @@
             "value" : "Loading textures…"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cargando texturas…"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -1434,6 +1806,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Preparing the UAZ and its parking spot…"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Preparando el UAZ y su aparcamiento…"
           }
         },
         "pt-PT" : {
@@ -1459,6 +1837,12 @@
             "value" : "Native urban sandbox"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sandbox urbano nativo"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -1477,6 +1861,12 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "EKRON"
+          }
+        },
+        "es-ES" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "EKRON"
@@ -1505,6 +1895,12 @@
             "value" : "Look around: swipe on the right"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mirar alrededor: desliza el dedo a la derecha"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -1526,6 +1922,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Loading %1$@…"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cargando %1$@…"
           }
         },
         "pt-PT" : {
@@ -1551,6 +1953,12 @@
             "value" : "No maps yet. Import a .bsp, .glb or .gltf file."
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Todavía no hay mapas. Importa un archivo .bsp, .glb o .gltf."
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -1572,6 +1980,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Import map…"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importar mapa…"
           }
         },
         "pt-PT" : {
@@ -1597,6 +2011,12 @@
             "value" : "Some files could not be imported. A map is a .bsp, .glb or .gltf file (with its .bin and textures), up to 128 MB."
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se han podido importar algunos archivos. Un mapa es un archivo .bsp, .glb o .gltf (con su .bin y sus texturas) de hasta 128 MB."
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -1618,6 +2038,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Files added to maps/."
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Archivos añadidos a maps/."
           }
         },
         "pt-PT" : {
@@ -1643,6 +2069,12 @@
             "value" : "Remove an imported map…"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eliminar un mapa importado…"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -1664,6 +2096,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Remove imported map"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eliminar mapa importado"
           }
         },
         "pt-PT" : {
@@ -1689,6 +2127,12 @@
             "value" : "Removed %1$@"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eliminado: %1$@"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -1710,6 +2154,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Maps"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mapas"
           }
         },
         "pt-PT" : {
@@ -1735,6 +2185,12 @@
             "value" : "Metal is not available on this device."
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Metal no está disponible en este dispositivo."
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -1756,6 +2212,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Removing your own builds"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eliminar tus construcciones"
           }
         },
         "pt-PT" : {
@@ -1781,6 +2243,12 @@
             "value" : "Through walls · ↑ / ↓ — altitude"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Atravesando paredes · ↑ / ↓ — altitud"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -1802,6 +2270,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "FPV remote · connect to the drone"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mando FPV · conectar con el dron"
           }
         },
         "pt-PT" : {
@@ -1827,6 +2301,12 @@
             "value" : "Free mode"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Modo libre"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -1848,6 +2328,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Gravity gun: aim at a build"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pistola de gravedad: apunta a una construcción"
           }
         },
         "pt-PT" : {
@@ -1873,6 +2359,12 @@
             "value" : "Item grabbed"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Objeto agarrado"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -1894,6 +2386,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "The map could not be loaded."
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se ha podido cargar el mapa."
           }
         },
         "pt-PT" : {
@@ -1919,6 +2417,12 @@
             "value" : "Quake 2: %1$@ · Health %2$d · Armor %3$d · Ammo %4$d"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quake 2: %1$@ · Salud %2$d · Armadura %3$d · Munición %4$d"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -1940,6 +2444,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Map: %1$@ · pause → Leave the map"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mapa: %1$@ · pausa → Salir del mapa"
           }
         },
         "pt-PT" : {
@@ -1965,6 +2475,12 @@
             "value" : "Map: %1$@ · loading textures…"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mapa: %1$@ · cargando texturas…"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -1986,6 +2502,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "No safe place nearby to get out."
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No hay ningún lugar seguro cerca para salir."
           }
         },
         "pt-PT" : {
@@ -2011,6 +2533,12 @@
             "value" : "No free space for the UAZ."
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No hay sitio libre para el UAZ."
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -2032,6 +2560,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Player returned to a safe spawn."
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jugador devuelto a un punto de aparición seguro."
           }
         },
         "pt-PT" : {
@@ -2057,6 +2591,12 @@
             "value" : "Spawn gun: %1$@"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pistola de spawn: %1$@"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -2078,6 +2618,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "The configured spawn point is unsafe — spawn moved."
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El punto de aparición configurado no es seguro: se ha movido."
           }
         },
         "pt-PT" : {
@@ -2103,6 +2649,12 @@
             "value" : "No safe point available — clear the spawn."
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No hay ningún punto seguro: despeja el punto de aparición."
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -2124,6 +2676,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "OK"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aceptar"
           }
         },
         "pt-PT" : {
@@ -2149,6 +2707,12 @@
             "value" : "Connect"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conectar"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -2170,6 +2734,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Player"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jugador"
           }
         },
         "pt-PT" : {
@@ -2195,6 +2765,12 @@
             "value" : "Player visibility only. Builds, physics, vehicles and drones are not synchronized. Only use a trusted server."
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Solo se ven los jugadores. Las construcciones, la física, los vehículos y los drones no se sincronizan. Usa solo un servidor de confianza."
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -2216,6 +2792,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Connection closed: check the address, certificate and key"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conexión cerrada: comprueba la dirección, el certificado y la clave"
           }
         },
         "pt-PT" : {
@@ -2241,6 +2823,12 @@
             "value" : "Could not connect to the server"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se ha podido conectar con el servidor"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -2262,6 +2850,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Connection error"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Error de conexión"
           }
         },
         "pt-PT" : {
@@ -2287,6 +2881,12 @@
             "value" : "Invalid server response"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Respuesta del servidor no válida"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -2308,6 +2908,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Message too large"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mensaje demasiado grande"
           }
         },
         "pt-PT" : {
@@ -2333,6 +2939,12 @@
             "value" : "The server did not respond"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El servidor no ha respondido"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -2354,6 +2966,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Server response too large"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Respuesta del servidor demasiado grande"
           }
         },
         "pt-PT" : {
@@ -2379,6 +2997,12 @@
             "value" : "Check the address, port, name and key (32–256 bytes)"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Comprueba la dirección, el puerto, el nombre y la clave (32–256 bytes)"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -2400,6 +3024,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Player name"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nombre del jugador"
           }
         },
         "pt-PT" : {
@@ -2425,6 +3055,12 @@
             "value" : "Port"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Puerto"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -2446,6 +3082,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Server name (TLS certificate)"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nombre del servidor (certificado TLS)"
           }
         },
         "pt-PT" : {
@@ -2471,6 +3113,12 @@
             "value" : "Connection to the server closed"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conexión con el servidor cerrada"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -2492,6 +3140,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Connected: only players are visible; builds are not synchronized"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conectado: solo se ven los jugadores; las construcciones no se sincronizan"
           }
         },
         "pt-PT" : {
@@ -2517,6 +3171,12 @@
             "value" : "Connecting to the server…"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conectando con el servidor…"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -2538,6 +3198,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Online (experimental)"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En línea (experimental)"
           }
         },
         "pt-PT" : {
@@ -2563,6 +3229,12 @@
             "value" : "Access key"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clave de acceso"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -2584,6 +3256,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Pause"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pausa"
           }
         },
         "pt-PT" : {
@@ -2609,6 +3287,12 @@
             "value" : "Disconnect from the server"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Desconectar del servidor"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -2630,6 +3314,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Disable flight"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Desactivar el vuelo"
           }
         },
         "pt-PT" : {
@@ -2655,6 +3345,12 @@
             "value" : "Enable flight"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Activar el vuelo"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -2676,6 +3372,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Language: English"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Idioma: Español (España)"
           }
         },
         "pt-PT" : {
@@ -2701,6 +3403,12 @@
             "value" : "Leave the map"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Salir del mapa"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -2722,6 +3430,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Maps…"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mapas…"
           }
         },
         "pt-PT" : {
@@ -2747,6 +3461,12 @@
             "value" : "Disable noclip"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Desactivar noclip"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -2768,6 +3488,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Enable noclip"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Activar noclip"
           }
         },
         "pt-PT" : {
@@ -2793,6 +3519,12 @@
             "value" : "Online: players (experimental)"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En línea: jugadores (experimental)"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -2814,6 +3546,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Restore the UAZ"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restablecer el UAZ"
           }
         },
         "pt-PT" : {
@@ -2839,6 +3577,12 @@
             "value" : "Resume"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reanudar"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -2860,6 +3604,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Go to the road"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ir a la carretera"
           }
         },
         "pt-PT" : {
@@ -2885,6 +3635,12 @@
             "value" : "Go to spawn"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ir al punto de aparición"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -2906,6 +3662,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Skip ›"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saltar ›"
           }
         },
         "pt-PT" : {
@@ -2931,6 +3693,12 @@
             "value" : "Coordinates for spawn.json copied"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Coordenadas para spawn.json copiadas"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -2952,6 +3720,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Empty Hands"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Manos vacías"
           }
         },
         "pt-PT" : {
@@ -2977,6 +3751,12 @@
             "value" : "FPV Remote"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mando FPV"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -2998,6 +3778,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Gravity Gun"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pistola de gravedad"
           }
         },
         "pt-PT" : {
@@ -3023,6 +3809,12 @@
             "value" : "Choose a tool"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elegir herramienta"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -3044,6 +3836,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Choose a tool: hold, swipe and release"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elegir herramienta: mantén pulsado, desliza y suelta"
           }
         },
         "pt-PT" : {
@@ -3069,6 +3867,12 @@
             "value" : "Choose"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elegir"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -3092,6 +3896,12 @@
             "value" : "Release"
           }
         },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Suelta"
+          }
+        },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
@@ -3113,6 +3923,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Swipe your finger"
+          }
+        },
+        "es-ES" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Desliza el dedo"
           }
         },
         "pt-PT" : {

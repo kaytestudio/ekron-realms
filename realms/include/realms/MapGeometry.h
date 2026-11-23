@@ -19,11 +19,16 @@ struct MapGeometryBatch {
     std::string material;     // texture / surface name ("" when unknown)
     int32_t surfaceFlags = 0; // REALMS_SURF_*
     int32_t contents = 0;     // brush / surface contents, 0 when unknown
-    int32_t model = 0;        // BSP faces: 0 world, n = inline model "*n" (doors, platforms...)
+    int32_t model = 0;        // 0 world, n = inline model "*n" (doors, platforms...): BSP faces, glTF meshes
     std::vector<float> positions; // xyz per vertex
     std::vector<float> normals;   // xyz per vertex (flat)
     std::vector<float> uvs;       // texinfo texels (BSP) or map units (planar)
     std::vector<int32_t> faces;   // per triangle: BSP face number (realms::MapLighting), -1 otherwise
+    // Texture animation (BSP texinfo nexttexinfo chains): the textures the
+    // faces cycle through, starting with `material`, for frame % size() as
+    // in R_TextureAnimation (the world at 2 frames a second, brush models at
+    // their entity's frame). Empty when not animated.
+    std::vector<std::string> frames;
     size_t triangleCount() const { return positions.size() / 9; }
 };
 

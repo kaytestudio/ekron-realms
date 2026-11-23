@@ -111,10 +111,14 @@ int boot(Engine &engine, const BootOptions &options) {
     registerSharedCvars(engine, options.platform);
     if (options.mapCommands) registerMapCommands(engine, options.onMapChanged);
 
+    // pak0.pak .. pak9.pak beside the assets or in Quake 2's baseq2 folder;
+    // later ones win, as in FS_AddGameDirectory.
     int paks = 0;
     for (int i = 0; i < 10; ++i) {
-        const std::string pak = "pak" + std::to_string(i) + ".pak";
-        if (options.fileExists && options.fileExists(pak) && engine.addPak(pak) >= 0) ++paks;
+        for (const std::string &dir : {std::string(), std::string(kBaseGameDir) + "/"}) {
+            const std::string pak = dir + "pak" + std::to_string(i) + ".pak";
+            if (options.fileExists && options.fileExists(pak) && engine.addPak(pak) >= 0) ++paks;
+        }
     }
 
     std::vector<unsigned char> probe;

@@ -12,9 +12,31 @@
 //   {"realms_contents": "solid|water|slime|lava|playerclip|monsterclip|
 //    window|none" or a number, "realms_flags": n, "realms_value": n}
 //
-// Entities: worldspawn, plus one per node named "info_*" (Blender ".001"
-// suffixes dropped) with its "origin"; node extras {"realms_angle": deg}
-// add "angle".
+// Entities, for the Quake 2 game (Quake2Module) and the walker's spawn:
+//   worldspawn: "message" (the file name) plus the scene's extras; "sky"
+//   (with "skyrotate", "skyaxis") gives the map a skybox (MapSky).
+//   One point entity per node named after a Quake 2 classname (lower-cased,
+//   Blender ".001" suffixes dropped): info_*, item_*, weapon_*, ammo_*,
+//   key_*, monster_*, misc_*, target_*, path_*, point_*, light, light_*,
+//   trigger_relay/always/counter/key, func_timer, func_clock, turret_driver.
+//   "origin" is the node's world position: place it where Quake 2 would,
+//   about 24 units (0.75 m) above the floor for player starts, items and
+//   monsters.
+//   "angle": extras "angle"/"angles" if set, else {"realms_angle": deg},
+//   else the yaw of the node's +X axis (when not 0).
+//   Node extras become keys: strings, numbers, booleans (1/0) and arrays of
+//   up to 4 numbers ("_color": [1, 0.5, 0]); realms_* tags, classname,
+//   origin and inline "model" values ("*N") are dropped.
+//   Brush entities: a node named func_* / trigger_* / turret_* (other than
+//   the point classes above, e.g. func_door, func_plat, func_button,
+//   func_train, trigger_multiple) becomes an inline model "*n" made of its
+//   meshes and its children's, with "model" "*n", its extras as keys and
+//   "angle" from extras only (for doors it is the move direction: -1 up,
+//   -2 down). func_rotating and func_door_rotating turn about the node's
+//   position: they get it as "origin" and their triangles are stored
+//   relative to it. A brush entity node without triangles is not exported
+//   (the game stops on a brush entity without a model); a node used twice
+//   is a brush entity the first time only.
 #pragma once
 
 #include "realms/realms_bridge.h"
@@ -35,10 +57,20 @@ struct MeshMapSurface {
     int32_t contents = REALMS_CONTENTS_SOLID; // 0 = no collision
 };
 
+// An inline model ("*n" is models[n - 1]).
+struct MeshMapModel {
+    int32_t node = -1;                // glTF node index of the brush entity
+    std::string classname;            // "func_door", ...
+    std::array<float, 3> origin{};    // map units: the triangles are relative to it
+    size_t triangles = 0;
+};
+
 struct MeshMap {
     std::vector<float> vertices;           // xyz triples, map space
     std::vector<int32_t> indices;          // 3 per triangle
     std::vector<int32_t> triangleSurfaces; // one per triangle
+    std::vector<int32_t> triangleModels;   // one per triangle (0 = world), empty without models
+    std::vector<MeshMapModel> models;      // inline models
     std::vector<MeshMapSurface> surfaces;  // at least one
     std::string entities;                  // Quake 2 entity lump text
     float thickness = 0.0f;                // <= 0: core default (2 units)

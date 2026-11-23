@@ -36,7 +36,14 @@ int32_t water = engine.pointContents(eye) & REALMS_MASK_WATER;
 glTF maps (`.glb`, `.gltf`) are converted by `realms::gltfToMeshMap`
 (`MeshMap.h`): 32 units per metre by default (`map_mesh_scale`), each triangle
 a 2-unit slab brush (`map_mesh_thickness`). Material names and extras set
-contents; see the header for the tags.
+contents. Nodes named after Quake 2 point entities (`info_player_start`,
+`item_*`, `weapon_*`, `monster_*`, ...) become entities, with their extras as
+keys, so the game runs on glTF maps too. Nodes named after brush entities
+(`func_door`, `func_plat`, `trigger_multiple`, ...) become inline models `*n`
+from their own and their children's meshes, so doors and lifts move like in
+a BSP map (`RealmsMeshDesc::triangle_models`; the renderers draw them with
+`mapview::Quake2View::placedTransform`). See the header for the tags and
+entity rules.
 
 ## Choosing a core
 
@@ -57,9 +64,11 @@ is missing). `ekron-realms --engine-info` shows what was picked.
 | :--- | :--- |
 | `SandboxBoot` | Boot order and cvars shared by all hosts, plus the `map`, `mapinfo` and `killserver` commands |
 | `MeshMap` | glTF to collision mesh |
-| `MapGeometry` | Drawable triangles from BSP faces, brush windings or glTF |
+| `MapGeometry` | Drawable triangles from BSP faces, brush windings or glTF; surface flags and texture animation chains |
 | `MapWalker` | Quake 2 style movement for walking a map without the game |
 | `MapLighting` | BSP lightmap atlas, light styles, `R_LightPoint` |
+| `MapTextures` | `textures/*.wal` of the map's faces and their animation frames in one texture array, Quake 2 palette |
+| `MapSky` | Skybox from worldspawn `sky`, `skyrotate`, `skyaxis`: `env/*.tga` or `.pcx`; `unit1_` by default on BSP maps, only when the scene's extras set `sky` on glTF maps |
 | `GameServer`, `Q2Pmove` | Server side of Quake 2 hosting the game module |
 | `GameView`, `Md2Model` | Entity interpolation, `.md2` models, PCX skins |
 | `GameEffects`, `GameSound` | Particles, temp entities, dynamic lights, beams; `.wav` decoding and spatialisation |
@@ -85,12 +94,14 @@ cd game && fpc -Mdelphi -dGAMEDLL -Cg -O2 -FUunits -Fu. -Fi. -o../build/librealm
 
 | Call | Does |
 | :--- | :--- |
-| `open(engine, geometry, config, why)` / `close()` | Loads lightmaps, starts the game if the map has a worldspawn, the module exists and `sv_game` is 1 |
+| `open(engine, geometry, config, why)` / `close()` | Loads lightmaps, `.wal` textures and the skybox, starts the game if the map has a worldspawn, the module exists and `sv_game` is 1 |
 | `frame(userCmd(input, attack), dt)` | One sandbox frame: usercmd, `RunFrame` at 10 Hz, interpolation, effects, light styles |
 | `restartGame`, `toggleNoclip`, `mirrorPlayer`, `stats`, `takeMessages`, `takeGameFailure` | Respawn, noclip, HUD values, centre prints, game errors |
 | `modelPoses`, `buildScene`, `buildEffects` | Brush model poses, entity batches, effect quads and nearest dynamic lights |
 | `takeSounds`, `loopSounds`, `listener` | Input for `GameSoundPlayer` |
-| `lighting`, `lightmapUvs`, `lightmap`, `updateLightStyles`, `lightAt` | Lightmap atlas and model lighting |
+| `lighting`, `lightmapUvs`, `lightmap`, `updateLightStyles`, `lightAt` | Lightmap atlas; model lighting from the lightmap plus all dynamic lights (`R_LightPoint`) |
+| `textures`, `disableTextures` | The map's `.wal` textures; faces without one keep the generic material layers |
+| `sky`, `disableSky` | The skybox; without all six images the sky gradient stays |
 
 `mapview::Quake2View` (`sys/android/app/src/main/cpp/Quake2View.*`) converts
 this to render space (metres, Y up) for the map modes:
@@ -101,8 +112,15 @@ this to render space (metres, Y up) for the map modes:
 | Android | `AndroidMapMode` + `Quake2Gles` (GLES 3) | `jniLibs/<abi>/librealms_game.so` (`build_core.sh game-android-aarch64`/`-x86_64`) |
 | iOS | `MetalMapMode` in `SandboxBridge.mm` | device builds link `librealms_game.a` (`build_core.sh ios-arm64`); the simulator walks maps only |
 
-Without the game (or with `sv_game 0`, or on a glTF map) the map is walked with
-`MapWalker`. Controls and map import are in [docs/CONTROLS.md](../docs/CONTROLS.md).
+Each vertex's layer packs the texture layer (bits 0-11), the face's surface
+effects (12-15: warp, flowing, 33% and 66% translucency) and an animation slot
+(16-21) whose current layer `animationLayers()` gives per brush model. The
+renderers warp and scroll the texture coordinates with `surfaceMotion()` and
+draw translucent faces in a second, blended pass after the entities.
+
+Without the game (or with `sv_game 0`) the map is walked with `MapWalker`.
+glTF maps run the game as BSP maps do, with the entities their node names
+spawn. Controls and map import are in [docs/CONTROLS.md](../docs/CONTROLS.md).
 
 On Android both libraries are opened through `realms/src/FpcLibraryEnviron.h`:
 FPC 3.2.2's Android startup scans backwards from `environ` for `argc`, which
@@ -113,10 +131,12 @@ faults once `setenv()` has moved `environ` to the heap.
 `realms::sandbox::boot()` on every platform:
 
 1. registers `sensitivity`, `m_invert`, `name` and the read-only `realms_platform`;
-2. mounts `pak0.pak` … `pak9.pak`;
+2. mounts `pak0.pak` … `pak9.pak`, each from the top of every search root and from its `baseq2/` folder (`realms::kBaseGameDir`);
 3. runs `config/realms.cfg`, `config.cfg`, `autoexec.cfg`;
 4. registers the map commands and `map_mesh_*` cvars;
 5. runs `+command` arguments (desktop).
+
+Loose files are looked up as `<root>/<path>` in every root (the writable root first), then as `<root>/baseq2/<path>`; the platform `readFile` / `readRange` callbacks get the same `baseq2/` retry. So a Quake 2 install's `baseq2` folder works as it is. The desktop adds `--quake2 <dir>` / `EKRON_QUAKE2_DIR` as a last search root.
 
 ## Building the Pascal core
 
@@ -133,13 +153,19 @@ faults once `setenv()` has moved `environ` to the heap.
 Tests that use a core run on both (`*_native` / `*_pascal` in CTest). Test
 maps are generated by `bsp_builder.h`, since id maps can't ship
 with the repo; `gltf_builder.h` and `md2_builder.h` do the same for glTF and
-`.md2`. Tests that need the game module exit 77 (skipped) without it.
+`.md2`. `maps/q2room.bsp` is the exception: compiled from `maps/q2room.map` by
+id's qbsp3, qvis3 and qrad3 (`tools/build_q2_test_map.sh`). The sample map the
+apps ship, `assets/maps/courtyard.glb` with its skybox in `assets/env/`, is
+built by `tools/build_sample_map.py` and tested where it lies. Tests that need
+the game module exit 77 (skipped) without it.
 
 | Test | Covers |
 | :--- | :--- |
 | `realms_bridge_test.cpp` | Cvars, commands, PAK files, collision (`realms_map_suite.h`), vis and mesh maps, glTF import, walker, Engine |
 | `game_server_test.cpp` | `Q2Pmove`, the game module on a generated level, client-side entities |
-| `quake2_module_test.cpp` | `Quake2Module` and `Quake2View` on a lightmapped arena |
+| `quake2_module_test.cpp` | `Quake2Module` and `Quake2View` on a lightmapped arena, `.wal` decoding and texture layers, surface effects and animated textures, TGA decoding and the skybox, the game and a skybox on glTF maps |
+| `q2_compiled_map_test.cpp` | `q2room.bsp`: collision, areaportals, PVS, qrad lightmaps and styles, a walk with the game |
+| `sample_map_test.cpp` | The shipped `courtyard.glb`: brush entities and keys, water, skybox seams, then the game through the door, up the lift and onto the button that opens the vault |
 | `md2_test.cpp` | `.md2` and PCX parsing, corrupt files |
 | `map_render_alignment_test.cpp` | glTF collision vs. drawn model, map import rules |
 | `map_entity_transform_test.cpp` | Entity transforms in render space |

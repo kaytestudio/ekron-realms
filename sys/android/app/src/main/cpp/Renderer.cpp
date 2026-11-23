@@ -89,10 +89,17 @@ uniform vec3 eye;
 uniform vec2 angles;
 uniform float cameraRoll;
 uniform float aspect;
+// Map mode (mapview::kMapEffectShift): material packs the layer (bits
+// 0..11), Quake 2 surface effects (12..15) and an animation slot + 1
+// (16..21) whose current layer is mapAnimation[slot]. mapPass 0 draws the
+// opaque faces, 1 the translucent ones; the others leave the view.
+uniform int mapPass;
+uniform int mapAnimation[32];
 out vec3 tint;
 out vec3 worldNormal;
 out vec2 texUV;
-flat out int layer;
+flat out int vertexLayer;
+flat out int vertexEffects;
 out vec3 toEye;
 out vec2 lmUV;
 void main(){
@@ -103,7 +110,11 @@ void main(){
  q.xy=mat2(cos(cameraRoll),sin(cameraRoll),-sin(cameraRoll),cos(cameraRoll))*q.xy;
  float f=1.37638;
  gl_Position=vec4(q.x*f/aspect,q.y*f,-1.001334*q.z-.200134,-q.z);
- tint=color;worldNormal=mat3(objectTransform)*normal;texUV=uv;layer=int(material+.5);toEye=p;lmUV=lightUV;
+ tint=color;worldNormal=mat3(objectTransform)*normal;texUV=uv;toEye=p;lmUV=lightUV;
+ int bits=int(material+.5),slot=bits>>16; // "packed" is reserved in GLSL ES 3.00
+ vertexLayer=slot>0&&slot<=32?mapAnimation[slot-1]:(bits&4095);
+ vertexEffects=(bits>>12)&15;
+ if(((vertexEffects&12)!=0)!=(mapPass==1))gl_Position=vec4(0.0,0.0,2.0,1.0);
 })";
 const char *fragment=R"(#version 300 es
 precision highp float;
@@ -113,18 +124,26 @@ precision highp int;
 in vec3 tint;
 in vec3 worldNormal;
 in vec2 texUV;
-flat in int layer;
+flat in int vertexLayer;
+flat in int vertexEffects;
 in vec3 toEye;
 in vec2 lmUV;
 uniform sampler2DArray albedo;
+// Quake 2 surface motion (mapview::mapSurfaceMotion): warp phase, flowing
+// scroll, flowing warp scroll.
+uniform vec4 mapSurface;
+// The map's own textures on unit 3 (map mode): vertexLayer = 8 + 8 * layer
+// + material class (mapview::mapTextureLayer).
+uniform bool mapTextured;
+uniform sampler2DArray mapTextures;
 // Quake 2 BSP lightmaps (map mode, realms::Quake2Module): the atlas on unit 2
 // replaces the sun and sky light, like ref_gl (base * (2 * lightmap)^2.2).
 uniform bool mapLightmap;
 uniform sampler2D lightmap;
 // Quake 2 dynamic lights (muzzle flashes, rockets, explosions), map mode only.
 uniform int dlightCount;
-uniform vec4 dlights[8];
-uniform vec4 dlightColors[8];
+uniform vec4 dlights[32];
+uniform vec4 dlightColors[32];
 uniform bool texturesReady;
 uniform bool modelPass;
 uniform bool previewPass;
@@ -140,16 +159,24 @@ uniform vec3 lightColor;
 uniform vec3 ambientColor;
 out vec4 outColor;
 void main(){
+ bool mapTexture=!modelPass&&vertexLayer>=8;
+ int layer=mapTexture?(vertexLayer&7):vertexLayer;
+ int effects=modelPass?0:vertexEffects;
+ bool translucent=(effects&12)!=0;
+ vec2 st=texUV;
+ if((effects&1)!=0){st=texUV+.125*sin(texUV.yx*8.0+mapSurface.x);if((effects&2)!=0)st.x+=mapSurface.z;} // SURF_WARP
+ else if((effects&2)!=0)st.x+=mapSurface.y; // SURF_FLOWING
  vec3 base=pow(tint,vec3(2.2));
- if(texturesReady)base*=texture(albedo,vec3(texUV,float(layer))).rgb;
- if(!modelPass && layer!=4){
+ if(mapTexture&&mapTextured)base*=texture(mapTextures,vec3(st,float((vertexLayer>>3)-1))).rgb;
+ else if(texturesReady)base*=texture(albedo,vec3(st,float(layer))).rgb;
+ if(!modelPass && layer!=4 && !mapTexture){
   vec3 world=toEye+eye;
   base*=.94+.035*sin(world.x*.21+world.z*.17)+.025*sin(world.y*.33-world.x*.13);
  }
  // Screen-door transparency writes depth only for the retained glass samples;
  // no object-order-dependent blending or opaque blue pane.
- if(!modelPass && layer==7 && mod(floor(gl_FragCoord.x)+floor(gl_FragCoord.y)*2.0,4.0)>0.0)discard;
- float alpha=1.0;
+ if(!modelPass && layer==7 && !translucent && mod(floor(gl_FragCoord.x)+floor(gl_FragCoord.y)*2.0,4.0)>0.0)discard;
+ float alpha=(effects&4)!=0?.33:((effects&8)!=0?.66:1.0);
  if(modelPass){
   vec4 sampleColor=modelTextured?texture(modelAlbedo,texUV):vec4(1.0);
   base=baseColorFactor.rgb*sampleColor.rgb;alpha=baseColorFactor.a*sampleColor.a;
@@ -169,12 +196,13 @@ void main(){
  float shine=pow(max(dot(n,halfVector),0.0),mix(90.0,8.0,roughness));
  lit+=lightColor*shine*strength*diffuse;
  if(mapLightmap&&!modelPass&&lmUV.x>=0.0)lit=base*pow(2.0*texture(lightmap,lmUV).rgb,vec3(2.2));
- for(int i=0;i<dlightCount&&i<8;i++){
+ for(int i=0;i<dlightCount&&i<32;i++){
   vec3 toLight=dlights[i].xyz-(toEye+eye);
   float f=clamp(1.0-length(toLight)/max(dlights[i].w,1e-4),0.0,1.0);
   float facing=dot(toLight,toLight)>1e-8?.35+.65*max(dot(n,normalize(toLight)),0.0):1.0;
   lit+=base*dlightColors[i].rgb*(1.6*f*f*facing);
  }
+ if((effects&13)!=0)lit=base; // warp and translucent faces: fullbright like ref_gl
  float d=max(length(toEye)-22.0,0.0);
  float fog=1.0-exp(-d*d*.00022);
  vec3 fogColor=pow(vec3(.56,.61,.63),vec3(2.2));
@@ -185,14 +213,33 @@ out vec2 screen;
 void main(){vec2 p=vec2(float((gl_VertexID<<1)&2),float(gl_VertexID&2));screen=p*2.0-1.0;gl_Position=vec4(screen,0.0,1.0);})";
 const char *skyFragment=R"(#version 300 es
 precision highp float;
+precision highp sampler2DArray;
 in vec2 screen;
 uniform float aspect;
 uniform vec2 angles;
 uniform float cameraRoll;
+// Quake 2 skybox (map mode, realms::MapSky): layers rt lf bk ft up dn on unit
+// 4; skyMatrix turns a render-space direction into the box's axes.
+uniform bool skyBox;
+uniform mat3 skyMatrix;
+uniform sampler2DArray skyTextures;
 out vec4 outColor;
 void main(){
  vec3 ray=normalize(vec3(screen.x*aspect/1.37638,screen.y/1.37638,-1.0));
  ray.xy=mat2(cos(cameraRoll),-sin(cameraRoll),sin(cameraRoll),cos(cameraRoll))*ray.xy;
+ if(skyBox){
+  // undo pitch, then yaw; then R_DrawSkyBox inverted (MapSky::faceCoords)
+  float cp=cos(angles.y),sp=sin(angles.y),cy=cos(angles.x),sy=sin(angles.x);
+  vec3 r=vec3(ray.x,cp*ray.y-sp*ray.z,sp*ray.y+cp*ray.z);
+  r=vec3(cy*r.x+sy*r.z,r.y,-sy*r.x+cy*r.z);
+  vec3 d=skyMatrix*r,a=abs(d);
+  float layer;vec2 st;
+  if(a.x>=a.y&&a.x>=a.z){layer=d.x>0.0?0.0:1.0;st=vec2(d.x>0.0?-d.y:d.y,d.z)/a.x;}
+  else if(a.y>=a.z){layer=d.y>0.0?2.0:3.0;st=vec2(d.y>0.0?d.x:-d.x,d.z)/a.y;}
+  else{layer=d.z>0.0?4.0:5.0;st=vec2(-d.y,d.z>0.0?-d.x:d.x)/a.z;}
+  outColor=vec4(texture(skyTextures,vec3((st.x+1.0)*.5,(1.0-st.y)*.5,layer)).rgb,1.0);
+  return;
+ }
  float altitude=cos(angles.y)*ray.y-sin(angles.y)*ray.z;
  float blend=smoothstep(0.0,.85,max(altitude,0.0));
  outColor=vec4(mix(vec3(.56,.61,.63),vec3(.32,.41,.51),blend),1.0);
@@ -301,8 +348,9 @@ Renderer::Renderer(android_app *app):app_(app),last_(std::chrono::steady_clock::
  const EGLint contextAttributes[]={EGL_CONTEXT_CLIENT_VERSION,3,EGL_NONE};context_=eglCreateContext(display_,config,EGL_NO_CONTEXT,contextAttributes);
  if(surface_==EGL_NO_SURFACE||context_==EGL_NO_CONTEXT||!eglMakeCurrent(display_,surface_,surface_,context_))return;
  program_=link(vertex,fragment);skyProgram_=link(skyVertex,skyFragment);if(!program_)return;
- // Each sampler type keeps its own unit: albedo array 0, model 1, lightmap 2.
- glUseProgram(program_);glUniform1i(glGetUniformLocation(program_,"lightmap"),2);glUniform1i(glGetUniformLocation(program_,"mapLightmap"),0);glUniform1i(glGetUniformLocation(program_,"dlightCount"),0);
+ if(skyProgram_){glUseProgram(skyProgram_);glUniform1i(glGetUniformLocation(skyProgram_,"skyTextures"),4);glUniform1i(glGetUniformLocation(skyProgram_,"skyBox"),0);}
+ // Each sampler keeps its own unit: albedo array 0, model 1, lightmap 2, map textures 3.
+ glUseProgram(program_);glUniform1i(glGetUniformLocation(program_,"lightmap"),2);glUniform1i(glGetUniformLocation(program_,"mapLightmap"),0);glUniform1i(glGetUniformLocation(program_,"mapTextures"),3);glUniform1i(glGetUniformLocation(program_,"mapTextured"),0);glUniform1i(glGetUniformLocation(program_,"dlightCount"),0);
  loadStage=1;loadPercent=2;
  auto manager=app_->activity->assetManager;auto navigation=std::make_shared<sandbox::World>(world_);
  assetsJob_=std::async(std::launch::async,[manager,navigation](){
@@ -780,7 +828,15 @@ void Renderer::renderMap(float dt){
   glUniform1f(glGetUniformLocation(skyProgram_,"aspect"),aspect);
   glUniform2f(glGetUniformLocation(skyProgram_,"angles"),mapYaw_,mapPitch_);
   glUniform1f(glGetUniformLocation(skyProgram_,"cameraRoll"),0);
+  const GLuint skyTexture=mapMode_.skyTexture();
+  if(skyTexture){
+   glActiveTexture(GL_TEXTURE4);glBindTexture(GL_TEXTURE_2D_ARRAY,skyTexture);glActiveTexture(GL_TEXTURE0);
+   const std::array<float,9> m=mapMode_.skyMatrix();
+   glUniformMatrix3fv(glGetUniformLocation(skyProgram_,"skyMatrix"),1,GL_FALSE,m.data());
+  }
+  glUniform1i(glGetUniformLocation(skyProgram_,"skyBox"),skyTexture?1:0);
   glDrawArrays(GL_TRIANGLES,0,3);glDepthMask(GL_TRUE);glEnable(GL_DEPTH_TEST);
+  glUniform1i(glGetUniformLocation(skyProgram_,"skyBox"),0);
  }
  glUseProgram(program_);
  const float identity[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};

@@ -27,6 +27,7 @@ struct Texinfo {
     std::string name;
     int32_t flags = 0;
     int32_t value = 0;
+    int32_t next = -1; // nexttexinfo: the next frame of an animated texture
 };
 
 struct ModelDef {
@@ -285,7 +286,7 @@ private:
             char name[32] = {};
             std::strncpy(name, t.name.c_str(), sizeof(name) - 1);
             o.append(name, sizeof(name));
-            put32(o, -1);
+            put32(o, t.next);
         }
         if (def_.light) {
             // per texinfo and axis: s along axis+1, t along axis+2
@@ -299,7 +300,8 @@ private:
                     char name[32] = {};
                     std::strncpy(name, t.name.c_str(), sizeof(name) - 1);
                     o.append(name, sizeof(name));
-                    put32(o, -1);
+                    // the chain stays on the same axis' copies
+                    put32(o, t.next < 0 ? -1 : int32_t(def_.texinfo.size() + size_t(t.next) * 3 + size_t(a)));
                 }
         }
         for (const LeafRec &l : leafs_) {

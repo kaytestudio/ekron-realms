@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Ekron Realms Android UI strings: Russian.
-     Keep keys and %1$s-style placeholders identical in values/, values-ru/ and values-pt-rPT/
+     Keep keys and %1$s-style placeholders identical in values/, values-ru/, values-pt-rPT/
+     and values-es-rES/
      (checked by tools/validate_i18n.py). -->
 <resources>
     <string name="app_name">ЭКРОН — песочница</string>
@@ -105,7 +106,7 @@
     <string name="pause_online">Онлайн: игроки (экспериментально)</string>
     <string name="pause_disconnect">Отключиться от сервера</string>
     <string name="pause_language">Язык: Русский</string>
-    <string name="language_settings_hint">Выберите English, Русский или Português (Portugal) в настройках системы</string>
+    <string name="language_settings_hint">Выберите English, Русский, Português (Portugal) или Español (España) в настройках системы</string>
     <string name="online_title">Онлайн (экспериментально)</string>
     <string name="online_disclaimer">Только видимость игроков. Постройки, физика, транспорт и дроны не синхронизируются. Используйте только доверенный сервер.</string>
     <string name="online_server_hint">Имя сервера (сертификат TLS)</string>

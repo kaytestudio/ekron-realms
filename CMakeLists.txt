@@ -151,7 +151,45 @@ if(ENABLE_DESKTOP_SANDBOX)
         "${SHARED_CPP_DIR}/Quake2View.cpp"
         "${SHARED_CPP_DIR}/GltfScene.cpp"
         "${SHARED_CPP_DIR}/ImageDecode.cpp"
+        "${DESKTOP_SRC_DIR}/IntroScreen.cpp"
     )
+
+    # Intro video (assets/intro.mp4) backend, see sys/desktop/IntroVideo.h:
+    # AVFoundation on macOS, FFmpeg's libraries elsewhere when found, else none.
+    option(EKRON_INTRO_VIDEO "Play the intro video at startup (AVFoundation / FFmpeg)" ON)
+    option(EKRON_REQUIRE_INTRO_VIDEO "Fail instead of building without an intro video backend (release builds)" OFF)
+    set(EKRON_INTRO_BACKEND "none")
+    if(EKRON_INTRO_VIDEO AND APPLE)
+        set(CMAKE_OBJCXX_STANDARD 17)
+        set(CMAKE_OBJCXX_STANDARD_REQUIRED ON)
+        enable_language(OBJCXX)
+        list(APPEND DESKTOP_SOURCES "${DESKTOP_SRC_DIR}/IntroVideoApple.mm")
+        set_source_files_properties("${DESKTOP_SRC_DIR}/IntroVideoApple.mm" PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+        set(EKRON_INTRO_BACKEND "AVFoundation")
+    elseif(EKRON_INTRO_VIDEO)
+        find_package(PkgConfig QUIET)
+        if(PKG_CONFIG_FOUND)
+            pkg_check_modules(EKRON_FFMPEG QUIET IMPORTED_TARGET
+                libavformat libavcodec>=59.37.100 libswscale libswresample libavutil)
+        endif()
+        if(EKRON_FFMPEG_FOUND)
+            list(APPEND DESKTOP_SOURCES "${DESKTOP_SRC_DIR}/IntroVideoFFmpeg.cpp")
+            set(EKRON_INTRO_BACKEND "FFmpeg")
+        endif()
+    endif()
+    if(EKRON_INTRO_BACKEND STREQUAL "none")
+        if(EKRON_REQUIRE_INTRO_VIDEO)
+            message(FATAL_ERROR "EKRON_REQUIRE_INTRO_VIDEO: no intro video backend. Install FFmpeg 5.1+ development "
+                                "files (libavformat-dev libavcodec-dev libswscale-dev libswresample-dev).")
+        endif()
+        list(APPEND DESKTOP_SOURCES "${DESKTOP_SRC_DIR}/IntroVideoNone.cpp")
+        if(EKRON_INTRO_VIDEO)
+            message(STATUS "FFmpeg 5.1+ development files not found: the desktop client starts without the intro video "
+                           "(install libavformat-dev libavcodec-dev libswscale-dev libswresample-dev)")
+        endif()
+    endif()
+    message(STATUS "Intro video backend: ${EKRON_INTRO_BACKEND}")
+
     add_library(ekron_sandbox_objects OBJECT ${DESKTOP_SOURCES})
     set_target_properties(ekron_sandbox_objects PROPERTIES POSITION_INDEPENDENT_CODE ON)
     target_include_directories(ekron_sandbox_objects PUBLIC
@@ -164,6 +202,13 @@ if(ENABLE_DESKTOP_SANDBOX)
         Threads::Threads
         $<$<PLATFORM_ID:Linux>:${CMAKE_DL_LIBS}>
     )
+
+    if(EKRON_INTRO_BACKEND STREQUAL "AVFoundation")
+        target_link_libraries(ekron_sandbox_objects PUBLIC
+            "-framework AVFoundation" "-framework CoreMedia" "-framework CoreVideo" "-framework Foundation")
+    elseif(EKRON_INTRO_BACKEND STREQUAL "FFmpeg")
+        target_link_libraries(ekron_sandbox_objects PUBLIC PkgConfig::EKRON_FFMPEG)
+    endif()
 
     # Presence remains optional when OpenSSL development files are unavailable.
     if(UNIX)
@@ -205,6 +250,8 @@ if(ENABLE_DESKTOP_SANDBOX)
             COMMAND ${CMAKE_COMMAND} -E copy_directory "${SHARED_ASSETS_DIR}/catalog" "${MAC_APP_RESOURCES}/catalog"
             COMMAND ${CMAKE_COMMAND} -E copy_directory "${SHARED_ASSETS_DIR}/config" "${MAC_APP_RESOURCES}/config"
             COMMAND ${CMAKE_COMMAND} -E copy_directory "${SHARED_ASSETS_DIR}/sounds" "${MAC_APP_RESOURCES}/sounds"
+            COMMAND ${CMAKE_COMMAND} -E copy_directory "${SHARED_ASSETS_DIR}/maps" "${MAC_APP_RESOURCES}/maps"
+            COMMAND ${CMAKE_COMMAND} -E copy_directory "${SHARED_ASSETS_DIR}/env" "${MAC_APP_RESOURCES}/env"
             COMMAND ${CMAKE_COMMAND} -E copy_if_different "${SHARED_ASSETS_DIR}/intro.mp4" "${MAC_APP_RESOURCES}/intro.mp4"
             COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/RINGSCE_v2.png" "${MAC_APP_RESOURCES}/RINGSCE_v2.png"
             COMMENT "Copying Ekron 3D assets into EkronRealms.app/Contents/Resources"
@@ -303,6 +350,9 @@ if(ENABLE_FPC_CLIENT)
                     get_filename_component(_sdl2_lib_dir "${EKRON_SDL2_LIBRARY}" DIRECTORY)
                     list(APPEND _realms_pascal_flags "-k-rpath-link" "-k${_sdl2_lib_dir}")
                 endif()
+                foreach(_ffmpeg_lib_dir IN LISTS EKRON_FFMPEG_LIBRARY_DIRS) # and FFmpeg's
+                    list(APPEND _realms_pascal_flags "-k-rpath-link" "-k${_ffmpeg_lib_dir}")
+                endforeach()
             endif()
             add_fpc_executable(realms_pascal_client
                 SOURCES
@@ -386,6 +436,8 @@ if(TARGET ekron-realms)
             "${SHARED_ASSETS_DIR}/catalog"
             "${SHARED_ASSETS_DIR}/config"
             "${SHARED_ASSETS_DIR}/sounds"
+            "${SHARED_ASSETS_DIR}/maps"
+            "${SHARED_ASSETS_DIR}/env"
             DESTINATION "${CMAKE_INSTALL_DATADIR}/ekron-realms"
         )
         install(FILES "${SHARED_ASSETS_DIR}/intro.mp4"
@@ -426,7 +478,7 @@ target_include_directories(ekron_shop_catalog_test PRIVATE
 )
 add_test(NAME ekron_shop_catalog COMMAND ekron_shop_catalog_test)
 
-# Desktop i18n: English / Russian / Portuguese (Portugal) string table,
+# Desktop i18n: English / Russian / Portuguese (Portugal) / Spanish (Spain) string table,
 # placeholders, locale parsing and pixel-font glyph coverage (SDL-independent).
 add_executable(ekron_localization_test
     tests/native/localization_test.cpp
@@ -434,6 +486,26 @@ add_executable(ekron_localization_test
 )
 target_include_directories(ekron_localization_test PRIVATE sys/desktop)
 add_test(NAME ekron_localization COMMAND ekron_localization_test)
+
+# GLSL embedded in the desktop and Android renderers: no reserved words as
+# names (glslang and NVIDIA accept some, Mesa rejects the whole shader).
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+    add_test(NAME ekron_glsl_keywords
+             COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_glsl_keywords.py")
+endif()
+
+# Intro video through FFmpeg: plays assets/intro.mp4 against a fake audio
+# output and clock (no sound card, faster than real time).
+if(EKRON_INTRO_BACKEND STREQUAL "FFmpeg")
+    add_executable(ekron_intro_video_test
+        tests/native/intro_video_test.cpp
+        sys/desktop/IntroVideoFFmpeg.cpp
+    )
+    target_include_directories(ekron_intro_video_test PRIVATE sys/desktop)
+    target_link_libraries(ekron_intro_video_test PRIVATE PkgConfig::EKRON_FFMPEG)
+    add_test(NAME ekron_intro_video COMMAND ekron_intro_video_test "${SHARED_ASSETS_DIR}/intro.mp4")
+endif()
 
 # Realms bridge conformance: C++ reference core (+ Free Pascal core below).
 add_executable(realms_bridge_test tests/realms/realms_bridge_test.cpp)
@@ -515,6 +587,58 @@ else()
     set_tests_properties(realms_quake2_module_native PROPERTIES SKIP_RETURN_CODE 77)
 endif()
 set_tests_properties(realms_quake2_module_native PROPERTIES ENVIRONMENT "REALMS_CORE=;REALMS_GAME_LIBRARY=")
+
+# A map compiled by id's qbsp3 / qvis3 / qrad3 (tools/build_q2_test_map.sh):
+# collision, areas, PVS, qrad lightmaps and styles, then the game on it.
+set(REALMS_Q2ROOM_BSP "${CMAKE_CURRENT_SOURCE_DIR}/tests/realms/maps/q2room.bsp")
+add_executable(realms_q2_compiled_map_test
+    tests/realms/q2_compiled_map_test.cpp
+    "${SHARED_CPP_DIR}/MapSession.cpp"
+    "${SHARED_CPP_DIR}/Quake2View.cpp"
+)
+target_include_directories(realms_q2_compiled_map_test PRIVATE "${SHARED_CPP_DIR}")
+target_link_libraries(realms_q2_compiled_map_test PRIVATE realms_quake2)
+if(REALMS_GAME_MODULE_BUILT)
+    add_dependencies(realms_q2_compiled_map_test realms_game_module)
+    add_test(NAME realms_q2_compiled_map_native
+             COMMAND realms_q2_compiled_map_test --map "${REALMS_Q2ROOM_BSP}" --game "${REALMS_GAME_MODULE_PATH}")
+    if(REALMS_PASCAL_CORE_BUILT)
+        add_dependencies(realms_q2_compiled_map_test realms_pascal_core)
+        add_test(NAME realms_q2_compiled_map_pascal
+                 COMMAND realms_q2_compiled_map_test --map "${REALMS_Q2ROOM_BSP}" --game "${REALMS_GAME_MODULE_PATH}"
+                         --pascal "${REALMS_PASCAL_CORE_PATH}")
+    endif()
+else()
+    add_test(NAME realms_q2_compiled_map_native COMMAND realms_q2_compiled_map_test --map "${REALMS_Q2ROOM_BSP}")
+    set_tests_properties(realms_q2_compiled_map_native PROPERTIES SKIP_RETURN_CODE 77)
+endif()
+set_tests_properties(realms_q2_compiled_map_native PROPERTIES ENVIRONMENT "REALMS_CORE=;REALMS_GAME_LIBRARY=")
+
+# The sample glTF map the apps ship (assets/maps/courtyard.glb, its skybox in
+# assets/env; tools/build_sample_map.py): entities, sky seams, then the game
+# through its doors, lift and button.
+add_executable(realms_sample_map_test
+    tests/realms/sample_map_test.cpp
+    "${SHARED_CPP_DIR}/MapSession.cpp"
+    "${SHARED_CPP_DIR}/Quake2View.cpp"
+)
+target_include_directories(realms_sample_map_test PRIVATE "${SHARED_CPP_DIR}")
+target_link_libraries(realms_sample_map_test PRIVATE realms_quake2)
+if(REALMS_GAME_MODULE_BUILT)
+    add_dependencies(realms_sample_map_test realms_game_module)
+    add_test(NAME realms_sample_map_native
+             COMMAND realms_sample_map_test --assets "${SHARED_ASSETS_DIR}" --game "${REALMS_GAME_MODULE_PATH}")
+    if(REALMS_PASCAL_CORE_BUILT)
+        add_dependencies(realms_sample_map_test realms_pascal_core)
+        add_test(NAME realms_sample_map_pascal
+                 COMMAND realms_sample_map_test --assets "${SHARED_ASSETS_DIR}" --game "${REALMS_GAME_MODULE_PATH}"
+                         --pascal "${REALMS_PASCAL_CORE_PATH}")
+    endif()
+else()
+    add_test(NAME realms_sample_map_native COMMAND realms_sample_map_test --assets "${SHARED_ASSETS_DIR}")
+    set_tests_properties(realms_sample_map_native PROPERTIES SKIP_RETURN_CODE 77)
+endif()
+set_tests_properties(realms_sample_map_native PROPERTIES ENVIRONMENT "REALMS_CORE=;REALMS_GAME_LIBRARY=")
 
 # Quake 2 .md2 models and PCX skins (realms::Md2Model / decodePcx), generated
 # in memory by tests/realms/md2_builder.h.
@@ -668,6 +792,14 @@ elseif(UNIX)
         set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
     else()
         set(CPACK_DEBIAN_PACKAGE_DEPENDS "libsdl2-2.0-0, libc6, libstdc++6")
+        if(EKRON_INTRO_BACKEND STREQUAL "FFmpeg") # runtime packages are named after the soname
+            foreach(_lib avformat avcodec swscale swresample avutil)
+                string(REGEX MATCH "^[0-9]+" _major "${EKRON_FFMPEG_lib${_lib}_VERSION}")
+                if(_major)
+                    string(APPEND CPACK_DEBIAN_PACKAGE_DEPENDS ", lib${_lib}${_major}")
+                endif()
+            endforeach()
+        endif()
     endif()
 endif()
 

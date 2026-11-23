@@ -58,21 +58,31 @@ typedef struct
     simd_int4       drawFlags;      // x = modelPass, y = previewPass, z = modelTextured, w = alphaMode
 } SandboxDrawUniforms;
 
-// Realms map mode with the Quake 2 stack (quakeMapFragment, buffer 3):
-// BSP lightmaps, Quake 2 entity light and the nearest dynamic lights.
+// Realms map mode with the Quake 2 stack (quakeMapFragment, buffer 3;
+// quakeMapVertex, buffer 4): BSP lightmaps, Quake 2 entity light, the
+// dynamic lights and the surface effects (mapview::kMapEffectShift).
+#define SANDBOX_MAX_DLIGHTS 32 // Quake 2's MAX_DLIGHTS
 typedef struct
 {
-    simd_float4 lights[8];      // xyz = render-space position, w = radius (metres)
-    simd_float4 lightColors[8]; // xyz = linear RGB
+    simd_float4 lights[SANDBOX_MAX_DLIGHTS];      // xyz = render-space position, w = radius (metres)
+    simd_float4 lightColors[SANDBOX_MAX_DLIGHTS]; // xyz = linear RGB
     simd_int4   modeCount;      // x = mode (0 sandbox sun, 1 lightmapped world,
                                 //      2 entity lit by `light`, 3 fullbright),
-                                // y = dynamic lights in use (0...8)
+                                // y = dynamic lights in use (0...SANDBOX_MAX_DLIGHTS),
+                                // z = 1: the map's textures are on texture(3),
+                                // w = map pass: 0 opaque faces, 1 translucent ones
     simd_float4 light;          // xyz = Quake 2 light value at the entity (mode 2)
+    simd_float4 surface;        // mapview::mapSurfaceMotion: warp phase, flowing
+                                // scroll, flowing warp scroll
+    simd_int4   animation[8];   // current layer of animation slots 0..31
+                                // (mapview::Quake2View::animationLayers)
 } SandboxQuakeUniforms;
 
 typedef struct
 {
     simd_float4 anglesRollAspect; // x = yaw, y = pitch, z = roll, w = aspect
+    simd_int4   skyFlags;         // x = 1: the Quake 2 skybox on texture(0) (map mode)
+    simd_float4 skyAxes[3];       // columns (xyz) of realms::MapSky::renderToSky
 } SandboxSkyUniforms;
 
 typedef struct

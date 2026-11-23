@@ -29,4 +29,17 @@ inline float fitHudTextScale(float preferredScale, float measuredWidth, float av
     return preferredScale * std::min(1.0f, std::max(0.0f, availableWidth) / measuredWidth);
 }
 
+struct ScreenRect {
+    float x = 0.0f, y = 0.0f, w = 0.0f, h = 0.0f;
+};
+
+// The largest rectangle with the picture's aspect ratio, centred on the
+// screen, with black bars on the other axis (the intro video).
+inline ScreenRect letterbox(int pictureW, int pictureH, float screenW, float screenH) {
+    if (pictureW <= 0 || pictureH <= 0 || screenW <= 0.0f || screenH <= 0.0f) return {};
+    const float scale = std::min(screenW / float(pictureW), screenH / float(pictureH));
+    const float w = float(pictureW) * scale, h = float(pictureH) * scale;
+    return {(screenW - w) * 0.5f, (screenH - h) * 0.5f, w, h};
+}
+
 } // namespace ekron::desktop

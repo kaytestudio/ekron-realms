@@ -1,6 +1,6 @@
-// Quake 2 game, entities, effects, sounds and lightmaps for one map, with no
-// renderer or audio code. Each sandbox (DesktopMapMode, AndroidMapMode,
-// MetalMapMode) owns one and draws/plays what it returns.
+// Quake 2 game, entities, effects, sounds, lightmaps, textures and sky for
+// one map, with no renderer or audio code. Each sandbox (DesktopMapMode,
+// AndroidMapMode, MetalMapMode) owns one and draws/plays what it returns.
 // Everything is in Quake 2 map space: units, Z up, angles in degrees.
 #pragma once
 
@@ -11,6 +11,8 @@
 #include "realms/GameView.h"
 #include "realms/MapGeometry.h"
 #include "realms/MapLighting.h"
+#include "realms/MapSky.h"
+#include "realms/MapTextures.h"
 #include "realms/MapWalker.h"
 
 #include <array>
@@ -25,6 +27,8 @@ struct Quake2ModuleConfig {
     std::string executableDir; // where librealms_game is looked for
     bool startGame = true;     // false: lightmaps only (sv_game 0)
     bool lightmaps = true;
+    bool textures = true; // the map's .wal textures (MapTextures)
+    bool sky = true;      // the worldspawn's skybox (MapSky)
 };
 
 // Where an inline model is drawn: rotate by `angles` (Quake 2 degrees,
@@ -32,6 +36,7 @@ struct Quake2ModuleConfig {
 struct Quake2ModelPose {
     bool visible = true;
     std::array<float, 3> origin{}, angles{};
+    int frame = 0; // the entity's frame (EF_ANIM_* applied): its texture animation frame
 };
 
 // One corner of an effect quad, map space. shape 0: a round particle with
@@ -117,14 +122,24 @@ public:
     // Light styles from the game's CS_LIGHTS at client time; true when the
     // atlas changed (re-upload lightmap()).
     bool updateLightStyles();
-    // R_LightPoint at a map point, at least RF_MINLIGHT's 0.1; false (and
-    // white) without lightmaps.
+    // ---- textures
+    // The .wal textures of the map's faces (empty without id's data).
+    const MapTextures &textures() const { return textures_; }
+    void disableTextures() { textures_.clear(); }
+    // The skybox (empty without its six env/ images).
+    const MapSky &sky() const { return sky_; }
+    void disableSky() { sky_.clear(); }
+
+    // R_LightPoint at a map point: the lightmap under it plus the game's
+    // dynamic lights, at least RF_MINLIGHT's 0.1; false (and white) without
+    // lightmaps.
     bool lightAt(const Vec3 &point, std::array<float, 3> &rgb) const;
 
 private:
     bool startGame(Engine &engine, std::string &why);
     void sync();
     MapLightStyles currentLightStyles() const;
+    bool lightAt(const Vec3 &point, const std::vector<GameDynamicLight> &dlights, std::array<float, 3> &rgb) const;
 
     std::string executableDir_;
     std::unique_ptr<GameServer> game_;
@@ -140,7 +155,10 @@ private:
     std::vector<GameEffectModel> fxModels_;
     std::vector<GameParticle> fxParticles_;
     std::vector<GameBeam> fxBeams_;
+    std::vector<GameDynamicLight> fxLights_;
     MapLighting lighting_;
+    MapTextures textures_;
+    MapSky sky_;
     MapLightStyles lightStyles_;
     std::vector<uint8_t> lightmapRgba_;
 };

@@ -190,10 +190,12 @@ bool Scene::load(const std::string &path,const ReadFile &read,std::string &diagn
    result.materials.push_back(out);
   }
   std::map<std::string,int> fallbackImages;
-  std::set<int> stack;size_t vertexCount=0;
-  std::function<void(int,const Matrix&)> visit=[&](int index,const Matrix &parent){
+  std::set<int> stack,brushNodes;size_t vertexCount=0;
+  std::function<void(int,const Matrix&,int)> visit=[&](int index,const Matrix &parent,int inlineModel){
    if(stack.size()>128||!stack.insert(index).second)throw std::runtime_error("Cyclic or excessively deep nodes");
    const auto &node=model.nodes.at(index);auto matrix=multiply(parent,transform(node));
+   const auto brush=options.nodeModels.find(index);
+   if(brush!=options.nodeModels.end()&&brushNodes.insert(index).second)inlineModel=brush->second;
    if(node.skin>=0)throw std::runtime_error("Skinned models are not supported");
    if(node.mesh>=0)for(const auto &p:model.meshes.at(node.mesh).primitives){
     if(p.mode!=-1&&p.mode!=TINYGLTF_MODE_TRIANGLES)throw std::runtime_error("Only triangle primitives are supported");
@@ -202,7 +204,7 @@ bool Scene::load(const std::string &path,const ReadFile &read,std::string &diagn
     size_t count=indices?indices->a.count:positions.a.count;if(count%3||vertexCount+count>6000000)throw std::runtime_error("Invalid or excessive triangle count");vertexCount+=count;
     Batch batch;
     if(options.level)for(const char*wire:{"Plane.009_","Plane.010_","Plane.011_","Plane.012_","Plane.013_","Plane.014_","Plane.015_"})if(node.name.rfind(wire,0)==0)batch.decorativeWire=true;
-    batch.material=p.material;batch.vertices.reserve(count);
+    batch.material=p.material;batch.model=inlineModel;batch.vertices.reserve(count);
     Material original=batch.material>=0?result.materials.at(batch.material):Material{};
     auto style=sandbox::materialForName(node.name+" "+model.meshes.at(node.mesh).name);
     if(original.image<0&&style.layer!=sandbox::Plain){
@@ -225,11 +227,11 @@ bool Scene::load(const std::string &path,const ReadFile &read,std::string &diagn
     if(det<0)for(size_t i=0;i<count;i+=3)std::swap(batch.vertices[i+1],batch.vertices[i+2]);
     result.batches.push_back(std::move(batch));
    }
-   for(int child:node.children)visit(child,matrix);
+   for(int child:node.children)visit(child,matrix,inlineModel);
    stack.erase(index);
   };
   if(model.scenes.empty())throw std::runtime_error("No glTF scene");
-  int scene=model.defaultScene>=0?model.defaultScene:0;for(int node:model.scenes.at(scene).nodes)visit(node,identity());
+  int scene=model.defaultScene>=0?model.defaultScene:0;for(int node:model.scenes.at(scene).nodes)visit(node,identity(),0);
   if(!std::isfinite(options.targetExtent)||options.targetExtent<=0||!std::isfinite(options.x)||!std::isfinite(options.z)||!std::isfinite(options.y)||!std::isfinite(options.yaw))throw std::runtime_error("Invalid scene placement options");
   prepare(result,options);*this=std::move(result);diagnostics+="Loaded "+std::to_string(vertexCount/3)+" triangles, "+std::to_string(materials.size())+" materials, "+std::to_string(colliders.size())+" boxes, "+std::to_string(wallSegments.size())+" thin wall segments.\n";return true;
  }catch(const std::exception&e){diagnostics+="glTF load failed: "+std::string(e.what());return false;}

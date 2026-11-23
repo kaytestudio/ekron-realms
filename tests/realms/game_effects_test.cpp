@@ -69,6 +69,23 @@ void byteDirChecks() {
     CHECK(none[0] == 0 && none[1] == 0 && none[2] == 0);
 }
 
+// R_LightPoint's dynamic light term
+void dynamicLightPointChecks() {
+    std::vector<realms::GameDynamicLight> lights;
+    lights.push_back({{100, 0, 0}, 200, {1, 1, 0}});    // 72 units away: (200 - 72) / 256 = 0.5
+    lights.push_back({{0, 0, 300}, 200, {1, 1, 1}});    // out of range
+    lights.push_back({{28, 0, 0}, 0, {1, 1, 1}});       // radius 0
+    std::array<float, 3> rgb{0.1f, 0.2f, 0.3f};
+    realms::addDynamicLights({28, 0, 0}, lights, rgb);
+    CHECK(near(rgb[0], 0.6f, 1e-5f) && near(rgb[1], 0.7f, 1e-5f) && near(rgb[2], 0.3f, 1e-5f));
+    lights.push_back({{28, 0, 0}, 64, {0, 0, 1}});      // at the point: 64 / 256
+    realms::addDynamicLights({28, 0, 0}, lights, rgb);
+    CHECK(near(rgb[0], 1.1f, 1e-5f) && near(rgb[2], 0.55f, 1e-5f));
+    std::array<float, 3> none{0, 0, 0};
+    realms::addDynamicLights({0, 0, 0}, {}, none);
+    CHECK(none[0] == 0 && none[1] == 0 && none[2] == 0);
+}
+
 void tempEntityChecks() {
     realms::GameEffects fx;
     std::vector<realms::GameParticle> parts;
@@ -119,16 +136,20 @@ void tempEntityChecks() {
     CHECK(later.size() == 60 && drop / 60 > 0.0f); // gravity 40 * t^2 beats crand * 20 * t on average
     CHECK(later[0].color[3] < 1.0f);
 
-    // the palette: blood is red (approximate colormap), or the real one
-    CHECK(!fx.realPalette());
-    const auto red = fx.paletteColor(0xe8);
-    CHECK(red[0] > red[1] && red[0] > red[2]);
+    // the palette: Quake 2's built in (blood 0xe8, BFG green 0xd0, the last
+    // grey 0x0f), or one from the game
+    CHECK(!fx.paletteFromGame());
+    auto rgbIs = [&](int index, int r, int g, int b) {
+        const auto c = fx.paletteColor(index);
+        return near(c[0], r / 255.0f, 1e-6f) && near(c[1], g / 255.0f, 1e-6f) && near(c[2], b / 255.0f, 1e-6f);
+    };
+    CHECK(rgbIs(0xe8, 155, 31, 0) && rgbIs(0xd0, 0, 255, 0) && rgbIs(0x0f, 235, 235, 235));
     std::vector<uint8_t> pal(768);
     for (int i = 0; i < 256; i++) pal[size_t(i * 3)] = pal[size_t(i * 3 + 1)] = pal[size_t(i * 3 + 2)] = uint8_t(i);
     fx.setPalette(pal.data());
-    CHECK(fx.realPalette() && near(fx.paletteColor(128)[1], 128 / 255.0f, 1e-6f));
+    CHECK(fx.paletteFromGame() && near(fx.paletteColor(128)[1], 128 / 255.0f, 1e-6f));
     fx.setPalette(nullptr);
-    CHECK(!fx.realPalette());
+    CHECK(!fx.paletteFromGame() && rgbIs(0xe8, 155, 31, 0));
 
     // blaster impact: 40 particles, the translucent fullbright explode model, a yellow light
     fx.reset();
@@ -223,6 +244,23 @@ void tempEntityChecks() {
     huge.end = {1e30f, 0, 0};
     fx.handleEvent(huge, 0);
     CHECK(int(fx.particleCount()) <= realms::GameEffects::kMaxParticles && fx.explosionCount() == 0);
+}
+
+// 40 entities firing at once: MAX_DLIGHTS (32) lights, all handed to the map modes
+void dynamicLightLimitChecks() {
+    realms::GameEffects fx;
+    realms::GameEvent mz;
+    mz.kind = realms::GameEvent::Kind::MuzzleFlash;
+    mz.level = realms::GMZ_BLASTER;
+    for (int e = 1; e <= 40; e++) {
+        mz.entity = e;
+        mz.origin = {float(e) * 64.0f, 0, 0};
+        fx.handleEvent(mz, 0);
+    }
+    std::vector<realms::GameDynamicLight> lights;
+    fx.lights(10, lights);
+    CHECK(lights.size() == size_t(realms::GameEffects::kMaxDlights));
+    CHECK(realms::GameEffects::kMaxDlights == 32);
 }
 
 void muzzleFlashChecks() {
@@ -440,7 +478,22 @@ void sceneChecks() {
     CHECK(engine.init(cfg));
     realms::GameEffects fx;
     std::string perr;
-    CHECK(!fx.loadPalette(engine, &perr) && !perr.empty() && !fx.realPalette()); // no colormap.pcx: approximation
+    CHECK(!fx.loadPalette(engine, &perr) && !perr.empty() && !fx.paletteFromGame()); // no colormap.pcx: built in
+    {
+        // a 1x1 8-bit PCX whose palette is index i = (i, 255 - i, 0)
+        std::vector<char> pcx(128 + 2 + 769, 0);
+        pcx[0] = 0x0a, pcx[1] = 5, pcx[2] = 1, pcx[3] = 8, pcx[65] = 1;
+        pcx[128] = char(0xc1);
+        pcx[130] = 0x0c;
+        for (int i = 0; i < 256; i++) pcx[size_t(131 + i * 3)] = char(i), pcx[size_t(131 + i * 3 + 1)] = char(255 - i);
+        fs::create_directories(tmp / "pics", ec);
+        std::ofstream(tmp / "pics/colormap.pcx", std::ios::binary).write(pcx.data(), std::streamsize(pcx.size()));
+        CHECK(fx.loadPalette(engine, &perr) && fx.paletteFromGame());
+        const auto c = fx.paletteColor(0xe8);
+        CHECK(near(c[0], 0xe8 / 255.0f, 1e-6f) && near(c[1], (255 - 0xe8) / 255.0f, 1e-6f) && c[2] == 0.0f);
+        fs::remove(tmp / "pics/colormap.pcx", ec);
+        CHECK(!fx.loadPalette(engine, &perr) && !fx.paletteFromGame());
+    }
 
     fx.handleEvent(tent(realms::GTE_ROCKET_EXPLOSION, {10, 20, 30}), 0);
     fx.handleEvent(tent(realms::GTE_BLASTER, {0, 0, 0}), 0); // explode/tris.md2 is missing: skipped
@@ -593,8 +646,10 @@ void soundChecks() {
 int main() {
     soundChecks();
     byteDirChecks();
+    dynamicLightPointChecks();
     tempEntityChecks();
     muzzleFlashChecks();
+    dynamicLightLimitChecks();
     entityEffectChecks();
     sceneChecks();
     std::printf("[effects] %d checks, %d failures\n", gChecks, gFailures);

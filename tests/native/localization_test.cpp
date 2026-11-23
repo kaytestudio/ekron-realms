@@ -1,5 +1,5 @@
-// Unit tests for the desktop localization layer (English, Russian and
-// Portuguese (Portugal)). SDL/GL-independent: it checks the string table,
+// Unit tests for the desktop localization layer (English, Russian,
+// Portuguese (Portugal) and Spanish (Spain)). SDL/GL-independent: it checks the string table,
 // placeholder consistency, locale parsing and that the built-in pixel font
 // can render every translated character.
 #include "DesktopFont.h"
@@ -57,6 +57,17 @@ int main() {
     CHECK(ekron::font::glyphSlot(0x00C7) != ekron::font::kFallbackSlot); // Ç
     CHECK(ekron::font::glyphSlot(0x0451) != ekron::font::kFallbackSlot); // ё
     CHECK(ekron::font::glyphSlot(0x2026) != ekron::font::kFallbackSlot); // …
+    for (uint32_t cp : {0x00D1u, 0x00F1u, 0x00DCu, 0x00FCu, 0x00A1u, 0x00BFu}) // Ñ ñ Ü ü ¡ ¿
+        CHECK(ekron::font::glyphSlot(cp) != ekron::font::kFallbackSlot);
+    {
+        std::set<int> slots; // every glyph gets its own slot
+        for (uint32_t cp : {0x00D1u, 0x00F1u, 0x00DCu, 0x00FCu, 0x00A1u, 0x00BFu, 0x00C3u, 0x00E3u, 0x2026u})
+            slots.insert(ekron::font::glyphSlot(cp));
+        CHECK(slots.size() == 9);
+        for (int slot : slots) CHECK(slot >= 0 && size_t(slot) < glyphs.size());
+    }
+    CHECK(ekron::font::buildAtlasRgba().size() ==
+          size_t(ekron::font::kAtlasW) * size_t(ekron::font::kAtlasH) * 4);
     CHECK(ekron::font::glyphSlot(0x4E2D) == ekron::font::kFallbackSlot); // unsupported CJK
 
     // --- String table -----------------------------------------------------
@@ -95,6 +106,9 @@ int main() {
     CHECK(std::string(i18n::tr(i18n::Str::PauseResume, i18n::Language::Russian)) == "Продолжить игру");
     CHECK(std::string(i18n::tr(i18n::Str::PauseResume, i18n::Language::PortuguesePT)) == "Continuar o jogo");
     CHECK(std::string(i18n::tr(i18n::Str::ItemConcrete, i18n::Language::PortuguesePT)) == "Betão"); // pt-PT, not pt-BR "Concreto"
+    CHECK(std::string(i18n::tr(i18n::Str::PauseResume, i18n::Language::SpanishES)) == "Reanudar partida");
+    CHECK(std::string(i18n::tr(i18n::Str::ItemConcrete, i18n::Language::SpanishES)) == "Hormigón"); // es-ES, not "Concreto"
+    CHECK(std::string(i18n::tr(i18n::Str::ToastWelcome, i18n::Language::SpanishES)).rfind("¡Bienvenido", 0) == 0);
 
     // --- Language metadata -----------------------------------------------
     for (size_t l = 0; l < i18n::kLanguageCount; ++l) {
@@ -104,7 +118,10 @@ int main() {
     }
     CHECK(i18n::nextLanguage(i18n::Language::English) == i18n::Language::Russian);
     CHECK(i18n::nextLanguage(i18n::Language::Russian) == i18n::Language::PortuguesePT);
-    CHECK(i18n::nextLanguage(i18n::Language::PortuguesePT) == i18n::Language::English);
+    CHECK(i18n::nextLanguage(i18n::Language::PortuguesePT) == i18n::Language::SpanishES);
+    CHECK(i18n::nextLanguage(i18n::Language::SpanishES) == i18n::Language::English);
+    CHECK(std::string(i18n::languageCode(i18n::Language::SpanishES)) == "es-ES");
+    CHECK(std::string(i18n::languageNativeName(i18n::Language::SpanishES)) == "Español (España)");
 
     // --- Locale tag parsing -----------------------------------------------
     CHECK(i18n::parseLanguageTag("ru") == i18n::Language::Russian);
@@ -113,6 +130,12 @@ int main() {
     CHECK(i18n::parseLanguageTag("pt-PT") == i18n::Language::PortuguesePT);
     CHECK(i18n::parseLanguageTag("pt_PT@euro") == i18n::Language::PortuguesePT);
     CHECK(i18n::parseLanguageTag("pt_BR.UTF-8") == i18n::Language::PortuguesePT);
+    CHECK(i18n::parseLanguageTag("es") == i18n::Language::SpanishES);
+    CHECK(i18n::parseLanguageTag("es-ES") == i18n::Language::SpanishES);
+    CHECK(i18n::parseLanguageTag("es_ES.UTF-8") == i18n::Language::SpanishES);
+    CHECK(i18n::parseLanguageTag("es_MX") == i18n::Language::SpanishES); // the only Spanish shipped
+    CHECK(i18n::parseLanguageTag("Español") == i18n::Language::SpanishES);
+    CHECK(i18n::parseLanguageTag("castellano") == i18n::Language::SpanishES);
     CHECK(i18n::parseLanguageTag("en_GB.UTF-8") == i18n::Language::English);
     CHECK(i18n::parseLanguageTag(" english ") == i18n::Language::English);
     CHECK(i18n::parseLanguageTag("Русский") == i18n::Language::Russian);
@@ -131,6 +154,9 @@ int main() {
     setenv("LANGUAGE", "de:ru:en", 1);
     CHECK(i18n::languageFromEnvironment() == i18n::Language::Russian);
     setenv("LANGUAGE", "", 1);
+    setenv("LANG", "es_ES.UTF-8", 1);
+    CHECK(i18n::languageFromEnvironment() == i18n::Language::SpanishES);
+    setenv("LANGUAGE", "", 1);
     setenv("LANG", "C", 1);
     CHECK(!i18n::languageFromEnvironment().has_value());
 #endif
@@ -143,6 +169,9 @@ int main() {
     CHECK(i18n::currentLanguage() == i18n::Language::PortuguesePT);
     CHECK(i18n::format(i18n::Str::ShopButtonBuy, {"150"}) == "COMPRAR 150");
     CHECK(i18n::format(i18n::Str::ToastTool, {i18n::tr(i18n::Str::ToolGravityGun)}) == "Ferramenta: Arma de Gravidade");
+    i18n::setLanguage(i18n::Language::SpanishES);
+    CHECK(i18n::format(i18n::Str::ShopButtonBuy, {"150"}) == "COMPRAR 150");
+    CHECK(i18n::format(i18n::Str::ToastTool, {i18n::tr(i18n::Str::ToolGravityGun)}) == "Herramienta: Pistola de gravedad");
     i18n::setLanguage(i18n::Language::Russian);
     CHECK(i18n::format(i18n::Str::ShopGold, {"42"}) == "ЗОЛОТО: 42");
 
@@ -162,6 +191,9 @@ int main() {
     CHECK(i18n::localizeShopError("owned") == "Уже куплено");
     CHECK(i18n::localizeShopError("insufficient") == "Недостаточно золота");
     CHECK(i18n::localizeShopError("bogus").empty());
+    i18n::setLanguage(i18n::Language::SpanishES);
+    CHECK(i18n::localizeShopError("insufficient") == "Oro insuficiente");
+    CHECK(i18n::localizeOnlineStatus("Offline") == "Sin conexión");
     i18n::setLanguage(i18n::Language::English);
     CHECK(i18n::localizeShopError("unknown") == "Unknown item");
 

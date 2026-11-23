@@ -178,6 +178,10 @@ int main() {
     i18n::setLanguage(i18n::Language::PortuguesePT);
     CHECK(std::string(shopItemName(*flame)) == "Chama");
     CHECK(std::string(shopEffectLabel(ShopEffect::CoinBonus)) == "+500 moedas");
+    i18n::setLanguage(i18n::Language::SpanishES);
+    CHECK(std::string(shopItemName(*flame)) == "Llama");
+    CHECK(std::string(shopCategoryName(cats[1])) == "MEJORAS");
+    CHECK(std::string(shopEffectLabel(ShopEffect::CoinBonus)) == "+500 monedas");
     i18n::setLanguage(i18n::Language::English);
 
     if (failures == 0) {

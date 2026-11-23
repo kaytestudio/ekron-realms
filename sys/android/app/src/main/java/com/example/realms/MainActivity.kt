@@ -99,7 +99,7 @@ class MainActivity : GameActivity() {
     private lateinit var fireControl: HudButton
     private var mapGame = false
     private lateinit var proneControl: HudButton
-    // Localized via res/values{,-ru,-pt-rPT}; resolved lazily because resources are not ready during construction.
+    // Localized via res/values{,-ru,-pt-rPT,-es-rES}; resolved lazily because resources are not ready during construction.
     private val items by lazy { BuildCatalog.entries.map { getString(it.labelRes) }.toTypedArray() }
     private val catalogImages=arrayOfNulls<Bitmap>(BuildCatalog.entries.size)
     private val catalogExecutor=Executors.newSingleThreadExecutor()
@@ -735,7 +735,7 @@ class MainActivity : GameActivity() {
         }
         return ok
     }
-    /** English, Russian and Portuguese (Portugal) follow the system or per-app language (res/xml/locales_config.xml). */
+    /** English, Russian, Portuguese (Portugal) and Spanish (Spain) follow the system or per-app language (res/xml/locales_config.xml). */
     private fun openLanguageSettings() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             try {

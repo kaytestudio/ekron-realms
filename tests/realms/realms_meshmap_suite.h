@@ -5,6 +5,8 @@
 #include "gltf_builder.h"
 #include "realms/MeshMap.h"
 
+#include <algorithm>
+#include <array>
 #include <cstdint>
 #include <map>
 #include <string>
@@ -66,6 +68,73 @@ inline void runMeshMapChecks() {
     CHECK(error.empty());
     checkRoom(m);
     CHECK(m.entities.find("\"message\" \"room.glb\"") != std::string::npos);
+
+    // Quake 2 point entities from node names, keys from extras.
+    {
+        CHECK(convert(outpostGlb(), m, error));
+        const auto entity = [&](const std::string &classname) {
+            const size_t at = m.entities.find("\"classname\" \"" + classname + "\"\n");
+            if (at == std::string::npos) return std::string();
+            return m.entities.substr(at, m.entities.find('}', at) - at);
+        };
+        CHECK(m.entities.rfind("{\n\"classname\" \"worldspawn\"\n\"message\" \"Outpost\"\n\"sounds\" \"2\"\n"
+                               "\"nextmap\" \"base1\"\n}\n",
+                               0) == 0);
+        CHECK(entity("info_player_start") == "\"classname\" \"info_player_start\"\n\"origin\" \"-96 0 24\"\n");
+        CHECK(entity("weapon_shotgun") == "\"classname\" \"weapon_shotgun\"\n\"origin\" \"-32 0 24\"\n");
+        // realms_ tags, unsafe keys and inline models are dropped; arrays,
+        // numbers and booleans become text; quotes are stripped.
+        CHECK(entity("item_health") == "\"classname\" \"item_health\"\n\"origin\" \"32 -64 24\"\n"
+                                       "\"_color\" \"1 0.5 0\"\n\"wait\" \"1.5\"\n\"flag\" \"1\"\n\"note\" \"say hi\"\n");
+        CHECK(entity("monster_soldier") == "\"classname\" \"monster_soldier\"\n\"origin\" \"160 0 24\"\n\"angle\" \"90\"\n");
+        CHECK(entity("light") == "\"classname\" \"light\"\n\"origin\" \"0 0 96\"\n\"light\" \"300\"\n");
+        CHECK(entity("misc_explobox") == "\"classname\" \"misc_explobox\"\n\"origin\" \"64 64 24\"\n\"angle\" \"45\"\n");
+        CHECK(entity("func_door").empty() && m.entities.find("Bad") == std::string::npos);
+        size_t count = 0;
+        for (size_t at = m.entities.find('{'); at != std::string::npos; at = m.entities.find('{', at + 1)) ++count;
+        CHECK(count == 7);
+        CHECK(m.triangleCount() == 2 && m.vertices[0] == -256.0f);
+    }
+
+    // Brush entities: func_* / trigger_* nodes become inline models "*n"
+    // (their own and their children's meshes); func_rotating keeps its
+    // origin and is stored relative to it; meshless ones are dropped.
+    {
+        CHECK(convert(gateGlb(), m, error, {}, "maps/gate.glb"));
+        CHECK(m.entities == "{\n\"classname\" \"worldspawn\"\n\"message\" \"gate.glb\"\n\"sky\" \"testsky_\"\n"
+                            "\"skyrotate\" \"20\"\n}\n"
+                            "{\n\"classname\" \"info_player_start\"\n\"origin\" \"-96 0 24\"\n}\n"
+                            "{\n\"classname\" \"func_door\"\n\"model\" \"*1\"\n\"angle\" \"-1\"\n\"speed\" \"200\"\n"
+                            "\"wait\" \"-1\"\n}\n"
+                            "{\n\"classname\" \"func_rotating\"\n\"model\" \"*2\"\n\"origin\" \"160 -160 32\"\n"
+                            "\"spawnflags\" \"1\"\n\"speed\" \"90\"\n}\n");
+        CHECK(m.triangleCount() == 6 && m.triangleModels == std::vector<int32_t>({0, 0, 1, 1, 2, 2}));
+        CHECK(m.models.size() == 2);
+        if (m.models.size() == 2) {
+            CHECK(m.models[0].node == 2 && m.models[0].classname == "func_door" && m.models[0].triangles == 2);
+            CHECK(m.models[0].origin == (std::array<float, 3>{0, 0, 0}));
+            CHECK(m.models[1].node == 4 && m.models[1].classname == "func_rotating");
+            CHECK(m.models[1].origin == (std::array<float, 3>{160, -160, 32}));
+        }
+        // door panel upright across x = 0; blade around the fan's origin
+        float lo[3] = {1e9f, 1e9f, 1e9f}, hi[3] = {-1e9f, -1e9f, -1e9f};
+        for (size_t t = 4; t < 6; ++t)
+            for (int c = 0; c < 3; ++c) {
+                const float *v = &m.vertices[size_t(m.indices[t * 3 + size_t(c)]) * 3];
+                for (int k = 0; k < 3; ++k) {
+                    lo[k] = std::min(lo[k], v[k]);
+                    hi[k] = std::max(hi[k], v[k]);
+                }
+            }
+        CHECK(lo[0] == -64.0f && hi[0] == 64.0f && lo[1] == -16.0f && hi[1] == 16.0f && lo[2] == 0.0f && hi[2] == 0.0f);
+        std::vector<RealmsMeshSurface> storage;
+        const RealmsMeshDesc d = realms::meshMapDesc(m, storage, "gate.glb", 1);
+        CHECK(d.num_models == 3 && d.triangle_models == m.triangleModels.data());
+        CHECK(d.struct_size == sizeof(RealmsMeshDesc) && d.struct_size >= REALMS_MESH_DESC_V3_SIZE);
+        // a world-only map carries no model table
+        CHECK(convert(roomGlb(), m, error) && m.models.empty() && m.triangleModels.empty());
+        CHECK(realms::meshMapDesc(m, storage, "room.glb", 1).triangle_models == nullptr);
+    }
 
     // JSON .gltf with an external buffer next to it (resolved through the
     // reader, relative to the asset) and with a base64 data URI.
@@ -164,14 +233,16 @@ inline void runMeshMapChecks() {
         return seed;
     };
     int accepted = 0;
+    const std::string gate = gateGlb();
     for (int i = 0; i < 3000; ++i) {
-        std::string f = good;
+        std::string f = i % 2 ? gate : good;
         const int edits = 1 + int(rnd() % 4);
         for (int k = 0; k < edits; ++k) f[rnd() % f.size()] = char(rnd() & 0xFF);
         if (rnd() % 8 == 0) f.resize(rnd() % f.size());
         if (convert(f, m, error)) {
             ++accepted;
             CHECK(m.indices.size() == m.triangleSurfaces.size() * 3);
+            CHECK(m.triangleModels.empty() || m.triangleModels.size() == m.triangleSurfaces.size());
         }
     }
     CHECK(accepted > 0);
