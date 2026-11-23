@@ -1,5 +1,3 @@
-Here is the translation of the game design document into European Portuguese:
-
 **Ekron — Sandbox Urbana**
 
 **Direção Acordada**
@@ -41,6 +39,3 @@ Referência visual: `concepts/ekron-war-city-ru.png`. Isto é arte conceptual e 
 **Limites das Alterações Atuais**
 O protótipo de navegador foi removido: o utilizador confirmou que são necessárias alterações diretamente no jogo Android. Foi modificado o projeto nativo existente `sys/android`: GameActivity → JNI → C++/OpenGL ES 3. Foram adicionados um pequeno quarteirão com interiores acessíveis, movimento com colisões, visão tátil, oito tipos de itens colocáveis, rotação, eliminação e gravação num ficheiro privado da aplicação. WebView, JavaScript e npm não são utilizados na compilação Android. Estas alterações pertencem ao ramo de código Android; o motor Pascal para computador não é afetado por elas. Instruções: `sys/android/README.md`.
 Os gráficos consistem por enquanto em primitivas e não reproduzem o nível de detalhe do conceito. A imagem gerada não substitui modelos 3D, texturas e otimização para telemóvel. A compilação Android ainda não foi testada. Multijogador, destrutibilidade total dos edifícios e NPCs de combate ainda não estão acordados.
-
-* **European Portuguese Terminology:** Uses standard PT-PT gaming and tech vocabulary such as *captura de ecrã* (screenshot), *telemóvel* (mobile phone), *ficheiro* (file), *utilizador* (user), and *navegador* (browser), rather than Brazilian Portuguese equivalents (*captura de tela*, *celular*, *arquivo*, *usuário*).
-* **Tone & Register:** Maintains a direct, technical, and concise style suited for software development documentation and game design specs.
