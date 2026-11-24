@@ -468,8 +468,7 @@ fragment float4 skyFragment(SkyVaryings in [[stage_in]],
 // Map mode: the Quake 2 game's full-screen blend (player_state_t::blend:
 // damage, pickups, powerups, under water) over the 3D view, as ref_gl's
 // R_PolyBlend. Drawn with skyVertex's full-screen triangle, alpha blended.
-fragment float4 polyBlendFragment(SkyVaryings in [[stage_in]],
-                                  constant float4 &blendColor [[buffer(0)]])
+fragment float4 polyBlendFragment(constant float4 &blendColor [[buffer(0)]])
 {
     return blendColor;
 }
