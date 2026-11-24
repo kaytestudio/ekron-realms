@@ -29,6 +29,7 @@ bool AndroidMapMode::open(realms::Engine &engine, const city::GltfRenderer &sand
     engine.registerCvar("sv_game", "1", REALMS_CVAR_ARCHIVE);
     engine.registerCvar("cl_gun", "1", REALMS_CVAR_ARCHIVE);
     engine.registerCvar("r_lightmaps", "1", REALMS_CVAR_ARCHIVE);
+    engine.registerCvar("gl_polyblend", "1", REALMS_CVAR_ARCHIVE);
     realms::MapGeometry geometry;
     bool fresh = true;
     if (retained && retained->active() && retained->gameRunning() && retained->session().path() == engine.mapPath()) {

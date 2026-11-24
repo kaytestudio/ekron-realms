@@ -711,8 +711,12 @@ void viewWithGame(realms::Engine &engine) {
     realms::WalkInput in;
     in.forward = 1.0f;
     bool picked = false, pickupSound = false, styleChanged = false, doorMoved = false;
+    CHECK(q2.stats().blend[3] == 0.0f); // dry and unhurt: no screen blend
+    std::array<float, 4> pickupBlend{};
     for (int i = 0; i < 40; i++) {
         view.update(engine, in, yaw, 0.0f, 0.05f, false);
+        // the pickup flash: bonus_alpha 0.25 in Touch_Item, SV_AddBlend (0.85, 0.7, 0.3) in p_view.c
+        if (const std::array<float, 4> b = q2.stats().blend; b[3] > pickupBlend[3]) pickupBlend = b;
         for (const std::string &m : view.takeMessages()) picked |= m == "Armor Shard";
         pickupSound |= hasSound(q2.takeSounds(), "sound/misc/ar2_pkup.wav");
         styleChanged |= q2.updateLightStyles();
@@ -724,6 +728,9 @@ void viewWithGame(realms::Engine &engine) {
     CHECK(doorMoved);    // the door rises (render +Y) as the game moves it
     CHECK(view.session().walker().origin[0] > -250.0f);
     CHECK(q2.stats().armor == 2);
+    CHECK(near(pickupBlend[3], 0.25f, 0.01f));
+    CHECK(near(pickupBlend[0], 0.85f, 0.01f) && near(pickupBlend[1], 0.7f, 0.01f) && near(pickupBlend[2], 0.3f, 0.01f));
+    CHECK(q2.stats().blend[3] == 0.0f); // bonus_alpha fades by 0.1 a game frame
 
     // firing: the blaster's muzzle flash lights the view and the view weapon
     // (yellow, through R_LightPoint), its sound plays

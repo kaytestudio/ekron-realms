@@ -513,6 +513,7 @@ public:
         engine.registerCvar("sv_game", "1", REALMS_CVAR_ARCHIVE);
         engine.registerCvar("cl_gun", "1", REALMS_CVAR_ARCHIVE);
         engine.registerCvar("r_lightmaps", "1", REALMS_CVAR_ARCHIVE);
+        engine.registerCvar("gl_polyblend", "1", REALMS_CVAR_ARCHIVE);
         realms::MapGeometry geometry;
         fresh_ = true;
         if (retained && retained->active() && retained->gameRunning() &&
@@ -1172,6 +1173,7 @@ void IosSoundStart(const std::string &bundleRoot, realms::Engine &engine) {
     id<MTLRenderPipelineState> modelOpaquePipeline_;
     id<MTLRenderPipelineState> modelBlendedPipeline_;
     id<MTLRenderPipelineState> pipPipeline_;
+    id<MTLRenderPipelineState> polyBlendPipeline_; // map mode screen blend (optional)
     // Realms map mode with the Quake 2 stack
     id<MTLRenderPipelineState> quakeMapPipeline_;
     id<MTLRenderPipelineState> quakeMapBlendedPipeline_;
@@ -1571,6 +1573,7 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
     modelOpaquePipeline_ = makePipeline(@"modelVertex", @"sandboxFragment", NO, YES);
     modelBlendedPipeline_ = makePipeline(@"modelVertex", @"sandboxFragment", YES, YES);
     pipPipeline_ = makePipeline(@"pipVertex", @"pipFragment", NO, YES);
+    polyBlendPipeline_ = makePipeline(@"skyVertex", @"polyBlendFragment", YES, YES);
     quakeMapPipeline_ = makePipeline(@"quakeMapVertex", @"quakeMapFragment", NO, YES);
     quakeMapBlendedPipeline_ = makePipeline(@"quakeMapVertex", @"quakeMapFragment", YES, YES);
     quakeEntityOpaquePipeline_ = makePipeline(@"modelVertex", @"quakeMapFragment", NO, YES);
@@ -3018,6 +3021,15 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
         pipelines.whiteArray = fallbackArrayTexture_;
         mapMode_.draw(encoder, pipelines, gltfSamplers_, cityModel_, engine, device_, commandQueue_, mapYaw_, mapPitch_,
                       drawSize);
+        // The game's screen blend (red when hurt, gold on a pickup...) over the 3D view.
+        if (polyBlendPipeline_ && stats.blend[3] > 0.0f && engine.cvarBool("gl_polyblend", true)) {
+            const simd_float4 blendColor = simd_make_float4(stats.blend[0], stats.blend[1], stats.blend[2], stats.blend[3]);
+            [encoder setRenderPipelineState:polyBlendPipeline_];
+            [encoder setDepthStencilState:skyDepthState_];
+            [encoder setCullMode:MTLCullModeNone];
+            [encoder setFragmentBytes:&blendColor length:sizeof(blendColor) atIndex:0];
+            [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+        }
         [encoder endEncoding];
     }
     [commandBuffer presentDrawable:drawable];

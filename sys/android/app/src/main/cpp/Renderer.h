@@ -29,7 +29,7 @@ private:
     EGLDisplay display_=EGL_NO_DISPLAY;
     EGLSurface surface_=EGL_NO_SURFACE;
     EGLContext context_=EGL_NO_CONTEXT;
-    GLuint program_=0,skyProgram_=0,buffer_=0,vao_=0;
+    GLuint program_=0,skyProgram_=0,polyBlendProgram_=0,buffer_=0,vao_=0;
     TextureLoader textures_;
     city::GltfRenderer city_;
     city::GltfRenderer car_;
