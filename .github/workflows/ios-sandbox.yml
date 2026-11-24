@@ -210,7 +210,7 @@ jobs:
           if ! clang++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic -Irealms/include -Itests/realms -I$S -DREALMS_PASCAL_STATIC -DREALMS_GAME_STATIC \
             tests/realms/quake2_module_test.cpp $S/Quake2View.cpp $S/MapSession.cpp \
             realms/src/Engine.cpp realms/src/NativeCore.cpp realms/src/NativeCModel.cpp realms/src/SandboxBoot.cpp realms/src/MeshMap.cpp realms/src/MapGeometry.cpp realms/src/MapLighting.cpp realms/src/MapWalker.cpp \
-            realms/src/Q2Pmove.cpp realms/src/GameServer.cpp realms/src/GameView.cpp realms/src/GameEffects.cpp realms/src/GameSound.cpp realms/src/Md3Model.cpp realms/src/Image.cpp realms/src/MapSky.cpp realms/src/MapTextures.cpp realms/src/Quake2Module.cpp \
+            realms/src/Q2Pmove.cpp realms/src/GameServer.cpp realms/src/GameView.cpp realms/src/GameEffects.cpp realms/src/GameSound.cpp realms/src/GameLayout.cpp realms/src/Md3Model.cpp realms/src/Image.cpp realms/src/MapSky.cpp realms/src/MapTextures.cpp realms/src/Quake2Module.cpp \
             build/realms-macos-static/librealms_core.a build/realms-macos-static/librealms_game.a -Wl,-no_fixup_chains \
             -o /tmp/realms-quake2-static > /tmp/realms-q2-link.log 2>&1; then
             cat /tmp/realms-q2-link.log

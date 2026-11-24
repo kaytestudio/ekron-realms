@@ -751,6 +751,10 @@ target_include_directories(realms_md3_test PRIVATE tests/realms)
 target_link_libraries(realms_md3_test PRIVATE realms_quake2)
 add_test(NAME realms_md3 COMMAND realms_md3_test)
 
+add_executable(realms_game_layout_test tests/realms/game_layout_test.cpp)
+target_link_libraries(realms_game_layout_test PRIVATE realms_quake2)
+add_test(NAME realms_game_layout COMMAND realms_game_layout_test)
+
 # Quake 2 client effects (realms::GameEffects): temp entities, muzzle
 # flashes, trails, lights, explosions - no game module needed.
 add_executable(realms_game_effects_test tests/realms/game_effects_test.cpp)

@@ -6,6 +6,7 @@
 
 #include "realms/Engine.h"
 #include "realms/GameEffects.h"
+#include "realms/GameLayout.h"
 #include "realms/GameServer.h"
 #include "realms/GameSound.h"
 #include "realms/GameView.h"
@@ -95,6 +96,15 @@ public:
     PlayerStats stats() const;
     // Centre prints / pickups since the last call.
     std::vector<std::string> takeMessages();
+    // Quake 2's layout screens (realms/GameLayout.h), in screen pixels for a
+    // width x height screen; empty without a game. layoutItems: the last
+    // svc_layout (help computer, scores) while the game shows it
+    // (STAT_LAYOUTS & 1). statusBarItems: the CS_STATUSBAR program.
+    std::vector<GameLayoutItem> layoutItems(int width, int height) const;
+    std::vector<GameLayoutItem> statusBarItems(int width, int height) const;
+    bool layoutShown() const;
+    // F1 in Quake 2 ("cmd help"): open or close the help computer.
+    void toggleHelp();
 
     // ---- drawing (map space)
     // Indexed by inline model number (0 unused); empty without a game.
@@ -153,6 +163,7 @@ private:
     std::vector<Quake2ModelPose> poses_;
     std::vector<std::string> messages_;
     int lastPickup_ = 0;
+    std::string layout_; // the last svc_layout
     GameEntityLerp lerp_;
     GameModelCache models_;
     GameScene scene_;
