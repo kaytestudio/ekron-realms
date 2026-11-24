@@ -563,6 +563,20 @@ cmake --install . --component development
 cmake --install . --component documentation
 ```
 
+### Releases
+
+Pushing a tag that starts with `v` (for example `git tag v1.0.0 && git push origin v1.0.0`, or `gh release create v1.0.0`) runs `.github/workflows/release.yml`. It builds the packages with the regular CI workflows and attaches them to the tag's GitHub release:
+
+| File | From |
+| :--- | :--- |
+| `ekron-realms-<version>-linux-amd64.deb` | `desktop-debian.yml` |
+| `ekron-realms-<version>-macos-unsigned.app.zip` | `desktop-macos.yml` (ad-hoc signed, not notarised) |
+| `ekron-realms-<version>-android-debug.apk` | `android-sandbox.yml` (debug key) |
+| `ekron-realms-<version>-ios-debug-unsigned.ipa` | `ios-sandbox.yml` (unsigned) |
+| `SHA256SUMS.txt` | checksums of the four |
+
+A release that already exists keeps its notes and gets the files (re-running replaces them). Otherwise the workflow creates the release with install notes and generated release notes, as a pre-release when the version has a suffix (`v1.1.0-rc1`). Tag pushes don't trigger the four build workflows on their own, so each tag is built once. The workflow warns when the tag differs from `project(EkronRealms VERSION ...)` in `CMakeLists.txt`.
+
 ---
 
 ## Troubleshooting
