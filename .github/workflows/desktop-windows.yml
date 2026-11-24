@@ -203,20 +203,28 @@ jobs:
       - name: Configure and build with Visual Studio 2022
         shell: pwsh
         run: |
-          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
-            -DSDL2_DIR="$env:SDL2_ROOT/cmake" `
-            -DENABLE_FPC_CLIENT=OFF -DENABLE_PASCAL_CORE=OFF -DENABLE_GAME_MODULE=OFF `
-            -DEKRON_REQUIRE_INTRO_VIDEO=ON
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          cmake --build build --config Release --parallel -- /nologo /verbosity:minimal *>&1 | Tee-Object -FilePath build-msvc.log
-          if ($LASTEXITCODE) {
-            # Compiler and linker errors as annotations (visible without the log).
-            Select-String -Path build-msvc.log -Pattern ': (fatal )?error ' | Select-Object -First 40 |
-              ForEach-Object { "::error::[msvc] $($_.Line.Trim())" }
-            exit 1
+          $ErrorActionPreference = 'Continue' # compiler output on stderr is not a script error
+          $ok = $true
+          & {
+            cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
+              -DSDL2_DIR="$env:SDL2_ROOT/cmake" `
+              -DENABLE_FPC_CLIENT=OFF -DENABLE_PASCAL_CORE=OFF -DENABLE_GAME_MODULE=OFF `
+              -DEKRON_REQUIRE_INTRO_VIDEO=ON
+            if ($LASTEXITCODE) { $script:ok = $false; return }
+            cmake --build build --config Release --parallel -- /nologo /verbosity:minimal
+            if ($LASTEXITCODE) { $script:ok = $false; return }
+          } *>&1 | Tee-Object -FilePath build-msvc.log
+          if ($ok) {
+            if (-not (Test-Path build\Release\ekron-realms.exe)) { "::error::ekron-realms.exe not built"; $ok = $false }
+            if (-not (Test-Path build\Release\SDL2.dll)) { "::error::SDL2.dll not copied next to the exe"; $ok = $false }
+          } else {
+            # Errors as annotations (visible without the log): compiler and
+            # linker errors, else the end of the output.
+            $errors = Select-String -Path build-msvc.log -Pattern '(: (fatal )?error )|CMake Error' | Select-Object -First 40
+            if ($errors) { $errors | ForEach-Object { "::error::[msvc] $($_.Line.Trim())" } }
+            else { Get-Content build-msvc.log -Tail 25 | Where-Object { $_.Trim() } | ForEach-Object { "::error::[msvc] $($_.Trim())" } }
           }
-          if (-not (Test-Path build\Release\ekron-realms.exe)) { throw "ekron-realms.exe not built" }
-          if (-not (Test-Path build\Release\SDL2.dll)) { throw "SDL2.dll not copied next to the exe" }
+          if (-not $ok) { exit 1 }
 
       - name: Run CTest smoke checks
         shell: pwsh
