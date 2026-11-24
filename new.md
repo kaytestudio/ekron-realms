@@ -1,63 +1,56 @@
-# Ekron Realms FPS: An Open Source Game
+# Ekron Realms: overview
 
-## Overview
+Ekron Realms is an open-source first-person city sandbox by Kayte Studio. You walk an abandoned street, build with walls, furniture and props, carry things with a gravity gun, drive a UAZ-469 and fly an FPV drone. It can also load and play Quake 2 maps.
 
-**Ekron Realms FPS** is an open-source first-person shooter game developed using Free Pascal and the Lazarus IDE. It is designed to be cross-platform, running efficiently on various architectures including ARM-based devices like the Raspberry Pi 3+ and modern Apple devices with M1 chips and beyond.
+The README has the short version; this page goes through the project in more detail.
 
-## Key Features
+## Two modes
 
-- **Open Source**: The game is available under an open-source license, allowing users to modify and contribute to its development.
-- **Free Pascal and Lazarus IDE**: Ekron Realms FPS is developed using Free Pascal, a robust Pascal compiler, and Lazarus IDE 3.0, a powerful development environment that ensures ease of use and productivity.
-- **Cross-Platform Compatibility**: The game is compatible with multiple operating systems and hardware architectures, including:
-  - **ARM devices**: Specifically optimized for the Raspberry Pi 3+.
-  - **Apple M1 and newer**: Runs smoothly on the latest Apple silicon, ensuring high performance and efficiency.
+- **The sandbox**: the city street, the build tools and vehicles, sounds and music, a cosmetics shop paid with in-game coins, and an experimental presence relay (`server/`) that shows other players.
+- **Map mode**: `map <name>` opens a Quake 2 `.bsp` map or a glTF scene (`.glb` / `.gltf`). With the Free Pascal port of the Quake 2 game code it plays as Quake 2 does: spawn points, items, doors, lifts, triggers, monsters and weapons. Your own Quake 2 data (`baseq2/pak0.pak`) supplies textures and sounds; models are Quake 3 `.md3` files. The apps include one sample glTF map, `courtyard`, which needs no Quake 2 files. See [docs/CONTROLS.md](docs/CONTROLS.md#quake-2-maps).
 
-## Development Environment
+The UI is available in English, Russian, European Portuguese and Spanish (Spain).
 
-### Free Pascal
-Free Pascal is a free, open-source Pascal and Object Pascal compiler. It supports various architectures and operating systems, making it ideal for cross-platform development.
+## Platforms
 
-### Lazarus IDE 3.0
-Lazarus IDE is a free, open-source development environment that provides a Delphi-like experience for Pascal development. Lazarus 3.0 includes many features that facilitate the development of complex applications, including:
-- A powerful code editor with syntax highlighting and code completion.
-- Visual form designer for creating graphical user interfaces.
-- Extensive libraries and components for game development.
+All platforms run the same C++17 game code.
 
-## Compatibility
+| Platform | Package | Graphics |
+| :--- | :--- | :--- |
+| Linux (amd64) | `.deb` | SDL2, OpenGL 3.3 |
+| macOS | `.app` (ad-hoc signed, not notarised) | SDL2, OpenGL 3.3 |
+| Windows 10 and 11 (x64) | portable `.zip` | SDL2, OpenGL 3.3 |
+| Android 11+ (arm64-v8a, x86_64) | debug `.apk` | OpenGL ES 3.0 |
+| iOS 16+ | unsigned `.ipa` | Metal |
 
-### ARM (Raspberry Pi 3+)
-Ekron Realms FPS has been optimized to run on ARM architectures, making it an excellent choice for users with a Raspberry Pi 3+. This ensures that the game performs well even on low-power devices, providing an enjoyable gaming experience.
+The release workflow attaches all five packages to a GitHub release; [BUILD.md](BUILD.md#packaging) explains how they are made.
 
-### Apple M1 and Newer
-The game leverages the power of Apple's M1 chip and newer processors, taking advantage of their high performance and energy efficiency. This ensures that Ekron Realms FPS runs smoothly on the latest MacBooks, iMacs, and other Apple devices.
+## The engine: Realms
 
-## Getting Started
+Under the game is [Realms](realms/README.md): Quake 2's `qcommon` layer (file system and paks, collision model, console, commands and cvars) as a Free Pascal library behind a C ABI. When Free Pascal is not available, a C++ version of the same layer is used. `game/` is the Free Pascal port of the Quake 2 game DLL, built as `librealms_game` and run by map mode.
 
-### Prerequisites
-- **Free Pascal**: Ensure you have the latest version of Free Pascal installed.
-- **Lazarus IDE 3.0**: Download and install Lazarus IDE 3.0 from the official website.
-- **Hardware**: Raspberry Pi 3+ for ARM compatibility, or any Apple device with an M1 chip or newer.
+## Free Pascal and Lazarus
 
-### Installation
-1. **Clone the Repository**: Clone the Ekron Realms FPS repository from GitHub or your preferred source.
-   ```bash
-   git clone https://github.com/ringsce/ekron-realms.git
-   ```
-2. **Open in Lazarus IDE**: Open the project file in Lazarus IDE.
-3. **Build the Project**: Use the Lazarus IDE to build the project for your target platform.
-4. **Run the Game**: Once built, you can run the game on your device.
+Free Pascal 3.2 builds the Realms core, the game module and `realms-pascal`, a Free Pascal program that runs the sandbox, plus `realms-launcher` (these two are Linux and macOS only). CMake runs `fpc` itself, so Lazarus is not needed to build the game. The Lazarus projects (`Projects/realms.lpi`, `game/realms_game.lpi`) are still kept for anyone who works in the IDE.
 
-## Contributing
+## Getting started
 
-Ekron Realms FPS welcomes contributions from the community. Whether you're a developer, designer, or simply a fan of the game, your contributions can help improve the game and expand its features. Check the CONTRIBUTING.md file in the repository for guidelines on how to get started.
+```bash
+git clone https://github.com/kaytestudio/ekron-realms.git
+cd ekron-realms
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+./build/ekron-realms --assets sys/android/app/src/main/assets
+```
 
-## Conclusion
+Required tools for each platform, the Android and iOS builds and the tests are covered in [BUILD.md](BUILD.md). Controls and command-line options are in [docs/CONTROLS.md](docs/CONTROLS.md).
 
-Ekron Realms FPS is a testament to the power of open-source development, Free Pascal, and Lazarus IDE. Its compatibility with ARM and Apple M1 architectures ensures that it can reach a wide audience, providing an engaging gaming experience across various devices. Whether you're a developer looking to contribute or a gamer eager to play, Ekron Realms FPS offers something for everyone.
+## Contributing and license
+
+[CONTRIBUTING.md](CONTRIBUTING.md) explains how to report bugs and send changes, and [CONTRIBUTORS.md](CONTRIBUTORS.md) lists the people and projects behind the game. Ekron Realms is licensed under the [GNU Affero General Public License v3.0](LICENSE). The Quake 2 source it builds on is GPL, and the bundled models and sounds keep their own licenses.
 
 ## Links
+
+- [GitHub repository](https://github.com/kaytestudio/ekron-realms)
 - [Free Pascal](https://www.freepascal.org/)
 - [Lazarus IDE](https://www.lazarus-ide.org/)
-- [GitHub Repository](https://github.com/ringsce/ekron-realms)
-
----

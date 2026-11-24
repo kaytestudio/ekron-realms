@@ -3,6 +3,17 @@ plugins {
     alias(libs.plugins.jetbrains.kotlin.android)
 }
 
+// The app version is the project version, project(EkronRealms VERSION x.y.z)
+// in the repository's CMakeLists.txt, like the desktop packages and the
+// release tags (vx.y.z). versionCode grows with it: x * 10000 + y * 100 + z.
+val ekronVersion: String = rootProject.file("../../CMakeLists.txt").let { cmake ->
+    val match = Regex("""(?m)^project\(EkronRealms VERSION ([0-9]+)\.([0-9]+)\.([0-9]+)""")
+        .find(if (cmake.isFile) cmake.readText() else "")
+        ?: throw GradleException("project(EkronRealms VERSION x.y.z) not found in ${cmake.path}")
+    match.groupValues.drop(1).joinToString(".")
+}
+val ekronVersionCode: Int = ekronVersion.split('.').map(String::toInt).let { (x, y, z) -> x * 10000 + y * 100 + z }
+
 android {
     namespace = "com.example.realms"
     compileSdk = 34
@@ -12,9 +23,9 @@ android {
         applicationId = "com.example.realms"
         minSdk = 30
         targetSdk = 34
-        versionCode = 49
-        versionName = "0.49-i18n-en-ru-pt-es"
-        // Shipped UI languages: English (default), Russian, Portuguese (Portugal).
+        versionCode = ekronVersionCode
+        versionName = ekronVersion
+        // Shipped UI languages: English (default), Russian, Portuguese (Portugal), Spanish (Spain).
         resourceConfigurations += listOf("en", "ru", "pt-rPT", "es-rES")
         externalNativeBuild {
             cmake { cppFlags += "-std=c++17" }
