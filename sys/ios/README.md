@@ -34,5 +34,8 @@ xcodebuild archive \
   CODE_SIGN_IDENTITY="" \
   CODE_SIGNING_REQUIRED=NO \
   CODE_SIGNING_ALLOWED=NO \
-  AD_HOC_CODE_SIGNING_ALLOWED=YES
+  AD_HOC_CODE_SIGNING_ALLOWED=YES \
+  MARKETING_VERSION="$(sed -nE 's/^project\(EkronRealms VERSION ([0-9.]+).*/\1/p' CMakeLists.txt)"
 ```
+
+`MARKETING_VERSION` (версия приложения, `CFBundleShortVersionString`) берётся из `project(EkronRealms VERSION x.y.z)` в корневом `CMakeLists.txt`, как у остальных пакетов; CI проверяет её в собранном `realms.app`. В проекте Xcode по умолчанию стоит `1.0.0`.

@@ -64,6 +64,8 @@ cd sys/android
 ./gradlew :app:assembleDebug
 ```
 
+Версия приложения берётся из `project(EkronRealms VERSION x.y.z)` в корневом `CMakeLists.txt` (`versionName` = `x.y.z`, `versionCode` = `x·10000 + y·100 + z`), поэтому Gradle собирает только из полного клона репозитория. CI сверяет `versionName` собранного APK с этой версией.
+
 Результат: `app/build/outputs/apk/debug/app-debug.apk`. Debug-пакет подписывается отладочным ключом. Для обновления уже установленного APK нужен тот же ключ подписи; удаление приложения очищает постройки.
 
 В `.github/workflows/android-sandbox.yml` добавлена сборка на push/PR и ручной запуск. При успешном выполнении артефакт `ekron-native-sandbox-debug` содержит APK. Наличие workflow не означает, что сборка уже прошла.

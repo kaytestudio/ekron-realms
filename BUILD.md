@@ -556,7 +556,7 @@ Pushing a tag that starts with `v` (for example `git tag v1.0.0 && git push orig
 | `ekron-realms-<version>-windows-x64.zip` | `desktop-windows.yml` (MinGW-w64; exe not code-signed) |
 | `SHA256SUMS.txt` | checksums of the five |
 
-A release that already exists keeps its notes and gets the files (re-running replaces them). Otherwise the workflow creates the release with install notes and generated release notes, as a pre-release when the version has a suffix (`v1.1.0-rc1`). Tag pushes don't trigger the five build workflows on their own, so each tag is built once. The workflow warns when the tag differs from `project(EkronRealms VERSION ...)` in `CMakeLists.txt`.
+A release that already exists keeps its notes and gets the files (re-running replaces them). Otherwise the workflow creates the release with install notes and generated release notes, as a pre-release when the version has a suffix (`v1.1.0-rc1`). Tag pushes don't trigger the five build workflows on their own, so each tag is built once. The workflow warns when the tag differs from `project(EkronRealms VERSION ...)` in `CMakeLists.txt`. That project version is also the version inside every package: the desktop builds, the Android `versionName` (with `versionCode` = x·10000 + y·100 + z, read by `sys/android/app/build.gradle.kts`) and the iOS `MARKETING_VERSION` (passed by `ios-sandbox.yml`). The Android and iOS workflows check it in the built app, so bump it in `CMakeLists.txt` only.
 
 ---
 

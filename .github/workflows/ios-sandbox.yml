@@ -256,6 +256,9 @@ jobs:
           IPA_DIR="/tmp/ipa-out"
           rm -rf "$ARCHIVE_PATH" "$IPA_DIR" /tmp/ekron-native-sandbox-debug.ipa
           mkdir -p "$IPA_DIR/Payload"
+          # The app version is the CMake project version, like the other packages.
+          EKRON_VERSION="$(sed -nE 's/^project\(EkronRealms VERSION ([0-9.]+).*/\1/p' CMakeLists.txt)"
+          test -n "$EKRON_VERSION"
 
           if ! xcodebuild archive \
             -project "$IOS_PROJECT" \
@@ -270,6 +273,7 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
             AD_HOC_CODE_SIGNING_ALLOWED=YES \
+            MARKETING_VERSION="$EKRON_VERSION" \
             | tee /tmp/ios-build.log; then
             echo "::error title=xcodebuild::$(grep -E '(error|fatal error):' /tmp/ios-build.log | sort -u | head -n 16 | tr '\n' ' ' | cut -c1-3500)"
             exit 1
@@ -281,6 +285,11 @@ jobs:
             exit 1
           fi
           test -f "$APP_BUNDLE/models/abandoned_city_street_for_games.glb"
+          app_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_BUNDLE/Info.plist")"
+          if [ "$app_version" != "$EKRON_VERSION" ]; then
+            echo "::error::realms.app CFBundleShortVersionString is $app_version, expected $EKRON_VERSION"
+            exit 1
+          fi
           test -f "$APP_BUNDLE/default.metallib"
 
           # The device build must run on the Free Pascal core.

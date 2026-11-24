@@ -340,6 +340,12 @@ jobs:
             grep -q "lib/$abi/librealms_game.so" /tmp/apk-libs.txt || { echo "::error::APK is missing lib/$abi/librealms_game.so"; exit 1; }
             grep -q "lib/$abi/librealms.so" /tmp/apk-libs.txt || { echo "::error::APK is missing lib/$abi/librealms.so"; exit 1; }
           done
+          # The app version is the CMake project version (app/build.gradle.kts).
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          want="$(sed -nE 's/^project\(EkronRealms VERSION ([0-9.]+).*/\1/p' CMakeLists.txt)"
+          badging="$("$SDK_ROOT/build-tools/34.0.0/aapt" dump badging "$APK" | head -n 1)"
+          echo "$badging"
+          grep -q "versionName='$want'" <<< "$badging" || { echo "::error::APK versionName is not $want: $badging"; exit 1; }
 
       - uses: actions/upload-artifact@v4
         with:
