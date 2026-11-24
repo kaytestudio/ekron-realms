@@ -136,9 +136,12 @@ jobs:
         run: |
           set -uo pipefail
           ctest --test-dir build --output-on-failure -V 2>&1 | tee /tmp/ctest.log && exit 0
-          # Failures as annotations (visible without the log).
-          grep -iE '\*\*\*|fail|error|exception|not run|timeout' /tmp/ctest.log | grep -v ' Passed' | head -n 40 |
-            while IFS= read -r line; do echo "::error::[ctest] $line"; done
+          # Failures as annotations (visible without the log; at most 10
+          # per step): the failed tests, then their failure lines in groups.
+          echo "::error::[ctest] $(sed -n '/tests FAILED:/,$p' /tmp/ctest.log | grep -E '^\s*[0-9]+ - ' | sed 's/^\s*//' | paste -sd ';' -)"
+          grep -iE 'fail|error|exception|assert|timeout|not run|missing|cannot' /tmp/ctest.log |
+            grep -vE ' Passed|tests FAILED|^\s*[0-9]+ - |Test timeout computed' | head -n 72 |
+            paste -d '|' - - - - - - - - | while IFS= read -r group; do echo "::error::[ctest] $group"; done
           exit 1
 
       - name: Build and verify the Windows package
@@ -239,7 +242,15 @@ jobs:
           $ErrorActionPreference = 'Continue'
           ctest --test-dir build -C Release --output-on-failure -V *>&1 | Tee-Object -FilePath ctest-msvc.log
           if ($LASTEXITCODE) {
-            Select-String -Path ctest-msvc.log -Pattern '\*\*\*|fail|error|exception|not run|timeout' |
-              Where-Object { $_.Line -notmatch ' Passed' } | Select-Object -First 40 | ForEach-Object { "::error::[ctest] $($_.Line.Trim())" }
+            # At most 10 annotations per step: the failed tests, then their
+            # failure lines in groups.
+            $log = Get-Content ctest-msvc.log
+            $start = [array]::IndexOf($log, ($log | Where-Object { $_ -match 'tests FAILED:' } | Select-Object -First 1))
+            if ($start -ge 0) { "::error::[ctest] $(($log[$start..($log.Count - 1)] | Where-Object { $_ -match '^\s*\d+ - ' } | ForEach-Object { $_.Trim() }) -join '; ')" }
+            $lines = @($log | Where-Object { $_ -match 'fail|error|exception|assert|timeout|not run|missing|cannot' -and
+                                             $_ -notmatch ' Passed|tests FAILED|^\s*\d+ - |Test timeout computed' } | Select-Object -First 72)
+            for ($i = 0; $i -lt $lines.Count; $i += 8) {
+              "::error::[ctest] $(($lines[$i..([math]::Min($i + 7, $lines.Count - 1))] | ForEach-Object { $_.Trim() }) -join ' | ')"
+            }
             exit 1
           }
