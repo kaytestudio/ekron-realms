@@ -162,8 +162,9 @@ GLuint DesktopMapMode::skinTexture(realms::Engine &engine, ekron::gl::Api &gl, c
         gl.GenerateMipmap(GL_TEXTURE_2D);
         gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, static_cast<GLint>(GL_LINEAR_MIPMAP_LINEAR));
         gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, static_cast<GLint>(GL_LINEAR));
-        gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, static_cast<GLint>(GL_CLAMP_TO_EDGE));
-        gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, static_cast<GLint>(GL_CLAMP_TO_EDGE));
+        // repeat: .md3 texture coordinates may run past 0..1, as in Quake 3
+        gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, static_cast<GLint>(GL_REPEAT));
+        gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, static_cast<GLint>(GL_REPEAT));
         gl.BindTexture(GL_TEXTURE_2D, 0);
     } else {
         engine.print("map: skin " + name + ": " + error + "\n", REALMS_PRINT_DEVELOPER);

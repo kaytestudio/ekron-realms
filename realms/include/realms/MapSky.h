@@ -3,7 +3,7 @@
 // env/<sky><rt|bk|lf|ft|up|dn>.tga, or .pcx.
 #pragma once
 
-#include "realms/Md2Model.h"
+#include "realms/Image.h"
 
 #include <array>
 #include <cstdint>

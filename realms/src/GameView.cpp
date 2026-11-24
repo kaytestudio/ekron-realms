@@ -1,5 +1,6 @@
 // Realms Engine - client-side interpolation of game frames (see GameView.h).
 #include "realms/GameView.h"
+#include "realms/MapSky.h"
 
 #include <algorithm>
 #include <cctype>
@@ -135,19 +136,20 @@ GameViewWeapon GameEntityLerp::viewWeapon(const GameServer &server) const {
 
 // ------------------------------------------------------------ models
 
-const Md2Model *GameModelCache::model(const Engine &engine, const std::string &name) {
+const Md3Model *GameModelCache::model(const Engine &engine, const std::string &name) {
     auto it = models_.find(name);
     if (it != models_.end()) return it->second.model.get();
     Entry &entry = models_[name];
+    const std::string path = md3PathFor(name);
     std::vector<unsigned char> bytes;
-    if (!engine.loadFile(name, bytes)) {
-        errors_.push_back(name + ": not found");
+    if (!engine.loadFile(path, bytes)) {
+        errors_.push_back(path + ": not found");
         return nullptr;
     }
-    auto m = std::make_unique<Md2Model>();
+    auto m = std::make_unique<Md3Model>();
     std::string error;
     if (!m->parse(bytes, error)) {
-        errors_.push_back(name + ": " + error);
+        errors_.push_back(path + ": " + error);
         return nullptr;
     }
     entry.model = std::move(m);
@@ -155,12 +157,28 @@ const Md2Model *GameModelCache::model(const Engine &engine, const std::string &n
 }
 
 bool GameModelCache::loadSkin(const Engine &engine, const std::string &name, RgbaImage &out, std::string &error) {
-    std::vector<unsigned char> bytes;
-    if (name.empty() || !engine.loadFile(name, bytes)) {
+    out = RgbaImage{};
+    if (name.empty()) {
         error = "not found";
         return false;
     }
-    return decodePcx(bytes, out, error);
+    std::string ext = name.size() >= 4 ? name.substr(name.size() - 4) : std::string();
+    for (char &c : ext) c = char(std::tolower(static_cast<unsigned char>(c)));
+    const bool known = ext == ".tga" || ext == ".pcx";
+    const std::string base = known ? name.substr(0, name.size() - 4) : name;
+    // the named file first, then the other format
+    const std::string candidates[2] = {known ? name : name + ".tga",
+                                       known ? base + (ext == ".tga" ? ".pcx" : ".tga") : name + ".pcx"};
+    std::vector<unsigned char> bytes;
+    for (const std::string &path : candidates) {
+        if (!engine.loadFile(path, bytes)) continue;
+        std::string lower = path.substr(path.size() - 4);
+        for (char &c : lower) c = char(std::tolower(static_cast<unsigned char>(c)));
+        if (lower == ".tga") return decodeTga(bytes.data(), bytes.size(), out, error);
+        return decodePcx(bytes, out, error);
+    }
+    error = "not found";
+    return false;
 }
 
 size_t GameModelCache::loaded() const {
@@ -181,15 +199,8 @@ std::vector<std::string> GameModelCache::takeErrors() {
 
 namespace {
 
-bool endsWithMd2(const std::string &name) {
-    if (name.size() < 4) return false;
-    std::string ext = name.substr(name.size() - 4);
-    for (char &c : ext) c = char(std::tolower(static_cast<unsigned char>(c)));
-    return ext == ".md2";
-}
-
 // 12 triangles, counter-clockwise seen from outside, flat normals.
-void appendBox(const std::array<float, 3> &mn, const std::array<float, 3> &mx, std::vector<Md2Vertex> &out) {
+void appendBox(const std::array<float, 3> &mn, const std::array<float, 3> &mx, std::vector<ModelVertex> &out) {
     static const int faces[6][4] = {{0, 3, 2, 1}, {4, 5, 6, 7}, {0, 1, 5, 4}, {2, 3, 7, 6}, {1, 2, 6, 5}, {3, 0, 4, 7}};
     static const float normals[6][3] = {{0, 0, -1}, {0, 0, 1}, {0, -1, 0}, {0, 1, 0}, {1, 0, 0}, {-1, 0, 0}};
     const float c[8][3] = {{mn[0], mn[1], mn[2]}, {mx[0], mn[1], mn[2]}, {mx[0], mx[1], mn[2]}, {mn[0], mx[1], mn[2]},
@@ -237,6 +248,18 @@ bool endsWithSp2(const std::string &name) {
 
 } // namespace
 
+void appendModelBatches(const Md3Model &model, const GameDrawBatch &base, int frame, int oldframe, float backlerp,
+                        int skinnum, GameScene &scene) {
+    for (int s = 0; s < model.numSurfaces(); s++) {
+        GameDrawBatch b = base;
+        b.first = int(scene.vertices.size());
+        model.buildVertices(s, frame, oldframe, backlerp, scene.vertices);
+        b.count = int(scene.vertices.size()) - b.first;
+        b.skin = model.skin(s, skinnum);
+        if (b.count > 0) scene.batches.push_back(std::move(b));
+    }
+}
+
 void buildGameScene(const Engine &engine, const GameServer &server, const GameEntityLerp &lerp,
                     GameModelCache &models, const GameSceneOptions &options, GameScene &out) {
     out.clear();
@@ -244,21 +267,20 @@ void buildGameScene(const Engine &engine, const GameServer &server, const GameEn
     for (const GameLerpedEntity &l : lerp.entities(server)) {
         const GameRenderEntity *e = l.entity;
         if (!e || e->inlineModel > 0 || endsWithSp2(e->model)) continue;
-        const Md2Model *md2 = endsWithMd2(e->model) ? models.model(engine, e->model) : nullptr;
+        const Md3Model *md3 = isAliasModelName(e->model) ? models.model(engine, e->model) : nullptr;
         GameDrawBatch b;
         b.entity = e->number;
         b.model = e->model;
         b.origin = l.origin;
-        b.first = int(out.vertices.size());
-        if (md2) {
-            md2->buildVertices(l.frame, l.oldframe, l.backlerp, out.vertices);
-            const auto &skins = md2->skins();
-            if (!skins.empty())
-                b.skin = skins[size_t(e->skinnum >= 0 && size_t(e->skinnum) < skins.size() ? e->skinnum : 0)];
+        if (md3) {
             b.color = modelColor(e->renderfx, e->effects);
             b.fullbright = (e->renderfx & Q2_RF_FULLBRIGHT) != 0;
             b.angles = {-l.angles[0], l.angles[1], l.angles[2]}; // alias models: pitch negated
-        } else if (options.fallbackBoxes) {
+            appendModelBatches(*md3, b, l.frame, l.oldframe, l.backlerp, e->skinnum, out);
+            continue;
+        }
+        b.first = int(out.vertices.size());
+        if (options.fallbackBoxes) {
             std::array<float, 3> mn = e->mins, mx = e->maxs;
             const bool degenerate = mx[0] - mn[0] < 1 || mx[1] - mn[1] < 1 || mx[2] - mn[2] < 1;
             if (degenerate) { // projectiles, gibs, effects: a small cube
@@ -277,8 +299,8 @@ void buildGameScene(const Engine &engine, const GameServer &server, const GameEn
     if (options.viewWeapon) {
         const GameViewWeapon w = lerp.viewWeapon(server);
         const q2player_state_t *ps = server.playerState();
-        const Md2Model *md2 = w.visible && endsWithMd2(w.model) ? models.model(engine, w.model) : nullptr;
-        if (md2 && ps) {
+        const Md3Model *md3 = w.visible && isAliasModelName(w.model) ? models.model(engine, w.model) : nullptr;
+        if (md3 && ps) {
             GameDrawBatch b;
             b.viewWeapon = true;
             b.model = w.model;
@@ -291,12 +313,8 @@ void buildGameScene(const Engine &engine, const GameServer &server, const GameEn
                 }
             }
             b.angles[0] = -b.angles[0];
-            b.first = int(out.vertices.size());
-            md2->buildVertices(w.frame, w.oldframe, w.backlerp, out.vertices);
-            b.count = int(out.vertices.size()) - b.first;
-            if (!md2->skins().empty()) b.skin = md2->skins()[0];
             b.color = modelColor(0);
-            if (b.count > 0) out.batches.push_back(std::move(b));
+            appendModelBatches(*md3, b, w.frame, w.oldframe, w.backlerp, 0, out);
         }
     }
 }

@@ -252,7 +252,7 @@ private:
 };
 
 // Explosion, smoke, flash and cable models as batches of a GameScene
-// (built with buildGameScene): .md2 from the cache, posed like an entity;
+// (built with buildGameScene): .md3 from the cache, posed like an entity;
 // a missing model is simply not drawn (the particles and light remain).
 void appendEffectModels(const Engine &engine, GameModelCache &models, const std::vector<GameEffectModel> &effects,
                         GameScene &scene);
