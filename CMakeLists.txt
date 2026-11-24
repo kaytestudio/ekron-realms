@@ -257,7 +257,7 @@ if(ENABLE_DESKTOP_SANDBOX)
             MACOSX_BUNDLE_ICON_FILE "RINGSCE_v2.png"
             MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
             MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
-            MACOSX_BUNDLE_COPYRIGHT "Copyright (c) Kayte Studio. GPL-3.0."
+            MACOSX_BUNDLE_COPYRIGHT "Copyright (c) Kayte Studio. AGPL-3.0."
             BUILD_WITH_INSTALL_RPATH TRUE
             INSTALL_RPATH "@executable_path/../Frameworks"
         )

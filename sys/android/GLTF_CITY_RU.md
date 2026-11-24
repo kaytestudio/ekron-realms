@@ -109,4 +109,4 @@ g++ -std=c++17 -O1 -Wall -Wextra -Werror -pedantic \
 
 ## Лицензия модели
 
-В метаданных указаны автор **dasy444**, источник https://sketchfab.com/3d-models/abandoned-city-street-for-games-0232bce6a27d477c947b6ef4e985fff2 и **SKETCHFAB Standard** (https://sketchfab.com/licenses). Эта модель не объявлена GPL-ассетом проекта. Файл предоставлен пользователем; до публичного распространения APK необходимо проверить наличие прав/покупки и условия включения модели в игру. Лицензии кода tinygltf не дают прав на саму модель.
+В метаданных указаны автор **dasy444**, источник https://sketchfab.com/3d-models/abandoned-city-street-for-games-0232bce6a27d477c947b6ef4e985fff2 и **SKETCHFAB Standard** (https://sketchfab.com/licenses). Эта модель не объявлена ассетом проекта под AGPL-3.0. Файл предоставлен пользователем; до публичного распространения APK необходимо проверить наличие прав/покупки и условия включения модели в игру. Лицензии кода tinygltf не дают прав на саму модель.

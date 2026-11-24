@@ -71,7 +71,7 @@ Map mode draws Quake 3 `.md3` models (IDP3 version 15), not Quake 2's `.md2`. Th
 
 Copy the `baseq2` folder of a Quake 2 install, with its `pak0.pak`, into one of these places:
 
-- the user data folder (the desktop's settings folder: `~/.local/share/KayteStudio/EkronRealms/baseq2/` on Linux, `~/Library/Application Support/KayteStudio/EkronRealms/baseq2/` on macOS);
+- the user data folder (the desktop's settings folder: `~/.local/share/KayteStudio/EkronRealms/baseq2/` on Linux, `~/Library/Application Support/KayteStudio/EkronRealms/baseq2/` on macOS, `%APPDATA%\KayteStudio\EkronRealms\baseq2\` on Windows);
 - the assets folder (`<assets>/baseq2/`; on Android, `sys/android/app/src/main/assets/baseq2/` before building the APK; on iOS, add `baseq2` to the Xcode project as a folder reference like `maps`);
 - anywhere else, then pass `--quake2 <dir>` or set `EKRON_QUAKE2_DIR=<dir>` (desktop). `<dir>` can be the Quake 2 folder or its `baseq2` folder.
 

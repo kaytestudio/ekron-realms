@@ -1,7 +1,7 @@
 # Sandbox HUD checks
 
 The maintained sandbox clients are `sys/android`, `sys/ios` (the iOS target),
-and `sys/desktop` (Linux/macOS). The older `game-source` Android tree is a
+and `sys/desktop` (Linux/macOS/Windows). The older `game-source` Android tree is a
 standalone archived snapshot, not a synchronized client. The Xcode project
 has a single target, `realms iOS`.
 

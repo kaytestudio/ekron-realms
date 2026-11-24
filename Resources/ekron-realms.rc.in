@@ -22,7 +22,7 @@ BEGIN
             VALUE "FileDescription", "Ekron Realms"
             VALUE "FileVersion", "@PROJECT_VERSION@"
             VALUE "InternalName", "ekron-realms"
-            VALUE "LegalCopyright", "Copyright (c) Kayte Studio. GPL-3.0."
+            VALUE "LegalCopyright", "Copyright (c) Kayte Studio. AGPL-3.0."
             VALUE "OriginalFilename", "ekron-realms.exe"
             VALUE "ProductName", "Ekron Realms"
             VALUE "ProductVersion", "@PROJECT_VERSION@"
