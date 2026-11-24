@@ -208,8 +208,13 @@ jobs:
             -DENABLE_FPC_CLIENT=OFF -DENABLE_PASCAL_CORE=OFF -DENABLE_GAME_MODULE=OFF `
             -DEKRON_REQUIRE_INTRO_VIDEO=ON
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          cmake --build build --config Release --parallel
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cmake --build build --config Release --parallel -- /nologo /verbosity:minimal *>&1 | Tee-Object -FilePath build-msvc.log
+          if ($LASTEXITCODE) {
+            # Compiler and linker errors as annotations (visible without the log).
+            Select-String -Path build-msvc.log -Pattern ': (fatal )?error ' | Select-Object -First 40 |
+              ForEach-Object { "::error::[msvc] $($_.Line.Trim())" }
+            exit 1
+          }
           if (-not (Test-Path build\Release\ekron-realms.exe)) { throw "ekron-realms.exe not built" }
           if (-not (Test-Path build\Release\SDL2.dll)) { throw "SDL2.dll not copied next to the exe" }
 

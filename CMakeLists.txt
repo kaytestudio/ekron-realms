@@ -1,6 +1,16 @@
 cmake_minimum_required(VERSION 3.16...3.31)
 project(EkronRealms VERSION 1.0.0 LANGUAGES C CXX)
 
+if(MSVC)
+    # Before any target: static CRT for everything (no Visual C++
+    # redistributable needed to run the package), UTF-8 sources and
+    # strings (localization), standard conformance, and big objects
+    # (nlohmann/json).
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    add_compile_options(/utf-8 /bigobj /permissive- /Zc:__cplusplus)
+    add_compile_definitions(NOMINMAX _CRT_SECURE_NO_WARNINGS)
+endif()
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -83,11 +93,6 @@ if(ENABLE_EXTERNAL_TOOLS)
 endif()
 if(ENABLE_EXTERNAL_TOOLS OR ENABLE_KCC)
     find_package(KCC REQUIRED)
-endif()
-
-if(MSVC)
-    # Static CRT: no Visual C++ redistributable needed to run the package.
-    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
 
 # =============================================================================
