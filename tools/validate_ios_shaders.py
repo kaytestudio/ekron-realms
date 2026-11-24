@@ -13,6 +13,7 @@ REQUIRED_FUNCTIONS = [
     ("fragment", "sandboxFragment"),
     ("vertex", "skyVertex"),
     ("fragment", "skyFragment"),
+    ("fragment", "polyBlendFragment"),
     ("vertex", "pipVertex"),
     ("fragment", "pipFragment"),
 ]

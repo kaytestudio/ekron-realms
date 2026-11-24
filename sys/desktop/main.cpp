@@ -1989,6 +1989,13 @@ int main(int argc, char **argv)
         // 2D Desktop HUD
         renderer.beginUi(hudW, hudH);
 
+        // Map mode: the game's full-screen blend (red when hurt, gold on a
+        // pickup, blue with the quad...) between the 3D view and the HUD.
+        if (mapMode.active()) {
+            if (const std::array<float, 4> blend = mapMode.screenBlend(engine); blend[3] > 0.0f)
+                renderer.drawRect(0.0f, 0.0f, float(hudW), float(hudH), {blend[0], blend[1], blend[2], blend[3]});
+        }
+
         // Center crosshair (cosmetic skins from the store)
         ekron::desktop::Color crossColor{0.92f, 0.98f, 0.95f, 0.85f};
         if (shop.hasExtra(103)) crossColor = {1.00f, 0.84f, 0.20f, 0.95f};      // Golden Crosshair

@@ -85,6 +85,12 @@ public:
     std::string status() const;
     struct PlayerStats {
         int health = 0, armor = 0, ammo = 0;
+        // The game's full-screen blend (player_state_t::blend, set by
+        // SV_CalcBlend in p_view.c): damage flash, item pickups, powerups,
+        // under water. r, g, b, a in 0..1; a = 0 draws nothing. Clients
+        // draw it over the 3D view, under the HUD, as ref_gl's R_PolyBlend
+        // does, unless gl_polyblend is 0.
+        std::array<float, 4> blend{};
     };
     PlayerStats stats() const;
     // Centre prints / pickups since the last call.

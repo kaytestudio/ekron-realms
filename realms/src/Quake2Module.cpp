@@ -235,6 +235,11 @@ Quake2Module::PlayerStats Quake2Module::stats() const {
         s.health = ps->stats[Q2_STAT_HEALTH];
         s.armor = ps->stats[Q2_STAT_ARMOR];
         s.ammo = ps->stats[Q2_STAT_AMMO];
+        for (size_t i = 0; i < 4; i++) {
+            const float v = ps->blend[i];
+            s.blend[i] = std::isfinite(v) ? std::clamp(v, 0.0f, 1.0f) : 0.0f;
+        }
+        if (s.blend[3] <= 0.0f) s.blend = {};
     }
     return s;
 }

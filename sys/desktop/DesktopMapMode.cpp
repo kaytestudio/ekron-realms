@@ -14,6 +14,7 @@ bool DesktopMapMode::open(realms::Engine &engine, ekron::gl::Api &gl, DesktopRen
     engine.registerCvar("r_lightmaps", "1", REALMS_CVAR_ARCHIVE);
     engine.registerCvar("sv_game", "1", REALMS_CVAR_ARCHIVE);
     engine.registerCvar("cl_gun", "1", REALMS_CVAR_ARCHIVE);
+    engine.registerCvar("gl_polyblend", "1", REALMS_CVAR_ARCHIVE);
     // The map, its lightmaps and (sv_game) the Quake 2 game.
     mapview::Quake2ViewOptions options;
     options.executableDir = executableDir;

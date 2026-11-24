@@ -244,6 +244,14 @@ void main(){
  float blend=smoothstep(0.0,.85,max(altitude,0.0));
  outColor=vec4(mix(vec3(.56,.61,.63),vec3(.32,.41,.51),blend),1.0);
 })";
+// Map mode: the Quake 2 game's full-screen blend (player_state_t::blend:
+// damage, pickups, powerups, under water) over the 3D view, as ref_gl's
+// R_PolyBlend; drawn with skyVertex's full-screen triangle.
+const char *polyBlendFragment=R"(#version 300 es
+precision mediump float;
+uniform vec4 blendColor;
+out vec4 outColor;
+void main(){outColor=blendColor;})";
 GLuint compile(GLenum type,const char*text){GLuint s=glCreateShader(type);glShaderSource(s,1,&text,nullptr);glCompileShader(s);GLint ok=0;glGetShaderiv(s,GL_COMPILE_STATUS,&ok);if(!ok){char log[1024];glGetShaderInfoLog(s,sizeof(log),nullptr,log);__android_log_print(ANDROID_LOG_ERROR,"Ekron","Shader: %s",log);glDeleteShader(s);return 0;}return s;}
 GLuint link(const char *vsText,const char *fsText){
  const auto vs=compile(GL_VERTEX_SHADER,vsText),fs=compile(GL_FRAGMENT_SHADER,fsText);
@@ -347,7 +355,7 @@ Renderer::Renderer(android_app *app):app_(app),last_(std::chrono::steady_clock::
  surface_=eglCreateWindowSurface(display_,config,app->window,nullptr);
  const EGLint contextAttributes[]={EGL_CONTEXT_CLIENT_VERSION,3,EGL_NONE};context_=eglCreateContext(display_,config,EGL_NO_CONTEXT,contextAttributes);
  if(surface_==EGL_NO_SURFACE||context_==EGL_NO_CONTEXT||!eglMakeCurrent(display_,surface_,surface_,context_))return;
- program_=link(vertex,fragment);skyProgram_=link(skyVertex,skyFragment);if(!program_)return;
+ program_=link(vertex,fragment);skyProgram_=link(skyVertex,skyFragment);polyBlendProgram_=link(skyVertex,polyBlendFragment);if(!program_)return;
  if(skyProgram_){glUseProgram(skyProgram_);glUniform1i(glGetUniformLocation(skyProgram_,"skyTextures"),4);glUniform1i(glGetUniformLocation(skyProgram_,"skyBox"),0);}
  // Each sampler keeps its own unit: albedo array 0, model 1, lightmap 2, map textures 3.
  glUseProgram(program_);glUniform1i(glGetUniformLocation(program_,"lightmap"),2);glUniform1i(glGetUniformLocation(program_,"mapLightmap"),0);glUniform1i(glGetUniformLocation(program_,"mapTextures"),3);glUniform1i(glGetUniformLocation(program_,"mapTextured"),0);glUniform1i(glGetUniformLocation(program_,"dlightCount"),0);
@@ -432,7 +440,7 @@ Renderer::~Renderer(){
  if(saveDirty_)world_.save(savePath_);
  if(mapMode_.active())retainedMap=RetainedMap{mapMode_.session().path(),mapMode_.session().walker(),mapYaw_,mapPitch_,mapCrouch_};
  if(assetsInstalled_){retainedWorld=world_;retainedDrone=drone_;retainedTool=tools_.tool;retainedFlying=flying_;}
- if(display_!=EGL_NO_DISPLAY){if(context_!=EGL_NO_CONTEXT&&surface_!=EGL_NO_SURFACE&&eglMakeCurrent(display_,surface_,surface_,context_)){if(mapMode_.gameRunning())retainedGame=mapMode_.releaseView();else mapMode_.close();droneModel_.release();remote_.release();car_.release();city_.release();textures_.release();if(skyProgram_)glDeleteProgram(skyProgram_);if(buffer_)glDeleteBuffers(1,&buffer_);if(vao_)glDeleteVertexArrays(1,&vao_);if(program_)glDeleteProgram(program_);}eglMakeCurrent(display_,EGL_NO_SURFACE,EGL_NO_SURFACE,EGL_NO_CONTEXT);if(context_!=EGL_NO_CONTEXT)eglDestroyContext(display_,context_);if(surface_!=EGL_NO_SURFACE)eglDestroySurface(display_,surface_);eglTerminate(display_);}
+ if(display_!=EGL_NO_DISPLAY){if(context_!=EGL_NO_CONTEXT&&surface_!=EGL_NO_SURFACE&&eglMakeCurrent(display_,surface_,surface_,context_)){if(mapMode_.gameRunning())retainedGame=mapMode_.releaseView();else mapMode_.close();droneModel_.release();remote_.release();car_.release();city_.release();textures_.release();if(skyProgram_)glDeleteProgram(skyProgram_);if(polyBlendProgram_)glDeleteProgram(polyBlendProgram_);if(buffer_)glDeleteBuffers(1,&buffer_);if(vao_)glDeleteVertexArrays(1,&vao_);if(program_)glDeleteProgram(program_);}eglMakeCurrent(display_,EGL_NO_SURFACE,EGL_NO_SURFACE,EGL_NO_CONTEXT);if(context_!=EGL_NO_CONTEXT)eglDestroyContext(display_,context_);if(surface_!=EGL_NO_SURFACE)eglDestroySurface(display_,surface_);eglTerminate(display_);}
 }
 void Renderer::resetInput(){verticalInput=0;leftId_=rightId_=-1;moveX_=moveY_=0;last_=std::chrono::steady_clock::now();}
 void Renderer::handleInput(){
@@ -811,7 +819,7 @@ void Renderer::renderMap(float dt){
   mapMode_.update(engine,input,mapYaw_,mapPitch_,dt,mapAttack_);
  }
  for(const std::string &message:mapMode_.takeMessages())__android_log_print(ANDROID_LOG_INFO,"Realms","map: %s",message.c_str());
- {const auto stats=mapMode_.stats();mapGame=mapMode_.gameRunning()?1:0;mapHealth=stats.health;mapArmor=stats.armor;mapAmmo=stats.ammo;}
+ const auto stats=mapMode_.stats();mapGame=mapMode_.gameRunning()?1:0;mapHealth=stats.health;mapArmor=stats.armor;mapAmmo=stats.ammo;
  if(auto *sound=android_sound::get();sound&&soundHeard){
   sound->syncCvars(engine);
   sound->director().map(ekron::audio::mapFrame(gameplayReady,engine,mapMode_.session().walker(),mapYaw_),dt,*sound);
@@ -855,6 +863,13 @@ void Renderer::renderMap(float dt){
  glUniform1f(glGetUniformLocation(program_,"aspect"),aspect);
  mapMode_.draw(program_,city_,engine,mapYaw_,mapPitch_,aspect);
  glBindVertexArray(vao_);
+ if(polyBlendProgram_&&stats.blend[3]>0.f&&engine.cvarBool("gl_polyblend",true)){
+  glDisable(GL_DEPTH_TEST);glDepthMask(GL_FALSE);glEnable(GL_BLEND);glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+  glUseProgram(polyBlendProgram_);
+  glUniform4f(glGetUniformLocation(polyBlendProgram_,"blendColor"),stats.blend[0],stats.blend[1],stats.blend[2],stats.blend[3]);
+  glDrawArrays(GL_TRIANGLES,0,3);
+  glDisable(GL_BLEND);glDepthMask(GL_TRUE);glEnable(GL_DEPTH_TEST);
+ }
  if(eglSwapBuffers(display_,surface_)==EGL_TRUE){
   const auto &w=mapMode_.session().walker();const physics::Vec3 at=mapMode_.session().eye();
   std::lock_guard<std::mutex> lock(snapshotMutex);

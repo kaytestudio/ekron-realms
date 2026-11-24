@@ -8,6 +8,7 @@
 #include "realms/Engine.h"
 #include "realms/Quake2Module.h"
 
+#include <array>
 #include <memory>
 #include <unordered_map>
 #include <string>
@@ -58,6 +59,12 @@ public:
     const realms::GameServer *game() const { return quake2().game(); }
     // "HP 100  Armor 2  Ammo 50" for the HUD ("" without a game).
     std::string gameStatus() const { return quake2().status(); }
+    // The game's screen blend (damage, pickups, powerups, under water), drawn
+    // over the 3D view like ref_gl's R_PolyBlend; all zero with gl_polyblend 0.
+    std::array<float, 4> screenBlend(realms::Engine &engine) const {
+        if (!engine.cvarBool("gl_polyblend", true)) return {};
+        return quake2().stats().blend;
+    }
     // Centre prints / pickup messages since the last call (for toasts).
     std::vector<std::string> takeGameMessages() { return view_.takeMessages(); }
     // The game's entities for DesktopRenderer::setMapEntities: .md3 models

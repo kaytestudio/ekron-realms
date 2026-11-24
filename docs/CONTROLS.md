@@ -56,6 +56,7 @@ glTF maps run the game too. Name nodes (Blender empties, for example) after Quak
 
 - `sv_game 0`: walk maps without the game.
 - `cl_gun 0`: hide the view weapon.
+- `gl_polyblend 0`: turn off the screen tint the game sets (red when hurt, gold on a pickup, blue with the Quad Damage, a colour under water); it is on by default, as in Quake 2.
 - `REALMS_GAME_LIBRARY=/path/to/librealms_game.so`: use another game build.
 
 ### Models (`.md3`)
