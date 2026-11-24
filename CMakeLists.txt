@@ -85,6 +85,11 @@ if(ENABLE_EXTERNAL_TOOLS OR ENABLE_KCC)
     find_package(KCC REQUIRED)
 endif()
 
+if(MSVC)
+    # Static CRT: no Visual C++ redistributable needed to run the package.
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
 # =============================================================================
 # Locate SDL2 for Native Desktop Client
 # =============================================================================
@@ -121,7 +126,7 @@ if(ENABLE_DESKTOP_SANDBOX)
             target_link_libraries(ekron_sdl2_imported INTERFACE "${EKRON_SDL2_LIBRARY}")
             set(EKRON_SDL2_TARGET ekron_sdl2_imported)
         else()
-            message(FATAL_ERROR "SDL2 development headers/libraries not found. Install libsdl2-dev (Linux) or brew install sdl2 (macOS).")
+            message(FATAL_ERROR "SDL2 development headers/libraries not found. Install libsdl2-dev (Linux), brew install sdl2 (macOS), or on Windows mingw-w64-x86_64-SDL2 (MSYS2) / vcpkg sdl2, or pass -DSDL2_DIR=<SDL2 cmake dir>.")
         endif()
     endif()
 endif()
@@ -155,8 +160,9 @@ if(ENABLE_DESKTOP_SANDBOX)
     )
 
     # Intro video (assets/intro.mp4) backend, see sys/desktop/IntroVideo.h:
-    # AVFoundation on macOS, FFmpeg's libraries elsewhere when found, else none.
-    option(EKRON_INTRO_VIDEO "Play the intro video at startup (AVFoundation / FFmpeg)" ON)
+    # AVFoundation on macOS, Media Foundation on Windows, FFmpeg's libraries
+    # elsewhere when found, else none.
+    option(EKRON_INTRO_VIDEO "Play the intro video at startup (AVFoundation / Media Foundation / FFmpeg)" ON)
     option(EKRON_REQUIRE_INTRO_VIDEO "Fail instead of building without an intro video backend (release builds)" OFF)
     set(EKRON_INTRO_BACKEND "none")
     if(EKRON_INTRO_VIDEO AND APPLE)
@@ -166,6 +172,9 @@ if(ENABLE_DESKTOP_SANDBOX)
         list(APPEND DESKTOP_SOURCES "${DESKTOP_SRC_DIR}/IntroVideoApple.mm")
         set_source_files_properties("${DESKTOP_SRC_DIR}/IntroVideoApple.mm" PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
         set(EKRON_INTRO_BACKEND "AVFoundation")
+    elseif(EKRON_INTRO_VIDEO AND WIN32)
+        list(APPEND DESKTOP_SOURCES "${DESKTOP_SRC_DIR}/IntroVideoMediaFoundation.cpp")
+        set(EKRON_INTRO_BACKEND "MediaFoundation")
     elseif(EKRON_INTRO_VIDEO)
         find_package(PkgConfig QUIET)
         if(PKG_CONFIG_FOUND)
@@ -190,6 +199,10 @@ if(ENABLE_DESKTOP_SANDBOX)
     endif()
     message(STATUS "Intro video backend: ${EKRON_INTRO_BACKEND}")
 
+    if(WIN32)
+        list(APPEND DESKTOP_SOURCES "${DESKTOP_SRC_DIR}/WindowsConsole.cpp")
+    endif()
+
     add_library(ekron_sandbox_objects OBJECT ${DESKTOP_SOURCES})
     set_target_properties(ekron_sandbox_objects PROPERTIES POSITION_INDEPENDENT_CODE ON)
     target_include_directories(ekron_sandbox_objects PUBLIC
@@ -206,6 +219,9 @@ if(ENABLE_DESKTOP_SANDBOX)
     if(EKRON_INTRO_BACKEND STREQUAL "AVFoundation")
         target_link_libraries(ekron_sandbox_objects PUBLIC
             "-framework AVFoundation" "-framework CoreMedia" "-framework CoreVideo" "-framework Foundation")
+    elseif(EKRON_INTRO_BACKEND STREQUAL "MediaFoundation")
+        # mfplat / mfreadwrite are loaded at run time (IntroVideoMediaFoundation.cpp).
+        target_link_libraries(ekron_sandbox_objects PUBLIC mfuuid ole32)
     elseif(EKRON_INTRO_BACKEND STREQUAL "FFmpeg")
         target_link_libraries(ekron_sandbox_objects PUBLIC PkgConfig::EKRON_FFMPEG)
     endif()
@@ -257,6 +273,23 @@ if(ENABLE_DESKTOP_SANDBOX)
             COMMENT "Copying Ekron 3D assets into EkronRealms.app/Contents/Resources"
             VERBATIM
         )
+    elseif(WIN32)
+        # A GUI program (no console window from Explorer); started from a
+        # terminal, it writes to that terminal (sys/desktop/WindowsConsole.h).
+        set(EKRON_RC_ICON "${CMAKE_CURRENT_SOURCE_DIR}/Resources/ekron-realms.ico")
+        set(EKRON_RC_MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/Resources/ekron-realms.manifest")
+        configure_file("${CMAKE_CURRENT_SOURCE_DIR}/Resources/ekron-realms.rc.in"
+                       "${CMAKE_CURRENT_BINARY_DIR}/ekron-realms.rc" @ONLY)
+        add_executable(ekron-realms WIN32 "${DESKTOP_SRC_DIR}/main.cpp" "${CMAKE_CURRENT_BINARY_DIR}/ekron-realms.rc")
+        set_target_properties(ekron-realms PROPERTIES OUTPUT_NAME "ekron-realms")
+        if(MINGW)
+            # No libstdc++ / libgcc / winpthread DLLs to ship: only SDL2.dll.
+            # The subsystem is also passed to the linker directly (clang
+            # drivers such as zig cc ignore -mwindows).
+            target_link_options(ekron-realms PRIVATE -static -Wl,--subsystem,windows)
+        elseif(MSVC)
+            target_link_options(ekron-realms PRIVATE /ENTRY:mainCRTStartup /MANIFEST:NO)
+        endif()
     else()
         add_executable(ekron-realms "${DESKTOP_SRC_DIR}/main.cpp")
         set_target_properties(ekron-realms PROPERTIES OUTPUT_NAME "ekron-realms")
@@ -272,7 +305,7 @@ if(ENABLE_DESKTOP_SANDBOX)
     # libekron_sandbox: the same sandbox as a shared library with the C entry
     # point ekron_sandbox_run() (sys/desktop/ekron_sandbox.h), for the Free
     # Pascal realms-pascal program (Projects/realms.lpr, below).
-    if(ENABLE_FPC_CLIENT AND FPC_FOUND)
+    if(ENABLE_FPC_CLIENT AND FPC_FOUND AND NOT WIN32)
         add_library(ekron_sandbox SHARED "${DESKTOP_SRC_DIR}/main.cpp")
         target_compile_definitions(ekron_sandbox PRIVATE EKRON_SANDBOX_LIBRARY=1)
         target_link_libraries(ekron_sandbox PRIVATE ekron_sandbox_objects)
@@ -299,7 +332,11 @@ endif()
 # =============================================================================
 set(FPC_LAUNCHER_BUILT FALSE)
 set(REALMS_PASCAL_CLIENT_BUILT FALSE)
-if(ENABLE_FPC_CLIENT)
+if(ENABLE_FPC_CLIENT AND WIN32)
+    # The Pascal launcher and realms-pascal use the Unix sys layer; Windows
+    # builds ship ekron-realms.exe with the Pascal core and the game module.
+    message(STATUS "Windows: skipping realms-launcher and realms-pascal (Unix only).")
+elseif(ENABLE_FPC_CLIENT)
     if(FPC_FOUND)
         message(STATUS "=== Free Pascal Compiler Found: ${FPC_EXECUTABLE} (${FPC_VERSION}) ===")
         set(FPC_EXTRA_FLAGS -Mobjfpc -Scghi -O2)
@@ -385,6 +422,60 @@ if(TARGET ekron-realms)
         install(TARGETS ekron-realms
             BUNDLE DESTINATION .
         )
+    elseif(WIN32)
+        # Portable folder: ekron-realms.exe with its DLLs, assets\ next to it
+        # (found through SDL_GetBasePath() / "assets", sys/desktop/main.cpp).
+        # SDL2.dll is the one DLL to ship (MinGW links its runtime statically;
+        # MSVC builds use the static CRT, see CMAKE_MSVC_RUNTIME_LIBRARY).
+        set(_sdl2_hints "")
+        if(TARGET SDL2::SDL2)
+            get_target_property(_sdl2_type SDL2::SDL2 TYPE)
+            if(_sdl2_type STREQUAL "SHARED_LIBRARY")
+                foreach(_prop IMPORTED_LOCATION_RELEASE IMPORTED_LOCATION_NOCONFIG IMPORTED_LOCATION IMPORTED_LOCATION_DEBUG)
+                    get_target_property(_sdl2_loc SDL2::SDL2 ${_prop})
+                    if(_sdl2_loc)
+                        get_filename_component(_sdl2_dir "${_sdl2_loc}" DIRECTORY)
+                        list(APPEND _sdl2_hints "${_sdl2_dir}")
+                    endif()
+                endforeach()
+            endif()
+        endif()
+        if(SDL2_DIR)
+            list(APPEND _sdl2_hints "${SDL2_DIR}/../../../bin" "${SDL2_DIR}/../bin" "${SDL2_DIR}/../../bin")
+        endif()
+        if(EKRON_SDL2_LIBRARY)
+            get_filename_component(_sdl2_dir "${EKRON_SDL2_LIBRARY}" DIRECTORY)
+            list(APPEND _sdl2_hints "${_sdl2_dir}" "${_sdl2_dir}/../bin")
+        endif()
+        find_file(EKRON_SDL2_DLL NAMES SDL2.dll HINTS ${_sdl2_hints} NO_CMAKE_FIND_ROOT_PATH
+                  DOC "SDL2.dll copied next to ekron-realms.exe")
+        install(TARGETS ekron-realms RUNTIME DESTINATION .)
+        if(EKRON_SDL2_DLL)
+            install(FILES "${EKRON_SDL2_DLL}" DESTINATION .)
+            # Run from the build tree (CTest, debugging) without PATH changes.
+            add_custom_command(TARGET ekron-realms POST_BUILD
+                COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${EKRON_SDL2_DLL}" "$<TARGET_FILE_DIR:ekron-realms>"
+                VERBATIM)
+        else()
+            message(WARNING "SDL2.dll not found; set EKRON_SDL2_DLL so that the package includes it.")
+        endif()
+        foreach(_ekron_lib IN ITEMS REALMS_PASCAL_CORE REALMS_GAME_MODULE)
+            if(${_ekron_lib}_BUILT)
+                install(FILES "${${_ekron_lib}_PATH}" DESTINATION .)
+            endif()
+        endforeach()
+        install(DIRECTORY
+            "${SHARED_ASSETS_DIR}/models"
+            "${SHARED_ASSETS_DIR}/textures"
+            "${SHARED_ASSETS_DIR}/catalog"
+            "${SHARED_ASSETS_DIR}/config"
+            "${SHARED_ASSETS_DIR}/sounds"
+            "${SHARED_ASSETS_DIR}/maps"
+            "${SHARED_ASSETS_DIR}/env"
+            DESTINATION assets
+        )
+        install(FILES "${SHARED_ASSETS_DIR}/intro.mp4" DESTINATION assets)
+        install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/README.md" "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE" DESTINATION .)
     else()
         install(TARGETS ekron-realms
             RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
@@ -495,9 +586,17 @@ if(Python3_Interpreter_FOUND)
              COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_glsl_keywords.py")
 endif()
 
-# Intro video through FFmpeg: plays assets/intro.mp4 against a fake audio
-# output and clock (no sound card, faster than real time).
-if(EKRON_INTRO_BACKEND STREQUAL "FFmpeg")
+# Intro video through FFmpeg or Media Foundation: plays assets/intro.mp4
+# against a fake audio output and clock (no sound card, faster than real time).
+if(EKRON_INTRO_BACKEND STREQUAL "MediaFoundation")
+    add_executable(ekron_intro_video_test
+        tests/native/intro_video_test.cpp
+        sys/desktop/IntroVideoMediaFoundation.cpp
+    )
+    target_include_directories(ekron_intro_video_test PRIVATE sys/desktop)
+    target_link_libraries(ekron_intro_video_test PRIVATE mfuuid ole32)
+    add_test(NAME ekron_intro_video COMMAND ekron_intro_video_test "${SHARED_ASSETS_DIR}/intro.mp4")
+elseif(EKRON_INTRO_BACKEND STREQUAL "FFmpeg")
     add_executable(ekron_intro_video_test
         tests/native/intro_video_test.cpp
         sys/desktop/IntroVideoFFmpeg.cpp
@@ -773,7 +872,12 @@ set(CPACK_RESOURCE_FILE_README "${CMAKE_CURRENT_SOURCE_DIR}/README.md")
 set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/kaytestudio/ekron-realms")
 set(CPACK_PACKAGING_INSTALL_PREFIX "/usr")
 
-if(APPLE)
+if(WIN32)
+    # ekron-realms-<version>-windows-x64.zip, one top-level folder.
+    set(CPACK_GENERATOR "ZIP")
+    set(CPACK_PACKAGING_INSTALL_PREFIX "/")
+    set(CPACK_PACKAGE_FILE_NAME "ekron-realms-${PROJECT_VERSION}-windows-x64")
+elseif(APPLE)
     set(CPACK_GENERATOR "DragNDrop;TGZ")
     set(CPACK_PACKAGING_INSTALL_PREFIX "/")
     set(CPACK_DMG_VOLUME_NAME "Ekron Realms")

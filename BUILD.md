@@ -44,12 +44,11 @@ sudo port install lazarus
 
 #### Windows 11
 
-1. Download and install [CMake](https://cmake.org/download/)
-2. Download and install [Lazarus](https://www.lazarus-ide.org/index.php?page=downloads) (includes FPC)
-   - Recommended: Use the 64-bit installer
-   - Default location: `C:\lazarus`
+The desktop client builds with MinGW-w64 from [MSYS2](https://www.msys2.org/) (the toolchain of the release package) or with Visual Studio 2022. See [Windows 11](#windows-11) below.
 
-Alternatively, install FPC standalone from [FreePascal.org](https://www.freepascal.org/download.html)
+1. A C++ toolchain: MSYS2 (in a **UCRT64** shell: `pacman -S mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-ninja`), or Visual Studio 2022 with *Desktop development with C++* (it includes CMake)
+2. SDL2: the official development package from the [SDL 2 releases](https://github.com/libsdl-org/SDL/releases): `SDL2-devel-2.x.y-mingw.tar.gz` for MinGW, `SDL2-devel-2.x.y-VC.zip` for Visual Studio
+3. Optional, for the Free Pascal Realms core and the Quake 2 game module: [Lazarus](https://www.lazarus-ide.org/index.php?page=downloads) 64-bit (includes FPC; default location `C:\lazarus`), or FPC standalone from [FreePascal.org](https://www.freepascal.org/download.html)
 
 #### Linux (Debian/Ubuntu)
 
@@ -98,8 +97,8 @@ cmake -DCMAKE_BUILD_TYPE=Release ..
 cmake --build .
 
 # 5. Run
-./realms          # Linux/macOS
-.\realms.exe      # Windows
+./ekron-realms              # Linux/macOS
+.\ekron-realms.exe          # Windows (Release\ekron-realms.exe with Visual Studio)
 ```
 
 ---
@@ -142,62 +141,44 @@ cpack -G DragNDrop
 
 ### Windows 11
 
-#### Using Command Prompt
+The native C++ client (`ekron-realms.exe`, SDL2 + OpenGL) runs on 64-bit Windows 10 and 11. CI (`.github/workflows/desktop-windows.yml`) builds it on Windows Server 2025, the server edition of Windows 11 24H2, with both toolchains below, and makes the release ZIP with MinGW.
 
-```cmd
-REM Create build directory
-mkdir build
-cd build
+#### MinGW-w64 (MSYS2 UCRT64)
 
-REM Configure (64-bit)
-cmake -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release ..
+In an MSYS2 **UCRT64** shell, with the SDL2 MinGW package unpacked to `C:/SDL2` and, optionally, Lazarus in `C:\lazarus`:
 
-REM Or using Visual Studio generator
-cmake -G "Visual Studio 17 2022" -DCMAKE_BUILD_TYPE=Release ..
-
-REM Build
-cmake --build . --config Release
-
-REM Run
-realms.exe
+```bash
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DSDL2_DIR=C:/SDL2/cmake \
+  -DFPC_EXECUTABLE=C:/lazarus/fpc/3.2.2/bin/x86_64-win64/fpc.exe   # optional
+cmake --build build
+ctest --test-dir build --output-on-failure
+./build/ekron-realms.exe
 ```
 
-#### Using PowerShell
+`ekron-realms.exe` links the C++ runtime statically; `SDL2.dll` is copied next to it, and FPC (when found) adds `realms_core.dll` and `realms_game.dll`, so the build folder runs as is.
+
+#### Visual Studio 2022
+
+From a Developer PowerShell, with the SDL2 VC package unpacked to `C:\SDL2`:
 
 ```powershell
-# Create build directory
-New-Item -ItemType Directory -Force -Path build
-Set-Location build
-
-# Configure
-cmake -DCMAKE_BUILD_TYPE=Release ..
-
-# Build
-cmake --build . --config Release
-
-# Run
-.\realms.exe
+cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DSDL2_DIR=C:/SDL2/cmake
+cmake --build build --config Release
+ctest --test-dir build -C Release --output-on-failure
+.\build\Release\ekron-realms.exe
 ```
 
-#### Using Developer Command Prompt
+The Visual C++ runtime is linked statically (`/MT`), so the exe does not need the VC++ redistributable. The Free Pascal DLLs can be built by the same configure step when `FPC_EXECUTABLE` is set (or `fpc` is on `PATH`).
 
-If you have Visual Studio installed:
+#### Windows notes
 
-```cmd
-mkdir build && cd build
-cmake -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release ..
-nmake
-realms.exe
-```
-
-#### Creating Windows Installer
-
-```cmd
-cmake --build . --config Release
-cpack -G NSIS
-
-REM This creates an installer .exe in the build directory
-```
+- **Package**: `cpack -G ZIP` (the default generator on Windows) makes `ekron-realms-<version>-windows-x64.zip`, a portable folder with `ekron-realms.exe`, `SDL2.dll`, the Free Pascal DLLs and `assets\`. Unzip it anywhere; there is no installer.
+- **User data** (saves, settings): `%APPDATA%\KayteStudio\EkronRealms\`. Quake 2's `baseq2` folder (with `pak0.pak`) is found there or in `assets\`, or pass `--quake2 <dir>` / `EKRON_QUAKE2_DIR`; `--engine-info` shows what is found.
+- **Intro video**: decoded by Media Foundation, part of Windows. Windows N editions need Microsoft's *Media Feature Pack* (Settings > Apps > Optional features); without it the game starts without the intro.
+- **Console output**: the exe is a GUI program (no console window from Explorer). Started from Command Prompt, PowerShell or Windows Terminal, `--help`, `--version`, `--engine-info` and the log print to that window.
+- **Not on Windows**: the Free Pascal launcher programs (`realms-launcher`, `realms-pascal`, which use the Unix sys layer) and the experimental online presence (POSIX sockets + OpenSSL). The legacy `sys/win32` and `sys/win64` Pascal sources are not built.
+- **SmartScreen**: the release exe is not code-signed, so Windows may warn on first start: **More info**, then **Run anyway**.
 
 ### Linux
 
@@ -538,8 +519,7 @@ cmake --build .
 cpack
 
 # Or specify generator
-cpack -G ZIP        # ZIP archive (all platforms)
-cpack -G NSIS       # Windows installer
+cpack -G ZIP        # ZIP archive (the default on Windows: portable folder)
 cpack -G DragNDrop  # macOS DMG
 cpack -G DEB        # Debian package
 cpack -G RPM        # RPM package
@@ -573,9 +553,10 @@ Pushing a tag that starts with `v` (for example `git tag v1.0.0 && git push orig
 | `ekron-realms-<version>-macos-unsigned.app.zip` | `desktop-macos.yml` (ad-hoc signed, not notarised) |
 | `ekron-realms-<version>-android-debug.apk` | `android-sandbox.yml` (debug key) |
 | `ekron-realms-<version>-ios-debug-unsigned.ipa` | `ios-sandbox.yml` (unsigned) |
-| `SHA256SUMS.txt` | checksums of the four |
+| `ekron-realms-<version>-windows-x64.zip` | `desktop-windows.yml` (MinGW-w64; exe not code-signed) |
+| `SHA256SUMS.txt` | checksums of the five |
 
-A release that already exists keeps its notes and gets the files (re-running replaces them). Otherwise the workflow creates the release with install notes and generated release notes, as a pre-release when the version has a suffix (`v1.1.0-rc1`). Tag pushes don't trigger the four build workflows on their own, so each tag is built once. The workflow warns when the tag differs from `project(EkronRealms VERSION ...)` in `CMakeLists.txt`.
+A release that already exists keeps its notes and gets the files (re-running replaces them). Otherwise the workflow creates the release with install notes and generated release notes, as a pre-release when the version has a suffix (`v1.1.0-rc1`). Tag pushes don't trigger the five build workflows on their own, so each tag is built once. The workflow warns when the tag differs from `project(EkronRealms VERSION ...)` in `CMakeLists.txt`.
 
 ---
 

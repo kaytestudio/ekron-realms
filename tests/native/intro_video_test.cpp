@@ -1,4 +1,5 @@
-// Intro video backend test (FFmpeg builds): plays assets/intro.mp4 against a
+// Intro video backend test (FFmpeg and Media Foundation builds): plays
+// assets/intro.mp4 against a
 // fake audio output and a fake clock, so it runs without a sound card and
 // faster than real time.
 //
@@ -63,7 +64,11 @@ bool writePpm(const std::string &path, const IntroFrame &f) {
     if (!out) return false;
     out << "P6\n" << f.width << " " << f.height << "\n255\n";
     for (int y = 0; y < f.height; ++y)
-        for (int x = 0; x < f.width; ++x) out.write(reinterpret_cast<const char *>(f.pixels + y * f.stride + x * 4), 3);
+        for (int x = 0; x < f.width; ++x) {
+            const uint8_t *p = f.pixels + y * f.stride + x * 4;
+            const char rgb[3] = {char(p[f.bgra ? 2 : 0]), char(p[1]), char(p[f.bgra ? 0 : 2])};
+            out.write(rgb, 3);
+        }
     return bool(out);
 }
 
@@ -72,7 +77,8 @@ double meanLuma(const IntroFrame &f) {
     for (int y = 0; y < f.height; y += 4)
         for (int x = 0; x < f.width; x += 4) {
             const uint8_t *p = f.pixels + y * f.stride + x * 4;
-            sum += 0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2];
+            const int r = p[f.bgra ? 2 : 0], b = p[f.bgra ? 0 : 2];
+            sum += 0.2126 * r + 0.7152 * p[1] + 0.0722 * b;
         }
     return sum / (double((f.height + 3) / 4) * double((f.width + 3) / 4));
 }
@@ -85,7 +91,9 @@ int main(int argc, char **argv) {
         return 2;
     }
     const std::string path = argv[1];
-    std::cout << "backend: " << ekron::desktop::introVideoBackend() << "\n";
+    const std::string backend = ekron::desktop::introVideoBackend();
+    std::cout << "backend: " << backend << "\n";
+    const bool expectBgra = backend == "MediaFoundation"; // FFmpeg converts to RGBA
 
     // --- Full playback, clocked by the (fake) soundtrack --------------------
     {
@@ -115,7 +123,7 @@ int main(int argc, char **argv) {
                 ++shown;
                 maxGap = std::max(maxGap, sinceChange);
                 sinceChange = 0;
-                CHECK(f.width == 1280 && f.height == 720 && f.stride == 1280 * 4 && !f.bgra);
+                CHECK(f.width == 1280 && f.height == 720 && f.stride == 1280 * 4 && f.bgra == expectBgra);
             } else {
                 ++sinceChange;
             }
@@ -124,6 +132,8 @@ int main(int argc, char **argv) {
                 const double luma = meanLuma(f);
                 std::cout << "frame at 5 s: mean luma " << luma << "\n";
                 CHECK(luma > 8.0 && luma < 250.0); // a picture, not black or white
+                // opaque, whatever the decoder leaves in the fourth byte
+                CHECK(f.pixels[3] == 255 && f.pixels[size_t(f.height - 1) * size_t(f.stride) + size_t(f.width - 1) * 4 + 3] == 255);
                 if (argc > 2) CHECK(writePpm(argv[2], f));
             }
             sink.play(step);
@@ -216,6 +226,7 @@ int main(int argc, char **argv) {
         } else {
             CHECK(!error.empty());
         }
+        video.reset(); // Windows: the reader holds the file open
         std::remove(junk.c_str());
     }
 

@@ -1,0 +1,220 @@
+name: Desktop client (Windows)
+
+on:
+  workflow_dispatch:
+  # release.yml builds the release assets with this workflow
+  workflow_call:
+  push:
+    # branches only: a version tag is built once, by release.yml
+    branches: ['**']
+    paths:
+      - 'CMakeLists.txt'
+      - 'cmake/**'
+      - 'RINGSCE_v2.png'
+      - 'Resources/**'
+      - '!Resources/Info.plist'
+      - 'sys/desktop/**'
+      - 'realms/**'
+      - 'game/**'
+      - 'tests/realms/**'
+      - 'tests/native/**'
+      - 'tools/check_glsl_keywords.py'
+      - 'sys/android/app/src/main/cpp/**'
+      - 'sys/android/app/src/main/assets/**'
+      - '.github/workflows/desktop-windows.yml'
+  pull_request:
+    paths:
+      - 'CMakeLists.txt'
+      - 'cmake/**'
+      - 'RINGSCE_v2.png'
+      - 'Resources/**'
+      - '!Resources/Info.plist'
+      - 'sys/desktop/**'
+      - 'realms/**'
+      - 'game/**'
+      - 'tests/realms/**'
+      - 'tests/native/**'
+      - 'tools/check_glsl_keywords.py'
+      - 'sys/android/app/src/main/cpp/**'
+      - 'sys/android/app/src/main/assets/**'
+      - '.github/workflows/desktop-windows.yml'
+
+permissions:
+  contents: read
+
+env:
+  SDL2_VERSION: 2.32.10
+
+jobs:
+  windows-zip:
+    name: Windows x64 package (.zip)
+    # Windows Server 2025 is the server edition of Windows 11 24H2.
+    runs-on: windows-2025
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          clean: true
+          fetch-depth: 1
+          submodules: false
+
+      - name: Install MinGW-w64 (UCRT64) toolchain
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: false
+          path-type: minimal
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-python
+            unzip
+
+      # Official SDL2 MinGW build: SDL2.dll needs only system DLLs.
+      - name: Download SDL2 ${{ env.SDL2_VERSION }}
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 -o /tmp/sdl2.tar.gz \
+            "https://github.com/libsdl-org/SDL/releases/download/release-${SDL2_VERSION}/SDL2-devel-${SDL2_VERSION}-mingw.tar.gz"
+          mkdir -p sdl2-mingw
+          tar -xzf /tmp/sdl2.tar.gz -C sdl2-mingw --strip-components=1
+          test -f sdl2-mingw/x86_64-w64-mingw32/bin/SDL2.dll
+
+      # Free Pascal (native x86_64-win64) for realms_core.dll and realms_game.dll,
+      # from the Lazarus installer; only its fpc folder is kept between runs.
+      - name: Restore Free Pascal
+        id: fpc-cache
+        uses: actions/cache@v4
+        with:
+          path: C:\lazarus\fpc
+          key: fpc-lazarus-win64-v1
+
+      - name: Install Free Pascal (Lazarus)
+        if: steps.fpc-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: choco install lazarus -y --no-progress
+
+      - name: Locate fpc.exe
+        shell: pwsh
+        run: |
+          $fpc = Get-ChildItem C:\lazarus\fpc -Recurse -Filter fpc.exe |
+            Where-Object { $_.DirectoryName -like '*\x86_64-win64' } | Select-Object -First 1
+          if (-not $fpc) { throw "fpc.exe (x86_64-win64) not found under C:\lazarus\fpc" }
+          & $fpc.FullName -iV
+          "FPC_EXE=$($fpc.FullName -replace '\\','/')" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Configure and build Windows desktop client
+        run: |
+          set -o pipefail
+          {
+            cmake -S . -B build -G Ninja \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DSDL2_DIR="$PWD/sdl2-mingw/cmake" \
+              -DFPC_EXECUTABLE="$FPC_EXE" \
+              -DENABLE_PASCAL_CORE=ON \
+              -DENABLE_GAME_MODULE=ON \
+              -DEKRON_REQUIRE_INTRO_VIDEO=ON &&
+            cmake --build build -j"$(nproc)" &&
+            test -f build/ekron-realms.exe &&
+            test -f build/SDL2.dll &&
+            test -f build/realms_core.dll &&
+            test -f build/realms_game.dll
+          } 2>&1 | tee /tmp/windows-build.log || {
+            tail -n 8 /tmp/windows-build.log | while IFS= read -r line; do
+              [ -n "$line" ] && echo "::error::[windows-build] $line"
+            done
+            exit 1
+          }
+          grep -q 'Intro video backend: MediaFoundation' /tmp/windows-build.log
+
+      - name: Run CTest smoke checks
+        run: |
+          set -euo pipefail
+          ctest --test-dir build --output-on-failure -V
+
+      - name: Build and verify the Windows package
+        run: |
+          set -euo pipefail
+          (cd build && cpack -G ZIP)
+          ZIP="$(ls build/ekron-realms-*-windows-x64.zip | head -n 1)"
+          test -f "$ZIP"
+          rm -rf /tmp/pkg && mkdir -p /tmp/pkg && unzip -q "$ZIP" -d /tmp/pkg
+          APP="$(ls -d /tmp/pkg/ekron-realms-*-windows-x64)"
+          ls "$APP"
+          # Only SDL2.dll and the two Free Pascal DLLs ship next to the exe;
+          # everything else must come with Windows.
+          for f in "$APP"/*.exe "$APP"/*.dll; do
+            objdump -p "$f" | sed -n 's/^\s*DLL Name: //p' | while read -r dll; do
+              if [ -f "$APP/$dll" ] || [ -f "/c/Windows/System32/$dll" ] || [[ "${dll,,}" == api-ms-win-* ]]; then
+                continue
+              fi
+              echo "::error::$(basename "$f") needs $dll, which is neither in the package nor in System32"
+              exit 1
+            done
+          done
+          objdump -p "$APP/ekron-realms.exe" | grep -q 'Subsystem\s*00000002' # GUI: no console window
+          # From the extracted folder: no MinGW (/ucrt64/bin) or build tree on PATH.
+          export PATH="/usr/bin:/c/Windows/System32:/c/Windows"
+          cd /tmp
+          "$APP/ekron-realms.exe" --version
+          "$APP/ekron-realms.exe" --headless-smoke
+          "$APP/ekron-realms.exe" --engine-info | tee /tmp/engine-info.log
+          # The packaged client boots on the Free Pascal Quake 2 core and hosts the game module.
+          REALMS_CORE=pascal "$APP/ekron-realms.exe" --headless-smoke | tee /tmp/pascal-smoke.log
+          grep -q 'realmsCore=pascal-quake2' /tmp/pascal-smoke.log
+          grep -q 'Quake 2 game API 3' /tmp/engine-info.log
+
+      - name: Upload Windows package
+        uses: actions/upload-artifact@v7
+        with:
+          name: ekron-realms-windows-zip
+          path: build/ekron-realms-*-windows-x64.zip
+          if-no-files-found: error
+
+  # The same client with Visual C++ (C++ only: the package comes from the
+  # MinGW job above).
+  windows-msvc:
+    name: Windows x64 build (Visual C++)
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          clean: true
+          fetch-depth: 1
+          submodules: false
+
+      - name: Download SDL2 ${{ env.SDL2_VERSION }}
+        shell: pwsh
+        run: |
+          $zip = "$env:RUNNER_TEMP\sdl2-vc.zip"
+          Invoke-WebRequest -Uri "https://github.com/libsdl-org/SDL/releases/download/release-$env:SDL2_VERSION/SDL2-devel-$env:SDL2_VERSION-VC.zip" -OutFile $zip
+          Expand-Archive $zip -DestinationPath sdl2-vc
+          $root = (Get-ChildItem sdl2-vc -Directory | Select-Object -First 1).FullName
+          if (-not (Test-Path "$root\lib\x64\SDL2.dll")) { throw "SDL2.dll missing from the VC package" }
+          "SDL2_ROOT=$($root -replace '\\','/')" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Configure and build with Visual Studio 2022
+        shell: pwsh
+        run: |
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
+            -DSDL2_DIR="$env:SDL2_ROOT/cmake" `
+            -DENABLE_FPC_CLIENT=OFF -DENABLE_PASCAL_CORE=OFF -DENABLE_GAME_MODULE=OFF `
+            -DEKRON_REQUIRE_INTRO_VIDEO=ON
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cmake --build build --config Release --parallel
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          if (-not (Test-Path build\Release\ekron-realms.exe)) { throw "ekron-realms.exe not built" }
+          if (-not (Test-Path build\Release\SDL2.dll)) { throw "SDL2.dll not copied next to the exe" }
+
+      - name: Run CTest smoke checks
+        shell: pwsh
+        run: |
+          ctest --test-dir build -C Release --output-on-failure -V
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
