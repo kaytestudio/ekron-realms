@@ -2,7 +2,11 @@ name: Desktop client (Debian)
 
 on:
   workflow_dispatch:
+  # release.yml builds the release assets with this workflow
+  workflow_call:
   push:
+    # branches only: a version tag is built once, by release.yml
+    branches: ['**']
     paths:
       - 'CMakeLists.txt'
       - 'cmake/**'

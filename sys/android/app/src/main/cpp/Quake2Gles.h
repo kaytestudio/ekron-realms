@@ -1,4 +1,4 @@
-// GLES 3 drawing of Quake2View's entities (.md2 with PCX skins, fallback
+// GLES 3 drawing of Quake2View's entities (.md3 with TGA / PCX skins, fallback
 // boxes, view weapon) and effect quads. Uses the projection of the sandbox
 // program in Renderer.cpp.
 #pragma once

@@ -62,7 +62,8 @@ struct GameEvent {
 // An entity the client would get in its frame (SV_BuildClientFrame, minus
 // the PVS cull): it has a model, is not SVF_NOCLIENT and is not the local
 // player's own body. `model` is the config string ("*3",
-// "models/items/armor/shard/tris.md2"); `inlineModel` > 0 for brush models.
+// "models/items/armor/shard/tris.md2", loaded as
+// the .md3 at that path); `inlineModel` > 0 for brush models.
 struct GameRenderEntity {
     int number = 0;
     int modelindex = 0;

@@ -3,7 +3,7 @@
 // column-major matrix. Header-only so tests can use it.
 #pragma once
 
-#include "realms/Md2Model.h"
+#include "realms/Md3Model.h"
 
 #include <array>
 #include <cmath>
@@ -44,10 +44,10 @@ inline std::array<float, 16> placedTransform(const std::array<float, 16> &pose, 
     return out;
 }
 
-// A .md2 vertex (model space, Quake 2 units) on the renderer's axes and in
+// A model vertex (model space, Quake units) on the renderer's axes and in
 // metres: position and normal (x, z, -y), position / upm; uv unchanged.
 // The axis change is a proper rotation, so the winding is kept.
-inline std::array<float, 8> toRenderModelVertex(const realms::Md2Vertex &v, float metresPerUnit) {
+inline std::array<float, 8> toRenderModelVertex(const realms::ModelVertex &v, float metresPerUnit) {
     return {v.x * metresPerUnit, v.z * metresPerUnit, -v.y * metresPerUnit, v.nx, v.nz, -v.ny, v.u, v.v};
 }
 

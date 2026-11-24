@@ -42,7 +42,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 endif()
 
 # The Quake 2 stack as one module for the sandboxes (desktop, Android, iOS):
-# the game server that hosts librealms_game, entity interpolation and .md2
+# the game server that hosts librealms_game, entity interpolation and .md3
 # models, client effects, game sounds, BSP lightmaps, and realms::Quake2Module
 # tying them together (realms/include/realms/Quake2Module.h). Renderer and
 # audio API free; each sandbox draws / plays what the module hands out.
@@ -55,7 +55,8 @@ add_library(realms_quake2 STATIC
     "${CMAKE_CURRENT_LIST_DIR}/src/MapLighting.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/src/MapSky.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/src/MapTextures.cpp"
-    "${CMAKE_CURRENT_LIST_DIR}/src/Md2Model.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/src/Md3Model.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/src/Image.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/src/Quake2Module.cpp"
 )
 target_link_libraries(realms_quake2 PUBLIC realms_engine)

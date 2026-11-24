@@ -1963,7 +1963,7 @@ int main(int argc, char **argv)
             renderer.setMapSurfaces(mapMode.surfaces());     // warp, flowing, translucent, animated
             renderer.setMapSkyMatrix(mapMode.view().skyMatrix()); // skyrotate
             mapMode.updateLighting(engine, gl, renderer);    // lightmaps: animated light styles
-            // items, monsters, projectiles and the view weapon (.md2, or boxes without id's data)
+            // items, monsters, projectiles and the view weapon (.md3, or boxes without models)
             mapMode.buildEntities(engine, gl, world.yaw, world.pitch, mapEntityVertices, mapEntityBatches);
             renderer.setMapEntities(gl, mapEntityVertices, std::move(mapEntityBatches));
             // particles, trails, laser beams and dynamic lights (cl_fx.c / cl_tent.c)

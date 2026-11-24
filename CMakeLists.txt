@@ -640,12 +640,12 @@ else()
 endif()
 set_tests_properties(realms_sample_map_native PROPERTIES ENVIRONMENT "REALMS_CORE=;REALMS_GAME_LIBRARY=")
 
-# Quake 2 .md2 models and PCX skins (realms::Md2Model / decodePcx), generated
-# in memory by tests/realms/md2_builder.h.
-add_executable(realms_md2_test tests/realms/md2_test.cpp)
-target_include_directories(realms_md2_test PRIVATE tests/realms)
-target_link_libraries(realms_md2_test PRIVATE realms_quake2)
-add_test(NAME realms_md2 COMMAND realms_md2_test)
+# Quake 3 .md3 models, the model cache and PCX skins (realms::Md3Model,
+# GameModelCache, decodePcx), generated in memory by tests/realms/md3_builder.h.
+add_executable(realms_md3_test tests/realms/md3_test.cpp)
+target_include_directories(realms_md3_test PRIVATE tests/realms)
+target_link_libraries(realms_md3_test PRIVATE realms_quake2)
+add_test(NAME realms_md3 COMMAND realms_md3_test)
 
 # Quake 2 client effects (realms::GameEffects): temp entities, muzzle
 # flashes, trails, lights, explosions - no game module needed.
@@ -661,7 +661,7 @@ target_include_directories(realms_map_lighting_test PRIVATE tests/realms)
 target_link_libraries(realms_map_lighting_test PRIVATE realms_quake2)
 add_test(NAME realms_map_lighting COMMAND realms_map_lighting_test)
 
-# Map modes (desktop, Android, iOS): entity poses and .md2 vertices in render
+# Map modes (desktop, Android, iOS): entity poses and model vertices in render
 # space (the view weapon follows the camera for every yaw / pitch).
 # Header-only, no SDL / GL.
 add_executable(realms_map_entity_transform_test tests/realms/map_entity_transform_test.cpp)

@@ -9,7 +9,7 @@
 
 using namespace metal;
 
-// Legacy template shaders retained for macOS / tvOS targets in realms Shared.
+// Xcode template shaders, used by Renderer.swift.
 typedef struct
 {
     float3 position [[attribute(VertexAttributePosition)]];

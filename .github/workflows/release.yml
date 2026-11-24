@@ -1,0 +1,113 @@
+name: Release
+
+# Pushing a version tag (v1.0.0, v1.1.0-pre, ...) builds the four packages
+# with the regular CI workflows and attaches them to that tag's GitHub
+# release. An existing release (made by hand, with its own notes) keeps its
+# notes and gets the files; otherwise the release is created here, as a
+# pre-release when the version has a suffix such as -pre or -rc1.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  linux:
+    uses: ./.github/workflows/desktop-debian.yml
+  macos:
+    uses: ./.github/workflows/desktop-macos.yml
+  android:
+    uses: ./.github/workflows/android-sandbox.yml
+  ios:
+    uses: ./.github/workflows/ios-sandbox.yml
+
+  publish:
+    name: Attach the packages to the release
+    needs: [linux, macos, android, ios]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          sparse-checkout: CMakeLists.txt
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/download-artifact@v7
+        with:
+          name: ekron-realms-linux-deb
+          path: in/linux
+      - uses: actions/download-artifact@v7
+        with:
+          name: ekron-realms-macos-app
+          path: in/macos
+      - uses: actions/download-artifact@v7
+        with:
+          name: ekron-native-sandbox-debug
+          path: in/android
+      - uses: actions/download-artifact@v7
+        with:
+          name: ekron-native-sandbox-debug-ipa
+          path: in/ios
+
+      - name: Name the packages after the version
+        run: |
+          set -euo pipefail
+          ver="${TAG#v}"
+          # exactly one file per artifact
+          one() {
+            local found
+            mapfile -t found < <(find "$1" -type f -name "$2")
+            if [ "${#found[@]}" -ne 1 ]; then
+              echo "::error::expected one $2 in $1, found ${#found[@]}"
+              exit 1
+            fi
+            printf '%s' "${found[0]}"
+          }
+          mkdir out
+          cp "$(one in/linux '*.deb')" "out/ekron-realms-$ver-linux-amd64.deb"
+          cp "$(one in/macos '*.app.zip')" "out/ekron-realms-$ver-macos-unsigned.app.zip"
+          cp "$(one in/android '*.apk')" "out/ekron-realms-$ver-android-debug.apk"
+          cp "$(one in/ios '*.ipa')" "out/ekron-realms-$ver-ios-debug-unsigned.ipa"
+          (cd out && sha256sum -- * > SHA256SUMS.txt)
+          ls -l out
+          cat out/SHA256SUMS.txt
+          # the tag should match project(EkronRealms VERSION ...)
+          project="$(sed -nE 's/^project\(EkronRealms VERSION ([0-9.]+).*/\1/p' CMakeLists.txt)"
+          if [ "${ver%%-*}" != "$project" ]; then
+            echo "::warning::tag $TAG does not match the CMake project version $project"
+          fi
+
+      - name: Create or update the release
+        run: |
+          set -euo pipefail
+          ver="${TAG#v}"
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" out/* --clobber
+          else
+            cat > notes.md <<EOF
+          ## Packages
+
+          - **Linux** (\`ekron-realms-$ver-linux-amd64.deb\`): \`sudo apt install ./ekron-realms-$ver-linux-amd64.deb\`, then run \`ekron-realms\`.
+          - **macOS** (\`ekron-realms-$ver-macos-unsigned.app.zip\`): the app is only ad-hoc signed: no Developer ID signature, not notarised. Unzip it, then right-click the app and choose **Open** (or run \`xattr -dr com.apple.quarantine EkronRealms.app\`).
+          - **Android** (\`ekron-realms-$ver-android-debug.apk\`): a debug build, signed only with the Android debug key, not a release signature. Allow installs from unknown sources to sideload it.
+          - **iOS** (\`ekron-realms-$ver-ios-debug-unsigned.ipa\`): an unsigned debug build. It has to be re-signed with your own Apple ID or certificate (Xcode, AltStore, Sideloadly, ...) before it installs.
+
+          \`SHA256SUMS.txt\` has the checksums. Quake 2 map mode needs your own \`baseq2\` data; see \`docs/CONTROLS.md\`.
+          EOF
+            flags=()
+            case "$ver" in *-*) flags+=(--prerelease) ;; esac
+            gh release create "$TAG" out/* --verify-tag --title "Ekron Realms $ver" \
+              --notes-file notes.md --generate-notes "${flags[@]}"
+          fi
+          gh release view "$TAG" --json assets --jq '.assets[].name'

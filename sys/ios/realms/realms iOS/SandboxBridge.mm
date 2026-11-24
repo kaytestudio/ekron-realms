@@ -969,7 +969,7 @@ private:
         if (!vertices) return;
         [encoder setVertexBuffer:vertices offset:0 atIndex:0];
         [encoder setFragmentTexture:p.white atIndex:2];
-        [encoder setFragmentSamplerState:samplers[1][1] atIndex:0]; // clamp: skins are atlases
+        [encoder setFragmentSamplerState:samplers[0][0] atIndex:0]; // repeat: .md3 texture coordinates may wrap
         MTLViewport full = {0.0, 0.0, drawableSize.width, drawableSize.height, 0.0, 1.0};
         MTLViewport weapon = full;
         weapon.zfar = 0.3;

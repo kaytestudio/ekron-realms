@@ -6,7 +6,7 @@
 // module the game part is skipped and the exit code is 77.
 #include "bsp_builder.h"
 #include "gltf_builder.h"
-#include "md2_builder.h"
+#include "md3_builder.h"
 
 #include "Quake2View.h"
 
@@ -52,9 +52,9 @@ void step(const char *what) { std::printf("[module] step: %s\n", what); }
 
 // A stand-in for id's blaster view model (the shard stays a fallback box).
 void writeBlaster(const fs::path &dir) {
-    auto gun = md2_builder::boxModel({{{0, -4, -4}, {24, 4, 4}}});
-    const std::vector<unsigned char> bytes = md2_builder::writeMd2(gun);
-    const fs::path path = dir / "models/weapons/v_blast/tris.md2";
+    auto gun = md3_builder::boxModel({{{0, -4, -4}, {24, 4, 4}}});
+    const std::vector<unsigned char> bytes = md3_builder::writeMd3(gun);
+    const fs::path path = dir / "models/weapons/v_blast/tris.md3";
     std::error_code ec;
     fs::create_directories(path.parent_path(), ec);
     std::ofstream(path, std::ios::binary).write(reinterpret_cast<const char *>(bytes.data()), std::streamsize(bytes.size()));
@@ -162,7 +162,7 @@ void writeSky(const fs::path &dir) {
     for (int i = 0; i < 5; i++)
         writeFileBytes(dir / "env" / (std::string("testsky_") + realms::MapSky::kSuffixes[i] + ".tga"),
                        tgaBytes(8, 8, kSkyColours[i][0], kSkyColours[i][1], kSkyColours[i][2], i % 2 == 1));
-    writeFileBytes(dir / "env/testsky_dn.pcx", md2_builder::writePcx(8, 8, std::vector<uint8_t>(64, 200)));
+    writeFileBytes(dir / "env/testsky_dn.pcx", md3_builder::writePcx(8, 8, std::vector<uint8_t>(64, 200)));
     // SP_worldspawn's default, grey: maps without "sky" must only get it when they are BSP maps
     for (const char *suffix : realms::MapSky::kSuffixes)
         writeFileBytes(dir / "env" / (std::string("unit1_") + suffix + ".tga"), tgaBytes(4, 4, 90, 90, 90, false));

@@ -171,7 +171,7 @@ public:
     void setMapSkyMatrix(const std::array<float, 9> &m) { skyMatrix_ = m; }
     bool mapSky() const { return skyTex_ != 0; }
 
-    // Game entities for this frame (Quake 2 .md2 models, fallback boxes),
+    // Game entities for this frame (.md3 models, fallback boxes),
     // drawn by renderMapWorld after the map with the textured model shader.
     // Vertices are in each batch's model space; `transform` (render space,
     // column-major) places them. `viewWeapon` batches are drawn last over a

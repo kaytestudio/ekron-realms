@@ -19,8 +19,6 @@
 
 /* Begin PBXFileReference section */
 		EB4DC2122DB8FBCA00B0DE7E /* realms.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = realms.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		EB4DC2232DB8FBCA00B0DE7E /* realms.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = realms.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		EB4DC2332DB8FBCA00B0DE7E /* realms.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = realms.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		EB4DC3012DB8FBCA00B0DE7E /* models */ = {isa = PBXFileReference; lastKnownFileType = folder; name = models; path = ../../android/app/src/main/assets/models; sourceTree = "<group>"; };
 		EB4DC3022DB8FBCA00B0DE7E /* textures */ = {isa = PBXFileReference; lastKnownFileType = folder; name = textures; path = ../../android/app/src/main/assets/textures; sourceTree = "<group>"; };
 		EB4DC3032DB8FBCA00B0DE7E /* catalog */ = {isa = PBXFileReference; lastKnownFileType = folder; name = catalog; path = ../../android/app/src/main/assets/catalog; sourceTree = "<group>"; };
@@ -42,44 +40,12 @@
 			);
 			target = EB4DC2112DB8FBCA00B0DE7E /* realms iOS */;
 		};
-		EB4DC24E2DB8FBCA00B0DE7E /* Exceptions for "realms Shared" folder in "realms tvOS" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				Assets.xcassets,
-				Renderer.swift,
-				Shaders.metal,
-			);
-			target = EB4DC2222DB8FBCA00B0DE7E /* realms tvOS */;
-		};
-		EB4DC2532DB8FBCA00B0DE7E /* Exceptions for "realms Shared" folder in "realms macOS" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				Assets.xcassets,
-				Renderer.swift,
-				Shaders.metal,
-			);
-			target = EB4DC2322DB8FBCA00B0DE7E /* realms macOS */;
-		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
 		EB4DC24D2DB8FBCA00B0DE7E /* Exceptions for "realms Shared" folder in "Copy Bundle Resources" phase from "realms iOS" target */ = {
 			isa = PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet;
 			buildPhase = EB4DC2102DB8FBCA00B0DE7E /* Resources */;
-			membershipExceptions = (
-				ShaderTypes.h,
-			);
-		};
-		EB4DC2522DB8FBCA00B0DE7E /* Exceptions for "realms Shared" folder in "Copy Bundle Resources" phase from "realms tvOS" target */ = {
-			isa = PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet;
-			buildPhase = EB4DC2212DB8FBCA00B0DE7E /* Resources */;
-			membershipExceptions = (
-				ShaderTypes.h,
-			);
-		};
-		EB4DC2572DB8FBCA00B0DE7E /* Exceptions for "realms Shared" folder in "Copy Bundle Resources" phase from "realms macOS" target */ = {
-			isa = PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet;
-			buildPhase = EB4DC2312DB8FBCA00B0DE7E /* Resources */;
 			membershipExceptions = (
 				ShaderTypes.h,
 			);
@@ -92,10 +58,6 @@
 			exceptions = (
 				EB4DC2492DB8FBCA00B0DE7E /* Exceptions for "realms Shared" folder in "realms iOS" target */,
 				EB4DC24D2DB8FBCA00B0DE7E /* Exceptions for "realms Shared" folder in "Copy Bundle Resources" phase from "realms iOS" target */,
-				EB4DC24E2DB8FBCA00B0DE7E /* Exceptions for "realms Shared" folder in "realms tvOS" target */,
-				EB4DC2522DB8FBCA00B0DE7E /* Exceptions for "realms Shared" folder in "Copy Bundle Resources" phase from "realms tvOS" target */,
-				EB4DC2532DB8FBCA00B0DE7E /* Exceptions for "realms Shared" folder in "realms macOS" target */,
-				EB4DC2572DB8FBCA00B0DE7E /* Exceptions for "realms Shared" folder in "Copy Bundle Resources" phase from "realms macOS" target */,
 			);
 			path = "realms Shared";
 			sourceTree = "<group>";
@@ -105,34 +67,10 @@
 			path = "realms iOS";
 			sourceTree = "<group>";
 		};
-		EB4DC2242DB8FBCA00B0DE7E /* realms tvOS */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = "realms tvOS";
-			sourceTree = "<group>";
-		};
-		EB4DC2342DB8FBCA00B0DE7E /* realms macOS */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = "realms macOS";
-			sourceTree = "<group>";
-		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		EB4DC20F2DB8FBCA00B0DE7E /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		EB4DC2202DB8FBCA00B0DE7E /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		EB4DC2302DB8FBCA00B0DE7E /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -147,8 +85,6 @@
 			children = (
 				EB4DC2092DB8FBC700B0DE7E /* realms Shared */,
 				EB4DC2142DB8FBCA00B0DE7E /* realms iOS */,
-				EB4DC2242DB8FBCA00B0DE7E /* realms tvOS */,
-				EB4DC2342DB8FBCA00B0DE7E /* realms macOS */,
 				EB4DC3002DB8FBCA00B0DE7E /* Shared Assets */,
 				EB4DC3202DB8FBCA00B0DE7E /* RealmsPascal.xcconfig */,
 				EB4DC2132DB8FBCA00B0DE7E /* Products */,
@@ -174,8 +110,6 @@
 			isa = PBXGroup;
 			children = (
 				EB4DC2122DB8FBCA00B0DE7E /* realms.app */,
-				EB4DC2232DB8FBCA00B0DE7E /* realms.app */,
-				EB4DC2332DB8FBCA00B0DE7E /* realms.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -205,50 +139,6 @@
 			productReference = EB4DC2122DB8FBCA00B0DE7E /* realms.app */;
 			productType = "com.apple.product-type.application";
 		};
-		EB4DC2222DB8FBCA00B0DE7E /* realms tvOS */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = EB4DC24F2DB8FBCA00B0DE7E /* Build configuration list for PBXNativeTarget "realms tvOS" */;
-			buildPhases = (
-				EB4DC21F2DB8FBCA00B0DE7E /* Sources */,
-				EB4DC2202DB8FBCA00B0DE7E /* Frameworks */,
-				EB4DC2212DB8FBCA00B0DE7E /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			fileSystemSynchronizedGroups = (
-				EB4DC2242DB8FBCA00B0DE7E /* realms tvOS */,
-			);
-			name = "realms tvOS";
-			packageProductDependencies = (
-			);
-			productName = "realms tvOS";
-			productReference = EB4DC2232DB8FBCA00B0DE7E /* realms.app */;
-			productType = "com.apple.product-type.application";
-		};
-		EB4DC2322DB8FBCA00B0DE7E /* realms macOS */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = EB4DC2542DB8FBCA00B0DE7E /* Build configuration list for PBXNativeTarget "realms macOS" */;
-			buildPhases = (
-				EB4DC22F2DB8FBCA00B0DE7E /* Sources */,
-				EB4DC2302DB8FBCA00B0DE7E /* Frameworks */,
-				EB4DC2312DB8FBCA00B0DE7E /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			fileSystemSynchronizedGroups = (
-				EB4DC2342DB8FBCA00B0DE7E /* realms macOS */,
-			);
-			name = "realms macOS";
-			packageProductDependencies = (
-			);
-			productName = "realms macOS";
-			productReference = EB4DC2332DB8FBCA00B0DE7E /* realms.app */;
-			productType = "com.apple.product-type.application";
-		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -260,12 +150,6 @@
 				LastUpgradeCheck = 1630;
 				TargetAttributes = {
 					EB4DC2112DB8FBCA00B0DE7E = {
-						CreatedOnToolsVersion = 16.3;
-					};
-					EB4DC2222DB8FBCA00B0DE7E = {
-						CreatedOnToolsVersion = 16.3;
-					};
-					EB4DC2322DB8FBCA00B0DE7E = {
 						CreatedOnToolsVersion = 16.3;
 					};
 				};
@@ -288,8 +172,6 @@
 			projectRoot = "";
 			targets = (
 				EB4DC2112DB8FBCA00B0DE7E /* realms iOS */,
-				EB4DC2222DB8FBCA00B0DE7E /* realms tvOS */,
-				EB4DC2322DB8FBCA00B0DE7E /* realms macOS */,
 			);
 		};
 /* End PBXProject section */
@@ -310,38 +192,10 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		EB4DC2212DB8FBCA00B0DE7E /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		EB4DC2312DB8FBCA00B0DE7E /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		EB4DC20E2DB8FBCA00B0DE7E /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		EB4DC21F2DB8FBCA00B0DE7E /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		EB4DC22F2DB8FBCA00B0DE7E /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -451,125 +305,6 @@
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALIDATE_PRODUCT = YES;
-			};
-			name = Release;
-		};
-		EB4DC2502DB8FBCA00B0DE7E /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = "tvOS App Icon & Top Shelf Image";
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = XJX8PUCD89;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
-				INFOPLIST_KEY_UIMainStoryboardFile = Main;
-				INFOPLIST_KEY_UIUserInterfaceStyle = Automatic;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.kreatyvedesigns.realms;
-				PRODUCT_NAME = realms;
-				SDKROOT = appletvos;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_OBJC_BRIDGING_HEADER = "realms Shared/ShaderTypes.h";
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 3;
-				TVOS_DEPLOYMENT_TARGET = 18.4;
-			};
-			name = Debug;
-		};
-		EB4DC2512DB8FBCA00B0DE7E /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = "tvOS App Icon & Top Shelf Image";
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = XJX8PUCD89;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
-				INFOPLIST_KEY_UIMainStoryboardFile = Main;
-				INFOPLIST_KEY_UIUserInterfaceStyle = Automatic;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.kreatyvedesigns.realms;
-				PRODUCT_NAME = realms;
-				SDKROOT = appletvos;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_OBJC_BRIDGING_HEADER = "realms Shared/ShaderTypes.h";
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 3;
-				TVOS_DEPLOYMENT_TARGET = 18.4;
-				VALIDATE_PRODUCT = YES;
-			};
-			name = Release;
-		};
-		EB4DC2552DB8FBCA00B0DE7E /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = "realms macOS/realms_macOS.entitlements";
-				CODE_SIGN_STYLE = Automatic;
-				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = XJX8PUCD89;
-				ENABLE_HARDENED_RUNTIME = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_NSMainStoryboardFile = Main;
-				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/../Frameworks",
-				);
-				MACOSX_DEPLOYMENT_TARGET = 15.4;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.kreatyvedesigns.realms;
-				PRODUCT_NAME = realms;
-				REGISTER_APP_GROUPS = YES;
-				SDKROOT = macosx;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_OBJC_BRIDGING_HEADER = "realms Shared/ShaderTypes.h";
-				SWIFT_VERSION = 5.0;
-			};
-			name = Debug;
-		};
-		EB4DC2562DB8FBCA00B0DE7E /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = "realms macOS/realms_macOS.entitlements";
-				CODE_SIGN_STYLE = Automatic;
-				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = XJX8PUCD89;
-				ENABLE_HARDENED_RUNTIME = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_NSMainStoryboardFile = Main;
-				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/../Frameworks",
-				);
-				MACOSX_DEPLOYMENT_TARGET = 15.4;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.kreatyvedesigns.realms;
-				PRODUCT_NAME = realms;
-				REGISTER_APP_GROUPS = YES;
-				SDKROOT = macosx;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_OBJC_BRIDGING_HEADER = "realms Shared/ShaderTypes.h";
-				SWIFT_VERSION = 5.0;
 			};
 			name = Release;
 		};
@@ -706,24 +441,6 @@
 			buildConfigurations = (
 				EB4DC24B2DB8FBCA00B0DE7E /* Debug */,
 				EB4DC24C2DB8FBCA00B0DE7E /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		EB4DC24F2DB8FBCA00B0DE7E /* Build configuration list for PBXNativeTarget "realms tvOS" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				EB4DC2502DB8FBCA00B0DE7E /* Debug */,
-				EB4DC2512DB8FBCA00B0DE7E /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		EB4DC2542DB8FBCA00B0DE7E /* Build configuration list for PBXNativeTarget "realms macOS" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				EB4DC2552DB8FBCA00B0DE7E /* Debug */,
-				EB4DC2562DB8FBCA00B0DE7E /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

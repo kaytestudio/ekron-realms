@@ -1262,22 +1262,17 @@ void GameEffects::beams(double t, std::vector<GameBeam> &out) {
 void appendEffectModels(const Engine &engine, GameModelCache &models, const std::vector<GameEffectModel> &effects,
                         GameScene &scene) {
     for (const GameEffectModel &m : effects) {
-        if (!endsWith(m.model, ".md2")) continue;
-        const Md2Model *md2 = models.model(engine, m.model);
-        if (!md2) continue;
+        if (!isAliasModelName(m.model)) continue;
+        const Md3Model *md3 = models.model(engine, m.model);
+        if (!md3) continue;
         GameDrawBatch b;
         b.model = m.model;
         b.origin = m.origin;
         b.angles = {-m.angles[0], m.angles[1], m.angles[2]}; // alias models: pitch negated
-        b.first = int(scene.vertices.size());
-        md2->buildVertices(m.frame, m.oldframe, m.backlerp, scene.vertices);
-        b.count = int(scene.vertices.size()) - b.first;
-        const auto &skins = md2->skins();
-        if (!skins.empty()) b.skin = skins[size_t(m.skinnum >= 0 && size_t(m.skinnum) < skins.size() ? m.skinnum : 0)];
         b.color = {1, 1, 1, std::clamp(m.alpha, 0.0f, 1.0f)};
         b.fullbright = m.fullbright;
         b.effect = true;
-        if (b.count > 0) scene.batches.push_back(std::move(b));
+        appendModelBatches(*md3, b, m.frame, m.oldframe, m.backlerp, m.skinnum, scene);
     }
 }
 

@@ -272,7 +272,7 @@ void Quake2View::entities(realms::Engine &engine, float renderYaw, float renderP
     // rotates and places them (a proper rotation: the winding is kept).
     const float upm = session_.unitsPerMetre();
     vertices.reserve(scene.vertices.size());
-    for (const realms::Md2Vertex &v : scene.vertices) {
+    for (const realms::ModelVertex &v : scene.vertices) {
         const auto r = toRenderModelVertex(v, 1.0f / upm);
         vertices.push_back({r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7]});
     }

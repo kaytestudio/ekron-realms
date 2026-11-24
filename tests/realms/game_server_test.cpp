@@ -6,7 +6,7 @@
 //
 // Without a game module the second part is skipped (exit code 77).
 #include "bsp_builder.h"
-#include "md2_builder.h"
+#include "md3_builder.h"
 
 #include "realms/Engine.h"
 #include "realms/GameEffects.h"
@@ -87,15 +87,15 @@ void writeFile(const fs::path &path, const std::vector<unsigned char> &bytes) {
 // the shotgun view model (two frames, its skin left out). The blaster view
 // model is deliberately missing.
 void writeTestModels(const fs::path &dir) {
-    auto shard = md2_builder::boxModel({{{-8, -8, -8}, {8, 8, 8}}});
-    shard.skins = {kShardSkin};
-    writeFile(dir / kShardModel, md2_builder::writeMd2(shard));
+    auto shard = md3_builder::boxModel({{{-8, -8, -8}, {8, 8, 8}}});
+    shard.surfaces[0].shaders = {kShardSkin};
+    writeFile(dir / realms::md3PathFor(kShardModel), md3_builder::writeMd3(shard));
     std::vector<uint8_t> idx(64 * 32);
     for (size_t i = 0; i < idx.size(); i++) idx[i] = uint8_t(i % 251);
-    writeFile(dir / kShardSkin, md2_builder::writePcx(64, 32, idx));
-    auto gun = md2_builder::boxModel({{{0, -4, -4}, {24, 4, 4}}, {{0, -4, -6}, {20, 4, 4}}});
-    gun.skins = {"models/weapons/v_shotg/skin.pcx"};
-    writeFile(dir / "models/weapons/v_shotg/tris.md2", md2_builder::writeMd2(gun));
+    writeFile(dir / kShardSkin, md3_builder::writePcx(64, 32, idx));
+    auto gun = md3_builder::boxModel({{{0, -4, -4}, {24, 4, 4}}, {{0, -4, -6}, {20, 4, 4}}});
+    gun.surfaces[0].shaders = {"models/weapons/v_shotg/skin.pcx"};
+    writeFile(dir / "models/weapons/v_shotg/tris.md3", md3_builder::writeMd3(gun));
 }
 
 // ------------------------------------------------------------ 1. Pmove
@@ -363,7 +363,7 @@ void runGameChecks(realms::Engine &engine, const std::string &gameLibrary) {
         CHECK(near(realms::GameEntityLerp::lerpAngle(10, 350, 0.25f), 5, 1e-4f));
         CHECK(near(realms::GameEntityLerp::lerpAngle(0, 90, 0.5f), 45, 1e-4f));
 
-        // the drawable scene: the shard's .md2 with its skin; no blaster
+        // the drawable scene: the shard's .md3 with its skin; no blaster
         // view model in this VFS, so no gun; never the player or the door
         realms::GameModelCache models;
         realms::GameScene scene;
@@ -387,7 +387,7 @@ void runGameChecks(realms::Engine &engine, const std::string &gameLibrary) {
         }
         CHECK(models.loaded() == 1 && models.missing() == 1);
         const auto errs = models.takeErrors();
-        CHECK(errs.size() == 1 && errs[0].find("v_blast/tris.md2: not found") != std::string::npos);
+        CHECK(errs.size() == 1 && errs[0].find("v_blast/tris.md3: not found") != std::string::npos);
         CHECK(models.takeErrors().empty());
         realms::buildGameScene(engine, server, lerp, models, {}, scene); // cached: no new errors
         CHECK(models.takeErrors().empty() && models.loaded() == 1);
@@ -398,7 +398,7 @@ void runGameChecks(realms::Engine &engine, const std::string &gameLibrary) {
 
         // without id's data (model file gone): a box from the item's bounds
         std::error_code rmErr;
-        fs::rename(gGameDir / kShardModel, gGameDir / "shard.bak", rmErr);
+        fs::rename(gGameDir / realms::md3PathFor(kShardModel), gGameDir / "shard.bak", rmErr);
         realms::GameModelCache noData;
         realms::buildGameScene(engine, server, lerp, noData, {}, scene);
         sb = nullptr;
@@ -418,7 +418,7 @@ void runGameChecks(realms::Engine &engine, const std::string &gameLibrary) {
         noBoxes.fallbackBoxes = false;
         realms::buildGameScene(engine, server, lerp, noData, noBoxes, scene);
         CHECK(scene.batches.empty() && scene.vertices.empty());
-        fs::rename(gGameDir / "shard.bak", gGameDir / kShardModel, rmErr);
+        fs::rename(gGameDir / "shard.bak", gGameDir / realms::md3PathFor(kShardModel), rmErr);
     }
 
     // walk +X: pick up the shard on the way (touch -> sound, freed)

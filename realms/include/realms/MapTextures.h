@@ -5,7 +5,7 @@
 // layer size.
 #pragma once
 
-#include "realms/Md2Model.h"
+#include "realms/Image.h"
 
 #include <array>
 #include <cstddef>

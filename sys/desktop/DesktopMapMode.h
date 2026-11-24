@@ -60,8 +60,8 @@ public:
     std::string gameStatus() const { return quake2().status(); }
     // Centre prints / pickup messages since the last call (for toasts).
     std::vector<std::string> takeGameMessages() { return view_.takeMessages(); }
-    // The game's entities for DesktopRenderer::setMapEntities: .md2 models
-    // from the VFS with their PCX skins (uploaded once, kept until close),
+    // The game's entities for DesktopRenderer::setMapEntities: .md3 models
+    // from the VFS with their TGA / PCX skins (uploaded once, kept until close),
     // coloured boxes where a model is missing, and the view weapon glued to
     // the camera (renderer yaw / pitch, radians). Empty without a game.
     void buildEntities(realms::Engine &engine, ekron::gl::Api &gl, float renderYaw, float renderPitch,

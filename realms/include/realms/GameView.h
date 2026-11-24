@@ -4,12 +4,14 @@
 // and EF_ANIM*, and the view weapon. Call GameEntityLerp::update once per
 // sandbox frame after GameServer::frame.
 //
-// buildGameScene turns the result into triangle batches, one per .md2 model,
-// or a coloured box from the entity bounds when the model file is missing.
+// buildGameScene turns the result into triangle batches, one per surface of
+// each entity's .md3 model (the game's "tris.md2" names load "tris.md3"), or
+// a coloured box from the entity bounds when the model file is missing.
 #pragma once
 
 #include "realms/GameServer.h"
-#include "realms/Md2Model.h"
+#include "realms/Image.h"
+#include "realms/Md3Model.h"
 
 #include <array>
 #include <memory>
@@ -67,13 +69,16 @@ private:
     int prevGunIndex_ = 0, prevGunFrame_ = 0;
 };
 
-// .md2 models loaded through the Engine's VFS (pak files or loose), by
-// name; a missing or corrupt file is remembered and reported once.
+// .md3 models loaded through the Engine's VFS (pak files or loose), by the
+// game's model name: "models/x/tris.md2" loads "models/x/tris.md3"
+// (md3PathFor). A missing or corrupt file is remembered and reported once.
 class GameModelCache {
 public:
     // nullptr when the model can't be loaded.
-    const Md2Model *model(const Engine &engine, const std::string &name);
-    // Decodes a skin (8-bit PCX) from the VFS; false when missing / corrupt.
+    const Md3Model *model(const Engine &engine, const std::string &name);
+    // Decodes a skin from the VFS: TGA or 8-bit PCX. When the named file is
+    // missing, the other format with the same base name is tried
+    // ("skin.pcx" -> "skin.tga" and back). False when missing / corrupt.
     static bool loadSkin(const Engine &engine, const std::string &name, RgbaImage &out, std::string &error);
     void clear() { models_.clear(); }
     size_t loaded() const;
@@ -83,7 +88,7 @@ public:
 
 private:
     struct Entry {
-        std::unique_ptr<Md2Model> model;
+        std::unique_ptr<Md3Model> model;
     };
     std::unordered_map<std::string, Entry> models_;
     std::vector<std::string> errors_;
@@ -110,7 +115,7 @@ struct GameDrawBatch {
 };
 
 struct GameScene {
-    std::vector<Md2Vertex> vertices; // model space, Quake 2 units
+    std::vector<ModelVertex> vertices; // model space, Quake units
     std::vector<GameDrawBatch> batches;
     void clear() {
         vertices.clear();
@@ -126,6 +131,11 @@ struct GameSceneOptions {
     bool hasCamera = false;
     std::array<float, 3> cameraOrigin{}, cameraAngles{};
 };
+
+// One batch per surface of `model`, each a copy of `base` (entity, pose,
+// colour) with its own vertices and skin (Md3Model::skin for `skinnum`).
+void appendModelBatches(const Md3Model &model, const GameDrawBatch &base, int frame, int oldframe, float backlerp,
+                        int skinnum, GameScene &scene);
 
 // Alias models and fallback boxes for every non-brush entity, and the view
 // weapon. Brush models ("*n") are left to the map renderer (use the lerped
