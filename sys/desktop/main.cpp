@@ -37,6 +37,7 @@
 #include "RaycastPlacement.h"
 #include "SandboxWorld.h"
 #include "ToolInteraction.h"
+#include "WindowsConsole.h"
 #include "WorldRecovery.h"
 #include "third_party/json.hpp"
 #include "realms/Engine.h"
@@ -695,6 +696,9 @@ static int sandboxMain(int argc, char **argv)
 int main(int argc, char **argv)
 #endif
 {
+#if !defined(EKRON_SANDBOX_LIBRARY)
+    ekron::desktop::attachParentConsole();
+#endif
     std::string cliAssets;
     std::string onlineHost, onlineName = "Player";
     bool onlineNameSet = false;
@@ -2360,7 +2364,11 @@ int main(int argc, char **argv)
 // `pascalCore` is the caller's own realms_pascal_get_api: the Realms core
 // then runs inside the calling program instead of being loaded from
 // librealms_core. No C++ exception may unwind into the (Pascal) caller.
+#if defined(_WIN32)
+extern "C" __declspec(dllexport)
+#else
 extern "C" __attribute__((visibility("default")))
+#endif
 int ekron_sandbox_run(int argc, char **argv, RealmsGetApiFn pascalCore) {
     realms::Engine::setLinkedPascalCore(pascalCore);
     int rc = 1;

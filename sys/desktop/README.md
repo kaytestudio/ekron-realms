@@ -1,6 +1,6 @@
 # ЭКРОН — Нативный клиент для ПК (`sys/desktop`)
 
-Нативный десктопный клиент городской песочницы **ЭКРОН** для **macOS (`.app`)** и **Linux (`.deb`)**, использующий общее C++17-ядро мира/физики (`sys/android/app/src/main/cpp`) и общие 3D-ассеты (`sys/android/app/src/main/assets`) на базе **SDL2 + OpenGL 3.3 Core**, а также опциональный лаунчер на **Free Pascal (`realms-launcher`)**.
+Нативный десктопный клиент городской песочницы **ЭКРОН** для **macOS (`.app`)**, **Linux (`.deb`)** и **Windows 10 / 11 (`.zip`)**, использующий общее C++17-ядро мира/физики (`sys/android/app/src/main/cpp`) и общие 3D-ассеты (`sys/android/app/src/main/assets`) на базе **SDL2 + OpenGL 3.3 Core**, а также опциональный лаунчер на **Free Pascal (`realms-launcher`)**.
 
 ## Управление (клавиатура и мышь)
 
@@ -29,12 +29,14 @@
 - флаг **`--no-intro`** или переменная окружения **`EKRON_NO_INTRO=1`** — запуск без заставки.
 
 Видео декодирует `IntroVideo.h` с одной из реализаций, выбираемой при сборке:
-**AVFoundation** на macOS (`IntroVideoApple.mm`, ничего ставить не нужно) и **FFmpeg** на Linux
+**AVFoundation** на macOS (`IntroVideoApple.mm`, ничего ставить не нужно), **Media Foundation** в Windows
+(`IntroVideoMediaFoundation.cpp`, входит в систему; выпускам Windows N нужен Media Feature Pack, без него игра
+запускается без заставки) и **FFmpeg** на Linux
 (`IntroVideoFFmpeg.cpp`, библиотеки `libavformat` / `libavcodec` / `libswscale` / `libswresample` версии 5.1+).
-Звук FFmpeg-реализации подмешивается к звуку игры в `DesktopAudio`. Если FFmpeg не найден, клиент собирается
+Звук реализаций FFmpeg и Media Foundation подмешивается к звуку игры в `DesktopAudio`. Если FFmpeg не найден, клиент собирается
 без заставки (`IntroVideoNone.cpp`) и пишет об этом при конфигурации CMake; `-DEKRON_REQUIRE_INTRO_VIDEO=ON`
 (так собирают CI и Docker) превращает это в ошибку, а `-DEKRON_INTRO_VIDEO=OFF` отключает заставку совсем.
-Тест `tests/native/intro_video_test.cpp` проигрывает заставку через FFmpeg с поддельными часами и аудиовыходом.
+Тест `tests/native/intro_video_test.cpp` проигрывает заставку через FFmpeg или Media Foundation с поддельными часами и аудиовыходом.
 
 ## Язык интерфейса
 
@@ -56,7 +58,8 @@ API — в `Localization.h`. Тест `tests/native/localization_test.cpp` пр�
 
 Для режима карт Quake 2 (`+map base1`, звуки и текстуры `.wal`) скопируйте папку `baseq2` из установленной Quake 2
 вместе с `pak0.pak` в каталог данных пользователя (`~/.local/share/KayteStudio/EkronRealms/baseq2/` в Linux,
-`~/Library/Application Support/KayteStudio/EkronRealms/baseq2/` в macOS) или в каталог ассетов (`<ассеты>/baseq2/`).
+`~/Library/Application Support/KayteStudio/EkronRealms/baseq2/` в macOS, `%APPDATA%\KayteStudio\EkronRealms\baseq2\`
+в Windows) или в каталог ассетов (`<ассеты>/baseq2/`).
 Можно оставить её на месте и указать флаг **`--quake2 <каталог>`** или переменную окружения **`EKRON_QUAKE2_DIR`**;
 подходит и папка Quake 2, и сама `baseq2`.
 
@@ -78,9 +81,11 @@ API — в `Localization.h`. Тест `tests/native/localization_test.cpp` пр�
 
 ## Сборка
 
-В GitHub Actions сборка разделена на два независимых workflow:
+В GitHub Actions сборка разделена на три независимых workflow:
 - **`.github/workflows/desktop-debian.yml`** — сборка и проверка пакета Debian (`.deb`, артефакт `ekron-realms-linux-deb`);
-- **`.github/workflows/desktop-macos.yml`** — сборка и проверка бандла macOS (`EkronRealms.app`, артефакт `ekron-realms-macos-app`).
+- **`.github/workflows/desktop-macos.yml`** — сборка и проверка бандла macOS (`EkronRealms.app`, артефакт `ekron-realms-macos-app`);
+- **`.github/workflows/desktop-windows.yml`** — сборка Windows (MinGW-w64 и Visual C++ на Windows Server 2025, серверной версии
+  Windows 11 24H2), тесты и ZIP-архив (`ekron-realms-<версия>-windows-x64.zip`, артефакт `ekron-realms-windows-zip`).
 
 ### Linux (Debian/Ubuntu `.deb`)
 ```sh
@@ -96,3 +101,18 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 # Готовый бандл: build/EkronRealms.app
 ```
+
+### Windows 10 / 11 (`.zip`)
+В оболочке MSYS2 **UCRT64** (`pacman -S mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-ninja`)
+с распакованным пакетом `SDL2-devel-2.x.y-mingw.tar.gz` (например, в `C:/SDL2`):
+```sh
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DSDL2_DIR=C:/SDL2/cmake \
+  -DFPC_EXECUTABLE=C:/lazarus/fpc/3.2.2/bin/x86_64-win64/fpc.exe   # необязательно: realms_core.dll и realms_game.dll
+cmake --build build
+(cd build && cpack)   # build/ekron-realms-<версия>-windows-x64.zip
+```
+Visual Studio 2022 тоже подходит (`-G "Visual Studio 17 2022" -A x64` и пакет `SDL2-devel-2.x.y-VC.zip`), см. `BUILD.md`.
+Архив — переносимая папка: `ekron-realms.exe`, `SDL2.dll`, библиотеки Free Pascal и `assets\`; установщика нет.
+Сохранения и настройки лежат в `%APPDATA%\KayteStudio\EkronRealms\`. Exe не подписан, поэтому SmartScreen может
+предупредить при первом запуске: «Подробнее» → «Выполнить в любом случае». В Windows нет лаунчеров на Free Pascal
+(`realms-launcher`, `realms-pascal`) и экспериментального онлайн-присутствия.

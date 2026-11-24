@@ -3,6 +3,8 @@
 //
 // Backends, picked at build time:
 //   * macOS: AVFoundation (IntroVideoApple.mm), sound through AVPlayer;
+//   * Windows: Media Foundation (IntroVideoMediaFoundation.cpp), sound
+//     through an IntroAudioSink;
 //   * elsewhere: FFmpeg's libavformat/libavcodec/libswscale/libswresample
 //     (IntroVideoFFmpeg.cpp) when found, sound through an IntroAudioSink;
 //   * otherwise none (IntroVideoNone.cpp): the game starts without the intro.
@@ -14,7 +16,7 @@
 
 namespace ekron::desktop {
 
-// Receives the soundtrack (FFmpeg backend). DesktopAudio mixes it over the
+// Receives the soundtrack (FFmpeg and Media Foundation backends). DesktopAudio mixes it over the
 // game sound; tests use a fake that "plays" on demand.
 class IntroAudioSink {
 public:
@@ -31,7 +33,7 @@ struct IntroFrame {
     int width = 0;
     int height = 0;
     int stride = 0;                  // bytes per row
-    bool bgra = false;               // BGRA (AVFoundation) rather than RGBA
+    bool bgra = false;               // BGRA (AVFoundation, Media Foundation) rather than RGBA
     uint64_t serial = 0;             // changes whenever the pixels change
 };
 
@@ -45,11 +47,11 @@ public:
 };
 
 struct IntroOptions {
-    IntroAudioSink *audio = nullptr; // FFmpeg backend only; null = no sound
+    IntroAudioSink *audio = nullptr; // FFmpeg / Media Foundation; null = no sound
     std::function<double()> now;     // seconds, monotonic; empty = steady clock
 };
 
-// "AVFoundation", "FFmpeg" or "none".
+// "AVFoundation", "MediaFoundation", "FFmpeg" or "none".
 const char *introVideoBackend();
 
 // Opens and starts the video. Returns null with `error` set when the file is

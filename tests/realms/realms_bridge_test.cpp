@@ -21,7 +21,17 @@
 
 #if defined(REALMS_PASCAL_STATIC)
 extern "C" const RealmsCoreApi *realms_pascal_get_api(uint32_t requested_version);
-#elif !defined(_WIN32)
+#elif defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#undef near // <windows.h> keeps the 16-bit pointer keywords as empty macros;
+#undef far  // the suites below have near() helpers
+#else
 #include <dlfcn.h>
 #endif
 
@@ -674,8 +684,21 @@ int main(int argc, char **argv) {
         CHECK(realms_pascal_get_api(REALMS_BRIDGE_VERSION + 1) == nullptr);
         pascalGetApi = &realms_pascal_get_api;
 #elif defined(_WIN32)
-        std::fprintf(stderr, "--pascal is not supported on Windows in this test\n");
-        return 2;
+        HMODULE lib = LoadLibraryA(pascalLibrary.c_str());
+        if (!lib) {
+            std::fprintf(stderr, "LoadLibrary(%s) failed (%lu)\n", pascalLibrary.c_str(),
+                         static_cast<unsigned long>(GetLastError()));
+            return 2;
+        }
+        auto getApi = reinterpret_cast<RealmsGetApiFn>(
+            reinterpret_cast<void *>(GetProcAddress(lib, REALMS_PASCAL_ENTRY_SYMBOL)));
+        if (!getApi) {
+            std::fprintf(stderr, "missing %s in %s\n", REALMS_PASCAL_ENTRY_SYMBOL, pascalLibrary.c_str());
+            return 2;
+        }
+        api = getApi(REALMS_BRIDGE_VERSION);
+        CHECK(getApi(REALMS_BRIDGE_VERSION + 1) == nullptr);
+        pascalGetApi = getApi;
 #else
         void *lib = dlopen(pascalLibrary.c_str(), RTLD_NOW | RTLD_LOCAL);
         if (!lib) {

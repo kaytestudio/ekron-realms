@@ -4,12 +4,18 @@
 
 #include <cassert>
 #include <cmath>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <string>
 
 static int failures = 0;
 #define CHECK(cond) do { if (!(cond)) { std::cerr << "FAIL: " #cond " @ line " << __LINE__ << "\n"; ++failures; } } while (0)
+
+// A file in the system temp folder (/tmp, %TEMP%).
+static std::string tempPath(const char *name) {
+    return (std::filesystem::temp_directory_path() / name).string();
+}
 
 static bool fileExists(const std::string &path) {
     std::ifstream in(path);
@@ -108,7 +114,7 @@ int main() {
     CHECK(noSkin.equipSkin(2));
 
     // Persistence round-trip.
-    const std::string path = "/tmp/ekron-shop-test-store.json";
+    const std::string path = tempPath("ekron-shop-test-store.json");
     std::remove(path.c_str());
     ShopState saver;
     saver.coins = 777;
@@ -127,12 +133,13 @@ int main() {
     CHECK(loader.coins == 327);
 
     // Malformed / missing store is tolerated.
-    CHECK(!loader.load("/tmp/ekron-shop-does-not-exist-xyz.json"));
-    std::ofstream bad("/tmp/ekron-shop-bad.json");
+    CHECK(!loader.load(tempPath("ekron-shop-does-not-exist-xyz.json")));
+    const std::string badPath = tempPath("ekron-shop-bad.json");
+    std::ofstream bad(badPath);
     bad << "{ not json";
     bad.close();
     ShopState afterBad;
-    CHECK(!afterBad.load("/tmp/ekron-shop-bad.json"));
+    CHECK(!afterBad.load(badPath));
     CHECK(afterBad.coins == 0);
 
     // Remote sync replaces state and keeps an owned skin equipped.

@@ -1,6 +1,6 @@
 name: Release
 
-# Pushing a version tag (v1.0.0, v1.1.0-pre, ...) builds the four packages
+# Pushing a version tag (v1.0.0, v1.1.0-pre, ...) builds the five packages
 # with the regular CI workflows and attaches them to that tag's GitHub
 # release. An existing release (made by hand, with its own notes) keeps its
 # notes and gets the files; otherwise the release is created here, as a
@@ -25,10 +25,12 @@ jobs:
     uses: ./.github/workflows/android-sandbox.yml
   ios:
     uses: ./.github/workflows/ios-sandbox.yml
+  windows:
+    uses: ./.github/workflows/desktop-windows.yml
 
   publish:
     name: Attach the packages to the release
-    needs: [linux, macos, android, ios]
+    needs: [linux, macos, android, ios, windows]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -59,6 +61,10 @@ jobs:
         with:
           name: ekron-native-sandbox-debug-ipa
           path: in/ios
+      - uses: actions/download-artifact@v7
+        with:
+          name: ekron-realms-windows-zip
+          path: in/windows
 
       - name: Name the packages after the version
         run: |
@@ -79,6 +85,7 @@ jobs:
           cp "$(one in/macos '*.app.zip')" "out/ekron-realms-$ver-macos-unsigned.app.zip"
           cp "$(one in/android '*.apk')" "out/ekron-realms-$ver-android-debug.apk"
           cp "$(one in/ios '*.ipa')" "out/ekron-realms-$ver-ios-debug-unsigned.ipa"
+          cp "$(one in/windows '*-windows-x64.zip')" "out/ekron-realms-$ver-windows-x64.zip"
           (cd out && sha256sum -- * > SHA256SUMS.txt)
           ls -l out
           cat out/SHA256SUMS.txt
@@ -99,6 +106,7 @@ jobs:
           ## Packages
 
           - **Linux** (\`ekron-realms-$ver-linux-amd64.deb\`): \`sudo apt install ./ekron-realms-$ver-linux-amd64.deb\`, then run \`ekron-realms\`.
+          - **Windows 10 / 11** (\`ekron-realms-$ver-windows-x64.zip\`): unzip it anywhere and run \`ekron-realms.exe\` (no installer; saves go to \`%APPDATA%\\KayteStudio\\EkronRealms\`). The exe is not code-signed, so SmartScreen may warn: choose **More info**, then **Run anyway**.
           - **macOS** (\`ekron-realms-$ver-macos-unsigned.app.zip\`): the app is only ad-hoc signed: no Developer ID signature, not notarised. Unzip it, then right-click the app and choose **Open** (or run \`xattr -dr com.apple.quarantine EkronRealms.app\`).
           - **Android** (\`ekron-realms-$ver-android-debug.apk\`): a debug build, signed only with the Android debug key, not a release signature. Allow installs from unknown sources to sideload it.
           - **iOS** (\`ekron-realms-$ver-ios-debug-unsigned.ipa\`): an unsigned debug build. It has to be re-signed with your own Apple ID or certificate (Xcode, AltStore, Sideloadly, ...) before it installs.
