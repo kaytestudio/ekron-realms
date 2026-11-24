@@ -44,6 +44,10 @@ constexpr size_t kMaxQueuedFrames = 12;   // decoded ahead (BGRX, ~3.7 MB each a
 constexpr double kVideoLead = 0.20;       // decode this far past the clock
 constexpr double kAudioLead = 0.40;       // keep this much sound queued
 constexpr int kMaxSamplesPerUpdate = 256; // never stall a frame on decoding
+// Sample times are whole 100 ns units, so 1/24 s frames land up to 50 ns
+// either side of the exact time; without slack a frame rounded up and the
+// next one rounded down fall due on the same clock tick and one is dropped.
+constexpr double kDueSlack = 0.001;
 
 double steadySeconds() {
     using namespace std::chrono;
@@ -246,7 +250,7 @@ public:
 
         // Show the latest frame that is due; frames we're late for are dropped.
         Com<IMFSample> due;
-        while (!queue_.empty() && queue_.front().pts <= t) {
+        while (!queue_.empty() && queue_.front().pts <= t + kDueSlack) {
             due = std::move(queue_.front().sample);
             lastShownPts_ = queue_.front().pts;
             queue_.pop_front();
@@ -402,7 +406,11 @@ private:
     }
 
     void queueVideo(Com<IMFSample> sample, LONGLONG timestamp) {
-        double pts = double(timestamp) / 1e7; // 100 ns units
+        // The first picture is at 0, like the sound (which the clock counts
+        // from its first sample): the MP4 source may leave the edit list's
+        // start offset (B-frame delay) in the timestamps.
+        if (lastQueuedPts_ < 0.0) videoOrigin_ = timestamp;
+        double pts = double(timestamp - videoOrigin_) / 1e7; // 100 ns units
         if (queue_.empty() && lastQueuedPts_ < 0.0) pts = std::max(pts, 0.0);
         lastQueuedPts_ = pts;
         QueuedFrame q;
@@ -527,6 +535,7 @@ private:
     std::deque<QueuedFrame> queue_;
     double frameDuration_ = 1.0 / 30.0;
     double lastQueuedPts_ = -1.0;
+    LONGLONG videoOrigin_ = 0;
     double lastShownPts_ = 0.0;
     bool videoEnded_ = false;
     bool audioEnded_ = false;

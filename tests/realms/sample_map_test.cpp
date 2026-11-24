@@ -210,7 +210,13 @@ void gameChecks(realms::Engine &engine) {
 } // namespace
 
 int main(int argc, char **argv) {
+#if defined(_WIN32)
+    // The Windows CRT has no line buffering and rejects _IOLBF with size 0
+    // (invalid parameter: the process is terminated); unbuffered instead.
+    std::setvbuf(stdout, nullptr, _IONBF, 0);
+#else
     std::setvbuf(stdout, nullptr, _IOLBF, 0);
+#endif
     std::string assets, pascalLibrary, gameLibrary;
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
