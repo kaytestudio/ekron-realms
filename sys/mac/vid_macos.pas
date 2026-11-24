@@ -1,6 +1,6 @@
 unit vid_macos;
 
-{$mode objfpc}{$H+} // objfpc mode for classes, {$H+} for strings as AnsiString by default
+{$mode objfpc}{$H+}
 
 interface
 
@@ -9,14 +9,13 @@ interface
   Quake refresh engine. }
 
 uses
-  SysUtils, // Needed for LoadPackage, GetProcAddress
-  SDL2,     // Crucial: Add SDL2 for cross-platform system functionality
-  // Own Quake Units
-  ref,      // This unit is crucial for 're' (renderer export)
+  SysUtils, // LoadPackage, GetProcAddress
+  SDL2,
+  ref,      // refexport_t, refimport_t
   keys,
   Cvar,
   vid_h,
-  Client,   // Provides ActiveApp (ensure ActiveApp is in Client.pas interface var section)
+  Client,   // ActiveApp
   cl_scrn,
   Common,
   q_shared,
@@ -24,7 +23,7 @@ uses
   snd_dma,
   input,
 
-  // Platform-specific sound and system units, conditionally included
+  // platform sound and system units
   {$IFDEF LINUX}
   snd_sdl in '../linux/snd_sdl.pas',
   sys_linux in '../linux/sys_linux.pas',
@@ -34,7 +33,7 @@ uses
   snd_mac in '../mac/snd_mac.pas',
   sys_mac in '../mac/sys_mac.pas'
   {$ENDIF}
-  ; // This semicolon terminates the entire uses clause
+  ;
 
 type
   vidmode_p = ^vidmode_t;
@@ -44,20 +43,20 @@ type
     mode: Integer;
   end;
 
-// Forward declarations for procedures/functions used in the interface section
 procedure VID_CheckChanges;
 procedure VID_Init;
 procedure VID_Shutdown;
-procedure VID_UpdateWindowPosAndSize(x, y: Integer); cdecl; // Added cdecl back, it's a callback
-procedure VID_NewWindow(width, height: Integer); cdecl;      // Added cdecl back, it's a callback
-function VID_GetModeInfo(width, height: PInteger; mode: integer): qboolean; cdecl; // Added cdecl back, it's a callback
+// cdecl: the refresh library calls these through refimport_t
+procedure VID_UpdateWindowPosAndSize(x, y: Integer); cdecl;
+procedure VID_NewWindow(width, height: Integer); cdecl;
+function VID_GetModeInfo(width, height: PInteger; mode: integer): qboolean; cdecl;
 
-// These are still needed if the refresh DLL calls them back (e.g., for logging/errors)
+// console output and fatal errors for the refresh library
 procedure VID_Printf(print_level: Integer; fmt: PChar; args: array of const);
 procedure VID_Error(err_level: integer; fmt: PChar; args: array of const);
 
 
-// Procedures for activating/deactivating the application focus, input, audio, etc.
+// application focus: input grab and sound
 procedure AppActivate(fActive: Boolean; minimize: Boolean); cdecl;
 
 const
@@ -111,17 +110,16 @@ const
 
 var
   // Structure containing functions exported from refresh DLL
-  re: refexport_t; // 're' is declared here. Ensure refexport_t is visible from 'ref' unit.
+  re: refexport_t; // the loaded refresh library's functions
 
-  // Console variables that we need to access from this module
-  vid_gamma: cvar_p;      // This is the correct declaration for the cvar pointer
-  vid_ref: cvar_p;        // Name of Refresh DLL loaded
-  vid_xpos: cvar_p;       // X coordinate of window position
-  vid_ypos: cvar_p;       // Y coordinate of window position
+  // console variables
+  vid_gamma: cvar_p;
+  vid_ref: cvar_p;        // name of the refresh library
+  vid_xpos: cvar_p;       // window position
+  vid_ypos: cvar_p;
   vid_fullscreen: cvar_p;
 
-  // Global variables used internally by this module
-  viddef: viddef_t;       // global video state; used by other modules
+  viddef: viddef_t;       // video state shared with the client
 
 const
   VID_NUM_MODES = (sizeof(vid_modes) div sizeof(vid_modes[0]));
@@ -132,22 +130,18 @@ uses
   cl_main,
   Cmd,
   Files,
-  CPas // For DelphiStrFmt
+  CPas // DelphiStrFmt
   ;
 
 var
-  // Static Variables (moved QuakeWindow here as it's typically managed internally by this unit)
   reflib_library: TLibHandle;
   reflib_active: qboolean = False;
-  vidref_val: Integer; // Declared here once, as it's for internal use by this implementation
-  QuakeWindow: PSDL_Window = nil; // Declared here once, for internal management
+  vidref_val: Integer;
+  QuakeWindow: PSDL_Window = nil;
   InputInitialized: Boolean = False;
 
 
-  // These are now C-compatible wrappers for the procedures above, used for function pointers
-  // in refimport_t.
-  // Removed cdecl from the procedure declaration itself. The 'cdecl' is on the function pointer type
-  // (e.g., in refimport_t) that will point to this procedure.
+  // Wrappers for VID_Printf / VID_Error, stored in refimport_t.
   procedure VID_Printf_cdecl(print_level: Integer; fmt: PChar; args: array of const);
   begin
     VID_Printf(print_level, fmt, args);
@@ -169,8 +163,7 @@ begin
     Com_DPrintf('%s', [msg])
   else if (print_level = PRINT_ALERT) then
   begin
-    // For a real game, you might want a GUI alert here (e.g., SDL_ShowSimpleMessageBox)
-    Com_Printf('ALERT: %s'#10, [msg]); // Fallback to console print
+    Com_Printf('ALERT: %s'#10, [msg]); // console only, no message box
   end;
 end;
 
@@ -184,7 +177,6 @@ end;
 
 procedure VID_Restart_f; cdecl;
 begin
-  // Access as pointer
   vid_ref^.modified := True;
 end;
 
@@ -192,33 +184,28 @@ procedure VID_Front_f; cdecl;
 begin
   if Assigned(QuakeWindow) then
   begin
-    SDL_RaiseWindow(QuakeWindow); // Bring the window to front
+    SDL_RaiseWindow(QuakeWindow);
   end;
 end;
 
 function MapKey(key: Integer): Integer;
-// Assuming 'key' here is an SDL_Scancode (which is an Integer type in SDL2 bindings).
-// The scantokey array currently only supports indices up to 127.
-// SDL_Scancode values can be much higher (e.g., SDL_SCANCODE_GRAVE is 52, SDL_SCANCODE_KP_ENTER is 88).
-// For a robust solution, you'd need a larger `scantokey` array or a different mapping strategy.
+// key is an SDL_Scancode, used as an index into scantokey (128 entries);
+// scancodes past the table map to 0.
 var
   scancode_index: Integer;
 
 begin
-  scancode_index := key; // Direct use of SDL_Scancode as index
+  scancode_index := key;
 
-  if (scancode_index < 0) or (scancode_index >= Length(scantokey)) then // Use Length for array size
+  if (scancode_index < 0) or (scancode_index >= Length(scantokey)) then
   begin
-    Result := 0; // Invalid scancode
+    Result := 0;
     Exit;
   end;
 
   Result := scantokey[scancode_index];
 
-  // Additional handling for specific keys if SDL's default mapping doesn't align
-  // with Quake's K_KP_ constants for numpad/extended keys.
-  // This part needs careful testing with actual SDL events.
-  // Example: SDL_SCANCODE_KP_ENTER could map directly to K_KP_ENTER.
+  // navigation keys become their keypad codes (K_KP_*)
   case Result of
     K_HOME: Result := K_KP_HOME;
     K_UPARROW: Result := K_KP_UPARROW;
@@ -230,7 +217,6 @@ begin
     K_PGDN: Result := K_KP_PGDN;
     K_INS: Result := K_KP_INS;
     K_DEL: Result := K_KP_DEL;
-    // Add more specific SDL to Quake key mappings as needed.
   end;
 end;
 
@@ -260,17 +246,16 @@ begin
   begin
     // Release mouse grab and deactivate input/sound when inactive.
     SDL_SetRelativeMouseMode(SDL_FALSE);
-    IN_Activate(False); // Assuming IN_Activate exists in an input unit.
+    IN_Activate(False);
     S_Activate(False);
-    // CDAudio_Activate(False); // Explicitly commented out.
+    // CDAudio_Activate is not called
   end
   else
   begin
     // Grab mouse and activate input/sound when active.
     SDL_SetRelativeMouseMode(SDL_TRUE);
-    IN_Activate(True); // Assuming IN_Activate exists in an input unit.
+    IN_Activate(True);
     S_Activate(True);
-    // CDAudio_Activate(True); // Explicitly commented out.
   end;
 end;
 
@@ -323,7 +308,7 @@ end;
 
 function VID_LoadRefresh(name: PChar): qboolean; cdecl;
 type
-  // Define the type for the GetRefAPI function pointer, as expected by the refresh DLL
+  // GetRefAPI, exported by the refresh library
   TGetRefAPI = function(imp: refimport_t): refexport_t; cdecl;
 var
   ri: refimport_t;
@@ -337,7 +322,6 @@ begin
 
   Com_Printf('------- Loading %s -------'#10, [name]);
 
-  // Use SysUtils.LoadPackage for cross-platform dynamic library loading
   reflib_library := SysUtils.LoadPackage(name);
   if (reflib_library = 0) then
   begin
@@ -352,8 +336,8 @@ begin
   ri.Cmd_Argc := Cmd_Argc;
   ri.Cmd_Argv := Cmd_Argv;
   ri.Cmd_ExecuteText := Cbuf_ExecuteText;
-  ri.Con_Printf := @VID_Printf_cdecl; // Pass address of wrapper procedure
-  ri.Sys_Error := @VID_Error_cdecl;    // Pass address of wrapper procedure
+  ri.Con_Printf := @VID_Printf_cdecl;
+  ri.Sys_Error := @VID_Error_cdecl;
   ri.FS_LoadFile := FS_LoadFile;
   ri.FS_FreeFile := FS_FreeFile;
   ri.FS_Gamedir := FS_Gamedir;
@@ -364,22 +348,19 @@ begin
   ri.Vid_MenuInit := VID_MenuInit;
   ri.Vid_NewWindow := VID_NewWindow;
 
-  // Use SysUtils.GetProcAddress for cross-platform procedure address retrieval
   GetRefAPI_Proc := SysUtils.GetProcAddress(reflib_library, 'GetRefAPI');
   if not Assigned(GetRefAPI_Proc) then
   begin
     Com_Error(ERR_FATAL, 'GetProcAddress failed for "GetRefAPI" in %s: %s', [name, SysUtils.SysErrorMessage(SysUtils.GetLastError)]);
-    VID_FreeReflib; // Ensure library is freed on error
+    VID_FreeReflib;
     Result := False;
     Exit;
   end;
 
-  // Call the GetRefAPI function from the loaded DLL to get the exported functions
   re := GetRefAPI_Proc(ri);
 
-  // Pass the SDL window and OpenGL context (or nil if managed by renderer) to the renderer's Init function.
-  // QuakeWindow should be set by the main program (Quake2Main.lpr) before this.
-  if (re.Init(QuakeWindow, nil) = -1) then // nil for GL context if renderer handles it, or if it's a software renderer
+  // QuakeWindow must exist by now; no GL context is passed
+  if (re.Init(QuakeWindow, nil) = -1) then
   begin
     re.Shutdown;
     VID_FreeReflib;
@@ -424,7 +405,6 @@ begin
     cl.refresh_prepped := False;
     cls.disable_screen := Integer(True);
 
-    // Use 'dylib' for macOS and 'so' for Linux shared libraries
     {$IFDEF DARWIN}
     Com_sprintf(name, SizeOf(name), 'ref_%s.dylib', [vid_ref^.string_]);
     {$ELSEIF DEF LINUX}

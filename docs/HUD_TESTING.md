@@ -2,8 +2,8 @@
 
 The maintained sandbox clients are `sys/android`, `sys/ios` (the iOS target),
 and `sys/desktop` (Linux/macOS). The older `game-source` Android tree is a
-standalone archived snapshot, not a synchronized client. The Xcode macOS and
-tvOS template targets are not the desktop/iOS sandbox clients.
+standalone archived snapshot, not a synchronized client. The Xcode project
+has a single target, `realms iOS`.
 
 ## On Android and iOS
 
