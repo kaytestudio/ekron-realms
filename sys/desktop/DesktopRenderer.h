@@ -4,6 +4,7 @@
 #include "DesktopFont.h"
 #include "GltfScene.h"
 #include "MeshGeometry.h"
+#include "realms/ViewFov.h"
 #define STBI_NO_STDIO
 #include "third_party/stb_image.h"
 
@@ -223,7 +224,8 @@ public:
                         physics::Vec3 eye,
                         float yaw,
                         float pitch,
-                        float roll);
+                        float roll,
+                        float focal); // realms::mapFocalLength(fov)
 
     // 2D UI layer (coordinates in logical window pixels [0..winW] x [0..winH], top-left origin)
     void beginUi(int logicalW, int logicalH);
@@ -235,6 +237,9 @@ public:
     void flushUi(ekron::gl::Api &gl, int drawableW, int drawableH);
 
 private:
+    // The 3D passes' focal length: the sandbox's, or map mode's from the fov.
+    float focal_ = realms::kSandboxFocalLength;
+
     struct UiVertex {
         float x, y;
         float u, v;

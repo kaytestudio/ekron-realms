@@ -6,6 +6,7 @@
 // sv_user.c, GPL (c) 1997-2001 id Software. The collision model calls go
 // through realms::Engine, i.e. to the Pascal or the C++ core.
 #include "realms/GameServer.h"
+#include "realms/ViewFov.h"
 #include "realms/GameEffects.h"
 #include "realms/GameSave.h"
 
@@ -826,8 +827,8 @@ bool GameServer::start(Engine &engine, const GameServerConfig &config, std::stri
     }
 
     // SV_DirectConnect + SV_Begin_f for the local client
-    std::snprintf(userinfo_, sizeof(userinfo_), "\\name\\%s\\skin\\male/grunt\\hand\\0\\fov\\90\\rate\\25000\\msg\\1\\ip\\loopback",
-                  config.playerName.c_str());
+    playerName_ = config.playerName;
+    buildUserinfo(config.fov);
     struct ConnectArgs {
         bool ok = false;
     } connect;
@@ -1025,6 +1026,25 @@ void GameServer::clientCommand(const std::string &line) {
     tokenize(line);
     if (argv_.empty()) return;
     guarded("ClientCommand", [](GameServer &s, void *) { s.ge_->ClientCommand(s.edictNum(1)); }, nullptr);
+}
+
+void GameServer::buildUserinfo(float fov) {
+    // Info strings can't hold backslashes, quotes or semicolons.
+    std::string name;
+    for (char c : playerName_)
+        if (c != '\\' && c != '"' && c != ';' && static_cast<unsigned char>(c) >= 32) name += c;
+    if (name.empty()) name = "Player";
+    std::snprintf(userinfo_, sizeof(userinfo_),
+                  "\\name\\%s\\skin\\male/grunt\\hand\\0\\fov\\%g\\rate\\25000\\msg\\1\\ip\\loopback",
+                  name.c_str(), double(clampFov(fov)));
+}
+
+void GameServer::setFov(float fov) {
+    if (!running_) return;
+    buildUserinfo(fov);
+    guarded(
+        "ClientUserinfoChanged", [](GameServer &s, void *) { s.ge_->ClientUserinfoChanged(s.edictNum(1), s.userinfo_); },
+        nullptr);
 }
 
 void GameServer::serverCommand(const std::string &line) {

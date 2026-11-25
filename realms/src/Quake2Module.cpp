@@ -1,5 +1,6 @@
 // Realms Engine - the Quake 2 stack as one module (see Quake2Module.h).
 #include "realms/Quake2Module.h"
+#include "realms/ViewFov.h"
 
 #include "realms/q2game.h"
 
@@ -95,6 +96,8 @@ bool Quake2Module::startGame(Engine &engine, std::string &why) {
     GameServerConfig config;
     config.executableDir = executableDir_;
     config.playerName = engine.cvarString("name", "Player");
+    config.fov = clampFov(engine.cvarFloat("fov", 90.0f));
+    engine.cvarModified("fov"); // sent with the connect
     config.skill = engine.cvarInt("skill", 1);
     if (!game_->start(engine, config, why)) {
         game_.reset();
@@ -243,8 +246,13 @@ Quake2Module::PlayerStats Quake2Module::stats() const {
             s.blend[i] = std::isfinite(v) ? std::clamp(v, 0.0f, 1.0f) : 0.0f;
         }
         if (s.blend[3] <= 0.0f) s.blend = {};
+        s.fov = clampFov(ps->fov);
     }
     return s;
+}
+
+float Quake2Module::viewFov(const Engine &engine) const {
+    return gameRunning() ? stats().fov : clampFov(engine.cvarFloat("fov", 90.0f));
 }
 
 std::string Quake2Module::status() const {
@@ -314,6 +322,8 @@ const GameScene &Quake2Module::buildScene(Engine &engine, const Vec3 &cameraOrig
                                           bool viewWeapon) {
     scene_.clear();
     if (!gameRunning()) return scene_;
+    // Like the Quake 2 client sending its userinfo when the fov cvar changes.
+    if (engine.cvarModified("fov")) game_->setFov(engine.cvarFloat("fov", 90.0f));
     GameSceneOptions opt;
     opt.viewWeapon = viewWeapon && !noclip();
     opt.hasCamera = true;

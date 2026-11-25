@@ -65,6 +65,11 @@ public:
     // the sandbox albedo array on unit 0.
     void draw(GLuint program, const city::GltfRenderer &sandboxCity, realms::Engine &engine, float renderYaw,
               float renderPitch, float aspect);
+    // The focal length map mode draws with (the "focal" uniform): from the
+    // game's fov, or the fov cvar without a game (realms/ViewFov.h).
+    float focalLength(const realms::Engine &engine) const {
+        return realms::mapFocalLength(view_ ? view_->module().viewFov(engine) : 90.0f);
+    }
     // The game's sounds on the sandbox mixer (silent while paused).
     void playSounds(realms::Engine &engine, ekron::audio::Mixer &mixer, double dt, bool paused);
 

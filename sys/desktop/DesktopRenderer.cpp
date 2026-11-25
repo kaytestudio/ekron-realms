@@ -43,6 +43,7 @@ in vec2 vScreen;
 uniform vec2 uAngles;
 uniform float uRoll;
 uniform float uAspect;
+uniform float uFocal; // realms/ViewFov.h
 // Quake 2 skybox (map mode, realms::MapSky): six layers rt lf bk ft up dn on
 // unit 4; uSkyMatrix turns a render-space direction into the box's axes.
 uniform int uSkyBox;
@@ -50,7 +51,7 @@ uniform mat3 uSkyMatrix;
 uniform sampler2DArray uSkyTextures;
 out vec4 fragColor;
 void main() {
-    vec3 ray = normalize(vec3(vScreen.x * max(uAspect, 0.001) / 1.37638, vScreen.y / 1.37638, -1.0));
+    vec3 ray = normalize(vec3(vScreen.x * max(uAspect, 0.001) / uFocal, vScreen.y / uFocal, -1.0));
     float cr = cos(uRoll), sr = sin(uRoll);
     ray.xy = vec2(cr * ray.x + sr * ray.y, -sr * ray.x + cr * ray.y);
     if (uSkyBox != 0) {
@@ -93,6 +94,7 @@ uniform vec3 uEye;
 uniform vec2 uAngles;
 uniform float uRoll;
 uniform float uAspect;
+uniform float uFocal; // realms/ViewFov.h
 uniform mat4 uObjectTransform;
 // Map mode (mapview::kMapEffectShift): aLayer packs the layer (bits 0..11),
 // Quake 2 surface effects (12..15) and an animation slot + 1 (16..21) whose
@@ -120,7 +122,7 @@ void main() {
     q = vec3(q.x, cp * q.y + sp * q.z, -sp * q.y + cp * q.z);
     float cr = cos(uRoll), sr = sin(uRoll);
     q.xy = vec2(cr * q.x - sr * q.y, sr * q.x + cr * q.y);
-    float f = 1.37638;
+    float f = uFocal;
     gl_Position = vec4(q.x * f / max(uAspect, 0.001), q.y * f, -1.000533 * q.z - 0.160043, -q.z);
     vCol = aCol;
     vNorm = mat3(uObjectTransform) * aNorm;
@@ -144,6 +146,7 @@ uniform vec3 uEye;
 uniform vec2 uAngles;
 uniform float uRoll;
 uniform float uAspect;
+uniform float uFocal; // realms/ViewFov.h
 uniform mat4 uObjectTransform;
 
 out vec3 vCol;
@@ -164,7 +167,7 @@ void main() {
     q = vec3(q.x, cp * q.y + sp * q.z, -sp * q.y + cp * q.z);
     float cr = cos(uRoll), sr = sin(uRoll);
     q.xy = vec2(cr * q.x - sr * q.y, sr * q.x + cr * q.y);
-    float f = 1.37638;
+    float f = uFocal;
     gl_Position = vec4(q.x * f / max(uAspect, 0.001), q.y * f, -1.000533 * q.z - 0.160043, -q.z);
     vCol = vec3(1.0);
     vNorm = mat3(uObjectTransform) * aNorm;
@@ -186,6 +189,7 @@ uniform vec3 uEye;
 uniform vec2 uAngles;
 uniform float uRoll;
 uniform float uAspect;
+uniform float uFocal; // realms/ViewFov.h
 
 out vec4 vCol;
 out vec3 vShape;
@@ -198,7 +202,7 @@ void main() {
     q = vec3(q.x, cp * q.y + sp * q.z, -sp * q.y + cp * q.z);
     float cr = cos(uRoll), sr = sin(uRoll);
     q.xy = vec2(cr * q.x - sr * q.y, sr * q.x + cr * q.y);
-    float f = 1.37638;
+    float f = uFocal;
     gl_Position = vec4(q.x * f / max(uAspect, 0.001), q.y * f, -1.000533 * q.z - 0.160043, -q.z);
     vCol = aCol;
     vShape = aShape;
@@ -437,11 +441,13 @@ void applyCommonSceneUniforms(ekron::gl::Api &gl,
                               float pitch,
                               float roll,
                               float aspect,
+                              float focal,
                               bool texturesReady) {
     gl.Uniform3f(gl.GetUniformLocation(prog, "uEye"), eye.x, eye.y, eye.z);
     gl.Uniform2f(gl.GetUniformLocation(prog, "uAngles"), yaw, pitch);
     gl.Uniform1f(gl.GetUniformLocation(prog, "uRoll"), roll);
     gl.Uniform1f(gl.GetUniformLocation(prog, "uAspect"), aspect);
+    gl.Uniform1f(gl.GetUniformLocation(prog, "uFocal"), focal);
     gl.Uniform1i(gl.GetUniformLocation(prog, "uAlbedoArray"), 0);
     gl.Uniform1i(gl.GetUniformLocation(prog, "uModelAlbedo"), 1);
     gl.Uniform1i(gl.GetUniformLocation(prog, "uTexturesReady"), texturesReady ? 1 : 0);
@@ -997,6 +1003,7 @@ void DesktopRenderer::drawWorldScene(ekron::gl::Api &gl,
     gl.Uniform2f(gl.GetUniformLocation(skyProg_, "uAngles"), yaw, pitch);
     gl.Uniform1f(gl.GetUniformLocation(skyProg_, "uRoll"), roll);
     gl.Uniform1f(gl.GetUniformLocation(skyProg_, "uAspect"), aspect);
+    gl.Uniform1f(gl.GetUniformLocation(skyProg_, "uFocal"), focal_);
     gl.BindVertexArray(emptyVao_);
     gl.DrawArrays(GL_TRIANGLES, 0, 3);
     gl.DepthMask(GL_TRUE);
@@ -1004,7 +1011,7 @@ void DesktopRenderer::drawWorldScene(ekron::gl::Api &gl,
     // Procedural + placed objects pass
     if (!worldVertices.empty()) {
         gl.UseProgram(worldProg_);
-        applyCommonSceneUniforms(gl, worldProg_, eye, yaw, pitch, roll, aspect, texturesReady_);
+        applyCommonSceneUniforms(gl, worldProg_, eye, yaw, pitch, roll, aspect, focal_, texturesReady_);
         gl.UniformMatrix4fv(gl.GetUniformLocation(worldProg_, "uObjectTransform"), 1, GL_FALSE, kIdentityMatrix.data());
         gl.Uniform1i(gl.GetUniformLocation(worldProg_, "uModelPass"), 0);
         gl.Uniform1i(gl.GetUniformLocation(worldProg_, "uPreviewPass"), 0);
@@ -1024,7 +1031,7 @@ void DesktopRenderer::drawWorldScene(ekron::gl::Api &gl,
 
     // glTF city + vehicles
     gl.UseProgram(modelProg_);
-    applyCommonSceneUniforms(gl, modelProg_, eye, yaw, pitch, roll, aspect, texturesReady_);
+    applyCommonSceneUniforms(gl, modelProg_, eye, yaw, pitch, roll, aspect, focal_, texturesReady_);
     gl.ActiveTexture(GL_TEXTURE0);
     gl.BindTexture(GL_TEXTURE_2D_ARRAY, materialArrayTex_);
 
@@ -1260,7 +1267,9 @@ void DesktopRenderer::renderMapWorld(ekron::gl::Api &gl,
                                      physics::Vec3 eye,
                                      float yaw,
                                      float pitch,
-                                     float roll) {
+                                     float roll,
+                                     float focal) {
+    focal_ = focal;
     gl.BindFramebuffer(GL_FRAMEBUFFER, 0);
     const float aspect = float(std::max(drawableW, 1)) / float(std::max(drawableH, 1));
     gl.Viewport(0, 0, drawableW, drawableH);
@@ -1277,6 +1286,7 @@ void DesktopRenderer::renderMapWorld(ekron::gl::Api &gl,
     gl.Uniform2f(gl.GetUniformLocation(skyProg_, "uAngles"), yaw, pitch);
     gl.Uniform1f(gl.GetUniformLocation(skyProg_, "uRoll"), roll);
     gl.Uniform1f(gl.GetUniformLocation(skyProg_, "uAspect"), aspect);
+    gl.Uniform1f(gl.GetUniformLocation(skyProg_, "uFocal"), focal_);
     if (skyTex_) {
         gl.ActiveTexture(GL_TEXTURE4);
         gl.BindTexture(GL_TEXTURE_2D_ARRAY, skyTex_);
@@ -1293,7 +1303,7 @@ void DesktopRenderer::renderMapWorld(ekron::gl::Api &gl,
 
     if (mapModel && mapModel->ready()) {
         gl.UseProgram(modelProg_);
-        applyCommonSceneUniforms(gl, modelProg_, eye, yaw, pitch, roll, aspect, texturesReady_);
+        applyCommonSceneUniforms(gl, modelProg_, eye, yaw, pitch, roll, aspect, focal_, texturesReady_);
         applyMapLights(gl, modelProg_);
         gl.ActiveTexture(GL_TEXTURE0);
         gl.BindTexture(GL_TEXTURE_2D_ARRAY, materialArrayTex_);
@@ -1302,7 +1312,7 @@ void DesktopRenderer::renderMapWorld(ekron::gl::Api &gl,
 
     if (!entityBatches_.empty() && entityVao_) {
         gl.UseProgram(modelProg_);
-        applyCommonSceneUniforms(gl, modelProg_, eye, yaw, pitch, roll, aspect, texturesReady_);
+        applyCommonSceneUniforms(gl, modelProg_, eye, yaw, pitch, roll, aspect, focal_, texturesReady_);
         applyMapLights(gl, modelProg_);
         gl.ActiveTexture(GL_TEXTURE0);
         gl.BindTexture(GL_TEXTURE_2D_ARRAY, materialArrayTex_);
@@ -1376,7 +1386,7 @@ void DesktopRenderer::drawMapTriangles(ekron::gl::Api &gl, physics::Vec3 eye, fl
                                        float aspect, int pass) {
     if (mapCount_ <= 0 || (pass == 1 && !mapSurfaces_.translucent)) return;
     gl.UseProgram(worldProg_);
-    applyCommonSceneUniforms(gl, worldProg_, eye, yaw, pitch, roll, aspect, texturesReady_);
+    applyCommonSceneUniforms(gl, worldProg_, eye, yaw, pitch, roll, aspect, focal_, texturesReady_);
     applyMapLights(gl, worldProg_);
     gl.UniformMatrix4fv(gl.GetUniformLocation(worldProg_, "uObjectTransform"), 1, GL_FALSE, kIdentityMatrix.data());
     gl.Uniform1i(gl.GetUniformLocation(worldProg_, "uModelPass"), 0);
@@ -1448,6 +1458,7 @@ void DesktopRenderer::drawMapEffects(ekron::gl::Api &gl, physics::Vec3 eye, floa
     gl.Uniform2f(gl.GetUniformLocation(effectProg_, "uAngles"), yaw, pitch);
     gl.Uniform1f(gl.GetUniformLocation(effectProg_, "uRoll"), roll);
     gl.Uniform1f(gl.GetUniformLocation(effectProg_, "uAspect"), aspect);
+    gl.Uniform1f(gl.GetUniformLocation(effectProg_, "uFocal"), focal_);
     // like gl_rpart.c: blended over the scene, depth tested, not written
     gl.Enable(GL_BLEND);
     gl.BlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -1468,6 +1479,7 @@ void DesktopRenderer::renderMonitorPass(ekron::gl::Api &gl,
                                         float pitch,
                                         float roll) {
     if (!monitorReady_) return;
+    focal_ = realms::kSandboxFocalLength;
     gl.BindFramebuffer(GL_FRAMEBUFFER, monitorFbo_);
     drawWorldScene(gl, kMonitorW, kMonitorH, worldVertices, cityModel, carModel, carTransforms, eye, yaw, pitch, roll);
     gl.BindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -1490,6 +1502,7 @@ void DesktopRenderer::renderMainWorld(ekron::gl::Api &gl,
                                       float yaw,
                                       float pitch,
                                       float roll) {
+    focal_ = realms::kSandboxFocalLength;
     gl.BindFramebuffer(GL_FRAMEBUFFER, 0);
     drawWorldScene(gl, drawableW, drawableH, worldVertices, cityModel, carModel, carTransforms, eye, yaw, pitch, roll);
 
@@ -1498,11 +1511,11 @@ void DesktopRenderer::renderMainWorld(ekron::gl::Api &gl,
     // Placement hologram preview
     if (ghostCarTransform && carModel.ready()) {
         gl.UseProgram(modelProg_);
-        applyCommonSceneUniforms(gl, modelProg_, eye, yaw, pitch, roll, aspect, texturesReady_);
+        applyCommonSceneUniforms(gl, modelProg_, eye, yaw, pitch, roll, aspect, focal_, texturesReady_);
         drawGltfModel(gl, carModel, *ghostCarTransform, eye.x, eye.z, true);
     } else if (!ghostVertices.empty()) {
         gl.UseProgram(worldProg_);
-        applyCommonSceneUniforms(gl, worldProg_, eye, yaw, pitch, roll, aspect, texturesReady_);
+        applyCommonSceneUniforms(gl, worldProg_, eye, yaw, pitch, roll, aspect, focal_, texturesReady_);
         gl.UniformMatrix4fv(gl.GetUniformLocation(worldProg_, "uObjectTransform"), 1, GL_FALSE, kIdentityMatrix.data());
         gl.Uniform1i(gl.GetUniformLocation(worldProg_, "uModelPass"), 0);
         gl.Uniform1i(gl.GetUniformLocation(worldProg_, "uPreviewPass"), 1);
@@ -1524,7 +1537,7 @@ void DesktopRenderer::renderMainWorld(ekron::gl::Api &gl,
     // 3D FPV drone in world
     if (droneModel && droneTransform && droneModel->ready()) {
         gl.UseProgram(modelProg_);
-        applyCommonSceneUniforms(gl, modelProg_, eye, yaw, pitch, roll, aspect, texturesReady_);
+        applyCommonSceneUniforms(gl, modelProg_, eye, yaw, pitch, roll, aspect, focal_, texturesReady_);
         drawGltfModel(gl, *droneModel, *droneTransform, eye.x, eye.z, false);
     }
 
@@ -1533,7 +1546,7 @@ void DesktopRenderer::renderMainWorld(ekron::gl::Api &gl,
         gl.Clear(GL_DEPTH_BUFFER_BIT);
         if (remoteViewmodel && remoteViewmodel->ready()) {
             gl.UseProgram(modelProg_);
-            applyCommonSceneUniforms(gl, modelProg_, {0.0f, 0.0f, 0.0f}, 0.0f, 0.0f, 0.0f, aspect, texturesReady_);
+            applyCommonSceneUniforms(gl, modelProg_, {0.0f, 0.0f, 0.0f}, 0.0f, 0.0f, 0.0f, aspect, focal_, texturesReady_);
             const auto &lo = remoteViewmodel->scene().minimum;
             const auto &hi = remoteViewmodel->scene().maximum;
             const std::array<float, 16> vmMat = {

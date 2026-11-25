@@ -92,8 +92,14 @@ public:
         // draw it over the 3D view, under the HUD, as ref_gl's R_PolyBlend
         // does, unless gl_polyblend is 0.
         std::array<float, 4> blend{};
+        // player_state_t::fov: the game's field of view, from the fov cvar
+        // (userinfo), clamped by realms::clampFov; 90 without a game.
+        float fov = 90.0f;
     };
     PlayerStats stats() const;
+    // The fov map mode draws with: the game's (stats().fov) while it runs,
+    // else the fov cvar. realms::mapFocalLength turns it into the focal length.
+    float viewFov(const Engine &engine) const;
     // Centre prints / pickups since the last call.
     std::vector<std::string> takeMessages();
     // Quake 2's layout screens (realms/GameLayout.h), in screen pixels for a

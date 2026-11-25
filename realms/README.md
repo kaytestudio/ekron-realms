@@ -130,7 +130,7 @@ faults once `setenv()` has moved `environ` to the heap.
 
 `realms::sandbox::boot()` on every platform:
 
-1. registers `sensitivity`, `m_invert`, `name` and the read-only `realms_platform`;
+1. registers `sensitivity`, `m_invert`, `fov` (map mode, `realms/ViewFov.h`), `name` and the read-only `realms_platform`;
 2. mounts `pak0.pak` … `pak9.pak`, each from the top of every search root and from its `baseq2/` folder (`realms::kBaseGameDir`);
 3. runs `config/realms.cfg`, `config.cfg`, `autoexec.cfg`;
 4. registers the map commands and `map_mesh_*` cvars;

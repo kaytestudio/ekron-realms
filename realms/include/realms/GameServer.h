@@ -102,6 +102,7 @@ struct GameServerConfig {
     std::string executableDir;    // where to look for librealms_game
     std::string gameLibrary;      // explicit path (else REALMS_GAME_LIBRARY, then the search)
     std::string playerName = "Player";
+    float fov = 90.0f;            // the userinfo fov (player_state_t::fov), clamped by realms::clampFov
     int skill = 1;                // 0 easy .. 3 nightmare
     std::string spawnPoint;       // targetname of an info_player_start ("" = the default one)
 };
@@ -150,6 +151,9 @@ public:
     // command ("sv addip 1.2.3.4" without the "sv").
     void clientCommand(const std::string &line);
     void serverCommand(const std::string &line);
+    // A new userinfo fov for the local client (ClientUserinfoChanged), as
+    // Quake 2's client sends when the fov cvar changes.
+    void setFov(float fov);
 
     // ---- what the sandbox draws / plays
     int numEdicts() const;
@@ -269,6 +273,9 @@ private:
     double msecAccumulator_ = 0.0;
     int frameNum_ = 0;
     char userinfo_[512] = {};
+    std::string playerName_ = "Player";
+    // userinfo_ for the local client: name, skin, hand, fov, rate, msg, ip.
+    void buildUserinfo(float fov);
     bool inGameCall_ = false;
     void *abortJump_ = nullptr;
 };

@@ -2201,7 +2201,8 @@ int main(int argc, char **argv)
             // particles, trails, laser beams and dynamic lights (cl_fx.c / cl_tent.c)
             mapMode.buildEffects(world.yaw, world.pitch, mapEffectVertices, mapLights);
             renderer.setMapEffects(gl, mapEffectVertices, mapLights);
-            renderer.renderMapWorld(gl, drawW, drawH, mapMode.model(), mapMode.eye(), world.yaw, world.pitch, 0.0f);
+            renderer.renderMapWorld(gl, drawW, drawH, mapMode.model(), mapMode.eye(), world.yaw, world.pitch, 0.0f,
+                                    realms::mapFocalLength(mapMode.quake2().viewFov(engine)));
         } else renderer.renderMainWorld(
             gl, drawW, drawH,
             worldVertices, ghostVertices,

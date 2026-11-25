@@ -6,6 +6,7 @@
 #include "Quake2View.h"
 
 #include "realms/Engine.h"
+#include "realms/ViewFov.h"
 
 #include <GLES3/gl3.h>
 
@@ -18,6 +19,7 @@ public:
     struct Camera {
         physics::Vec3 eye{};
         float yaw = 0.0f, pitch = 0.0f, aspect = 1.0f; // the sandbox camera convention
+        float focal = realms::kSandboxFocalLength;    // realms::mapFocalLength(fov) in map mode
     };
 
     Quake2Gles() = default;

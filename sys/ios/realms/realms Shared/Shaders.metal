@@ -93,7 +93,7 @@ static inline float4 projectSandboxPoint(float3 worldPos,
     float cr = cos(roll), sr = sin(roll);
     q.xy = float2(cr * q.x - sr * q.y, sr * q.x + cr * q.y);
 
-    constexpr float focal = 1.37638f;
+    float focal = scene.anglesRoll.w > 0.0f ? scene.anglesRoll.w : 1.37638f;
     // Metal [0, 1] clip-space depth for near = 0.08m, far = 300.0m.
     float zClip = -1.0002667f * q.z - 0.0800213f;
     return float4(q.x * focal / aspect, q.y * focal, zClip, -q.z);
@@ -435,7 +435,8 @@ fragment float4 skyFragment(SkyVaryings in [[stage_in]],
     float pitch = sky.anglesRollAspect.y;
     float roll = sky.anglesRollAspect.z;
     float aspect = max(sky.anglesRollAspect.w, 0.001f);
-    float3 ray = normalize(float3(in.screen.x * aspect / 1.37638f, in.screen.y / 1.37638f, -1.0f));
+    float focal = sky.focal.x > 0.0f ? sky.focal.x : 1.37638f;
+    float3 ray = normalize(float3(in.screen.x * aspect / focal, in.screen.y / focal, -1.0f));
     float cr = cos(roll), sr = sin(roll);
     ray.xy = float2(cr * ray.x + sr * ray.y, -sr * ray.x + cr * ray.y);
     if (sky.skyFlags.x != 0) {

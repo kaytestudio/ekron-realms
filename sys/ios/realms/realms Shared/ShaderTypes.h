@@ -43,7 +43,8 @@ typedef struct
 typedef struct
 {
     simd_float4 eyeAspect;      // xyz = camera eye, w = viewport aspect
-    simd_float4 anglesRoll;     // x = yaw, y = pitch, z = roll, w = unused
+    simd_float4 anglesRoll;     // x = yaw, y = pitch, z = roll, w = focal length
+                                // (realms/ViewFov.h; 0 = the sandbox's 1.37638)
     simd_float4 lightDirection; // xyz = directional light vector
     simd_float4 lightColor;     // xyz = directional light linear RGB
     simd_float4 ambientColor;   // xyz = sky hemisphere linear RGB
@@ -83,6 +84,7 @@ typedef struct
     simd_float4 anglesRollAspect; // x = yaw, y = pitch, z = roll, w = aspect
     simd_int4   skyFlags;         // x = 1: the Quake 2 skybox on texture(0) (map mode)
     simd_float4 skyAxes[3];       // columns (xyz) of realms::MapSky::renderToSky
+    simd_float4 focal;            // x = focal length (0 = the sandbox's 1.37638)
 } SandboxSkyUniforms;
 
 typedef struct

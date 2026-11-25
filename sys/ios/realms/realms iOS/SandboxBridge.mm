@@ -34,6 +34,7 @@
 #include "realms/GameServer.h"
 #include "realms/GameView.h"
 #include "realms/SandboxBoot.h"
+#include "realms/ViewFov.h"
 
 #define STBI_NO_STDIO
 #define STBI_MAX_DIMENSIONS 8192
@@ -684,6 +685,11 @@ public:
     void toggleNoclip() { view_->toggleNoclip(); }
     float spawnRenderYaw() const { return view_->spawnRenderYaw(); }
     realms::Quake2Module::PlayerStats stats() const { return view_->module().stats(); }
+    // The focal length map mode draws with: from the game's fov, or the fov
+    // cvar without a game (realms/ViewFov.h).
+    float focalLength(const realms::Engine &engine) const {
+        return realms::mapFocalLength(view_ ? view_->module().viewFov(engine) : 90.0f);
+    }
     std::vector<std::string> takeMessages() { return view_->takeMessages(); }
 
     // Quake 2's 2D HUD (status bar, help computer / scores, inventory) as one
@@ -2281,17 +2287,27 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
                    pitch:(float)pitch
                     roll:(float)roll
                   aspect:(float)aspect {
-    [self encodeSceneSetup:encoder cameraEye:eye yaw:yaw pitch:pitch roll:roll aspect:aspect skyBox:nil skyMatrix:nullptr];
+    [self encodeSceneSetup:encoder
+                 cameraEye:eye
+                       yaw:yaw
+                     pitch:pitch
+                      roll:roll
+                    aspect:aspect
+                     focal:realms::kSandboxFocalLength
+                    skyBox:nil
+                 skyMatrix:nullptr];
 }
 
 // skyBox: map mode's MapSky layers (nil: the gradient); skyMatrix: its
-// MapSky::renderToSky, column-major.
+// MapSky::renderToSky, column-major; focal: the projection's focal length
+// (realms/ViewFov.h).
 - (void)encodeSceneSetup:(id<MTLRenderCommandEncoder>)encoder
                cameraEye:(physics::Vec3)eye
                      yaw:(float)yaw
                    pitch:(float)pitch
                     roll:(float)roll
                   aspect:(float)aspect
+                   focal:(float)focal
                   skyBox:(id<MTLTexture>)skyBox
                skyMatrix:(const float *)skyMatrix {
     [encoder setCullMode:MTLCullModeNone];
@@ -2300,6 +2316,7 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
     // Sky pass
     SandboxSkyUniforms sky{};
     sky.anglesRollAspect = simd_make_float4(yaw, pitch, roll, aspect);
+    sky.focal = simd_make_float4(focal, 0.0f, 0.0f, 0.0f);
     if (skyBox && skyMatrix) {
         sky.skyFlags = simd_make_int4(1, 0, 0, 0);
         for (int c = 0; c < 3; ++c)
@@ -2314,7 +2331,7 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
     // Shared scene uniforms
     SandboxSceneUniforms scene{};
     scene.eyeAspect = simd_make_float4(eye.x, eye.y, eye.z, aspect);
-    scene.anglesRoll = simd_make_float4(yaw, pitch, roll, 0.0f);
+    scene.anglesRoll = simd_make_float4(yaw, pitch, roll, focal);
     scene.lightDirection = simd_make_float4(-0.45f, -1.0f, -0.25f, 0.0f);
     scene.lightColor = simd_make_float4(0.55f, 0.52f, 0.48f, 0.0f);
     scene.ambientColor = simd_make_float4(0.55f, 0.59f, 0.65f, 0.0f);
@@ -3079,6 +3096,7 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
                          pitch:mapPitch_
                           roll:0.0f
                         aspect:aspect
+                         focal:mapMode_.focalLength(engine)
                         skyBox:mapMode_.skyTexture()
                      skyMatrix:skyMatrix.data()];
         MetalMapPipelines pipelines;
