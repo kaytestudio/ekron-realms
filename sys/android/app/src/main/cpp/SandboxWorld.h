@@ -58,8 +58,8 @@ public:
             {.7f,1.49f,.7f}, {1.8f,1.45f,.5f}, {.72f,.20f,.72f}, {1.8f,1.45f,.45f},
             {.8f,.45f,.68f}, {.18f,2.4f,.18f}, {2.0f,.3f,.3f}, {1.15f,.82f,.8f},
             {.72f,1.14f,.72f},{.6f,.6f,.6f},{1.4f,1.4f,1.4f},{.7f,.7f,.7f},{1.3f,1.3f,1.3f},{1.5f,.5f,.6f},{2.4f,.8f,.8f},
-            {1.2f,.75f,.55f},{1.7f,.65f,.65f},{1.5f,1.5f,1.5f},{.34f,4.6f,.6f},{.72f,2.3f,.14f},{1.1f,.85f,1.1f},
-            {.46f,1.3f,.46f},{2.4f,1.6f,.16f},{2.4f,1.8f,.12f},{1.2f,1.15f,1.2f},{1.5f,1.7f,1.5f},{.85f,.46f,.45f}
+            {1.2f,.75f,.55f},{1.7f,.65f,.65f},{1.5f,1.5f,1.5f},{.9f,.5f,.45f},{1.4f,.5f,.5f},{1.1f,1.25f,1.1f},
+            {.5f,.65f,.28f},{2.4f,1.7f,2.f},{2.4f,1.9f,.3f},{1.3f,1.15f,.9f},{.85f,1.15f,.85f},{.7f,.45f,.45f}
         };
         int type=std::clamp(o.type,0,kObjectTypeCount-1);
         auto p=dims[type];
@@ -84,22 +84,22 @@ public:
         if(o.type==36)return 60.f;
         if(o.type==37)return 15.f;
         if(o.type==38)return 120.f;
-        if(o.type==39)return 90.f;
-        if(o.type==40)return 25.f;
-        if(o.type==41)return 260.f;
-        if(o.type==42)return 32.f;
-        if(o.type==43)return 40.f;
-        if(o.type==44)return 55.f;
-        if(o.type==45)return 90.f;
-        if(o.type==46)return 140.f;
-        if(o.type==47)return 16.f;
+        if(o.type==39)return 24.f;
+        if(o.type==40)return 48.f;
+        if(o.type==41)return 650.f;
+        if(o.type==42)return 22.f;
+        if(o.type==43)return 85.f;
+        if(o.type==44)return 30.f;
+        if(o.type==45)return 75.f;
+        if(o.type==46)return 95.f;
+        if(o.type==47)return 12.f;
         return o.type>=13?50.f:90.f;
     }
     static int fixedSurface(int type) {
         // Models that own their materials: window (glass + wood), the GLB UAZ and
         // the plain-painted red explosive barrel. Everything else has one fixed surface.
         if(type==2||type==8||type==29)return -1;
-        // Multi-material props (lamps, signs, fences, tanks...) paint their own parts.
+        // Military props (crates, tents, fuel drums...) paint their own parts.
         if(type>=36)return -1;
         if(type==11||type==14||type==16||type==19||type==20||type==21||type==23||type==25||type==26||type==27||type==28||type==32||type==33)return Rust;
         if(type==9||type==3||type==4||type==5||type==6||type==13||type==15||type==17||type==22||type==30||type==31)return Wood;

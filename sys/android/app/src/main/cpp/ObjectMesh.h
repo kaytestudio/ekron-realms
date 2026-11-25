@@ -40,6 +40,19 @@ inline void appendObject(std::vector<MeshVertex>&v,const sandbox::Object&o,bool 
   for(int f=0;f<6;f++){const auto&n=normals[f];
    for(int idx:{0,1,2,0,2,3}){int i=faces[f][idx];v.push_back({px[i],py[i],pz[i],r,g,b,n[0],n[1],n[2],0,0,float(material)});}}
  };
+ // Flat panel: length along a YZ direction, width along local X (tent roof, tarps).
+ auto panel=[&](float cx,float cy,float cz,float dy,float dz,float len,float w,float t,float r,float g,float b,int material){
+  float ux=1,uz=0;
+  for(int i=0;i<o.rotation;i++){float old=cx;cx=cz;cz=-old;old=dy;dy=dz;dz=-old;old=ux;ux=uz;uz=-old;}
+  float l=std::sqrt(dy*dy+dz*dz);dy/=l;dz/=l;
+  float nx=-uz*dy,ny=-ux*dz,nz=ux*dy; // cross(u,d) with d=(0,dy,dz)
+  float hl=len/2,hw=w/2,ht=t/2,px[8],py[8],pz[8];int k=0;
+  for(int a:{-1,1})for(int b2:{-1,1})for(int c:{-1,1}){px[k]=o.x+cx+b2*hw*ux+c*ht*nx;py[k]=o.y+cy+a*hl*dy+c*ht*ny;pz[k]=o.z+cz+a*hl*dz+b2*hw*uz+c*ht*nz;k++;}
+  const int faces[6][4]={{4,5,7,6},{0,2,3,1},{2,6,7,3},{0,1,5,4},{1,3,7,5},{0,4,6,2}};
+  const float normals[6][3]={{0,dy,dz},{0,-dy,-dz},{ux,0,uz},{-ux,0,-uz},{nx,ny,nz},{-nx,-ny,-nz}};
+  for(int f=0;f<6;f++){const auto&n=normals[f];
+   for(int idx:{0,1,2,0,2,3}){int i=faces[f][idx];v.push_back({px[i],py[i],pz[i],r,g,b,n[0],n[1],n[2],0,0,float(material)});}}
+ };
   if(o.type==3){
   part(0,1.15f,0,1.1f,2.3f,.045f,1,1,1,Wood);
   for(int side:{-1,1}){part(.4f,1.05f,side*.035f,.075f,.14f,.025f,.22f,.24f,.25f,Plain);knob(.4f,1.05f,side*.046f,.024f);}
@@ -102,53 +115,69 @@ inline void appendObject(std::vector<MeshVertex>&v,const sandbox::Object&o,bool 
    cyl(0,.57f,0,.34f,.30f,.55f,.82f,.04f,.02f,sandbox::Plain);
    cyl(0,.06f,0,.35f,.35f,.055f,.15f,.15f,.14f,sandbox::Plain);
    cyl(0,1.08f,0,.31f,.31f,.055f,.15f,.15f,.14f,sandbox::Plain);
-  }else if(o.type==36){ // sandbag stack: three staggered rows
-   for(int row=0;row<3;row++){int n=row==1?2:3;for(int i=0;i<n;i++)part((i-(n-1)/2.f)*.4f,.14f+row*.24f,0,.38f,.22f,.5f,.62f,.55f,.4f,sandbox::Fabric);}
-  }else if(o.type==37){ // razor wire coil: square loops along X
-   for(int i=0;i<6;i++){float x=-.7f+i*.28f,h=i%2?.24f:.28f;
-    part(x,.33f-h,0,.035f,.035f,h*2,.35f,.37f,.38f,sandbox::Rust);part(x,.33f+h,0,.035f,.035f,h*2,.35f,.37f,.38f,sandbox::Rust);
-    part(x,.33f,-h,.035f,h*2,.035f,.35f,.37f,.38f,sandbox::Rust);part(x,.33f,h,.035f,h*2,.035f,.35f,.37f,.38f,sandbox::Rust);}
+  }else if(o.type==36){ // sandbag stack: three staggered rows of khaki burlap bags
+   for(int row=0;row<3;row++){int n=row==1?2:3;for(int i=0;i<n;i++){float shade=(row+i)%2?.94f:1.f;
+    part((i-(n-1)/2.f)*.4f,.14f+row*.24f,0,.38f,.22f,.5f,.76f*shade,.66f*shade,.47f*shade,sandbox::Plain);}}
+  }else if(o.type==37){ // concertina razor wire: helical coil with barbs
+   const int steps=48;float px=-.8f,py=.3f+.27f,pz=0;
+   for(int i=1;i<=steps;i++){float t=i/float(steps),ang=t*4*6.2831853f;
+    float x=-.8f+1.6f*t,y=.3f+.27f*std::cos(ang),z=.27f*std::sin(ang);
+    beam((px+x)/2,(py+y)/2,(pz+z)/2,x-px,y-py,z-pz,std::sqrt((x-px)*(x-px)+(y-py)*(y-py)+(z-pz)*(z-pz)),.026f,.42f,.44f,.46f,sandbox::Rust);
+    if(i%4==0){beam(x,y,z,0,1,1,.1f,.014f,.5f,.52f,.54f,sandbox::Plain);beam(x,y,z,0,1,-1,.1f,.014f,.5f,.52f,.54f,sandbox::Plain);}
+    px=x;py=y;pz=z;}
   }else if(o.type==38){ // anti-tank hedgehog: three crossed steel beams
    beam(0,.75f,0,1,1,0,2.1f,.14f,.3f,.33f,.35f,sandbox::Rust);
    beam(0,.75f,0,-1,1,0,2.1f,.14f,.3f,.33f,.35f,sandbox::Rust);
    beam(0,.75f,0,0,.3f,1,1.8f,.14f,.35f,.38f,.4f,sandbox::Rust);
-  }else if(o.type==39){ // street lamp: pole, arm, warm head
-   cyl(0,2.2f,0,.09f,.07f,2.2f,.28f,.3f,.32f,sandbox::Rust);
-   part(0,4.45f,-.15f,.12f,.1f,.4f,.28f,.3f,.32f,sandbox::Rust);
-   part(0,4.4f,-.3f,.3f,.14f,.4f,.9f,.85f,.6f,sandbox::Plain);
-  }else if(o.type==40){ // road sign: pole + white plate with blue field
-   cyl(0,1.05f,0,.045f,.045f,1.05f,.3f,.32f,.33f,sandbox::Rust);
-   part(0,1.85f,0,.7f,.7f,.05f,.85f,.85f,.88f,sandbox::Plain);
-   part(0,1.85f,-.03f,.56f,.56f,.02f,.15f,.35f,.7f,sandbox::Plain);
-  }else if(o.type==41){ // bricks on a pallet
-   for(float x:{-.45f,0.f,.45f})part(x,.07f,0,.14f,.14f,1.f,.48f,.28f,.12f,sandbox::Wood);
-   part(0,.17f,0,1.05f,.06f,1.05f,.58f,.36f,.16f,sandbox::Wood);
-   for(int row=0;row<4;row++)for(int i=0;i<3;i++)for(int j=0;j<3;j++)part((i-1)*.34f,.28f+row*.14f,(j-1)*.34f,.3f,.12f,.3f,.62f,.3f,.22f,sandbox::Brick);
-  }else if(o.type==42){ // gas cylinder: red body, shoulder, valve
-   cyl(0,.04f,0,.23f,.23f,.04f,.3f,.32f,.33f,sandbox::Rust);
-   cyl(0,.55f,0,.21f,.21f,.5f,.7f,.1f,.08f,sandbox::Plain);
-   cyl(0,1.08f,0,.21f,.1f,.08f,.7f,.1f,.08f,sandbox::Plain);
-   cyl(0,1.2f,0,.06f,.06f,.06f,.3f,.32f,.33f,sandbox::Rust);
-  }else if(o.type==43){ // wooden fence section
-   for(float x:{-1.1f,1.1f})part(x,.8f,0,.14f,1.6f,.14f,.4f,.26f,.12f,sandbox::Wood);
-   for(int i=0;i<7;i++)part(-.9f+i*.3f,.75f,0,.22f,1.3f,.05f,.52f,.34f,.16f,sandbox::Wood);
-   part(0,.45f,-.06f,2.2f,.1f,.04f,.4f,.26f,.12f,sandbox::Wood);part(0,1.15f,-.06f,2.2f,.1f,.04f,.4f,.26f,.12f,sandbox::Wood);
-  }else if(o.type==44){ // metal fence section: frame + bars
-   for(float x:{-1.15f,1.15f})part(x,.9f,0,.1f,1.8f,.1f,.3f,.33f,.35f,sandbox::Rust);
-   part(0,1.72f,0,2.3f,.08f,.06f,.3f,.33f,.35f,sandbox::Rust);part(0,.12f,0,2.3f,.08f,.06f,.3f,.33f,.35f,sandbox::Rust);
-   for(int i=0;i<11;i++)part(-1.f+i*.2f,.9f,0,.045f,1.6f,.045f,.35f,.38f,.4f,sandbox::Rust);
-  }else if(o.type==45){ // cable spool: wooden flanges, dark wound cable
-   cyl(0,.1f,0,.58f,.58f,.1f,.5f,.33f,.15f,sandbox::Wood);
-   cyl(0,.575f,0,.32f,.32f,.375f,.12f,.12f,.13f,sandbox::Plain);
-   cyl(0,1.05f,0,.58f,.58f,.1f,.5f,.33f,.15f,sandbox::Wood);
-  }else if(o.type==46){ // water tank: blue-grey drum with lid and hatch
-   cyl(0,.8f,0,.72f,.72f,.75f,.25f,.4f,.5f,sandbox::Rust);
-   cyl(0,1.6f,0,.74f,.74f,.05f,.2f,.33f,.42f,sandbox::Rust);
-   cyl(0,1.68f,0,.2f,.2f,.04f,.3f,.32f,.33f,sandbox::Plain);
-  }else if(o.type==47){ // red toolbox with handle
-   part(0,.18f,0,.8f,.32f,.42f,.72f,.12f,.1f,sandbox::Plain);
-   part(0,.36f,0,.82f,.06f,.44f,.55f,.1f,.08f,sandbox::Plain);
-   part(0,.42f,0,.3f,.05f,.05f,.2f,.2f,.22f,sandbox::Plain);
+  }else if(o.type==39){ // ammo crate: olive painted box, steel straps, stencil
+   part(0,.21f,0,.86f,.42f,.42f,.38f,.42f,.27f,sandbox::Plain);
+   part(0,.45f,0,.9f,.08f,.45f,.33f,.37f,.23f,sandbox::Plain);
+   for(float x:{-.28f,.28f})part(x,.25f,0,.05f,.5f,.46f,.25f,.27f,.24f,sandbox::Plain);
+   part(0,.24f,.225f,.3f,.12f,.015f,.85f,.78f,.3f,sandbox::Plain);
+   for(float x:{-.44f,.44f})part(x,.3f,0,.03f,.06f,.16f,.2f,.22f,.2f,sandbox::Plain);
+  }else if(o.type==40){ // artillery shell crate: long steel box with latches
+   part(0,.2f,0,1.36f,.4f,.46f,.28f,.33f,.24f,sandbox::Plain);
+   part(0,.44f,0,1.4f,.08f,.5f,.24f,.29f,.2f,sandbox::Plain);
+   for(float x:{-.5f,.5f}){part(x,.46f,.24f,.1f,.1f,.04f,.18f,.2f,.17f,sandbox::Plain);part(x,.2f,0,.06f,.42f,.5f,.2f,.24f,.18f,sandbox::Plain);}
+   part(0,.22f,.24f,.5f,.1f,.015f,.85f,.78f,.3f,sandbox::Plain);
+  }else if(o.type==41){ // dragon's tooth: concrete anti-tank pyramid
+   part(0,.06f,0,1.05f,.12f,1.05f,.55f,.56f,.53f,sandbox::Concrete);
+   cyl(0,.68f,0,.58f,.1f,.56f,.62f,.63f,.6f,sandbox::Concrete);
+  }else if(o.type==42){ // army jerrycan: olive pressed-steel can with X rib
+   part(0,.3f,0,.46f,.56f,.24f,.33f,.37f,.24f,sandbox::Plain);
+   for(int side:{-1,1}){beam(0,.3f,side*.125f,1,1.2f,0,.42f,.03f,.27f,.3f,.19f,sandbox::Plain);beam(0,.3f,side*.125f,-1,1.2f,0,.42f,.03f,.27f,.3f,.19f,sandbox::Plain);}
+   part(0,.6f,0,.3f,.05f,.06f,.27f,.3f,.19f,sandbox::Plain);
+   for(float x:{-.14f,.14f})part(x,.575f,0,.04f,.05f,.06f,.27f,.3f,.19f,sandbox::Plain);
+   cyl(.16f,.615f,.06f,.045f,.045f,.03f,.2f,.22f,.18f,sandbox::Plain);
+  }else if(o.type==43){ // army tent: camo A-frame with ridge pole and rear gable
+   panel(0,.84f,-.5f,1.64f,1.f,1.93f,2.4f,.04f,1,1,1,sandbox::Fabric);
+   panel(0,.84f,.5f,1.64f,-1.f,1.93f,2.4f,.04f,1,1,1,sandbox::Fabric);
+   for(int i=0;i<4;i++)part(-1.17f,.2f+i*.4f,0,.05f,.4f,1.76f-i*.48f,1,1,1,sandbox::Fabric);
+   part(0,1.66f,0,2.44f,.07f,.07f,.3f,.32f,.3f,sandbox::Rust);
+   for(float x:{-1.15f,1.15f})cyl(x,.82f,0,.035f,.035f,.82f,.3f,.32f,.3f,sandbox::Rust);
+  }else if(o.type==44){ // camouflage net screen: posts with hanging camo strips
+   for(float x:{-1.1f,1.1f})part(x,.95f,0,.07f,1.9f,.07f,.3f,.32f,.33f,sandbox::Rust);
+   part(0,1.86f,0,2.3f,.06f,.06f,.3f,.32f,.33f,sandbox::Rust);
+   for(int i=0;i<9;i++){float h=1.35f+.3f*std::sin(i*2.1f);
+    part(-1.f+i*.25f,1.83f-h/2,0,.22f,h,.02f,1,1,1,sandbox::Fabric);}
+  }else if(o.type==45){ // supply crate stack: two olive crates plus one khaki on top
+   for(float x:{-.32f,.32f}){part(x,.26f,0,.6f,.5f,.85f,.4f,.44f,.28f,sandbox::Wood);part(x,.26f,0,.62f,.1f,.87f,.3f,.33f,.2f,sandbox::Plain);}
+   part(0,.78f,0,.9f,.5f,.7f,.5f,.46f,.32f,sandbox::Wood);part(0,.78f,0,.92f,.1f,.72f,.36f,.33f,.22f,sandbox::Plain);
+   part(0,.78f,.36f,.3f,.12f,.015f,.85f,.78f,.3f,sandbox::Plain);
+  }else if(o.type==46){ // fuel drum: olive barrel with ribs and filler cap
+   cyl(0,.55f,0,.4f,.4f,.52f,.32f,.36f,.22f,sandbox::Plain);
+   for(float y:{.28f,.82f})cyl(0,y,0,.42f,.42f,.03f,.26f,.3f,.18f,sandbox::Plain);
+   cyl(0,1.09f,0,.41f,.41f,.03f,.28f,.32f,.2f,sandbox::Plain);
+   cyl(.2f,1.13f,0,.06f,.06f,.03f,.2f,.22f,.18f,sandbox::Plain);
+   part(0,.55f,.405f,.3f,.3f,.015f,.8f,.7f,.25f,sandbox::Plain);
+  }else if(o.type==47){ // field medical box: white case with red cross
+   part(0,.18f,0,.66f,.34f,.42f,.88f,.88f,.86f,sandbox::Plain);
+   part(0,.37f,0,.68f,.06f,.44f,.8f,.8f,.78f,sandbox::Plain);
+   part(0,.405f,0,.3f,.015f,.09f,.8f,.12f,.1f,sandbox::Plain);
+   part(0,.405f,0,.09f,.015f,.3f,.8f,.12f,.1f,sandbox::Plain);
+   part(0,.2f,.215f,.24f,.08f,.015f,.8f,.12f,.1f,sandbox::Plain);
+   part(0,.2f,.215f,.08f,.24f,.015f,.8f,.12f,.1f,sandbox::Plain);
+   for(float x:{-.34f,.34f})part(x,.3f,0,.02f,.06f,.16f,.3f,.3f,.32f,sandbox::Plain);
   }else appendCube(v,body);
  int surface=World::fixedSurface(o.type);
  if(surface>=0)for(size_t i=begin;i<v.size();i++){if(v[i].layer!=Plain||(o.type!=3&&o.type!=6)){v[i].layer=float(surface);if(o.type<13||o.type>=30)v[i].r=v[i].g=v[i].b=1;}}

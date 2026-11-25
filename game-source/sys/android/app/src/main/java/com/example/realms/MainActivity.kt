@@ -444,7 +444,8 @@ class MainActivity : GameActivity() {
         panel.addView(heading)
         val height=resources.configuration.screenHeightDp
         val left=(height*.32f).toInt().coerceIn(120,184)+28
-        hud.addView(panel,FrameLayout.LayoutParams((hud.width-dp(left+150)).coerceAtLeast(dp(260)),dp((height-144).coerceAtLeast(152)),Gravity.TOP or Gravity.START).apply { leftMargin=dp(left);topMargin=dp(60) })
+        // Large grid area: keep only the right-side controls clear, use most of the screen height.
+        hud.addView(panel,FrameLayout.LayoutParams((hud.width-dp(left+96)).coerceAtLeast(dp(260)),dp((height-104).coerceAtLeast(152)),Gravity.TOP or Gravity.START).apply { leftMargin=dp(left);topMargin=dp(52) })
         popup=panel;return panel
     }
     private fun renderTools() {
@@ -500,7 +501,7 @@ class MainActivity : GameActivity() {
             container.addView(label("В этом разделе пока нет предметов",14f).apply { gravity=Gravity.CENTER },LinearLayout.LayoutParams(-1,0,1f))
             return
         }
-        val grid=GridView(this).apply { numColumns=3;horizontalSpacing=dp(5);verticalSpacing=dp(5);clipToPadding=false;isMotionEventSplittingEnabled=true }
+        val grid=GridView(this).apply { numColumns=4;horizontalSpacing=dp(4);verticalSpacing=dp(4);clipToPadding=false;isMotionEventSplittingEnabled=true }
         val adapter=object : BaseAdapter() {
             override fun getCount()=visibleItems.size
             override fun getItem(position: Int)=items[visibleItems[position]]
@@ -508,8 +509,8 @@ class MainActivity : GameActivity() {
             override fun getView(row: Int, convertView: View?, parent: ViewGroup): View = LinearLayout(this@MainActivity).apply {
                 val position=visibleItems[row]
                 orientation=LinearLayout.VERTICAL;gravity=Gravity.CENTER
-                contentDescription=items[position];minimumHeight=dp(110)
-                layoutParams=AbsListView.LayoutParams(-1,dp(110))
+                contentDescription=items[position];minimumHeight=dp(88)
+                layoutParams=AbsListView.LayoutParams(-1,dp(88))
                 background=GradientDrawable().apply {setColor(if(position==selected)0xaa477264.toInt() else 0x443b4652);cornerRadius=dp(6).toFloat();if(position==selected)setStroke(dp(1),0xff92d9ac.toInt())}
                 val illustration: View = ImageView(this@MainActivity).apply {
                     scaleType=ImageView.ScaleType.FIT_CENTER
@@ -518,7 +519,7 @@ class MainActivity : GameActivity() {
                 }
                 illustration.isClickable=false;illustration.isFocusable=false
                 addView(illustration,LinearLayout.LayoutParams(-1,0,1f))
-                addView(label(items[position],11f).apply { gravity=Gravity.CENTER;isClickable=false;maxLines=2 },LinearLayout.LayoutParams(-1,dp(30)))
+                addView(label(items[position],10f).apply { gravity=Gravity.CENTER;isClickable=false;maxLines=2 },LinearLayout.LayoutParams(-1,dp(28)))
             }
         }
         catalogAdapter=adapter;grid.adapter=adapter;container.addView(grid,LinearLayout.LayoutParams(-1,0,1f))
