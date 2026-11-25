@@ -69,7 +69,9 @@ private:
     std::chrono::steady_clock::time_point last_;
     // Realms map mode ("map <name>"): replaces the sandbox until killserver.
     AndroidMapMode mapMode_;
-    float mapYaw_=0,mapPitch_=0,mapJump_=0;
+    float mapYaw_=0,mapPitch_=0,mapJump_=0,mapNoticeTime_=0; // mapNoticeTime_: notices 8-10 (quick save / load) fade
+    void quickSave(realms::Engine &engine);
+    void quickLoad(realms::Engine &engine);
     bool mapCrouch_=false,mapAttack_=false;
     std::string pendingMap_;
     bool mapChangePending_=false;

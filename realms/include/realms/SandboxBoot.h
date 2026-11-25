@@ -42,6 +42,8 @@ void registerSharedCvars(Engine &engine, const std::string &platform);
 //                NOSET cvar "mapname"
 //   mapinfo      lump counts, bounds and entities of the loaded map
 //   killserver   unloads the map
+//   load <name>  loads a save game (GameSave.h): its map, then the game reads
+//                it back when it starts there
 // Also registers map_mesh_scale (units per glTF metre, default 32) and
 // map_mesh_thickness (collision slab thickness, 0 = 2 units).
 void registerMapCommands(Engine &engine, MapChangedFn onChange = {});

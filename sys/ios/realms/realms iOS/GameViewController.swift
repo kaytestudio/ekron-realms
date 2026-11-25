@@ -759,8 +759,12 @@ class GameViewController: UIViewController {
         }
         loadingStatusLabel.text = (0...5).contains(stage) ? "\(stageText) \(pct)%" : stageText
 
-        let noticeCode = mapMode ? 0 : Int(state[5])
+        // in map mode only the quick save / load results (8...10, a few seconds)
+        let noticeCode = mapMode && !(8...10).contains(Int(state[5])) ? 0 : Int(state[5])
         switch noticeCode {
+        case 8: noticeLabel.text = loc("notice_game_saved")
+        case 9: noticeLabel.text = loc("notice_save_failed")
+        case 10: noticeLabel.text = loc("notice_no_quick_save")
         case 7: noticeLabel.text = loc("notice_map_failed")
         case 1: noticeLabel.text = loc("notice_spawn_moved_short")
         case 2: noticeLabel.text = loc("notice_spawn_unavailable_short")
@@ -1017,6 +1021,17 @@ class GameViewController: UIViewController {
             self?.setMenuPaused(false)
             self?.bridge?.sendCommand(35)
         })
+        if mapGame {
+            // Quake 2's quick save / load (F6 / F9 on the desktop)
+            alert.addAction(UIAlertAction(title: loc("pause_quick_save"), style: .default) { [weak self] _ in
+                self?.setMenuPaused(false)
+                self?.bridge?.sendCommand(58)
+            })
+            alert.addAction(UIAlertAction(title: loc("pause_quick_load"), style: .default) { [weak self] _ in
+                self?.setMenuPaused(false)
+                self?.bridge?.sendCommand(59)
+            })
+        }
         alert.addAction(UIAlertAction(title: loc("pause_maps"), style: .default) { [weak self] _ in
             self?.setMenuPaused(false)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { self?.showMapPicker() }

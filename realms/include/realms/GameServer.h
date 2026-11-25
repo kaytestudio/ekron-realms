@@ -129,6 +129,11 @@ public:
     bool start(Engine &engine, const GameServerConfig &config, std::string &error);
     // ShutdownGame and free every tag.
     void stop();
+    // Quake 2's "save <name>" (SV_Savegame_f; GameSave.h): the level, the
+    // game and the server state to <writable root>/save/<name>/. Refused
+    // without a running game, while the player is dead, or for a bad name.
+    // "load <name>" makes the next start() read it back.
+    bool saveGame(const std::string &name, std::string &error);
     bool running() const { return running_; }
     const std::string &moduleOrigin() const { return moduleOrigin_; }
     const std::string &mapName() const { return mapName_; }
@@ -199,6 +204,9 @@ private:
     friend struct GameImports;
 
     bool loadModule(std::string &error);
+    // Checks a save against this build of the game and writes the level
+    // file ReadLevel will read (`levelFile`, deleted afterwards).
+    bool prepareLoad(const std::string &dir, std::string &levelFile, std::string &error);
     bool guarded(const char *what, void (*fn)(GameServer &, void *), void *arg);
     void clearWorld();
     AreaNode *createAreaNode(int depth, const Vec3 &mins, const Vec3 &maxs);

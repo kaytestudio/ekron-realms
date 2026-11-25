@@ -15,6 +15,7 @@ add_library(realms_engine STATIC
     "${CMAKE_CURRENT_LIST_DIR}/src/NativeCore.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/src/NativeCModel.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/src/SandboxBoot.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/src/GameSave.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/src/MeshMap.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/src/MapGeometry.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/src/MapWalker.cpp"

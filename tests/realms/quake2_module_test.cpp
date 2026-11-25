@@ -12,6 +12,8 @@
 
 #include "realms/Engine.h"
 #include "realms/GameHudCanvas.h"
+#include "realms/GameSave.h"
+#include "realms/SandboxBoot.h"
 #include "realms/MapSky.h"
 #include "realms/MapTextures.h"
 #include "realms/Quake2Module.h"
@@ -842,6 +844,53 @@ void viewWithGame(realms::Engine &engine) {
     CHECK(view.gameRunning());
     CHECK(near(view.session().walker().origin[0], -320, 0.2f));
     CHECK(q2.stats().armor == 0);
+
+    // Quake 2's save / load (F6 "save quick", F9 "load quick"): the player
+    // walks away and dies after saving; loading puts them back, alive. The
+    // map is loaded again by "load" (a host restarts the game on the map
+    // change; respawn does that here).
+    step("save and load");
+    realms::sandbox::registerMapCommands(engine);
+    const std::string slot = realms::gameSaveDir(engine, "slot1");
+    CHECK(!slot.empty() && realms::gameSaveDir(engine, "../up").empty() && realms::gameSaveDir(engine, "").empty());
+    const realms::Vec3 savedAt = q2.game()->playerOrigin();
+    engine.exec("save slot1\n");
+    CHECK(realms::gameSaveComplete(slot));
+    {
+        realms::GameSaveInfo info;
+        std::string why;
+        CHECK(realms::readGameSaveInfo(slot, info, why));
+        CHECK(info.mapPath == engine.mapPath() && info.comment.rfind("arena  ", 0) == 0);
+        CHECK(info.configStrings.size() > size_t(Q2_CS_MODELS + 1) && info.configStrings[Q2_CS_MODELS + 1] == engine.mapPath());
+    }
+    realms::WalkInput walk;
+    walk.forward = 1.0f;
+    for (int i = 0; i < 10; i++) view.update(engine, walk, yaw, 0.0f, 0.1f, false);
+    const realms::Vec3 walkedTo = q2.game()->playerOrigin();
+    CHECK(std::fabs(walkedTo[0] - savedAt[0]) + std::fabs(walkedTo[1] - savedAt[1]) > 32.0f);
+    engine.exec("kill\n");
+    for (int i = 0; i < 3; i++) view.update(engine, {}, yaw, 0.0f, 0.1f, false);
+    CHECK(q2.stats().health <= 0);
+    std::string refused;
+    CHECK(!q2.game()->saveGame("dead", refused) && refused == "Can't savegame while dead!");
+    CHECK(!realms::gameSaveComplete(realms::gameSaveDir(engine, "dead")));
+    engine.exec("load nosuchsave\n");
+    CHECK(engine.cvarString("sv_loadgame", "").empty());
+    engine.exec("load slot1\n");
+    CHECK(engine.mapLoaded() && engine.cvarString("sv_loadgame", "") == slot);
+    CHECK(view.respawn(engine));
+    CHECK(view.gameRunning() && engine.cvarString("sv_loadgame", "").empty());
+    if (view.gameRunning()) {
+        const realms::Vec3 loadedAt = q2.game()->playerOrigin();
+        CHECK(near(loadedAt[0], savedAt[0], 0.5f) && near(loadedAt[1], savedAt[1], 0.5f) &&
+              near(loadedAt[2], savedAt[2], 0.5f));
+        CHECK(q2.stats().health == 100);
+        view.update(engine, {}, yaw, 0.0f, 0.1f, false); // the loaded game runs on
+        CHECK(view.gameRunning() && near(view.session().walker().origin[0], savedAt[0], 1.0f));
+    }
+    // the level copy and the build probes are gone
+    CHECK(!std::filesystem::exists(std::filesystem::path(slot) / "load.sav") &&
+          !std::filesystem::exists(std::filesystem::path(slot) / "probe.ssv"));
     step("close");
     view.close();
     CHECK(!view.active() && !view.gameRunning());
@@ -1035,6 +1084,7 @@ int main(int argc, char **argv) {
     cfg.backend = pascalLibrary.empty() ? realms::BackendPreference::Native : realms::BackendPreference::Pascal;
     cfg.pascalLibrary = pascalLibrary;
     cfg.searchRoots = {tmp.string()};
+    cfg.writableRoot = tmp.string(); // save games
     realms::Engine engine;
     CHECK(engine.init(cfg));
     CHECK(engine.loadMap("maps/arena.bsp"));
