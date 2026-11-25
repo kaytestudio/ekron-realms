@@ -82,6 +82,7 @@ jobs:
       - name: Probe programs and a DLL
         run: |
           set -uo pipefail
+          export MSYS2_ARG_CONV_EXCL='*' # keep -FuC:/... as it is
           ppc="$PWD/fpcsrc/compiler/ppcrossa64.exe"
           rtl="$(cygpath -m "$PWD/fpcsrc/rtl/units/aarch64-win64")"
           mkdir -p p && cd p
