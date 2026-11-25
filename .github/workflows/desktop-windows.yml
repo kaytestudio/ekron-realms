@@ -346,22 +346,23 @@ jobs:
           "$ppc" -iV
           test "$("$ppc" -iTP)" = aarch64
           test "$("$ppc" -iTO)" = win64
-          mkdir -p /tmp/fpc-smoke
-          cat > /tmp/fpc-smoke/smoke.pas <<'EOF'
+          mkdir -p fpc-smoke
+          cat > fpc-smoke/smoke.pas <<'EOF'
           program smoke;
           uses SysUtils, Math, ctypes;
           begin
             WriteLn(Format('fpc %s %d %d', [FloatToStrF(Sqrt(2.0), ffFixed, 8, 4), SizeOf(cint), Floor(2.5)]));
           end.
           EOF
-          "$ppc" -Mobjfpc -O2 -FE"$(cygpath -m /tmp/fpc-smoke)" "$(cygpath -m /tmp/fpc-smoke/smoke.pas)" 2>&1 |
-            tee /tmp/fpc-smoke/build.log || {
-            grep -iE 'error|fatal|warning' /tmp/fpc-smoke/build.log | head -n 9 | while IFS= read -r line; do echo "::error::[fpc-smoke] $line"; done
-            tail -n 3 /tmp/fpc-smoke/build.log | while IFS= read -r line; do echo "::error::[fpc-smoke] $line"; done
+          # (relative paths: Free Pascal misreads the A: drive of the MSYS2 /tmp)
+          "$ppc" -Mobjfpc -O2 -FEfpc-smoke fpc-smoke/smoke.pas 2>&1 |
+            tee fpc-smoke/build.log || {
+            grep -iE 'error|fatal|warning' fpc-smoke/build.log | head -n 9 | while IFS= read -r line; do echo "::error::[fpc-smoke] $line"; done
+            tail -n 3 fpc-smoke/build.log | while IFS= read -r line; do echo "::error::[fpc-smoke] $line"; done
             exit 1
           }
-          /tmp/fpc-smoke/smoke.exe | tee /tmp/fpc-smoke/out.txt
-          grep -q 'fpc 1.4142 4 2' /tmp/fpc-smoke/out.txt
+          ./fpc-smoke/smoke.exe | tee fpc-smoke/out.txt
+          grep -q 'fpc 1.4142 4 2' fpc-smoke/out.txt
           echo "FPC_EXE=$(cygpath -m "$ppc")" >> "$GITHUB_ENV"
 
       - name: Configure and build Windows ARM64 desktop client
