@@ -798,13 +798,17 @@ void runClientChecks(realms::Engine &engine, const std::string &gameLibrary) {
         server.snapshot(3, none, true); // a free slot
         CHECK(!none.running && !none.hasPlayer);
     }
-    // the game refuses: a password, a banned address
+    // the game refuses a wrong password (not "addip": the module's
+    // SVCmd_AddIP_f runs past its filter array while the list is empty)
     engine.setCvar("password", "secret");
     CHECK(server.connectClient("Third", 90, 0, error) == -1);
     CHECK(error.find("Password required or incorrect.") != std::string::npos);
+    CHECK(server.clientCount() == 2 && !server.clientActive(2));
     engine.setCvar("password", "");
-    server.serverCommand("addip 10.1.2.3");
-    CHECK(server.connectClient("Banned", 90, 0, error, "10.1.2.3") == -1 && error.find("Banned.") != std::string::npos);
+    // a client's address goes in its userinfo "ip"
+    CHECK(server.connectClient("Remote", 90, 0, error, "10.1.2.3") == 2);
+    CHECK(std::string(server.userinfo(2)).find("\\ip\\10.1.2.3") != std::string::npos);
+    server.disconnectClient(2);
     CHECK(server.clientCount() == 2 && !server.clientActive(2));
     // a client leaving
     server.takeEvents(0);
