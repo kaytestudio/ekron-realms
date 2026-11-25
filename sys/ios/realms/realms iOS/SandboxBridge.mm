@@ -35,6 +35,7 @@
 #include "realms/GameView.h"
 #include "realms/SandboxBoot.h"
 #include "realms/ViewFov.h"
+#include "realms/ViewGamma.h"
 
 #define STBI_NO_STDIO
 #define STBI_MAX_DIMENSIONS 8192
@@ -2328,10 +2329,13 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
     [encoder setCullMode:MTLCullModeNone];
     [encoder setFrontFacingWinding:MTLWindingCounterClockwise];
 
+    // Brightness of the 3D view (realms/ViewGamma.h)
+    const float gamma = realms::gammaExponent([self realms].cvarFloat("vid_gamma", 1.0f));
+
     // Sky pass
     SandboxSkyUniforms sky{};
     sky.anglesRollAspect = simd_make_float4(yaw, pitch, roll, aspect);
-    sky.focal = simd_make_float4(focal, 0.0f, 0.0f, 0.0f);
+    sky.focal = simd_make_float4(focal, gamma, 0.0f, 0.0f);
     if (skyBox && skyMatrix) {
         sky.skyFlags = simd_make_int4(1, 0, 0, 0);
         for (int c = 0; c < 3; ++c)
@@ -2347,7 +2351,7 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
     SandboxSceneUniforms scene{};
     scene.eyeAspect = simd_make_float4(eye.x, eye.y, eye.z, aspect);
     scene.anglesRoll = simd_make_float4(yaw, pitch, roll, focal);
-    scene.lightDirection = simd_make_float4(-0.45f, -1.0f, -0.25f, 0.0f);
+    scene.lightDirection = simd_make_float4(-0.45f, -1.0f, -0.25f, gamma);
     scene.lightColor = simd_make_float4(0.55f, 0.52f, 0.48f, 0.0f);
     scene.ambientColor = simd_make_float4(0.55f, 0.59f, 0.65f, 0.0f);
     scene.flags = simd_make_int4(texturesReady_ ? 1 : 0, 0, 0, 0);
@@ -2896,7 +2900,8 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
                 SandboxSceneUniforms vmScene{};
                 vmScene.eyeAspect = simd_make_float4(0.0f, 0.0f, 0.0f, mainAspect);
                 vmScene.anglesRoll = simd_make_float4(0.0f, 0.0f, 0.0f, 0.0f);
-                vmScene.lightDirection = simd_make_float4(-0.45f, -1.0f, -0.25f, 0.0f);
+                vmScene.lightDirection = simd_make_float4(
+                    -0.45f, -1.0f, -0.25f, realms::gammaExponent([self realms].cvarFloat("vid_gamma", 1.0f)));
                 vmScene.lightColor = simd_make_float4(0.55f, 0.52f, 0.48f, 0.0f);
                 vmScene.ambientColor = simd_make_float4(0.55f, 0.59f, 0.65f, 0.0f);
                 vmScene.flags = simd_make_int4(texturesReady_ ? 1 : 0, 0, 0, 0);

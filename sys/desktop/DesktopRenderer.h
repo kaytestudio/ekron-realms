@@ -227,6 +227,10 @@ public:
                         float roll,
                         float focal); // realms::mapFocalLength(fov)
 
+    // Brightness of the 3D passes: the exponent of realms::gammaExponent(vid_gamma),
+    // applied to the world, models, sky and particles (1 = as drawn).
+    void setGamma(float exponent) { gamma_ = std::isfinite(exponent) && exponent > 0.0f ? exponent : 1.0f; }
+
     // 2D UI layer (coordinates in logical window pixels [0..winW] x [0..winH], top-left origin)
     void beginUi(int logicalW, int logicalH);
     void drawRect(float x, float y, float w, float h, Color color);
@@ -239,6 +243,7 @@ public:
 private:
     // The 3D passes' focal length: the sandbox's, or map mode's from the fov.
     float focal_ = realms::kSandboxFocalLength;
+    float gamma_ = 1.0f;
 
     struct UiVertex {
         float x, y;

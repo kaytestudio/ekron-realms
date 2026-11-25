@@ -417,6 +417,7 @@ void AndroidMapMode::draw(GLuint program, const city::GltfRenderer &sandboxCity,
     camera.roll = angles.roll;
     camera.aspect = aspect;
     camera.focal = focalLength(engine);
+    camera.gamma = realms::gammaExponent(engine.cvarFloat("vid_gamma", 1.0f));
     view_->entities(engine, renderYaw, renderPitch, engine.cvarBool("cl_gun", true), entityVertices_, entityBatches_);
     gles_.drawEntities(engine, entityVertices_, entityBatches_, lights_, camera);
     if (translucent) {

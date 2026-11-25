@@ -291,13 +291,20 @@ static SandboxShade shadeSandbox(SandboxVaryings in,
     return out;
 }
 
-static float4 sandboxFog(float3 lit, float alpha, float3 toEye)
+// Brightness (realms/ViewGamma.h): the exponent of 1 / vid_gamma on the
+// final colour, in scene.lightDirection.w (0 = unset: 1).
+static float viewGamma(constant SandboxSceneUniforms &scene)
+{
+    return scene.lightDirection.w > 0.0f ? scene.lightDirection.w : 1.0f;
+}
+
+static float4 sandboxFog(float3 lit, float alpha, float3 toEye, float gamma)
 {
     float d = max(length(toEye) - 22.0f, 0.0f);
     float fog = 1.0f - exp(-d * d * 0.00022f);
     float3 fogColor = pow(float3(0.56f, 0.61f, 0.63f), float3(2.2f));
     float3 finalLinear = max(mix(lit, fogColor, fog), float3(0.0f));
-    return float4(pow(finalLinear, float3(1.0f / 2.2f)), alpha);
+    return float4(pow(finalLinear, float3(gamma / 2.2f)), alpha);
 }
 
 fragment float4 sandboxFragment(SandboxVaryings in [[stage_in]],
@@ -313,7 +320,7 @@ fragment float4 sandboxFragment(SandboxVaryings in [[stage_in]],
     if (s.discarded) {
         discard_fragment();
     }
-    return sandboxFog(s.lit, s.alpha, in.toEye);
+    return sandboxFog(s.lit, s.alpha, in.toEye, viewGamma(scene));
 }
 
 // Realms map mode with the Quake 2 stack (twin of the Android shaders in
@@ -363,7 +370,7 @@ fragment float4 quakeMapFragment(SandboxVaryings in [[stage_in]],
     if (mode == 3 || (draw.drawFlags.x == 0 && (in.effects & 13) != 0)) {
         lit = s.base;
     }
-    return sandboxFog(lit, s.alpha, in.toEye);
+    return sandboxFog(lit, s.alpha, in.toEye, viewGamma(scene));
 }
 
 // Quake 2 particles, glows and beams: camera-facing quads built on the CPU
@@ -392,7 +399,8 @@ vertex EffectVaryings quakeEffectVertex(uint vid [[vertex_id]],
     PackedEffectVertex v = vertices[vid];
     float3 toEye;
     out.position = projectSandboxPoint(float3(v.position), scene, toEye);
-    out.color = float4(v.color);
+    const float4 color = float4(v.color);
+    out.color = float4(pow(max(color.rgb, float3(0.0f)), float3(viewGamma(scene))), color.a);
     out.corner = float3(float2(v.corner), v.shape);
     return out;
 }
@@ -423,6 +431,13 @@ vertex SkyVaryings skyVertex(uint vid [[vertex_id]])
     out.screen = p * 2.0f - 1.0f;
     out.position = float4(out.screen, 0.9999f, 1.0f);
     return out;
+}
+
+// Brightness (realms/ViewGamma.h) in sky.focal.y (0 = unset: 1).
+static float4 skyGamma(constant SandboxSkyUniforms &sky, float4 c)
+{
+    const float gamma = sky.focal.y > 0.0f ? sky.focal.y : 1.0f;
+    return float4(pow(max(c.rgb, float3(0.0f)), float3(gamma)), c.a);
 }
 
 // The sky gradient, or in map mode the Quake 2 skybox (realms::MapSky):
@@ -459,11 +474,11 @@ fragment float4 skyFragment(SkyVaryings in [[stage_in]],
             st = float2(-d.y, d.z > 0.0f ? -d.x : d.x) / a.z;
         }
         constexpr sampler skySampler(coord::normalized, address::clamp_to_edge, filter::linear);
-        return float4(skyTextures.sample(skySampler, float2((st.x + 1.0f) * 0.5f, (1.0f - st.y) * 0.5f), layer).rgb, 1.0f);
+        return skyGamma(sky, float4(skyTextures.sample(skySampler, float2((st.x + 1.0f) * 0.5f, (1.0f - st.y) * 0.5f), layer).rgb, 1.0f));
     }
     float altitude = cos(pitch) * ray.y - sin(pitch) * ray.z;
     float blend = smoothstep(0.0f, 0.85f, max(altitude, 0.0f));
-    return float4(mix(float3(0.56f, 0.61f, 0.63f), float3(0.32f, 0.41f, 0.51f), blend), 1.0f);
+    return skyGamma(sky, float4(mix(float3(0.56f, 0.61f, 0.63f), float3(0.32f, 0.41f, 0.51f), blend), 1.0f));
 }
 
 // Map mode: the Quake 2 game's full-screen blend (player_state_t::blend:

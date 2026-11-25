@@ -46,6 +46,7 @@
 #include "realms/GameSave.h"
 #include "realms/GameServer.h"
 #include "realms/SandboxBoot.h"
+#include "realms/ViewGamma.h"
 
 #include <algorithm>
 #include <memory>
@@ -2196,6 +2197,7 @@ int main(int argc, char **argv)
             droneMat = computeDroneMatrix(drone, droneModel);
         }
 
+        renderer.setGamma(realms::gammaExponent(engine.cvarFloat("vid_gamma", 1.0f))); // brightness
         if (mapMode.active()) {
             renderer.setMapModelPoses(mapMode.modelPoses()); // doors / platforms moved by the game
             renderer.setMapSurfaces(mapMode.surfaces());     // warp, flowing, translucent, animated
