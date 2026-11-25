@@ -78,6 +78,8 @@ public:
     }
     // The game's sounds on the sandbox mixer (silent while paused).
     void playSounds(realms::Engine &engine, ekron::audio::Mixer &mixer, double dt, bool paused);
+    // Quake 2's CD track is playing (the city's music waits).
+    bool musicPlaying() const { return mixer_ && sound_.musicPlaying(*mixer_); }
 
     bool gameRunning() const { return view_ && view_->gameRunning(); }
     // Quake 2's 2D HUD (status bar, help computer / scores, inventory) as one

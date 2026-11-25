@@ -93,6 +93,13 @@ void SoundDirector::ambience(float volume, SoundOut &out) {
 }
 
 void SoundDirector::music(float dt, SoundOut &out) {
+    if (gameMusic) {
+        if (music_) out.stop(music_, 2.0f);
+        music_ = 0;
+        musicWasPlaying_ = false;
+        musicTimer_ = std::max(musicTimer_, musicDelay);
+        return;
+    }
     const bool playing = music_ && out.playing(music_);
     if (musicWasPlaying_ && !playing) {
         music_ = 0;

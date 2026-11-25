@@ -4,10 +4,12 @@
 //
 // Build (one line): g++ -std=c++17 -O2 -Irealms/include -Isys/android/app/src/main/cpp
 //   tests/native/sound_test.cpp sys/android/app/src/main/cpp/Sound{Decode,Mixer,Director,System}.cpp
-//   realms/src/{Engine,NativeCore,NativeCModel,SandboxBoot,MeshMap,MapGeometry,MapWalker}.cpp
+//   sys/android/app/src/main/cpp/GameSoundPlayer.cpp realms/src/GameSound.cpp
+//   realms/src/{Engine,NativeCore,NativeCModel,SandboxBoot,GameSave,MeshMap,MapGeometry,MapLighting,MapWalker}.cpp
 //   -ldl -lpthread -o /tmp/sound_test
 // Run from the repo root: /tmp/sound_test [assets dir]
 
+#include "GameSoundPlayer.h"
 #include "SoundCatalog.h"
 #include "SoundDecode.h"
 #include "SoundDirector.h"
@@ -520,6 +522,95 @@ static void directorTests() {
         for (int i = 0; i < 60 * 200; ++i) d.sandbox(f, dt, r); // 300 s: the gap is over
         CHECK(r.count("music_infinite_peace") == 2);
     }
+    {
+        // The game's CD track plays: the city's music fades out and waits.
+        SoundDirector d;
+        d.musicDelay = 2.0f;
+        d.startMusicNow();
+        Recorder r;
+        MapFrame f;
+        d.map(f, dt, r);
+        CHECK(r.count("music_infinite_peace") == 1);
+        d.gameMusic = true;
+        d.map(f, dt, r);
+        CHECK(!r.looping("music_infinite_peace") && !r.stopped.empty());
+        for (int i = 0; i < 60 * 400; ++i) d.map(f, dt, r);
+        CHECK(r.count("music_infinite_peace") == 1);
+        d.gameMusic = false; // track gone: back after the usual delay
+        for (int i = 0; i < 60; ++i) d.map(f, dt, r);
+        CHECK(r.count("music_infinite_peace") == 1);
+        for (int i = 0; i < 60 * 2; ++i) d.map(f, dt, r);
+        CHECK(r.count("music_infinite_peace") == 2);
+    }
+}
+
+// Quake 2's CD track from music/trackNN.ogg, music/TrackNN.ogg or
+// music/NN.ogg in a search root or its baseq2 folder.
+static void cdMusicTests(const fs::path &assets) {
+    CHECK(GameSoundPlayer::musicFiles(0).empty());
+    CHECK(GameSoundPlayer::musicFiles(1).empty()); // the CD's data track
+    CHECK(GameSoundPlayer::musicFiles(100).empty());
+    const std::vector<std::string> names = GameSoundPlayer::musicFiles(5);
+    CHECK(names.size() == 3 && names[0] == "music/track05.ogg" && names[1] == "music/Track05.ogg" &&
+          names[2] == "music/05.ogg");
+
+    std::vector<uint8_t> ogg;
+    CHECK(readFile(assets / "sounds" / "jump.ogg", ogg));
+    const fs::path root = fs::temp_directory_path() / "ekron_cd_music_test";
+    fs::remove_all(root);
+    fs::create_directories(root / "music");
+    fs::create_directories(root / "baseq2" / "music");
+    const auto put = [&](const fs::path &p, const std::vector<uint8_t> &bytes) {
+        std::ofstream f(p, std::ios::binary);
+        f.write(reinterpret_cast<const char *>(bytes.data()), std::streamsize(bytes.size()));
+    };
+    put(root / "music" / "Track03.ogg", ogg);          // GOG, next to baseq2
+    put(root / "baseq2" / "music" / "track07.ogg", ogg); // re-release
+    put(root / "baseq2" / "music" / "09.ogg", ogg);
+    put(root / "music" / "11.ogg", {'n', 'o', 'p', 'e'});
+
+    realms::Engine engine;
+    realms::EngineConfig cfg;
+    cfg.backend = realms::BackendPreference::Native;
+    cfg.searchRoots = {root.string()};
+    cfg.writableRoot = (root / "home").string();
+    CHECK(engine.init(cfg));
+    Mixer mixer;
+    mixer.setOutputRate(48000);
+    GameSoundPlayer player;
+    player.music(engine, mixer, 3);
+    CHECK(player.musicTrack() == 3 && player.musicPlaying(mixer));
+    const int first = mixer.activeVoices();
+    player.music(engine, mixer, 3); // same track: keeps playing, no restart
+    CHECK(mixer.activeVoices() == first);
+    std::vector<float> buf(1024 * 2);
+    for (int i = 0; i < 200; ++i) mixer.render(buf.data(), 1024); // ~4 s, longer than the clip: loops
+    CHECK(player.musicPlaying(mixer));
+    player.stop(mixer); // game sounds stop, the music goes on (menu open)
+    CHECK(player.musicPlaying(mixer));
+    player.music(engine, mixer, 7);
+    CHECK(player.musicTrack() == 7 && player.musicPlaying(mixer));
+    player.music(engine, mixer, 9);
+    CHECK(player.musicPlaying(mixer));
+    player.music(engine, mixer, 2); // no file
+    CHECK(player.musicTrack() == 2 && !player.musicPlaying(mixer));
+    player.music(engine, mixer, 11); // not Ogg Vorbis
+    CHECK(!player.musicPlaying(mixer));
+    player.music(engine, mixer, 1);
+    CHECK(!player.musicPlaying(mixer));
+    player.music(engine, mixer, 7);
+    CHECK(player.musicPlaying(mixer));
+    player.music(engine, mixer, 0); // no game / track 0: silence
+    CHECK(player.musicTrack() == 0 && !player.musicPlaying(mixer));
+    for (int i = 0; i < 100; ++i) mixer.render(buf.data(), 1024);
+    CHECK(mixer.activeVoices() == 0); // faded out
+    const int clips = mixer.clipCount();
+    player.music(engine, mixer, 3);
+    player.stopMusic(mixer);
+    CHECK(mixer.clipCount() == clips + 1);
+    CHECK(mixer.play(clips, PlayParams{}) == 0); // the dropped track plays nothing
+    engine.shutdown();
+    fs::remove_all(root);
 }
 
 // `--pascal <librealms_core>` runs the console part on the Free Pascal core.
@@ -597,6 +688,7 @@ int main(int argc, char **argv) {
     assetTests(assets);
     mixerTests();
     directorTests();
+    cdMusicTests(assets);
     systemTests(assets);
     std::printf("[sound] %d checks, %d failures: %s\n", checks, failures, failures == 0 ? "OK" : "FAILED");
     return failures == 0 ? 0 : 1;

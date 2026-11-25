@@ -89,6 +89,7 @@ glTF maps run the game too. Name nodes (Blender empties, for example) after Quak
 - The status bar (health, ammo, armor, the item just picked up, powerup timers) and the layout screens (help computer, scores, inventory) are drawn from the game's own layout programs; with `pak0.pak` installed they use its pics (icons, `pics/help.pcx`, the big digits), otherwise text and digits in the built-in font.
 - `cl_statusbar 0` (Ekron's own, not a Quake 2 cvar): hide the status bar and show health / armor / ammo as text in the map box instead.
 - `gl_polyblend 0`: turn off the screen tint the game sets (red when hurt, gold on a pickup, blue with the Quad Damage, a colour under water); it is on by default, as in Quake 2.
+- Music: the map's CD track (worldspawn `sounds`, which the game puts in the `CS_CDTRACK` config string) plays in a loop from Ogg Vorbis files named the way Yamagi Quake II looks for them: `music/trackNN.ogg` (the 2023 re-release), `music/TrackNN.ogg` (the GOG release) or `music/NN.ogg`, where `NN` is the track number with two digits (`02`…`11` for Quake 2). Each name is looked for in every [data place](#quake-2-data-baseq2) and its `baseq2/`, so GOG's `music` folder next to `baseq2` works where it lies. It plays at `s_musicvolume`, carries on with the pause menu open, and the city's own music waits while it plays. Track 0, track 1 (the CD's data track) or a missing file means no music.
 - `REALMS_GAME_LIBRARY=/path/to/librealms_game.so`: use another game build.
 
 ### Saving

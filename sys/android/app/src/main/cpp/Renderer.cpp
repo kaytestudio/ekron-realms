@@ -659,6 +659,7 @@ void Renderer::render(){
  if(auto *sound=android_sound::get();sound&&soundHeard){
   sound->syncCvars(realms_android::ensureEngine(app_));
   ekron::audio::Listener ear;ear.x=cameraEye.x;ear.y=cameraEye.y;ear.z=cameraEye.z;ear.yaw=cameraYaw;
+  sound->director().gameMusic=false;
   sound->director().sandbox(ekron::audio::sandboxFrame(gameplayReady&&city_.ready(),ear,world_,tools_,drone_,player_,seatedCar_,flying_,droneThrottle.load()),dt,*sound);
  }
  std::vector<Vertex> vertices;vertices.reserve((world_.scenery.size()+world_.objects.size()*10+1)*36);
@@ -865,6 +866,7 @@ void Renderer::renderMap(float dt){
  const auto stats=mapMode_.stats();mapGame=mapMode_.gameRunning()?1:0;mapHealth=stats.health;mapArmor=stats.armor;mapAmmo=stats.ammo;
  if(auto *sound=android_sound::get();sound&&soundHeard){
   sound->syncCvars(engine);
+  sound->director().gameMusic=mapMode_.musicPlaying();
   sound->director().map(ekron::audio::mapFrame(gameplayReady,engine,mapMode_.session().walker(),mapYaw_),dt,*sound);
   mapMode_.playSounds(engine,sound->mixer(),dt,!gameplayReady);
  }

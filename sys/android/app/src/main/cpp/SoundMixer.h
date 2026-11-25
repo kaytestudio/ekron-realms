@@ -43,6 +43,9 @@ public:
     int addClip(const std::string &name, Pcm pcm);
     int addStream(const std::string &name, std::vector<uint8_t> ogg);
     int findClip(const std::string &name) const;
+    // Frees a clip's data (a long streamed track); its number stays taken and
+    // plays nothing. Voices already playing it finish normally.
+    void dropClip(int clip);
     int clipCount() const;
     std::string clipName(int clip) const;
     double clipSeconds(int clip) const;

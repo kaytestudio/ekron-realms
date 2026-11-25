@@ -84,6 +84,9 @@ public:
     // interpolated kick angles (weapon kick, damage, fall, run and bob pitch
     // and roll), or the game's death view while dead. `look` without a game.
     Vec3 cameraAngles(const Vec3 &look) const;
+    // CS_CDTRACK: the map's CD track (worldspawn "sounds"), 0 for none or
+    // without a game.
+    int cdTrack() const;
     bool noclip() const;
     void toggleNoclip();
     // The walker mirrors the game's player (HUD, sound director, saves).

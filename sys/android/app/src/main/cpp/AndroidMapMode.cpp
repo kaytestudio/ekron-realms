@@ -213,7 +213,10 @@ void AndroidMapMode::releaseGl() {
     model_.release();
     releaseTriangles();
     gles_.release();
-    if (mixer_) sound_.stop(*mixer_);
+    if (mixer_) {
+        sound_.stop(*mixer_);
+        sound_.stopMusic(*mixer_);
+    }
     reuseCity_ = false;
     cityScale_ = 1.0f;
     cityOffset_ = {};
@@ -428,6 +431,7 @@ void AndroidMapMode::playSounds(realms::Engine &engine, ekron::audio::Mixer &mix
     mixer_ = &mixer;
     realms::Quake2Module &q2 = view_->module();
     std::vector<realms::GameEvent> sounds = q2.takeSounds();
+    sound_.music(engine, mixer, q2.cdTrack()); // Quake 2's CD track, on through the pause
     if (paused || !q2.gameRunning()) {
         sound_.stop(mixer);
         return;

@@ -647,17 +647,19 @@ add_test(NAME realms_map_render_alignment
          COMMAND realms_map_render_alignment_test "${SHARED_ASSETS_DIR}/models")
 
 # Game sound: every shipped .ogg decodes and is credited; mixer, director,
-# console commands (play / soundlist / stopsound) and s_volume cvars.
+# console commands (play / soundlist / stopsound), s_volume cvars and the
+# Quake 2 CD-track music lookup.
 add_executable(ekron_sound_test
     tests/native/sound_test.cpp
     "${SHARED_CPP_DIR}/SoundDecode.cpp"
     "${SHARED_CPP_DIR}/SoundMixer.cpp"
     "${SHARED_CPP_DIR}/SoundDirector.cpp"
     "${SHARED_CPP_DIR}/SoundSystem.cpp"
+    "${SHARED_CPP_DIR}/GameSoundPlayer.cpp"
 )
 target_include_directories(ekron_sound_test PRIVATE "${SHARED_CPP_DIR}")
 find_package(Threads REQUIRED)
-target_link_libraries(ekron_sound_test PRIVATE realms_engine Threads::Threads)
+target_link_libraries(ekron_sound_test PRIVATE realms_quake2 realms_engine Threads::Threads)
 add_test(NAME ekron_sound COMMAND ekron_sound_test "${SHARED_ASSETS_DIR}")
 set_tests_properties(ekron_sound PROPERTIES ENVIRONMENT "REALMS_CORE=native")
 

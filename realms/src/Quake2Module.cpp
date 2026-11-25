@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 
 namespace realms {
 namespace {
@@ -221,6 +222,11 @@ Vec3 Quake2Module::viewOrigin() const {
     const GameViewLerp v = lerp_.view(*game_);
     for (size_t k = 0; k < 3; k++) o[k] += v.offset[k];
     return o;
+}
+
+int Quake2Module::cdTrack() const {
+    if (!gameRunning()) return 0;
+    return std::max(0, std::atoi(game_->configString(Q2_CS_CDTRACK).c_str()));
 }
 
 Vec3 Quake2Module::cameraAngles(const Vec3 &look) const {
