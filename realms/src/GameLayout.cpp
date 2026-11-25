@@ -68,6 +68,50 @@ GameLayoutItem textItem(int x, int y, std::string_view line, bool alt) {
 
 } // namespace
 
+std::vector<GameLayoutItem> gameInventoryItems(const int16_t *inventory, int selected,
+                                               const std::function<std::string(int)> &configString, int width,
+                                               int height, bool cursor,
+                                               const std::function<std::string(const std::string &)> &hotkey) {
+    constexpr int kDisplayItems = 17;
+    std::vector<GameLayoutItem> items;
+    if (!inventory) return items;
+    auto name = [&](int item) { return configString ? configString(Q2_CS_ITEMS + item) : std::string(); };
+    std::vector<int> owned;
+    int selectedNum = 0;
+    for (int i = 0; i < Q2_MAX_ITEMS; i++) {
+        if (i == selected) selectedNum = int(owned.size());
+        if (inventory[i] != 0) owned.push_back(i);
+    }
+    const int num = int(owned.size());
+    int top = selectedNum - kDisplayItems / 2; // scroll to keep the selection in view
+    if (num - top < kDisplayItems) top = num - kDisplayItems;
+    if (top < 0) top = 0;
+
+    int x = (width - 256) / 2, y = (height - 240) / 2;
+    GameLayoutItem pic;
+    pic.kind = GameLayoutItem::Kind::Pic;
+    pic.x = x;
+    pic.y = y + 8;
+    pic.text = "inventory";
+    items.push_back(pic);
+    y += 24;
+    x += 24;
+    items.push_back(textItem(x, y, "hotkey ### item", false));
+    items.push_back(textItem(x, y + 8, "------ --- ----", false));
+    y += 16;
+    for (int i = top; i < num && i < top + kDisplayItems; i++) {
+        const int item = owned[size_t(i)];
+        const std::string itemName = name(item);
+        const std::string key = hotkey ? hotkey(itemName) : std::string();
+        char line[96];
+        std::snprintf(line, sizeof(line), "%6.6s %3i %.64s", key.c_str(), int(inventory[item]), itemName.c_str());
+        if (item == selected && cursor) items.push_back(textItem(x - 8, y, ">", false));
+        items.push_back(textItem(x, y, line, item != selected));
+        y += 8;
+    }
+    return items;
+}
+
 std::string gameLayoutPicPath(const std::string &name) {
     if (!name.empty() && (name[0] == '/' || name[0] == '\\')) return name.substr(1);
     return "pics/" + name + ".pcx";

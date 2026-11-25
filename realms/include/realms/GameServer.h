@@ -162,6 +162,10 @@ public:
     // Entities to draw, in edict order. `withInline` keeps brush models.
     std::vector<GameRenderEntity> renderEntities(bool withInline = false) const;
     const std::string &configString(int index) const;
+    // The player's item counts from the last svc_inventory, by item index
+    // (CS_ITEMS + index names it); the game sends them while its inventory
+    // screen is open.
+    const std::array<int16_t, Q2_MAX_ITEMS> &inventory() const { return inventory_; }
     // Model name of an edict ("*3", "models/items/armor/body/tris.md2"), "" if none.
     std::string modelName(int modelindex) const;
     // Inline model number for a "*n" modelindex, 0 otherwise.
@@ -232,6 +236,7 @@ private:
     std::string lastError_;
 
     std::vector<std::string> configStrings_;
+    std::array<int16_t, Q2_MAX_ITEMS> inventory_{};
     std::vector<int32_t> modelHeadnodes_; // by modelindex: 0 world, -1 not a brush model
     std::vector<AreaNode> areaNodes_;
     int numAreaNodes_ = 0;

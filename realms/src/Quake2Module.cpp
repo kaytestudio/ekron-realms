@@ -285,8 +285,23 @@ std::vector<GameLayoutItem> Quake2Module::statusBarItems(int width, int height) 
     return runLayout(*game_, game_->configString(Q2_CS_STATUSBAR), width, height);
 }
 
-void Quake2Module::toggleHelp() {
-    if (gameRunning()) game_->clientCommand("help");
+void Quake2Module::toggleHelp() { clientCommand("help"); }
+
+bool Quake2Module::inventoryShown() const {
+    if (!gameRunning()) return false;
+    const q2player_state_t *ps = game_->playerState();
+    return ps && (ps->stats[Q2_STAT_LAYOUTS] & 2);
+}
+
+std::vector<GameLayoutItem> Quake2Module::inventoryItems(int width, int height, bool cursor) const {
+    if (!inventoryShown()) return {};
+    const GameServer &g = *game_;
+    return gameInventoryItems(g.inventory().data(), g.playerState()->stats[Q2_STAT_SELECTED_ITEM],
+                              [&g](int index) { return g.configString(index); }, width, height, cursor);
+}
+
+void Quake2Module::clientCommand(const std::string &line) {
+    if (gameRunning()) game_->clientCommand(line);
 }
 
 std::vector<std::string> Quake2Module::takeMessages() {

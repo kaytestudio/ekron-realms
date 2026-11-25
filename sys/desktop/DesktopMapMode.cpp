@@ -6,6 +6,7 @@
 #include "realms/Image.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <vector>
 
@@ -18,6 +19,7 @@ bool DesktopMapMode::open(realms::Engine &engine, ekron::gl::Api &gl, DesktopRen
     engine.registerCvar("sv_game", "1", REALMS_CVAR_ARCHIVE);
     engine.registerCvar("cl_gun", "1", REALMS_CVAR_ARCHIVE);
     engine.registerCvar("gl_polyblend", "1", REALMS_CVAR_ARCHIVE);
+    engine.registerCvar("cl_statusbar", "1", REALMS_CVAR_ARCHIVE);
     // The map, its lightmaps and (sv_game) the Quake 2 game.
     mapview::Quake2ViewOptions options;
     options.executableDir = executableDir;
@@ -180,22 +182,19 @@ const DesktopMapMode::LayoutPic &DesktopMapMode::layoutPic(realms::Engine &engin
     return layoutPics_[name] = pic;
 }
 
-void DesktopMapMode::drawLayout(realms::Engine &engine, ekron::gl::Api &gl, DesktopRenderer &renderer, int hudW,
-                                int hudH) {
-    if (!layoutShown() || hudW <= 0 || hudH <= 0) return;
-    // Quake 2 pixels: a whole number of HUD pixels each, the 320 x 240
-    // layout area filling most of the smaller side.
-    const int s = std::max(1, int(std::min(hudW / 400.0f, hudH / 300.0f)));
-    const int w = hudW / s, h = hudH / s;
-    const float k = float(s);
-    const std::vector<realms::GameLayoutItem> items = quake2().layoutItems(w, h);
-    // a dim panel under the 320 x 240 area, so the text reads without the "help" pic
-    renderer.drawRect(float(w / 2 - 168) * k, float(h / 2 - 128) * k, 336.0f * k, 256.0f * k,
-                      {0.02f, 0.04f, 0.03f, 0.82f});
+namespace {
+// Quake 2 pixels: a whole number of HUD pixels each, the 320 x 240 layout
+// area filling most of the smaller side.
+int layoutScale(int hudW, int hudH) { return std::max(1, int(std::min(hudW / 400.0f, hudH / 300.0f))); }
+} // namespace
+
+void DesktopMapMode::drawLayoutItems(realms::Engine &engine, ekron::gl::Api &gl, DesktopRenderer &renderer,
+                                     const std::vector<realms::GameLayoutItem> &items, int scale, float offsetY) {
+    const float k = float(scale);
     const Color text{0.93f, 0.93f, 0.88f, 1.0f}, altText{0.55f, 1.0f, 0.55f, 1.0f};
     const Color digits{1.0f, 0.82f, 0.32f, 1.0f}, altDigits{1.0f, 0.32f, 0.25f, 1.0f};
     for (const realms::GameLayoutItem &item : items) {
-        const float x = float(item.x) * k, y = float(item.y) * k;
+        const float x = float(item.x) * k, y = offsetY + float(item.y) * k;
         switch (item.kind) {
         case realms::GameLayoutItem::Kind::Pic: {
             const LayoutPic &pic = layoutPic(engine, gl, item.text);
@@ -215,6 +214,38 @@ void DesktopMapMode::drawLayout(realms::Engine &engine, ekron::gl::Api &gl, Desk
             break;
         }
     }
+}
+
+void DesktopMapMode::drawLayout(realms::Engine &engine, ekron::gl::Api &gl, DesktopRenderer &renderer, int hudW,
+                                int hudH) {
+    const bool layout = layoutShown(), inventory = quake2().inventoryShown();
+    if ((!layout && !inventory) || hudW <= 0 || hudH <= 0) return;
+    const int s = layoutScale(hudW, hudH);
+    const int w = hudW / s, h = hudH / s;
+    const float k = float(s);
+    const Color panel{0.02f, 0.04f, 0.03f, 0.82f};
+    if (layout) {
+        // a dim panel under the 320 x 240 area, so the text reads without the "help" pic
+        renderer.drawRect(float(w / 2 - 168) * k, float(h / 2 - 128) * k, 336.0f * k, 256.0f * k, panel);
+        drawLayoutItems(engine, gl, renderer, quake2().layoutItems(w, h), s, 0.0f);
+    }
+    if (inventory) {
+        // over the layout, as Quake 2 draws it; the cursor blinks at 5 Hz
+        renderer.drawRect(float((w - 256) / 2 - 8) * k, float((h - 240) / 2) * k, 272.0f * k, 256.0f * k, panel);
+        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now().time_since_epoch()).count();
+        drawLayoutItems(engine, gl, renderer, quake2().inventoryItems(w, h, (ms / 100) % 2 == 1), s, 0.0f);
+    }
+}
+
+void DesktopMapMode::drawStatusBar(realms::Engine &engine, ekron::gl::Api &gl, DesktopRenderer &renderer, int hudW,
+                                   int barBottom) {
+    if (!gameRunning() || !engine.cvarBool("cl_statusbar", true) || hudW <= 0 || barBottom <= 0) return;
+    const int s = layoutScale(hudW, barBottom);
+    // the program's yb offsets count up from barBottom (above the HUD's controls bar)
+    const int h = barBottom / s;
+    const float offsetY = float(barBottom - h * s);
+    drawLayoutItems(engine, gl, renderer, quake2().statusBarItems(hudW / s, h), s, offsetY);
 }
 
 GLuint DesktopMapMode::skinTexture(realms::Engine &engine, ekron::gl::Api &gl, const std::string &name) {

@@ -754,6 +754,26 @@ void viewWithGame(realms::Engine &engine) {
     for (int i = 0; i < 3; i++) view.update(engine, {}, yaw, 0.0f, 0.1f, false);
     CHECK(!q2.layoutShown());
 
+    // Tab ("inven"): the game sends svc_inventory and shows the inventory
+    // (STAT_LAYOUTS & 2); the Blaster the player starts with is selected
+    step("inventory");
+    CHECK(!q2.inventoryShown() && q2.inventoryItems(640, 480, true).empty());
+    q2.clientCommand("inven");
+    for (int i = 0; i < 3; i++) view.update(engine, {}, yaw, 0.0f, 0.1f, false);
+    CHECK(q2.inventoryShown());
+    {
+        bool blaster = false, frame = false;
+        for (const realms::GameLayoutItem &it : q2.inventoryItems(640, 480, true)) {
+            blaster |= it.kind == realms::GameLayoutItem::Kind::Text && !it.alt &&
+                       it.text.find("  1 Blaster") != std::string::npos;
+            frame |= it.kind == realms::GameLayoutItem::Kind::Pic && it.text == "inventory";
+        }
+        CHECK(blaster && frame);
+    }
+    q2.clientCommand("inven");
+    for (int i = 0; i < 3; i++) view.update(engine, {}, yaw, 0.0f, 0.1f, false);
+    CHECK(!q2.inventoryShown());
+
     // firing: the blaster's muzzle flash lights the view and the view weapon
     // (yellow, through R_LightPoint), its sound plays
     step("fire");

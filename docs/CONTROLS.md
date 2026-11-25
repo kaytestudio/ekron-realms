@@ -53,11 +53,13 @@ glTF maps run the game too. Name nodes (Blender empties, for example) after Quak
 | `Left Click` | Fire the current weapon (with the mouse captured) |
 | `N` / `R` | Noclip / Restart the map (respawn without the game) |
 | `F1` | Help computer (Quake 2's `cmd help`): skill, level name, the map's objectives, kills, goals and secrets; `F1` again closes it. In the console, `help` does the same and `score` shows the scores |
+| `Tab` / `[` `]` / `Enter` | Inventory (Quake 2's `inven`): open or close it, select the previous / next item (`invprev` / `invnext`), use the selected one (`invuse`) |
 | `` ` `` | Console: Quake 2 client commands such as `give all`, `give shotgun`, `use blaster`, `god`, `notarget`, `kill`, `weapnext`, `cmd <command>`, server commands with `sv <command>`, and `killserver` |
 
 - `sv_game 0`: walk maps without the game.
 - `cl_gun 0`: hide the view weapon.
-- Layout screens (help computer, scores) are drawn from the game's layout program; with `pak0.pak` installed they use its pics (`pics/help.pcx`, digits), otherwise text on a dark panel. Desktop only for now.
+- The status bar (health, ammo, armor, the item just picked up, powerup timers) and the layout screens (help computer, scores, inventory) are drawn from the game's own layout programs; with `pak0.pak` installed they use its pics (icons, `pics/help.pcx`, the big digits), otherwise text and digits in the built-in font. Desktop only for now.
+- `cl_statusbar 0` (Ekron's own, not a Quake 2 cvar): hide the status bar and show health / armor / ammo as text in the map box instead.
 - `gl_polyblend 0`: turn off the screen tint the game sets (red when hurt, gold on a pickup, blue with the Quad Damage, a colour under water); it is on by default, as in Quake 2.
 - `REALMS_GAME_LIBRARY=/path/to/librealms_game.so`: use another game build.
 
