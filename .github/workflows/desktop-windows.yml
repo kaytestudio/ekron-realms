@@ -223,6 +223,7 @@ jobs:
             mingw-w64-clang-aarch64-ninja
             mingw-w64-clang-aarch64-python
             unzip
+            git
 
       - name: Restore SDL2 ${{ env.SDL2_VERSION }} (ARM64)
         id: sdl2-cache
