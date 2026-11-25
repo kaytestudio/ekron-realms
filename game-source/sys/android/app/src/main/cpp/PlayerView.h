@@ -28,11 +28,38 @@ struct PlayerView {
  }
  void append(std::vector<MeshVertex>&out,physics::Vec3 eye,bool crouch,bool prone,float actualEyeHeight=0)const{
   size_t begin=out.size();float height=actualEyeHeight>0?actualEyeHeight:prone?.4f:crouch?.9f:1.7f;float floor=eye.y-height;
-  // Colored ellipsoids: head, torso and articulated limbs; no model asset required.
-  ellipsoid(out,{0,floor+height*.94f,0},{.16f,.19f,.16f},{.67f,.48f,.34f});
-  ellipsoid(out,{0,floor+height*.62f,0},{.24f,height*.22f,.15f},{.19f,.26f,.18f});
-  float swing=std::sin(walk)*.12f;
-  for(int side:{-1,1}){ellipsoid(out,{side*.13f,floor+height*.23f,side*swing},{.1f,height*.23f,.1f},{.13f,.16f,.13f});ellipsoid(out,{side*.32f,floor+height*.57f,-side*swing},{.075f,height*.2f,.075f},{.22f,.28f,.18f});}
+  float u=height/1.7f;
+  // Proportioned humanoid: head with hair, neck, jacket torso, pelvis, jointed
+  // arms and legs with boots. Local -Z is the facing direction; limbs swing
+  // around hip/shoulder pivots while walking. No model asset required.
+  auto box=[&](float cx,float cy,float cz,float hx,float hy,float hz,physics::Vec3 color,float pivotY,float angle){
+   static constexpr int faces[6][6]={{0,1,2,0,2,3},{5,4,7,5,7,6},{4,0,3,4,3,7},{1,5,6,1,6,2},{3,2,6,3,6,7},{4,5,1,4,1,0}};
+   static constexpr float corners[8][3]={{-1,-1,1},{1,-1,1},{1,1,1},{-1,1,1},{-1,-1,-1},{1,-1,-1},{1,1,-1},{-1,1,-1}};
+   static constexpr float normals[6][3]={{0,0,1},{0,0,-1},{-1,0,0},{1,0,0},{0,1,0},{0,-1,0}};
+   float ca=std::cos(angle),sa=std::sin(angle);
+   for(int f=0;f<6;f++)for(int i:faces[f]){
+    float x=corners[i][0]*hx,y=cy+corners[i][1]*hy-pivotY,z=cz+corners[i][2]*hz;
+    float nx=normals[f][0],ny=normals[f][1]*ca-normals[f][2]*sa,nz=normals[f][1]*sa+normals[f][2]*ca;
+    out.push_back({cx+x,pivotY+y*ca-z*sa,y*sa+z*ca,color.x,color.y,color.z,nx,ny,nz,0,0,float(Plain)});
+   }
+  };
+  const physics::Vec3 skin{.72f,.53f,.38f},hair{.15f,.12f,.09f},jacket{.24f,.31f,.22f},sleeve{.28f,.35f,.25f},pants{.16f,.19f,.15f},boots{.09f,.08f,.07f};
+  ellipsoid(out,{0,floor+1.585f*u,0},{.105f*u,.125f*u,.115f*u},skin);
+  ellipsoid(out,{0,floor+1.64f*u,.01f*u},{.115f*u,.085f*u,.125f*u},hair);
+  box(0,floor+1.435f*u,0,.05f*u,.045f*u,.05f*u,skin,floor+1.435f*u,0);      // neck
+  box(0,floor+1.21f*u,0,.175f*u,.17f*u,.105f*u,jacket,floor+1.21f*u,0);      // torso
+  box(0,floor+.96f*u,0,.155f*u,.08f*u,.095f*u,pants,floor+.96f*u,0);         // pelvis
+  float stride=std::sin(walk);
+  for(int side:{-1,1}){
+   float arm=-side*stride*.4f,leg=side*stride*.5f;
+   float shoulder=floor+1.36f*u,hip=floor+.9f*u,ax=side*.235f*u,lx=side*.1f*u;
+   box(ax,floor+1.22f*u,0,.055f*u,.14f*u,.06f*u,jacket,shoulder,arm);        // upper arm
+   box(ax,floor+.955f*u,0,.048f*u,.125f*u,.052f*u,sleeve,shoulder,arm);      // forearm
+   box(ax,floor+.79f*u,0,.045f*u,.05f*u,.05f*u,skin,shoulder,arm);           // hand
+   box(lx,floor+.7f*u,0,.08f*u,.2f*u,.09f*u,pants,hip,leg);                  // thigh
+   box(lx,floor+.3f*u,0,.065f*u,.2f*u,.07f*u,pants,hip,leg);                 // shin
+   box(lx,floor+.05f*u,-.03f*u,.075f*u,.05f*u,.12f*u,boots,hip,leg);         // boot, toe forward
+  }
   float c=std::cos(bodyYaw),s=std::sin(bodyYaw);
   for(size_t i=begin;i<out.size();i++){auto&v=out[i];float x=v.x,z=v.z;v.x=eye.x+c*x+s*z;v.z=eye.z-s*x+c*z;x=v.nx;z=v.nz;v.nx=c*x+s*z;v.nz=-s*x+c*z;}
  }
