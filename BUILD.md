@@ -191,12 +191,12 @@ cmake -S SDL2-2.32.10 -B sdl2-build -G Ninja -DCMAKE_BUILD_TYPE=Release \
 cmake --build sdl2-build && cmake --install sdl2-build
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
   -DSDL2_DIR=C:/SDL2-arm64/lib/cmake/SDL2 \
-  -DFPC_EXECUTABLE=C:/fpc-aarch64/bin/ppcrossa64.exe   # optional
+  -DENABLE_PASCAL_CORE=OFF -DENABLE_GAME_MODULE=OFF -DENABLE_FPC_CLIENT=OFF
 cmake --build build
 (cd build && cpack)   # build/ekron-realms-<version>-windows-arm64.zip
 ```
 
-No Free Pascal release targets aarch64-win64 yet (3.2.4 included). The `windows-arm64-zip` job in `desktop-windows.yml` builds a cross compiler (`ppcrossa64.exe`, an x86_64 program that runs under Windows 11's x64 emulation) and the aarch64-win64 RTL from a pinned commit of Free Pascal's main branch with the Lazarus x86_64 compiler: `make -C compiler cycle CPU_TARGET=aarch64 OS_TARGET=win64 BINUTILSPREFIX= NoNativeBinaries=1`, with clang on `PATH` as the assembler. Next to `ppcrossa64.exe`, an `fpc.cfg` with `-Fu<the RTL units>` is all the core and the game module need. Without `FPC_EXECUTABLE`, the build uses the C++ reference core and map mode runs without the game.
+The ARM64 package is C++ only, like the Visual C++ build: it runs the C++ reference core, and map mode runs without the Quake 2 game module (maps load and can be walked, without monsters or items). No Free Pascal release targets aarch64-win64 yet (3.2.4 included), and programs built with the aarch64-win64 compiler from Free Pascal's main branch (tried at commit `37918075`, as a cross compiler with its RTL) still crash at startup, even a plain `WriteLn('hello')`. CI: the `windows-arm64-zip` job in `desktop-windows.yml`, on GitHub's `windows-11-arm` runner.
 
 ### Handhelds (Anbernic RG40XXH, PortMaster)
 
@@ -586,7 +586,7 @@ Pushing a tag that starts with `v` (for example `git tag v1.0.0 && git push orig
 | `ekron-realms-<version>-android-debug.apk` | `android-sandbox.yml` (debug key) |
 | `ekron-realms-<version>-ios-debug-unsigned.ipa` | `ios-sandbox.yml` (unsigned) |
 | `ekron-realms-<version>-windows-x64.zip` | `desktop-windows.yml` (MinGW-w64; exe not code-signed) |
-| `ekron-realms-<version>-windows-arm64.zip` | `desktop-windows.yml` (LLVM-MinGW, Windows 11 on ARM; exe not code-signed) |
+| `ekron-realms-<version>-windows-arm64.zip` | `desktop-windows.yml` (LLVM-MinGW, Windows 11 on ARM; C++ core only; exe not code-signed) |
 | `ekron-realms-<version>-portmaster-aarch64.zip` | `handheld-portmaster.yml` (PortMaster port: Anbernic RG40XXH and other aarch64 handhelds) |
 | `SHA256SUMS.txt` | checksums of the seven |
 

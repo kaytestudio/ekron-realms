@@ -20,7 +20,7 @@ All platforms run the same C++17 game code.
 | Linux (amd64) | `.deb` | SDL2, OpenGL 3.3 |
 | macOS | `.app` (ad-hoc signed, not notarised) | SDL2, OpenGL 3.3 |
 | Windows 10 and 11 (x64) | portable `.zip` | SDL2, OpenGL 3.3 |
-| Windows 11 on ARM (arm64) | portable `.zip` | SDL2, OpenGL 3.3 |
+| Windows 11 on ARM (arm64) | portable `.zip` (C++ core, no Quake 2 game module yet) | SDL2, OpenGL 3.3 |
 | Anbernic RG40XXH and other aarch64 handhelds | PortMaster port `.zip` | SDL2, OpenGL ES 3.0, gamepad |
 | Android 11+ (arm64-v8a, x86_64) | debug `.apk` | OpenGL ES 3.0 |
 | iOS 16+ | unsigned `.ipa` | Metal |
