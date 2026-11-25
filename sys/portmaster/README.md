@@ -8,7 +8,9 @@ Ekron Realms on PortMaster handhelds (built for the Anbernic RG40XXH:
   `pak1.pak`, `pak2.pak`) from your Quake 2 `baseq2` folder into
   `ports/ekronrealms/baseq2` first.
 
-Settings and saves are kept in `ports/ekronrealms/conf`.
+Settings (`config.cfg`, `settings.json`), the city, the store and Quake 2
+saves are kept in `ports/ekronrealms/conf/KayteStudio/EkronRealms`. The
+Quake 2 data can also go in its `baseq2` folder.
 
 ## Controls
 
@@ -25,6 +27,6 @@ Settings and saves are kept in `ports/ekronrealms/conf`.
 | D-pad | Move | Up: help, down: scores, left / right: inventory |
 | Select + L1 / R1 | | Quick save / quick load |
 | Start | Pause menu (d-pad, A, B) | Pause menu |
-| Select + Start | Quit | Quit |
+| Select + Start | Quit (PortMaster's gptokeyb hotkey) | Quit |
 
 The build catalog and the store need a mouse; B closes them.
