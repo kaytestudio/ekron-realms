@@ -22,10 +22,14 @@ struct CameraAxes {
 
 // AngleVectors for (pitch, yaw, roll = 0).
 CameraAxes cameraAxes(const Vec3 &angles) {
+    // AngleVectors: forward, right, up (roll from the view kick / death view)
     const float d2r = 3.14159265f / 180.0f;
     const float sy = std::sin(angles[1] * d2r), cy = std::cos(angles[1] * d2r);
     const float sp = std::sin(angles[0] * d2r), cp = std::cos(angles[0] * d2r);
-    return {{cp * cy, cp * sy, -sp}, {sy, -cy, 0.0f}, {sp * cy, sp * sy, cp}};
+    const float sr = std::sin(angles[2] * d2r), cr = std::cos(angles[2] * d2r);
+    return {{cp * cy, cp * sy, -sp},
+            {-sr * sp * cy + cr * sy, -sr * sp * sy - cr * cy, -sr * cp},
+            {cr * sp * cy + sr * sy, cr * sp * sy - sr * cy, cr * cp}};
 }
 
 } // namespace
@@ -209,7 +213,25 @@ void Quake2Module::sync() {
     if (sounds_.size() > 256) sounds_.erase(sounds_.begin(), sounds_.end() - 256);
 }
 
-Vec3 Quake2Module::viewOrigin() const { return gameRunning() ? game_->viewOrigin() : Vec3{0, 0, 0}; }
+Vec3 Quake2Module::viewOrigin() const {
+    if (!gameRunning()) return {0, 0, 0};
+    // CL_CalcViewValues: the player's origin (moved by every usercmd) plus
+    // the view offset between the last two game frames
+    Vec3 o = game_->playerOrigin();
+    const GameViewLerp v = lerp_.view(*game_);
+    for (size_t k = 0; k < 3; k++) o[k] += v.offset[k];
+    return o;
+}
+
+Vec3 Quake2Module::cameraAngles(const Vec3 &look) const {
+    if (!gameRunning()) return look;
+    // CL_CalcViewValues: the player's own look (the death view while dead)
+    // plus the kick angles
+    const GameViewLerp v = lerp_.view(*game_);
+    Vec3 a = v.locked ? Vec3{v.angles[0], v.angles[1], v.angles[2]} : look;
+    for (size_t k = 0; k < 3; k++) a[k] += v.kick[k];
+    return a;
+}
 Vec3 Quake2Module::viewAngles() const { return gameRunning() ? game_->viewAngles() : Vec3{0, 0, 0}; }
 
 bool Quake2Module::noclip() const {

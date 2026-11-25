@@ -2201,8 +2201,10 @@ int main(int argc, char **argv)
             // particles, trails, laser beams and dynamic lights (cl_fx.c / cl_tent.c)
             mapMode.buildEffects(world.yaw, world.pitch, mapEffectVertices, mapLights);
             renderer.setMapEffects(gl, mapEffectVertices, mapLights);
-            renderer.renderMapWorld(gl, drawW, drawH, mapMode.model(), mapMode.eye(), world.yaw, world.pitch, 0.0f,
-                                    realms::mapFocalLength(mapMode.quake2().viewFov(engine)));
+            // the camera: the player's look plus Quake 2's view kick (or the death view)
+            const mapview::Quake2View::DrawAngles camera = mapMode.view().drawAngles(world.yaw, world.pitch);
+            renderer.renderMapWorld(gl, drawW, drawH, mapMode.model(), mapMode.eye(), camera.yaw, camera.pitch,
+                                    camera.roll, realms::mapFocalLength(mapMode.quake2().viewFov(engine)));
         } else renderer.renderMainWorld(
             gl, drawW, drawH,
             worldVertices, ghostVertices,

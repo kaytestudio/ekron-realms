@@ -406,10 +406,12 @@ void AndroidMapMode::draw(GLuint program, const city::GltfRenderer &sandboxCity,
         if (translucent) drawTriangles(program, engine, 1);
         return;
     }
+    const mapview::Quake2View::DrawAngles angles = view_->drawAngles(renderYaw, renderPitch);
     Quake2Gles::Camera camera;
     camera.eye = eye;
-    camera.yaw = renderYaw;
-    camera.pitch = renderPitch;
+    camera.yaw = angles.yaw;
+    camera.pitch = angles.pitch;
+    camera.roll = angles.roll;
     camera.aspect = aspect;
     camera.focal = focalLength(engine);
     view_->entities(engine, renderYaw, renderPitch, engine.cvarBool("cl_gun", true), entityVertices_, entityBatches_);

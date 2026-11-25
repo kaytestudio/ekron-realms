@@ -98,9 +98,19 @@ std::array<float, 4> mapSurfaceMotion(double seconds) {
     return {float(std::fmod(t, twoPi)), wrap(flow), wrap(warpFlow), 0.0f};
 }
 
-realms::Vec3 Quake2View::cameraAngles(float renderYaw, float renderPitch) {
+realms::Vec3 Quake2View::cameraAngles(float renderYaw, float renderPitch) const {
     const realms::WalkInput view = walkInput({}, renderYaw, renderPitch);
-    return {view.pitch, view.yaw, 0.0f};
+    return q2_.cameraAngles({view.pitch, view.yaw, 0.0f});
+}
+
+Quake2View::DrawAngles Quake2View::drawAngles(float renderYaw, float renderPitch) const {
+    if (!q2_.gameRunning()) return {renderYaw, renderPitch, 0.0f};
+    // walkInput backwards. A positive Quake 2 roll leans the camera right
+    // (AngleVectors' right vector points down), which turns the image
+    // counter-clockwise like a positive render roll.
+    const realms::Vec3 a = cameraAngles(renderYaw, renderPitch);
+    constexpr float d2r = 3.14159265358979f / 180.0f;
+    return {renderYawFromMap(a[1]), -a[0] * d2r, a[2] * d2r};
 }
 
 bool Quake2View::open(realms::Engine &engine, const Quake2ViewOptions &options, realms::MapGeometry &geometry,

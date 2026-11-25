@@ -26,6 +26,25 @@ void GameEntityLerp::reset() {
     prev_.clear();
     cur_.clear();
     gunIndex_ = gunFrame_ = prevGunIndex_ = prevGunFrame_ = 0;
+    viewPrev_ = viewCur_ = ViewSnap{};
+}
+
+GameEntityLerp::ViewSnap GameEntityLerp::viewSnap(const GameServer &server) {
+    ViewSnap s;
+    const q2player_state_t *ps = server.playerState();
+    if (!server.running() || !ps) return s;
+    s.valid = true;
+    s.pmType = ps->pmove.pm_type;
+    const Vec3 origin = server.playerOrigin();
+    for (int k = 0; k < 3; k++) {
+        s.origin[size_t(k)] = origin[size_t(k)];
+        s.offset[size_t(k)] = ps->viewoffset[k];
+        s.kick[size_t(k)] = ps->kick_angles[k];
+        s.angles[size_t(k)] = ps->viewangles[k];
+        s.gunOffset[size_t(k)] = ps->gunoffset[k];
+        s.gunAngles[size_t(k)] = ps->gunangles[k];
+    }
+    return s;
 }
 
 void GameEntityLerp::update(const GameServer &server) {
@@ -54,6 +73,27 @@ void GameEntityLerp::update(const GameServer &server) {
     const q2player_state_t *ps = server.playerState();
     gunIndex_ = ps ? ps->gunindex : 0;
     gunFrame_ = ps ? ps->gunframe : 0;
+    viewPrev_ = viewCur_;
+    viewCur_ = viewSnap(server);
+}
+
+GameViewLerp GameEntityLerp::view(const GameServer &server) const {
+    GameViewLerp v;
+    // the snapshots of the last two frames, or the live state before update()
+    const ViewSnap cur = viewCur_.valid ? viewCur_ : viewSnap(server);
+    if (!server.running() || !cur.valid) return v;
+    ViewSnap old = viewPrev_.valid ? viewPrev_ : cur;
+    // CL_CalcViewValues: no interpolation across a teleport (256 units)
+    for (int k = 0; k < 3; k++)
+        if (std::fabs(cur.origin[size_t(k)] - old.origin[size_t(k)]) > 256.0f) old = cur;
+    const float frac = float(server.lerpFraction());
+    for (size_t k = 0; k < 3; k++) {
+        v.offset[k] = old.offset[k] + frac * (cur.offset[k] - old.offset[k]);
+        v.kick[k] = lerpAngle(old.kick[k], cur.kick[k], frac);
+        v.angles[k] = lerpAngle(old.angles[k], cur.angles[k], frac);
+    }
+    v.locked = cur.pmType >= Q2_PM_DEAD;
+    return v;
 }
 
 std::vector<GameLerpedEntity> GameEntityLerp::entities(const GameServer &server) const {
@@ -121,9 +161,15 @@ GameViewWeapon GameEntityLerp::viewWeapon(const GameServer &server) const {
     w.visible = true;
     const Vec3 eye = server.viewOrigin();
     const Vec3 view = server.viewAngles();
-    for (int k = 0; k < 3; k++) {
-        w.origin[size_t(k)] = eye[size_t(k)] + ps->gunoffset[k];
-        w.angles[size_t(k)] = view[size_t(k)] + ps->gunangles[k];
+    // CL_AddViewWeapon: gunoffset / gunangles between the last two frames
+    const ViewSnap cur = viewCur_.valid ? viewCur_ : viewSnap(server);
+    const ViewSnap old = viewPrev_.valid ? viewPrev_ : cur;
+    const float frac = float(server.lerpFraction());
+    for (size_t k = 0; k < 3; k++) {
+        w.gunOffset[k] = old.gunOffset[k] + frac * (cur.gunOffset[k] - old.gunOffset[k]);
+        w.gunAngles[k] = lerpAngle(old.gunAngles[k], cur.gunAngles[k], frac);
+        w.origin[k] = eye[k] + w.gunOffset[k];
+        w.angles[k] = view[k] + w.gunAngles[k];
     }
     w.frame = ps->gunframe;
     w.oldframe = ps->gunframe;
@@ -308,8 +354,8 @@ void buildGameScene(const Engine &engine, const GameServer &server, const GameEn
             b.angles = w.angles;
             if (options.hasCamera) {
                 for (int k = 0; k < 3; k++) {
-                    b.origin[size_t(k)] = options.cameraOrigin[size_t(k)] + ps->gunoffset[k];
-                    b.angles[size_t(k)] = options.cameraAngles[size_t(k)] + ps->gunangles[k];
+                    b.origin[size_t(k)] = options.cameraOrigin[size_t(k)] + w.gunOffset[size_t(k)];
+                    b.angles[size_t(k)] = options.cameraAngles[size_t(k)] + w.gunAngles[size_t(k)];
                 }
             }
             b.angles[0] = -b.angles[0];

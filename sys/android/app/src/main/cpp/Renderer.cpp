@@ -874,13 +874,14 @@ void Renderer::renderMap(float dt){
  const physics::Vec3 eye=mapMode_.drawEye();
  const float aspect=float(width_)/float(height_);
  const float focal=mapMode_.focalLength(engine);
+ const mapview::Quake2View::DrawAngles camera=mapMode_.drawAngles(mapYaw_,mapPitch_); // + Quake 2's view kick
  glViewport(0,0,width_,height_);glClearColor(.56f,.61f,.63f,1);glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
  glBindVertexArray(vao_);
  if(skyProgram_){glDisable(GL_DEPTH_TEST);glDepthMask(GL_FALSE);glUseProgram(skyProgram_);
   glUniform1f(glGetUniformLocation(skyProgram_,"aspect"),aspect);
   glUniform1f(glGetUniformLocation(skyProgram_,"focal"),focal);
-  glUniform2f(glGetUniformLocation(skyProgram_,"angles"),mapYaw_,mapPitch_);
-  glUniform1f(glGetUniformLocation(skyProgram_,"cameraRoll"),0);
+  glUniform2f(glGetUniformLocation(skyProgram_,"angles"),camera.yaw,camera.pitch);
+  glUniform1f(glGetUniformLocation(skyProgram_,"cameraRoll"),camera.roll);
   const GLuint skyTexture=mapMode_.skyTexture();
   if(skyTexture){
    glActiveTexture(GL_TEXTURE4);glBindTexture(GL_TEXTURE_2D_ARRAY,skyTexture);glActiveTexture(GL_TEXTURE0);
@@ -902,9 +903,9 @@ void Renderer::renderMap(float dt){
  glUniform3f(glGetUniformLocation(program_,"lightDirection"),-.45f,-1.f,-.25f);
  glUniform3f(glGetUniformLocation(program_,"lightColor"),.55f,.52f,.48f);
  glUniform3f(glGetUniformLocation(program_,"ambientColor"),.55f,.59f,.65f);
- glUniform1f(glGetUniformLocation(program_,"cameraRoll"),0);
+ glUniform1f(glGetUniformLocation(program_,"cameraRoll"),camera.roll);
  glUniform3f(glGetUniformLocation(program_,"eye"),eye.x,eye.y,eye.z);
- glUniform2f(glGetUniformLocation(program_,"angles"),mapYaw_,mapPitch_);
+ glUniform2f(glGetUniformLocation(program_,"angles"),camera.yaw,camera.pitch);
  glUniform1f(glGetUniformLocation(program_,"aspect"),aspect);
  glUniform1f(glGetUniformLocation(program_,"focal"),focal);
  mapMode_.draw(program_,city_,engine,mapYaw_,mapPitch_,aspect);

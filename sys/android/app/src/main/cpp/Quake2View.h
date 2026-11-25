@@ -182,8 +182,17 @@ public:
     const realms::Quake2Module &module() const { return q2_; }
     bool gameRunning() const { return q2_.gameRunning(); }
 
-    // The renderer's camera as Quake 2 view angles (pitch, yaw, 0), degrees.
-    static realms::Vec3 cameraAngles(float renderYaw, float renderPitch);
+    // The camera as Quake 2 view angles (pitch, yaw, roll), degrees: the
+    // player's look (renderYaw / renderPitch) with the game's view kick, or
+    // its death view (Quake2Module::cameraAngles).
+    realms::Vec3 cameraAngles(float renderYaw, float renderPitch) const;
+    // The same in the renderer's convention (radians; roll turns the image
+    // like the drone camera's): what the world, the entities, the effects
+    // and the sky are drawn with. The player's look itself without a game.
+    struct DrawAngles {
+        float yaw = 0.0f, pitch = 0.0f, roll = 0.0f;
+    };
+    DrawAngles drawAngles(float renderYaw, float renderPitch) const;
 
 private:
     void syncPoses();

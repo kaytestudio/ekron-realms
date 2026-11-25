@@ -19,6 +19,7 @@ public:
     struct Camera {
         physics::Vec3 eye{};
         float yaw = 0.0f, pitch = 0.0f, aspect = 1.0f; // the sandbox camera convention
+        float roll = 0.0f;                              // Quake2View::drawAngles
         float focal = realms::kSandboxFocalLength;    // realms::mapFocalLength(fov) in map mode
     };
 

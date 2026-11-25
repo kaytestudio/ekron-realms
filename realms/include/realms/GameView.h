@@ -32,8 +32,22 @@ struct GameViewWeapon {
     bool visible = false;
     std::string model;
     std::array<float, 3> origin{}, angles{}; // map space / degrees
+    // ps.gunoffset / gunangles, interpolated (CL_AddViewWeapon): origin and
+    // angles are the view's plus these.
+    std::array<float, 3> gunOffset{}, gunAngles{};
     int frame = 0, oldframe = 0;
     float backlerp = 0.0f;
+};
+
+// CL_CalcViewValues: the player_state_t view values the client draws with,
+// interpolated between the last two game frames (not after a teleport).
+struct GameViewLerp {
+    std::array<float, 3> offset{}; // ps.viewoffset: view height, bob, fall, kick_origin
+    std::array<float, 3> kick{};   // ps.kick_angles: weapon kick, damage, fall, run and bob pitch / roll
+    std::array<float, 3> angles{}; // ps.viewangles (the death view while `locked`)
+    // pm_type >= PM_DEAD: Quake 2 draws ps.viewangles (roll 40, pitch -15,
+    // facing the killer) instead of the player's own look.
+    bool locked = false;
 };
 
 class GameEntityLerp {
@@ -48,6 +62,7 @@ public:
     // stay valid until the next update().
     std::vector<GameLerpedEntity> entities(const GameServer &server) const;
     GameViewWeapon viewWeapon(const GameServer &server) const;
+    GameViewLerp view(const GameServer &server) const;
 
     int snapshots() const { return snapshots_; }
 
@@ -67,6 +82,13 @@ private:
     std::unordered_map<int, Snap> cur_;
     int gunIndex_ = 0, gunFrame_ = 0;
     int prevGunIndex_ = 0, prevGunFrame_ = 0;
+    struct ViewSnap {
+        bool valid = false;
+        int pmType = 0;
+        std::array<float, 3> origin{}, offset{}, kick{}, angles{}, gunOffset{}, gunAngles{};
+    };
+    static ViewSnap viewSnap(const GameServer &server);
+    ViewSnap viewPrev_, viewCur_;
 };
 
 // .md3 models loaded through the Engine's VFS (pak files or loose), by the
