@@ -9,6 +9,7 @@
 #include "md3_builder.h"
 
 #include "realms/Engine.h"
+#include "realms/GameClient.h"
 #include "realms/GameEffects.h"
 #include "realms/GameServer.h"
 #include "realms/GameView.h"
@@ -356,16 +357,50 @@ void runGameChecks(realms::Engine &engine, const std::string &gameLibrary) {
         CHECK(dr && dr->inlineModel == 1 && dr->solid == Q2_SOLID_BSP);
         CHECK(all.size() == ents.size() + 1);
         CHECK(server.lerpFraction() >= 0 && server.lerpFraction() < 1);
+        // the client's copy, from the server's snapshots (GameClient)
+        realms::GameClient client;
+        CHECK(client.needsFull() && client.playerState() == nullptr);
+        {
+            realms::GameSnapshot full;
+            server.snapshot(full, true);
+            CHECK(full.running && full.entitiesChanged && full.hasPlayer);
+            CHECK(full.frameNumber == server.frameNumber() && full.entities.size() == all.size());
+            CHECK(full.configStrings.size() > 10 && full.inventoryChanged);
+            bool sorted = true, anyEmpty = false;
+            for (size_t i = 0; i < full.configStrings.size(); i++) {
+                anyEmpty |= full.configStrings[i].second.empty();
+                if (i) sorted &= full.configStrings[i - 1].first < full.configStrings[i].first;
+            }
+            CHECK(sorted && !anyEmpty);
+            client.apply(std::move(full));
+            // nothing changed since: no entities, config strings or inventory again
+            realms::GameSnapshot again;
+            server.snapshot(again, false);
+            CHECK(again.running && again.hasPlayer && !again.entitiesChanged && again.entities.empty());
+            CHECK(again.configStrings.empty() && !again.inventoryChanged);
+            client.apply(std::move(again));
+        }
+        CHECK(client.running() && !client.needsFull() && client.snapshots() == 2 && client.serverFrames() == 1);
+        CHECK(client.frameNumber() == server.frameNumber() && client.lerpFraction() == server.lerpFraction());
+        CHECK(client.renderEntities(true).size() == all.size() && client.renderEntities().size() == ents.size());
+        CHECK(client.configString(Q2_CS_MODELS + 1) == server.configString(Q2_CS_MODELS + 1));
+        CHECK(client.configString(Q2_CS_STATUSBAR) == server.configString(Q2_CS_STATUSBAR));
+        CHECK(client.modelName(dr ? dr->modelindex : 0) == "*1" && client.inlineModel(dr ? dr->modelindex : 0) == 1);
+        CHECK(client.playerState() && client.playerState()->pmove.origin[2] == player->client->ps.pmove.origin[2]);
+        CHECK(near(client.viewOrigin()[2], server.viewOrigin()[2], 1e-6f));
+        CHECK(near(client.viewAngles()[1], server.viewAngles()[1], 1e-6f));
+        CHECK(client.loopSounds().size() == server.loopSounds().size());
+        CHECK(client.beamEntities().size() == server.beamEntities().size());
         realms::GameEntityLerp lerp;
-        lerp.update(server);
-        const auto lerped = lerp.entities(server);
+        lerp.update(client);
+        const auto lerped = lerp.entities(client);
         CHECK(lerped.size() == all.size());
         for (const auto &l : lerped) {
             if (!l.entity) continue;
             if (l.entity->model == "models/items/armor/shard/tris.md2")
                 CHECK(l.angles[0] == 0 && l.angles[1] >= 0 && l.angles[1] < 360 && l.backlerp == 0);
         }
-        CHECK(!lerp.viewWeapon(server).visible || lerp.viewWeapon(server).model == "models/weapons/v_blast/tris.md2");
+        CHECK(!lerp.viewWeapon(client).visible || lerp.viewWeapon(client).model == "models/weapons/v_blast/tris.md2");
         CHECK(near(realms::GameEntityLerp::lerpAngle(350, 10, 0.5f), 360, 1e-4f));
         CHECK(near(realms::GameEntityLerp::lerpAngle(10, 350, 0.25f), 5, 1e-4f));
         CHECK(near(realms::GameEntityLerp::lerpAngle(0, 90, 0.5f), 45, 1e-4f));
@@ -374,7 +409,7 @@ void runGameChecks(realms::Engine &engine, const std::string &gameLibrary) {
         // view model in this VFS, so no gun; never the player or the door
         realms::GameModelCache models;
         realms::GameScene scene;
-        realms::buildGameScene(engine, server, lerp, models, {}, scene);
+        realms::buildGameScene(engine, client, lerp, models, {}, scene);
         const realms::GameDrawBatch *sb = nullptr;
         bool gun = false, bad = false;
         for (const auto &b : scene.batches) {
@@ -396,7 +431,7 @@ void runGameChecks(realms::Engine &engine, const std::string &gameLibrary) {
         const auto errs = models.takeErrors();
         CHECK(errs.size() == 1 && errs[0].find("v_blast/tris.md3: not found") != std::string::npos);
         CHECK(models.takeErrors().empty());
-        realms::buildGameScene(engine, server, lerp, models, {}, scene); // cached: no new errors
+        realms::buildGameScene(engine, client, lerp, models, {}, scene); // cached: no new errors
         CHECK(models.takeErrors().empty() && models.loaded() == 1);
         realms::RgbaImage skin;
         std::string skinErr;
@@ -407,7 +442,7 @@ void runGameChecks(realms::Engine &engine, const std::string &gameLibrary) {
         std::error_code rmErr;
         fs::rename(gGameDir / realms::md3PathFor(kShardModel), gGameDir / "shard.bak", rmErr);
         realms::GameModelCache noData;
-        realms::buildGameScene(engine, server, lerp, noData, {}, scene);
+        realms::buildGameScene(engine, client, lerp, noData, {}, scene);
         sb = nullptr;
         for (const auto &b : scene.batches)
             if (b.model == kShardModel) sb = &b;
@@ -423,7 +458,7 @@ void runGameChecks(realms::Engine &engine, const std::string &gameLibrary) {
         }
         realms::GameSceneOptions noBoxes;
         noBoxes.fallbackBoxes = false;
-        realms::buildGameScene(engine, server, lerp, noData, noBoxes, scene);
+        realms::buildGameScene(engine, client, lerp, noData, noBoxes, scene);
         CHECK(scene.batches.empty() && scene.vertices.empty());
         fs::rename(gGameDir / "shard.bak", gGameDir / realms::md3PathFor(kShardModel), rmErr);
     }
@@ -452,19 +487,28 @@ void runGameChecks(realms::Engine &engine, const std::string &gameLibrary) {
     // the client view of the rising door: drawn between the last two game
     // frames, never ahead of the current one, strictly between them halfway
     realms::GameEntityLerp doorLerp;
+    realms::GameClient doorClient;
+    size_t configUpdates = 0;
     float lastSnapZ = doorZ0, prevSnapZ = doorZ0;
     int lastSnap = -1, inBetween = 0, outOfRange = 0;
     for (int i = 0; i < 40; i++) {
         server.frame(walk, 0.05);
         auto ev = server.takeEvents();
         events.insert(events.end(), ev.begin(), ev.end());
-        doorLerp.update(server);
+        {
+            realms::GameSnapshot snap;
+            server.snapshot(snap, doorClient.needsFull());
+            if (doorClient.running()) configUpdates += snap.configStrings.size();
+            CHECK(snap.entitiesChanged == (!doorClient.running() || snap.frameNumber != doorClient.frameNumber()));
+            doorClient.apply(std::move(snap));
+        }
+        doorLerp.update(doorClient);
         if (server.frameNumber() != lastSnap) {
             lastSnap = server.frameNumber();
             prevSnapZ = lastSnapZ;
             lastSnapZ = door ? door->s.origin[2] : 0;
         }
-        for (const auto &l : doorLerp.entities(server)) {
+        for (const auto &l : doorLerp.entities(doorClient)) {
             if (!l.entity || l.entity->model != "*1") continue;
             const float lo = std::min(prevSnapZ, lastSnapZ) - 1e-3f, hi = std::max(prevSnapZ, lastSnapZ) + 1e-3f;
             if (l.origin[2] < lo || l.origin[2] > hi) outOfRange++;
@@ -475,6 +519,8 @@ void runGameChecks(realms::Engine &engine, const std::string &gameLibrary) {
     CHECK(outOfRange == 0);
     CHECK(inBetween > 0);
     CHECK(doorLerp.snapshots() >= 19);
+    CHECK(doorClient.snapshots() == 40 && doorClient.serverFrames() >= 19);
+    CHECK(configUpdates < 20); // only what changed travels after the first snapshot
     CHECK(hasEvent(events, realms::GameEvent::Kind::Sound, "sound/doors/dr1_strt.wav"));
     CHECK(server.playerOrigin()[0] > 100);
 
@@ -488,12 +534,16 @@ void runGameChecks(realms::Engine &engine, const std::string &gameLibrary) {
     CHECK(server.modelName(player->client->ps.gunindex) == "models/weapons/v_shotg/tris.md2");
     {
         realms::GameEntityLerp gunLerp;
-        gunLerp.update(server);
+        realms::GameClient gunClient;
+        gunClient.update(server);
+        gunLerp.update(gunClient);
         server.frame(idle, 0.05);
-        gunLerp.update(server);
+        gunClient.update(server);
+        gunLerp.update(gunClient);
         server.frame(idle, 0.05);
-        gunLerp.update(server);
-        const realms::GameViewWeapon gun = gunLerp.viewWeapon(server);
+        gunClient.update(server);
+        gunLerp.update(gunClient);
+        const realms::GameViewWeapon gun = gunLerp.viewWeapon(gunClient);
         CHECK(gun.visible && gun.model == "models/weapons/v_shotg/tris.md2");
         const realms::Vec3 eye = server.viewOrigin();
         CHECK(near(gun.origin[0], eye[0] + player->client->ps.gunoffset[0], 1e-3f));
@@ -508,7 +558,7 @@ void runGameChecks(realms::Engine &engine, const std::string &gameLibrary) {
         opt.hasCamera = true;
         opt.cameraOrigin = {100, 20, 70};
         opt.cameraAngles = {10, 45, 0};
-        realms::buildGameScene(engine, server, gunLerp, models, opt, scene);
+        realms::buildGameScene(engine, gunClient, gunLerp, models, opt, scene);
         const realms::GameDrawBatch *vw = nullptr;
         for (const auto &b : scene.batches)
             if (b.viewWeapon) vw = &b;
@@ -520,7 +570,7 @@ void runGameChecks(realms::Engine &engine, const std::string &gameLibrary) {
             CHECK(vw->skin == "models/weapons/v_shotg/skin.pcx");
         }
         opt.viewWeapon = false; // cl_gun 0
-        realms::buildGameScene(engine, server, gunLerp, models, opt, scene);
+        realms::buildGameScene(engine, gunClient, gunLerp, models, opt, scene);
         bool anyGun = false;
         for (const auto &b : scene.batches) anyGun |= b.viewWeapon;
         CHECK(!anyGun);
@@ -562,7 +612,9 @@ void runGameChecks(realms::Engine &engine, const std::string &gameLibrary) {
     {
         // ... and the client effects: the flash's light, puffs and smoke
         realms::GameEffects fx;
-        const double t = realms::clientTimeMs(server);
+        realms::GameClient fxClient;
+        fxClient.update(server);
+        const double t = realms::clientTimeMs(fxClient);
         for (const auto &e : events) fx.handleEvent(e, t);
         CHECK(fx.dlightCount(t) >= 1);
         CHECK(fx.particleCount() >= 20);

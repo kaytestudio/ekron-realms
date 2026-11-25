@@ -1265,6 +1265,45 @@ std::vector<GameLoopSound> GameServer::loopSounds() const {
     return out;
 }
 
+void GameServer::snapshot(GameSnapshot &out, bool full) {
+    out = GameSnapshot{};
+    out.running = running_;
+    if (!running_) {
+        snapshotFrame_ = -1;
+        sentConfigStrings_.clear();
+        return;
+    }
+    out.frameNumber = frameNum_;
+    out.lerpFraction = lerpFraction();
+    if (const q2player_state_t *ps = playerState()) {
+        out.hasPlayer = true;
+        out.player = *ps;
+    }
+    out.playerOrigin = playerOrigin();
+    if (full || frameNum_ != snapshotFrame_) {
+        out.entitiesChanged = true;
+        out.entities = renderEntities(true);
+        out.beams = beamEntities();
+        out.loopSounds = loopSounds();
+    }
+    snapshotFrame_ = frameNum_;
+    if (full || sentConfigStrings_.size() != configStrings_.size()) {
+        sentConfigStrings_.assign(configStrings_.size(), std::string());
+        full = true;
+    }
+    for (size_t i = 0; i < configStrings_.size(); i++) {
+        if (full ? configStrings_[i].empty() : configStrings_[i] == sentConfigStrings_[i]) continue;
+        out.configStrings.emplace_back(int(i), configStrings_[i]);
+        sentConfigStrings_[i] = configStrings_[i];
+    }
+    if (full || inventory_ != sentInventory_) {
+        out.inventoryChanged = true;
+        out.inventory = inventory_;
+        sentInventory_ = inventory_;
+    }
+    out.events = takeEvents();
+}
+
 std::vector<GameEvent> GameServer::takeEvents() {
     std::vector<GameEvent> out(std::make_move_iterator(events_.begin()), std::make_move_iterator(events_.end()));
     events_.clear();

@@ -98,6 +98,34 @@ struct GameLoopSound {
     std::array<float, 3> origin{};
 };
 
+// What the client gets from the server in one sandbox frame: Quake 2's
+// svc_frame (player state, packet entities) plus the reliable messages
+// since the last one (config strings, inventory, sounds, prints, temp
+// entities...). The client side (realms/GameClient.h) draws and plays only
+// from these, so a recorded stream of them replays a game (demos) and can
+// come over the network.
+struct GameSnapshot {
+    bool running = false;    // false: the game stopped (the client resets)
+    int frameNumber = 0;     // the server frame (10 Hz)
+    double lerpFraction = 0; // how far into the next server frame, 0..1
+    bool hasPlayer = false;
+    q2player_state_t player{};
+    Vec3 playerOrigin{}; // moved by every usercmd, not only on server frames
+    // Set on a new server frame (and in a full snapshot): the entity lists
+    // below are that frame's. Otherwise they are empty and the client keeps
+    // the last ones.
+    bool entitiesChanged = false;
+    std::vector<GameRenderEntity> entities; // renderEntities(true)
+    std::vector<GameBeamEntity> beams;
+    std::vector<GameLoopSound> loopSounds;
+    // Config strings that changed since the last snapshot (every non-empty
+    // one in a full snapshot), in index order.
+    std::vector<std::pair<int, std::string>> configStrings;
+    bool inventoryChanged = false;
+    std::array<int16_t, Q2_MAX_ITEMS> inventory{};
+    std::vector<GameEvent> events; // takeEvents()
+};
+
 struct GameServerConfig {
     std::string executableDir;    // where to look for librealms_game
     std::string gameLibrary;      // explicit path (else REALMS_GAME_LIBRARY, then the search)
@@ -193,6 +221,10 @@ public:
     std::vector<GameBeamEntity> beamEntities() const;
     // Every entity with a looping sound, the local player's own included.
     std::vector<GameLoopSound> loopSounds() const;
+    // The client's view of this sandbox frame (GameSnapshot), taking the
+    // queued events. `full` sends everything (a client starting over);
+    // otherwise only what changed since the last snapshot.
+    void snapshot(GameSnapshot &out, bool full);
 
     // ---- game_import_t, used by the static thunks (public for the tests)
     q2trace_t trace(const float *start, const float *mins, const float *maxs, const float *end, q2edict_t *passent,
@@ -258,6 +290,10 @@ private:
 
     std::vector<std::string> configStrings_;
     std::array<int16_t, Q2_MAX_ITEMS> inventory_{};
+    // what the last snapshot() sent
+    std::vector<std::string> sentConfigStrings_;
+    std::array<int16_t, Q2_MAX_ITEMS> sentInventory_{};
+    int snapshotFrame_ = -1;
     std::vector<int32_t> modelHeadnodes_; // by modelindex: 0 world, -1 not a brush model
     std::vector<AreaNode> areaNodes_;
     int numAreaNodes_ = 0;

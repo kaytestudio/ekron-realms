@@ -73,6 +73,7 @@ void Quake2Module::close() {
         game_->stop();
         game_.reset();
     }
+    client_.reset();
     failure_.clear();
     poses_.clear();
     messages_.clear();
@@ -112,6 +113,7 @@ bool Quake2Module::startGame(Engine &engine, std::string &why) {
     }
     lastPickup_ = 0;
     layout_.clear();
+    client_.reset(); // the first snapshot is a full one
     lerp_.reset();
     effects_.reset();
     sounds_.clear();
@@ -137,6 +139,7 @@ std::string Quake2Module::takeGameFailure() {
         failure_ = game_->lastError();
         if (failure_.empty()) failure_ = "the game stopped";
         game_.reset();
+        client_.reset();
         poses_.clear();
         scene_.clear();
     }
@@ -164,7 +167,9 @@ void Quake2Module::frame(const GameUserCmd &cmd, double dt) {
 
 void Quake2Module::sync() {
     if (!gameRunning()) return;
-    const GameServer &g = *game_;
+    // everything below reads the client's state, made from the server's snapshot
+    client_.update(*game_);
+    const GameClient &g = client_;
     if (const q2player_state_t *ps = g.playerState()) {
         const int pickup = ps->stats[Q2_STAT_PICKUP_STRING];
         if (pickup && pickup != lastPickup_) {
@@ -176,7 +181,7 @@ void Quake2Module::sync() {
     // Client time: the server frames plus the interpolation fraction, so
     // effects advance smoothly between game frames.
     const double now = clientTimeMs(g);
-    for (const GameEvent &ev : game_->takeEvents()) {
+    for (const GameEvent &ev : client_.takeEvents()) {
         effects_.handleEvent(ev, now); // temp entities, muzzle flashes, entity events
         if (ev.kind == GameEvent::Kind::Sound) sounds_.push_back(ev);
         if (ev.kind == GameEvent::Kind::Layout) layout_ = ev.text;
@@ -220,32 +225,32 @@ Vec3 Quake2Module::viewOrigin() const {
     if (!gameRunning()) return {0, 0, 0};
     // CL_CalcViewValues: the player's origin (moved by every usercmd) plus
     // the view offset between the last two game frames
-    Vec3 o = game_->playerOrigin();
-    const GameViewLerp v = lerp_.view(*game_);
+    Vec3 o = client_.playerOrigin();
+    const GameViewLerp v = lerp_.view(client_);
     for (size_t k = 0; k < 3; k++) o[k] += v.offset[k];
     return o;
 }
 
 int Quake2Module::cdTrack() const {
     if (!gameRunning()) return 0;
-    return std::max(0, std::atoi(game_->configString(Q2_CS_CDTRACK).c_str()));
+    return std::max(0, std::atoi(client_.configString(Q2_CS_CDTRACK).c_str()));
 }
 
 Vec3 Quake2Module::cameraAngles(const Vec3 &look) const {
     if (!gameRunning()) return look;
     // CL_CalcViewValues: the player's own look (the death view while dead)
     // plus the kick angles
-    const GameViewLerp v = lerp_.view(*game_);
+    const GameViewLerp v = lerp_.view(client_);
     Vec3 a = v.locked ? Vec3{v.angles[0], v.angles[1], v.angles[2]} : look;
     if (kickAngles_) // cl_kickangles
         for (size_t k = 0; k < 3; k++) a[k] += v.kick[k];
     return a;
 }
-Vec3 Quake2Module::viewAngles() const { return gameRunning() ? game_->viewAngles() : Vec3{0, 0, 0}; }
+Vec3 Quake2Module::viewAngles() const { return gameRunning() ? client_.viewAngles() : Vec3{0, 0, 0}; }
 
 bool Quake2Module::noclip() const {
     if (!gameRunning()) return false;
-    const q2player_state_t *ps = game_->playerState();
+    const q2player_state_t *ps = client_.playerState();
     return ps && ps->pmove.pm_type == Q2_PM_SPECTATOR;
 }
 
@@ -255,8 +260,8 @@ void Quake2Module::toggleNoclip() {
 
 void Quake2Module::mirrorPlayer(MapWalker &w) const {
     if (!gameRunning()) return;
-    w.origin = game_->playerOrigin();
-    if (const q2player_state_t *ps = game_->playerState()) {
+    w.origin = client_.playerOrigin();
+    if (const q2player_state_t *ps = client_.playerState()) {
         for (int i = 0; i < 3; i++) w.velocity[size_t(i)] = ps->pmove.velocity[i] * 0.125f;
         w.onGround = (ps->pmove.pm_flags & Q2_PMF_ON_GROUND) != 0;
         w.ducked = (ps->pmove.pm_flags & Q2_PMF_DUCKED) != 0;
@@ -268,7 +273,7 @@ void Quake2Module::mirrorPlayer(MapWalker &w) const {
 Quake2Module::PlayerStats Quake2Module::stats() const {
     PlayerStats s;
     if (!gameRunning()) return s;
-    if (const q2player_state_t *ps = game_->playerState()) {
+    if (const q2player_state_t *ps = client_.playerState()) {
         s.health = ps->stats[Q2_STAT_HEALTH];
         s.armor = ps->stats[Q2_STAT_ARMOR];
         s.ammo = ps->stats[Q2_STAT_AMMO];
@@ -287,7 +292,7 @@ float Quake2Module::viewFov(const Engine &engine) const {
 }
 
 std::string Quake2Module::status() const {
-    if (!gameRunning() || !game_->playerState()) return {};
+    if (!gameRunning() || !client_.playerState()) return {};
     const PlayerStats s = stats();
     char buf[96];
     std::snprintf(buf, sizeof(buf), "HP %d  Armor %d  Ammo %d", s.health, s.armor, s.ammo);
@@ -295,7 +300,7 @@ std::string Quake2Module::status() const {
 }
 
 namespace {
-std::vector<GameLayoutItem> runLayout(const GameServer &g, const std::string &program, int width, int height) {
+std::vector<GameLayoutItem> runLayout(const GameClient &g, const std::string &program, int width, int height) {
     const q2player_state_t *ps = g.playerState();
     if (!ps || program.empty()) return {};
     GameLayoutInput in;
@@ -310,31 +315,31 @@ std::vector<GameLayoutItem> runLayout(const GameServer &g, const std::string &pr
 
 bool Quake2Module::layoutShown() const {
     if (!gameRunning()) return false;
-    const q2player_state_t *ps = game_->playerState();
+    const q2player_state_t *ps = client_.playerState();
     return ps && (ps->stats[Q2_STAT_LAYOUTS] & 1) && !layout_.empty();
 }
 
 std::vector<GameLayoutItem> Quake2Module::layoutItems(int width, int height) const {
     if (!layoutShown()) return {};
-    return runLayout(*game_, layout_, width, height);
+    return runLayout(client_, layout_, width, height);
 }
 
 std::vector<GameLayoutItem> Quake2Module::statusBarItems(int width, int height) const {
     if (!gameRunning()) return {};
-    return runLayout(*game_, game_->configString(Q2_CS_STATUSBAR), width, height);
+    return runLayout(client_, client_.configString(Q2_CS_STATUSBAR), width, height);
 }
 
 void Quake2Module::toggleHelp() { clientCommand("help"); }
 
 bool Quake2Module::inventoryShown() const {
     if (!gameRunning()) return false;
-    const q2player_state_t *ps = game_->playerState();
+    const q2player_state_t *ps = client_.playerState();
     return ps && (ps->stats[Q2_STAT_LAYOUTS] & 2);
 }
 
 std::vector<GameLayoutItem> Quake2Module::inventoryItems(int width, int height, bool cursor) const {
     if (!inventoryShown()) return {};
-    const GameServer &g = *game_;
+    const GameClient &g = client_;
     return gameInventoryItems(g.inventory().data(), g.playerState()->stats[Q2_STAT_SELECTED_ITEM],
                               [&g](int index) { return g.configString(index); }, width, height, cursor);
 }
@@ -363,12 +368,12 @@ const GameScene &Quake2Module::buildScene(Engine &engine, const Vec3 &cameraOrig
     opt.hasCamera = true;
     opt.cameraOrigin = cameraOrigin;
     opt.cameraAngles = cameraAngles;
-    buildGameScene(engine, *game_, lerp_, models_, opt, scene_);
+    buildGameScene(engine, client_, lerp_, models_, opt, scene_);
     // explosions, smoke, flashes and cable segments (cl_tent.c)
-    effects_.models(clientTimeMs(*game_), fxModels_);
+    effects_.models(clientTimeMs(client_), fxModels_);
     appendEffectModels(engine, models_, fxModels_, scene_);
     for (const std::string &e : models_.takeErrors()) engine.print("map: model " + e + "\n", REALMS_PRINT_DEVELOPER);
-    effects_.lights(clientTimeMs(*game_), fxLights_);
+    effects_.lights(clientTimeMs(client_), fxLights_);
     for (GameDrawBatch &b : scene_.batches)
         if (!b.fullbright) b.lit = lightAt(b.origin, fxLights_, b.light);
     return scene_;
@@ -379,7 +384,7 @@ void Quake2Module::buildEffects(const Vec3 &eye, const Vec3 &cameraAngles, size_
     quads.clear();
     lights.clear();
     if (!gameRunning()) return;
-    const double now = clientTimeMs(*game_);
+    const double now = clientTimeMs(client_);
     const CameraAxes axes = cameraAxes(cameraAngles);
     const auto &forward = axes.forward, &right = axes.right, &up = axes.up;
     auto quad = [&](const std::array<std::array<float, 3>, 4> &c, const std::array<float, 4> &col, float shape) {
@@ -446,14 +451,14 @@ std::vector<GameEvent> Quake2Module::takeSounds() {
 }
 
 std::vector<GameLoopSound> Quake2Module::loopSounds() const {
-    return gameRunning() ? game_->loopSounds() : std::vector<GameLoopSound>{};
+    return gameRunning() ? client_.loopSounds() : std::vector<GameLoopSound>{};
 }
 
 GameListener Quake2Module::listener() const {
     GameListener l;
     if (!gameRunning()) return l;
-    l.origin = game_->viewOrigin();
-    l.right = gameRightVector(game_->viewAngles());
+    l.origin = client_.viewOrigin();
+    l.right = gameRightVector(client_.viewAngles());
     l.entity = 1; // the local player's edict
     return l;
 }
@@ -485,10 +490,10 @@ MapLightStyles Quake2Module::currentLightStyles() const {
     MapLightStyles styles = defaultLightStyles();
     if (!gameRunning()) return styles;
     // CL_SetLightstyle / CL_RunLightStyles: the configstrings at 10 Hz
-    const double now = clientTimeMs(*game_);
+    const double now = clientTimeMs(client_);
     for (int s : lighting_.styles()) {
         if (s >= Q2_MAX_LIGHTSTYLES) continue;
-        styles[size_t(s)] = lightStyleValue(game_->configString(Q2_CS_LIGHTS + s), now);
+        styles[size_t(s)] = lightStyleValue(client_.configString(Q2_CS_LIGHTS + s), now);
     }
     return styles;
 }
@@ -504,7 +509,7 @@ bool Quake2Module::updateLightStyles() {
 
 bool Quake2Module::lightAt(const Vec3 &p, std::array<float, 3> &rgb) const {
     std::vector<GameDynamicLight> dlights;
-    if (gameRunning()) effects_.lights(clientTimeMs(*game_), dlights);
+    if (gameRunning()) effects_.lights(clientTimeMs(client_), dlights);
     return lightAt(p, dlights, rgb);
 }
 

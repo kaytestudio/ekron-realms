@@ -5,6 +5,7 @@
 #pragma once
 
 #include "realms/Engine.h"
+#include "realms/GameClient.h"
 #include "realms/GameEffects.h"
 #include "realms/GameLayout.h"
 #include "realms/GameServer.h"
@@ -67,6 +68,9 @@ public:
     bool gameRunning() const;
     const GameServer *game() const;
     GameServer *game();
+    // The client's state (realms/GameClient.h): what the sandbox draws and
+    // plays comes from it, made from the server's snapshot every frame.
+    const GameClient &client() const { return client_; }
     // The game stopped by itself (game error) since the last call: its error.
     std::string takeGameFailure();
     // One frame of the game with this command, then everything above is
@@ -185,6 +189,7 @@ private:
 
     std::string executableDir_;
     std::unique_ptr<GameServer> game_;
+    GameClient client_;
     std::string failure_;
     std::vector<Quake2ModelPose> poses_;
     std::vector<std::string> messages_;

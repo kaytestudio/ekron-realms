@@ -10,7 +10,7 @@
 // Not drawn: Rogue's sustained effects, heat beams, tracker, force walls.
 #pragma once
 
-#include "realms/GameServer.h"
+#include "realms/GameClient.h"
 #include "realms/GameView.h"
 
 #include <array>
@@ -61,7 +61,7 @@ int gameDirToByte(const float dir[3]);
 
 // The client clock a drawn frame interpolates at, in ms: the previous game
 // frame plus lerpFraction (cl.time between two server frames).
-double clientTimeMs(const GameServer &server);
+double clientTimeMs(const GameClient &client);
 
 struct GameParticle {
     std::array<float, 3> origin{};      // map space
@@ -127,7 +127,7 @@ public:
     // GameEntityLerp::snapshots(): teleporter pads sparkle once per game
     // frame like CL_FireEntityEvents. Sprite models (.sp2) get a glow.
     void addEntityEffects(const std::vector<GameLerpedEntity> &entities, int snapshot, double timeMs);
-    // RF_BEAM entities to draw this frame (GameServer::beamEntities).
+    // RF_BEAM entities to draw this frame (GameClient::beamEntities).
     void setBeamEntities(std::vector<GameBeamEntity> beams) { beamEntities_ = std::move(beams); }
     // Frees what has faded or ended by timeMs.
     void update(double timeMs);
