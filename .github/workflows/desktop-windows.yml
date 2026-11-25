@@ -320,7 +320,7 @@ jobs:
           if (-not $cross) { "::error::fpcsrc\compiler\ppcrossa64.exe not built"; exit 1 }
           # Then the aarch64-win64 RTL with ppcrossa64.
           Invoke-Make 'rtl' @('-C', 'fpcsrc/rtl', 'all', "FPC=$("$cross" -replace '\\','/')",
-            'CPU_TARGET=aarch64', 'OS_TARGET=win64', 'BINUTILSPREFIX=')
+            'CPU_TARGET=aarch64', 'OS_TARGET=win64', 'BINUTILSPREFIX=', 'OPT=-O-')
           $ppus = @(Get-ChildItem fpcsrc -Recurse -Filter sysutils.ppu | ForEach-Object { $_.DirectoryName })
           "sysutils.ppu found in: $($ppus -join '; ')"
           $rtlUnits = $ppus | Where-Object { $_ -like '*aarch64-win64*' } | Select-Object -First 1
@@ -362,9 +362,10 @@ jobs:
             exit 1
           }
           # Which programs run (diagnostics while aarch64-win64 is young).
-          printf '%s\n' 'program hello;' 'begin WriteLn(''hello'') end.' > fpc-smoke/hello.pas
-          printf '%s\n' 'program sysu;' 'uses SysUtils;' 'begin WriteLn(IntToStr(42)) end.' > fpc-smoke/sysu.pas
-          for prog in hello sysu smoke; do
+          echo "program hello; begin WriteLn('hello') end." > fpc-smoke/hello.pas
+          echo "program sysu; uses SysUtils; begin WriteLn(IntToStr(42)) end." > fpc-smoke/sysu.pas
+          echo "program mathu; uses Math; begin WriteLn(Floor(2.5)) end." > fpc-smoke/mathu.pas
+          for prog in hello mathu sysu smoke; do
             for opt in -O- -O2; do
               rm -f "fpc-smoke/$prog.exe"
               "$ppc" -Mobjfpc $opt -FEfpc-smoke "fpc-smoke/$prog.pas" > /dev/null 2>&1 || { echo "::warning::[fpc-smoke] $prog $opt: compile failed"; continue; }
