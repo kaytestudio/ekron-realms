@@ -7,7 +7,7 @@ The README has the short version; this page goes through the project in more det
 ## Two modes
 
 - **The sandbox**: the city street, the build tools and vehicles, sounds and music, a cosmetics shop paid with in-game coins, and an experimental presence relay (`server/`) that shows other players.
-- **Map mode**: `map <name>` opens a Quake 2 `.bsp` map or a glTF scene (`.glb` / `.gltf`). With the Free Pascal port of the Quake 2 game code it plays as Quake 2 does: spawn points, items, doors, lifts, triggers, monsters and weapons. Your own Quake 2 data (`baseq2/pak0.pak`) supplies textures and sounds; models are Quake 3 `.md3` files. The apps include one sample glTF map, `courtyard`, which needs no Quake 2 files. See [docs/CONTROLS.md](docs/CONTROLS.md#quake-2-maps).
+- **Map mode**: `map <name>` opens a Quake 2 `.bsp` map or a glTF scene (`.glb` / `.gltf`). With the Free Pascal port of the Quake 2 game code it plays as Quake 2 does: spawn points, items, doors, lifts, triggers, monsters and weapons, with the game's status bar, help computer and inventory, and Quake 2's `save` / `load`. Your own Quake 2 data (`baseq2/pak0.pak`) supplies textures and sounds; models are Quake 3 `.md3` files. The apps include one sample glTF map, `courtyard`, which needs no Quake 2 files. See [docs/CONTROLS.md](docs/CONTROLS.md#quake-2-maps).
 
 The UI is available in English, Russian, European Portuguese and Spanish (Spain).
 

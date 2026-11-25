@@ -22,6 +22,7 @@
 #include "RealmsAndroid.h"
 #include "AndroidSound.h"
 #include "SoundSnapshot.h"
+#include "realms/GameSave.h"
 #include "realms/SandboxBoot.h"
 
 namespace {
@@ -486,6 +487,9 @@ void Renderer::handleInput(){
     else if(command==55)mapMode_.gameCommand("invprev");
     else if(command==56)mapMode_.gameCommand("invnext");
     else if(command==57)mapMode_.gameCommand("invuse");
+    // Quake 2's quick save / load (F6 / F9 on the desktop)
+    else if(command==58)quickSave(engine);
+    else if(command==59)quickLoad(engine);
     else if(command==8)mapJump_=.2f;
     else if(command==9)mapCrouch_=!mapCrouch_;
     else if(command==35&&mapMode_.respawn(engine)){mapYaw_=mapMode_.spawnRenderYaw();mapPitch_=0;resetInput();}
@@ -831,9 +835,22 @@ void Renderer::handleMapChange(){
                      mapMode_.session().summary().c_str(),w.spawnSource.c_str(),w.origin[0],w.origin[1],w.origin[2]);
 }
 
+// Notices 8 (saved), 9 (can't save) and 10 (no quick save): the map-mode
+// notice line shows them for a few seconds.
+void Renderer::quickSave(realms::Engine &engine){
+ engine.exec("save quick\n");
+ debugNotice=realms::gameSaveComplete(realms::gameSaveDir(engine,"quick"))?8:9;mapNoticeTime_=3;
+}
+void Renderer::quickLoad(realms::Engine &engine){
+ if(!realms::gameSaveComplete(realms::gameSaveDir(engine,"quick"))){debugNotice=10;mapNoticeTime_=3;return;}
+ engine.exec("load quick\n");
+ pollMapChange();
+}
+
 void Renderer::renderMap(float dt){
  auto &engine=realms_android::ensureEngine(app_);
  mapMode_.advance();
+ if(mapNoticeTime_>0&&(mapNoticeTime_-=dt)<=0){int notice=debugNotice.load();if(notice>=8&&notice<=10)debugNotice=0;}
  if(gameplayReady){
   realms::WalkInput input;
   input.forward=stickForward.load();input.right=stickRight.load();input.up=verticalInput.load();

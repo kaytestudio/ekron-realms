@@ -1,5 +1,6 @@
 // Realms Engine - shared sandbox boot sequence (see SandboxBoot.h).
 
+#include "realms/GameSave.h"
 #include "realms/SandboxBoot.h"
 
 #include <algorithm>
@@ -70,6 +71,35 @@ void registerMapCommands(Engine &engine, MapChangedFn onChange) {
                      std::to_string(info.num_leafs) + " leafs, " + std::to_string(info.num_brushes) + " brushes)");
         }
         if (*changed) (*changed)(ok ? path : std::string());
+    });
+    // Quake 2's "load <name>" (SV_Loadgame_f; F9: "load quick"): the saved
+    // map is loaded again and the game started on it reads the save back
+    // (GameServer::start, through the NOSET cvar sv_loadgame).
+    engine.registerCvar("sv_loadgame", "", REALMS_CVAR_NOSET);
+    engine.addCommand("load", [e](const CommandArgs &args) {
+        if (args.size() != 2) {
+            e->print("USAGE: load <directory>");
+            return;
+        }
+        const std::string dir = gameSaveDir(*e, args[1]);
+        if (dir.empty()) {
+            e->print(e->writableRoot().empty() ? "load: no writable folder for save games" : "Bad savedir.",
+                     REALMS_PRINT_WARNING);
+            return;
+        }
+        GameSaveInfo info;
+        std::string error;
+        if (!gameSaveComplete(dir) || !readGameSaveInfo(dir, info, error)) {
+            e->print("load: " + (error.empty() ? "no saved game \"" + args[1] + "\"" : error), REALMS_PRINT_WARNING);
+            return;
+        }
+        e->print("Loading " + args[1] + ": " + info.comment);
+        e->forceSetCvar("sv_loadgame", dir);
+        e->forceSetCvar("skill", std::to_string(info.skill));
+        std::string quoted;
+        for (char c : info.mapPath)
+            if (c != '"') quoted += c;
+        e->insertText("map \"" + quoted + "\"\n");
     });
     engine.addCommand("killserver", [e, changed](const CommandArgs &) {
         const bool had = e->mapLoaded();

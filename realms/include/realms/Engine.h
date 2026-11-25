@@ -163,6 +163,8 @@ public:
     const MeshMap &meshMap() const { return meshMap_; }
     // Path given to the last successful loadMap / loadMeshMap.
     const std::string &mapPath() const { return mapPath_; }
+    // EngineConfig::writableRoot ("" when writes are disabled): config.cfg, save games.
+    const std::string &writableRoot() const { return config_.writableRoot; }
     void unloadMap();
     bool mapLoaded() const;
     bool mapInfo(RealmsMapInfo &out) const;

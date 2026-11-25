@@ -41,6 +41,7 @@
 #include "WorldRecovery.h"
 #include "third_party/json.hpp"
 #include "realms/Engine.h"
+#include "realms/GameSave.h"
 #include "realms/GameServer.h"
 #include "realms/SandboxBoot.h"
 
@@ -684,7 +685,8 @@ void printHelp(const char *exe) {
         << "  L                   Cycle UI language (English / Русский / Português / Español)\n"
         << "  `                   Realms console (cvarlist, cmdlist, set, alias, exec, noclip, quit...)\n"
         << "  F1 (Quake 2 maps)   Help computer: objectives, kills, goals and secrets\n"
-        << "  Tab / [ ] / Enter   (Quake 2 maps) Inventory: open, select, use\n";
+        << "  Tab / [ ] / Enter   (Quake 2 maps) Inventory: open, select, use\n"
+        << "  F6 / F9             (Quake 2 maps) Quick save / quick load (console: save <name>, load <name>)\n";
 }
 
 } // namespace
@@ -1342,6 +1344,13 @@ int main(int argc, char **argv)
                     if (!pauseOpen && key == SDLK_n) toggleNoclip();
                     else if (!pauseOpen && key == SDLK_r) mapMode.respawn(engine);
                     else if (!pauseOpen && key == SDLK_F1) mapMode.toggleHelp(); // Quake 2's "cmd help"
+                    // Quake 2's quick save / load keys
+                    else if (!pauseOpen && key == SDLK_F6 && mapMode.gameRunning()) {
+                        engine.exec("save quick\n");
+                        if (realms::gameSaveComplete(realms::gameSaveDir(engine, "quick"))) showToast("Realms: game saved");
+                    } else if (!pauseOpen && key == SDLK_F9) {
+                        engine.exec("load quick\n");
+                    }
                     // the inventory, with Quake 2's default keys
                     else if (!pauseOpen && key == SDLK_TAB) mapMode.gameCommand("inven");
                     else if (!pauseOpen && key == SDLK_LEFTBRACKET) mapMode.gameCommand("invprev");
@@ -2036,7 +2045,7 @@ int main(int argc, char **argv)
                               {0.86f, 0.80f, 0.62f, 0.95f});
             renderer.drawRect(14.0f, float(hudH) - 42.0f, float(hudW) - 28.0f, 28.0f, {0.05f, 0.08f, 0.11f, 0.72f});
             const std::string mapControls = mapMode.gameRunning()
-                ? "WASD move  •  Space jump  •  Ctrl crouch  •  Mouse fire  •  N noclip  •  R restart  •  F1 help  •  Tab items  •  ` console: give / use / killserver"
+                ? "WASD move  •  Space jump  •  Ctrl crouch  •  Mouse fire  •  N noclip  •  R restart  •  F1 help  •  Tab items  •  F6/F9 save/load  •  ` console: give / use / killserver"
                 : "WASD move  •  Space jump  •  Ctrl crouch  •  N noclip  •  R respawn  •  ` console: killserver";
             renderer.drawCenteredText(float(hudW) * 0.5f, float(hudH) - 28.0f, mapControls,
                                       ekron::desktop::fitHudTextScale(1.30f, ekron::font::measureTextWidth(mapControls, 1.30f),

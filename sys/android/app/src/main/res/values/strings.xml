@@ -137,6 +137,11 @@
     <!-- Realms map mode (pause menu > Maps) -->
     <string name="pause_maps">Maps…</string>
     <string name="pause_leave_map">Leave the map</string>
+    <string name="pause_quick_save">Quick save</string>
+    <string name="pause_quick_load">Quick load</string>
+    <string name="notice_game_saved">Game saved</string>
+    <string name="notice_save_failed">Can\'t save the game now</string>
+    <string name="notice_no_quick_save">No quick save yet</string>
     <string name="pause_noclip_on">Enable noclip</string>
     <string name="pause_noclip_off">Disable noclip</string>
     <string name="maps_title">Maps</string>

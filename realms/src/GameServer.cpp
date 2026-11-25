@@ -7,6 +7,7 @@
 // through realms::Engine, i.e. to the Pascal or the C++ core.
 #include "realms/GameServer.h"
 #include "realms/GameEffects.h"
+#include "realms/GameSave.h"
 
 #include "realms/Q2Pmove.h"
 
@@ -20,7 +21,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <filesystem>
+#include <fstream>
 #include <mutex>
 #include <system_error>
 
@@ -529,6 +532,140 @@ void GameServer::gameError(const std::string &text) {
     if (engine_) engine_->print("Game error: " + text + "\n", REALMS_PRINT_ERROR);
 }
 
+// ------------------------------------------------------------ save games
+
+namespace {
+
+bool readFileBytes(const fs::path &path, std::vector<unsigned char> &out) {
+    std::ifstream f(path, std::ios::binary);
+    if (!f) return false;
+    out.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+    return true;
+}
+
+bool writeFileBytes(const fs::path &path, const std::vector<unsigned char> &bytes) {
+    std::ofstream f(path, std::ios::binary | std::ios::trunc);
+    return f && f.write(reinterpret_cast<const char *>(bytes.data()), std::streamsize(bytes.size()));
+}
+
+} // namespace
+
+bool GameServer::prepareLoad(const std::string &dir, std::string &levelFile, std::string &error) {
+    // what this build writes (a fresh game: no client or entity in use)
+    const fs::path probeGame = fs::path(dir) / "probe.ssv", probeLevel = fs::path(dir) / "probe.sav";
+    struct Paths {
+        std::string game, level;
+    } probe{probeGame.string(), probeLevel.string()};
+    const bool probed = guarded(
+        "WriteGame",
+        [](GameServer &s, void *a) {
+            auto *p = static_cast<Paths *>(a);
+            s.ge_->WriteGame(p->game.c_str(), 1);
+            s.ge_->WriteLevel(p->level.c_str());
+        },
+        &probe);
+    std::vector<unsigned char> nowGame, nowLevel, savedGame, savedLevel;
+    const bool readProbes = probed && readFileBytes(probeGame, nowGame) && readFileBytes(probeLevel, nowLevel);
+    std::error_code ec;
+    fs::remove(probeGame, ec);
+    fs::remove(probeLevel, ec);
+    if (!probed) {
+        error = "the game failed: " + lastError_;
+        return false;
+    }
+    if (!readProbes || !readFileBytes(fs::path(dir) / kGameSaveGameFile, savedGame) ||
+        !readFileBytes(fs::path(dir) / kGameSaveLevelFile, savedLevel)) {
+        error = "can't read the save game files";
+        return false;
+    }
+    // game.ssv starts with the build date (16 bytes); WriteGame / ReadGame
+    if (savedGame.size() < 16 || nowGame.size() < 16 || !std::equal(nowGame.begin(), nowGame.begin() + 16, savedGame.begin())) {
+        error = "the game was saved by another build of the game";
+        return false;
+    }
+    // level.sav: int32 sizeof(edict_t), the address of InitGame, then the
+    // level. Function pointers are stored relative to InitGame, so the
+    // address is only a check (on Windows it moves between runs): take this
+    // run's in a copy.
+    constexpr size_t kHeader = sizeof(int32_t) + sizeof(void *);
+    int32_t nowEdict = 0, savedEdict = 0;
+    if (nowLevel.size() >= kHeader) std::memcpy(&nowEdict, nowLevel.data(), sizeof(nowEdict));
+    if (savedLevel.size() >= kHeader) std::memcpy(&savedEdict, savedLevel.data(), sizeof(savedEdict));
+    if (nowEdict != ge_->edict_size || savedEdict != nowEdict) {
+        error = "the level was saved by another build of the game";
+        return false;
+    }
+    std::copy(nowLevel.begin() + sizeof(int32_t), nowLevel.begin() + kHeader, savedLevel.begin() + sizeof(int32_t));
+    const fs::path copy = fs::path(dir) / "load.sav";
+    if (!writeFileBytes(copy, savedLevel)) {
+        error = "can't write " + copy.string();
+        return false;
+    }
+    levelFile = copy.string();
+    return true;
+}
+
+bool GameServer::saveGame(const std::string &name, std::string &error) {
+    if (!running_ || !ge_ || !engine_) {
+        error = "You must be in a game to save.";
+        return false;
+    }
+    const q2player_state_t *ps = playerState();
+    if (!ps || ps->stats[Q2_STAT_HEALTH] <= 0) {
+        error = "Can't savegame while dead!";
+        return false;
+    }
+    const std::string dir = gameSaveDir(*engine_, name);
+    if (dir.empty()) {
+        error = engine_->writableRoot().empty() ? "no writable folder for save games" : "Bad savedir.";
+        return false;
+    }
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    if (ec) {
+        error = "can't create " + dir + ": " + ec.message();
+        return false;
+    }
+    // server.ssv last, and gone meanwhile: a half-written save is never loaded
+    fs::remove(fs::path(dir) / kGameSaveServerFile, ec);
+
+    GameSaveInfo info;
+    char when[32] = "";
+    const std::time_t now = std::time(nullptr);
+    if (const std::tm *t = std::localtime(&now)) std::strftime(when, sizeof(when), "%Y-%m-%d %H:%M", t);
+    info.comment = mapName_ + "  " + when;
+    info.mapPath = engine_->mapPath();
+    info.skill = engine_->cvarInt("skill", 1);
+    info.configStrings = configStrings_;
+    RealmsMapInfo map{};
+    map.struct_size = sizeof(map);
+    engine_->mapInfo(map);
+    for (int p = 0; p < map.num_area_portals; p++) info.portals.push_back(engine_->areaPortalState(p) == 1 ? 1 : 0);
+
+    // SV_WriteLevelFile, then SV_WriteServerFile's WriteGame (not an autosave)
+    struct Paths {
+        std::string level, game;
+    } paths{(fs::path(dir) / kGameSaveLevelFile).string(), (fs::path(dir) / kGameSaveGameFile).string()};
+    if (!guarded(
+            "WriteLevel",
+            [](GameServer &s, void *a) {
+                auto *p = static_cast<Paths *>(a);
+                s.ge_->WriteLevel(p->level.c_str());
+                s.ge_->WriteGame(p->game.c_str(), 0);
+            },
+            &paths)) {
+        error = "the game failed to save: " + lastError_;
+        return false;
+    }
+    // the module's FileCreate failure check never fires (FPC returns -1)
+    for (const std::string &file : {paths.level, paths.game})
+        if (fs::file_size(file, ec) == 0 || ec) {
+            error = "can't write " + file;
+            return false;
+        }
+    return writeGameSaveInfo(dir, info, error);
+}
+
 // ------------------------------------------------------------ start / stop
 
 bool GameServer::start(Engine &engine, const GameServerConfig &config, std::string &error) {
@@ -561,6 +698,24 @@ bool GameServer::start(Engine &engine, const GameServerConfig &config, std::stri
     engine.registerCvar("sv_airaccelerate", "0", 0);
     engine.registerCvar("dedicated", "0", REALMS_CVAR_NOSET);
 
+    // A saved game to read back ("load <name>" set sv_loadgame and loaded
+    // its map); a stale request for another map is dropped.
+    GameSaveInfo save;
+    std::string loadDir = engine.cvarString("sv_loadgame", "");
+    if (!loadDir.empty()) {
+        engine.forceSetCvar("sv_loadgame", "");
+        std::string why;
+        if (!gameSaveComplete(loadDir) || !readGameSaveInfo(loadDir, save, why)) {
+            engine.print("load: " + (why.empty() ? "incomplete save game in " + loadDir : why) + "\n",
+                         REALMS_PRINT_WARNING);
+            loadDir.clear();
+        } else if (save.mapPath != engine.mapPath()) {
+            loadDir.clear();
+        } else {
+            engine.forceSetCvar("skill", std::to_string(save.skill));
+        }
+    }
+
     if (!gameInitialised_) {
         if (!guarded("Init", [](GameServer &s, void *) { s.ge_->Init(); }, nullptr)) {
             error = "game Init failed: " + lastError_;
@@ -572,6 +727,28 @@ bool GameServer::start(Engine &engine, const GameServerConfig &config, std::stri
             error = "game Init left no edicts";
             stop();
             return false;
+        }
+    }
+
+    // SV_ReadServerFile: the game's cross-level state, after Init. The
+    // module's checks (build date, edict size) would end the game for good,
+    // so the save is compared with this build first.
+    std::string levelFile;
+    if (!loadDir.empty()) {
+        if (!prepareLoad(loadDir, levelFile, error)) {
+            engine.print("load: " + error + "\n", REALMS_PRINT_WARNING);
+            if (!ge_) return false; // the probe failed inside the game
+            loadDir.clear();
+            levelFile.clear();
+            error.clear();
+        } else {
+            engine.print("Loading game: " + save.comment + "\n");
+            std::string gameFile = (fs::path(loadDir) / kGameSaveGameFile).string();
+            if (!guarded("ReadGame", [](GameServer &s, void *a) { s.ge_->ReadGame(static_cast<std::string *>(a)->c_str()); },
+                         &gameFile)) {
+                error = "ReadGame failed: " + lastError_;
+                return false;
+            }
         }
     }
 
@@ -628,6 +805,25 @@ bool GameServer::start(Engine &engine, const GameServerConfig &config, std::stri
         return false;
     }
     frameNum_ = 2;
+
+    // SV_CheckForSavegame / SV_ReadLevelFile: the saved config strings and
+    // area portals, then every entity, over the freshly spawned level
+    if (!levelFile.empty()) {
+        clearWorld();
+        for (size_t i = 0; i < configStrings_.size(); i++)
+            configStrings_[i] = i < save.configStrings.size() ? save.configStrings[i] : std::string();
+        for (int p = 0; p < info.num_area_portals; p++)
+            engine.setAreaPortal(p, size_t(p) < save.portals.size() && save.portals[size_t(p)] != 0);
+        const bool read = guarded(
+            "ReadLevel", [](GameServer &s, void *a) { s.ge_->ReadLevel(static_cast<std::string *>(a)->c_str()); },
+            &levelFile);
+        std::error_code ec;
+        fs::remove(levelFile, ec);
+        if (!read) {
+            error = "ReadLevel failed: " + lastError_;
+            return false;
+        }
+    }
 
     // SV_DirectConnect + SV_Begin_f for the local client
     std::snprintf(userinfo_, sizeof(userinfo_), "\\name\\%s\\skin\\male/grunt\\hand\\0\\fov\\90\\rate\\25000\\msg\\1\\ip\\loopback",
@@ -872,6 +1068,19 @@ void GameServer::registerCommands() {
             serverCommand(quoteArgs(CommandArgs(args.begin() + 1, args.end())));
         }))
         commands_.emplace_back("sv");
+    // Quake 2's "save <name>" (F6: "save quick"); "load" is a map command
+    if (!engine_->commandExists("save") && engine_->addCommand("save", [this](const CommandArgs &args) {
+            if (!engine_) return;
+            if (args.size() != 2) {
+                engine_->print("USAGE: save <directory>\n");
+                return;
+            }
+            engine_->print("Saving game...\n");
+            std::string error;
+            if (saveGame(args[1], error)) engine_->print("Done.\n");
+            else engine_->print(error + "\n", REALMS_PRINT_WARNING);
+        }))
+        commands_.emplace_back("save");
 }
 
 void GameServer::unregisterCommands() {

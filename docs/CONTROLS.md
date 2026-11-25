@@ -54,14 +54,23 @@ glTF maps run the game too. Name nodes (Blender empties, for example) after Quak
 | `N` / `R` | Noclip / Restart the map (respawn without the game) |
 | `F1` | Help computer (Quake 2's `cmd help`): skill, level name, the map's objectives, kills, goals and secrets; `F1` again closes it. In the console, `help` does the same and `score` shows the scores |
 | `Tab` / `[` `]` / `Enter` | Inventory (Quake 2's `inven`): open or close it, select the previous / next item (`invprev` / `invnext`), use the selected one (`invuse`) |
+| `F6` / `F9` | Quick save / quick load (Quake 2's `save quick` / `load quick`) |
 | `` ` `` | Console: Quake 2 client commands such as `give all`, `give shotgun`, `use blaster`, `god`, `notarget`, `kill`, `weapnext`, `cmd <command>`, server commands with `sv <command>`, and `killserver` |
 
 - `sv_game 0`: walk maps without the game.
 - `cl_gun 0`: hide the view weapon.
-- The status bar (health, ammo, armor, the item just picked up, powerup timers) and the layout screens (help computer, scores, inventory) are drawn from the game's own layout programs; with `pak0.pak` installed they use its pics (icons, `pics/help.pcx`, the big digits), otherwise text and digits in the built-in font. Desktop only for now.
+- The status bar (health, ammo, armor, the item just picked up, powerup timers) and the layout screens (help computer, scores, inventory) are drawn from the game's own layout programs; with `pak0.pak` installed they use its pics (icons, `pics/help.pcx`, the big digits), otherwise text and digits in the built-in font.
 - `cl_statusbar 0` (Ekron's own, not a Quake 2 cvar): hide the status bar and show health / armor / ammo as text in the map box instead.
 - `gl_polyblend 0`: turn off the screen tint the game sets (red when hurt, gold on a pickup, blue with the Quad Damage, a colour under water); it is on by default, as in Quake 2.
 - `REALMS_GAME_LIBRARY=/path/to/librealms_game.so`: use another game build.
+
+### Saving
+
+`save <name>` and `load <name>` in the console work as in Quake 2; `F6` and `F9` are `save quick` and `load quick`. A name is up to 32 letters, digits, `_` or `-`. Saving needs a running game and a living player. Loading opens the saved map again, then puts back the player, the monsters, items, doors and lifts as they were, with the skill the game was saved on.
+
+- Saves are kept in the user data folder (see [Quake 2 data](#quake-2-data-baseq2)), as `save/<name>/`: the game's own `game.ssv` and `level.sav`, and `server.ssv` (the map, the skill, the config strings and the area portals), written last.
+- A save is tied to the build of the game that wrote it. A save from another build is refused with a message, and the map then starts from the beginning.
+- Like Quake 2's `load`, it restores one level: the levels visited before are kept only across the game's level changes (`gamemap`), which map mode doesn't run yet.
 
 ### Models (`.md3`)
 
@@ -84,7 +93,7 @@ The engine mounts `pak0.pak` … `pak9.pak` from each place, at the top and in `
 
 ### Android and iOS
 
-**Pause menu → Maps…** lists the `.bsp`, `.glb` and `.gltf` files under `maps/` and `models/` in the app, plus imported maps. The APK and iOS device builds include the game; a Fire button appears above jump, and the pause menu has noclip, respawn and leave (`killserver`). The game's status bar is drawn at the bottom of the screen, and its help computer, scores and inventory over the view, as on the desktop. **Help** and **Items** buttons left of pause open and close the help computer and the inventory; while the inventory is open, a row under them selects the previous or next item and uses the selected one.
+**Pause menu → Maps…** lists the `.bsp`, `.glb` and `.gltf` files under `maps/` and `models/` in the app, plus imported maps. The APK and iOS device builds include the game; a Fire button appears above jump, and the pause menu has noclip, respawn and leave (`killserver`). The game's status bar is drawn at the bottom of the screen, and its help computer, scores and inventory over the view, as on the desktop. **Help** and **Items** buttons left of pause open and close the help computer and the inventory; while the inventory is open, a row under them selects the previous or next item and uses the selected one. With the game running, the pause menu also has **Quick save** and **Quick load** (the same `quick` save as `F6` / `F9` on the desktop).
 
 **Import map…** copies files from the system picker into the app's `maps/` folder (Android internal storage, iOS `Application Support/EkronSandbox`). Pick a `.gltf` together with its `.bin` and texture files; folders are not kept. Accepted: `.bsp .glb .gltf .bin .png .jpg .jpeg`, up to 128 MB each, checked by file header. **Remove an imported map…** deletes one.
 

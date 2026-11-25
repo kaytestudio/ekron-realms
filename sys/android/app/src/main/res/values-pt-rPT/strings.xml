@@ -137,6 +137,11 @@
     <!-- Realms map mode (pause menu > Maps) -->
     <string name="pause_maps">Mapas…</string>
     <string name="pause_leave_map">Sair do mapa</string>
+    <string name="pause_quick_save">Gravação rápida</string>
+    <string name="pause_quick_load">Carregamento rápido</string>
+    <string name="notice_game_saved">Jogo gravado</string>
+    <string name="notice_save_failed">Não é possível gravar o jogo agora</string>
+    <string name="notice_no_quick_save">Ainda não há gravação rápida</string>
     <string name="pause_noclip_on">Ativar noclip</string>
     <string name="pause_noclip_off">Desativar noclip</string>
     <string name="maps_title">Mapas</string>

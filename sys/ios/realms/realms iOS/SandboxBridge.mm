@@ -28,6 +28,7 @@
 #include "GameSoundPlayer.h"
 #include "SoundSnapshot.h"
 #include "SoundSystem.h"
+#include "realms/GameSave.h"
 #include "realms/Engine.h"
 #include "realms/GameHudCanvas.h"
 #include "realms/GameServer.h"
@@ -1328,6 +1329,7 @@ void IosSoundStart(const std::string &bundleRoot, realms::Engine &engine) {
     std::vector<std::string> pendingMapRequests_; // commandMutex_
     std::atomic<int> mapState_;                   // status slot 17
     bool mapAttack_;                              // fire held (commands 51 / 52)
+    float mapNoticeTime_;                         // notices 8-10 (quick save / load) fade
     std::atomic<int> mapGame_;                    // status slots 18...21: the
     std::atomic<int> mapHealth_;                  // Quake 2 game runs, the
     std::atomic<int> mapArmor_;                   // player's health, armor
@@ -1953,6 +1955,21 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
                     // Quake 2's help computer and inventory (F1, Tab, [ ] and Enter on the desktop)
                     static const char *kGameCommands[] = {"help", "inven", "invprev", "invnext", "invuse"};
                     mapMode_.gameCommand(kGameCommands[command - 53]);
+                } else if (command == 58 || command == 59) {
+                    // Quake 2's quick save / load (F6 / F9 on the desktop). Notices
+                    // 8 (saved), 9 (can't save) and 10 (no quick save) show for a few seconds.
+                    const bool saved = realms::gameSaveComplete(realms::gameSaveDir(engine, "quick"));
+                    if (command == 58) {
+                        engine.exec("save quick\n");
+                        debugNotice_ = realms::gameSaveComplete(realms::gameSaveDir(engine, "quick")) ? 8 : 9;
+                        mapNoticeTime_ = 3.0f;
+                    } else if (!saved) {
+                        debugNotice_ = 10;
+                        mapNoticeTime_ = 3.0f;
+                    } else {
+                        engine.exec("load quick\n");
+                        [self pollMapChange];
+                    }
                 } else if (command == 8) {
                     mapJump_ = 0.2f;
                 } else if (command == 9) {
@@ -2995,6 +3012,10 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
 - (void)renderMapInView:(MTKView *)view dt:(float)dt {
     realms::Engine &engine = [self realms];
     mapMode_.advance(device_, commandQueue_, whiteTexture_);
+    if (mapNoticeTime_ > 0.0f && (mapNoticeTime_ -= dt) <= 0.0f) {
+        const int notice = debugNotice_.load();
+        if (notice >= 8 && notice <= 10) debugNotice_ = 0;
+    }
     if (gameplayReady_) {
         realms::WalkInput input;
         input.forward = stickForward_.load();

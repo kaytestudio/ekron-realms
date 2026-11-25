@@ -206,7 +206,11 @@ class MainActivity : GameActivity() {
                 }
                 if(stage in 0..5 && state.size>=9)loadingText.append(" ${state[8].toInt()}%")
                 notice.text = if (mapMode) {
-                    if (mapGame) getString(R.string.notice_map_game, mapName)
+                    // quick save / load results (a few seconds), then the map line
+                    if (state[5].toInt() == 8) getString(R.string.notice_game_saved)
+                    else if (state[5].toInt() == 9) getString(R.string.notice_save_failed)
+                    else if (state[5].toInt() == 10) getString(R.string.notice_no_quick_save)
+                    else if (mapGame) getString(R.string.notice_map_game, mapName)
                     else if (flying) getString(R.string.notice_flying)
                     else if (mapTexturesLoading) getString(R.string.notice_map_textures, mapName)
                     else getString(R.string.notice_map_mode, mapName)
@@ -623,14 +627,21 @@ class MainActivity : GameActivity() {
     /** Pause menu while walking a Realms map: movement options, other maps and the way back. */
     private fun showMapPauseMenu() {
         setPaused(true)
+        // with the game: Quake 2's quick save / load (F6 / F9 on the desktop)
+        val items=mutableListOf(R.string.pause_resume,if(flyingNow) R.string.pause_noclip_off else R.string.pause_noclip_on,R.string.pause_spawn)
+        if(mapGame)items+=listOf(R.string.pause_quick_save,R.string.pause_quick_load)
+        items+=listOf(R.string.pause_maps,R.string.pause_leave_map)
         val dialog=AlertDialog.Builder(this).setTitle(getString(R.string.notice_map_mode, mapName))
-            .setItems(arrayOf(R.string.pause_resume,if(flyingNow) R.string.pause_noclip_off else R.string.pause_noclip_on,R.string.pause_spawn,
-                R.string.pause_maps,R.string.pause_leave_map).map { getString(it) }.toTypedArray()) { _, which ->
+            .setItems(items.map { getString(it) }.toTypedArray()) { _, which ->
                 uiSound(0);setPaused(false)
-                if(which==1)nativeCommand(6)
-                if(which==2)nativeCommand(35)
-                if(which==3)handler.post { showMapPicker() }
-                if(which==4)nativeCommand(50)
+                when(items[which]){
+                    R.string.pause_noclip_on,R.string.pause_noclip_off->nativeCommand(6)
+                    R.string.pause_spawn->nativeCommand(35)
+                    R.string.pause_quick_save->nativeCommand(58)
+                    R.string.pause_quick_load->nativeCommand(59)
+                    R.string.pause_maps->handler.post { showMapPicker() }
+                    R.string.pause_leave_map->nativeCommand(50)
+                }
             }.create()
         dialog.setOnDismissListener { setPaused(false);hideSystemUi() }
         dialog.setOnCancelListener { uiSound(2) }
