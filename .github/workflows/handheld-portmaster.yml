@@ -1,0 +1,171 @@
+name: Handheld (Anbernic RG40XXH, PortMaster)
+
+# The desktop client for aarch64 Linux handhelds such as the Anbernic
+# RG40XXH (Allwinner H700, Mali-G31: OpenGL ES 3.0 only, 640x480, gamepad
+# only), packaged as a PortMaster port (sys/portmaster). It links the
+# firmware's own SDL2 and GLES driver, so it is built against an older glibc
+# (Ubuntu 22.04) than the firmwares (Knulli, muOS, ROCKNIX) ship.
+on:
+  workflow_dispatch:
+  # release.yml builds the release assets with this workflow
+  workflow_call:
+  push:
+    # branches only: a version tag is built once, by release.yml
+    branches: ['**']
+    paths:
+      - 'CMakeLists.txt'
+      - 'cmake/**'
+      - 'RINGSCE_v2.png'
+      - 'sys/desktop/**'
+      - 'sys/portmaster/**'
+      - 'realms/**'
+      - 'game/**'
+      - 'tests/realms/**'
+      - 'tests/native/**'
+      - 'tools/validate_desktop_shaders.py'
+      - 'tools/make_portmaster_zip.sh'
+      - 'sys/android/app/src/main/cpp/**'
+      - 'sys/android/app/src/main/assets/**'
+      - '.github/workflows/handheld-portmaster.yml'
+  pull_request:
+    paths:
+      - 'CMakeLists.txt'
+      - 'cmake/**'
+      - 'RINGSCE_v2.png'
+      - 'sys/desktop/**'
+      - 'sys/portmaster/**'
+      - 'realms/**'
+      - 'game/**'
+      - 'tests/realms/**'
+      - 'tests/native/**'
+      - 'tools/validate_desktop_shaders.py'
+      - 'tools/make_portmaster_zip.sh'
+      - 'sys/android/app/src/main/cpp/**'
+      - 'sys/android/app/src/main/assets/**'
+      - '.github/workflows/handheld-portmaster.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  portmaster-aarch64:
+    name: Anbernic RG40XXH package (PortMaster, aarch64)
+    runs-on: ubuntu-24.04-arm
+    # glibc 2.35: older than every firmware that runs on the RG40XXH
+    container: ubuntu:22.04
+    timeout-minutes: 40
+    steps:
+      - name: Install build dependencies
+        shell: bash
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          set -euo pipefail
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates \
+            git \
+            build-essential \
+            cmake \
+            ninja-build \
+            pkg-config \
+            libsdl2-dev \
+            fpc \
+            glslang-tools \
+            python3 \
+            file \
+            zip \
+            unzip
+
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          clean: true
+          fetch-depth: 1
+          submodules: false
+
+      # Every desktop shader as GLSL 330 and as the GLSL ES 3.00 the handheld runs.
+      - name: Validate the shaders for OpenGL ES 3.0
+        shell: bash
+        run: python3 tools/validate_desktop_shaders.py
+
+      # No FFmpeg (no intro video) and no OpenSSL (no online presence): the
+      # firmwares don't ship them. The core and the game module are Free Pascal.
+      - name: Configure and build the handheld client
+        shell: bash
+        run: |
+          set -o pipefail
+          {
+            cmake -S . -B build -G Ninja \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_C_FLAGS=-mtune=cortex-a53 \
+              -DCMAKE_CXX_FLAGS=-mtune=cortex-a53 \
+              -DEKRON_GLES=ON \
+              -DEKRON_INTRO_VIDEO=OFF \
+              -DENABLE_FPC_CLIENT=OFF \
+              -DENABLE_PASCAL_CORE=ON \
+              -DENABLE_GAME_MODULE=ON &&
+            cmake --build build -j"$(nproc)" &&
+            test -x build/ekron-realms &&
+            test -f build/librealms_core.so &&
+            test -f build/librealms_game.so
+          } 2>&1 | tee /tmp/handheld-build.log || {
+            tail -n 8 /tmp/handheld-build.log | while IFS= read -r line; do
+              [ -n "$line" ] && echo "::error::[handheld-build] $line"
+            done
+            exit 1
+          }
+          grep -q 'Preferred graphics API: OpenGL ES 3.0' /tmp/handheld-build.log
+
+      - name: Run CTest smoke checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          ctest --test-dir build --output-on-failure
+
+      - name: Build and verify the PortMaster package
+        shell: bash
+        run: |
+          set -euo pipefail
+          ver="$(sed -nE 's/^project\(EkronRealms VERSION ([0-9.]+).*/\1/p' CMakeLists.txt)"
+          ZIP="$PWD/build/ekron-realms-$ver-portmaster-aarch64.zip"
+          bash tools/make_portmaster_zip.sh build "$ZIP"
+          rm -rf /tmp/pm && mkdir -p /tmp/pm && unzip -q "$ZIP" -d /tmp/pm
+          ls -R /tmp/pm | head -n 40
+          test -f "/tmp/pm/Ekron Realms.sh"
+          test -f "/tmp/pm/Ekron Realms - Quake 2.sh"
+          python3 -c 'import json,sys; json.load(open(sys.argv[1]))' /tmp/pm/ekronrealms/port.json
+          # PortMaster: LF line endings in the launch scripts
+          if grep -l $'\r' /tmp/pm/*.sh; then echo "::error::CRLF in a launch script"; exit 1; fi
+          GAME=/tmp/pm/ekronrealms
+          test -f "$GAME/lib/ekron-realms/librealms_core.so"
+          test -f "$GAME/lib/ekron-realms/librealms_game.so"
+          test ! -e "$GAME/share/ekron-realms/intro.mp4"
+          file "$GAME/bin/ekron-realms" | grep -q 'ARM aarch64'
+          # Only the firmware's SDL2 and the C / C++ runtimes: no desktop GL,
+          # FFmpeg or OpenSSL (none of them is on the handhelds).
+          for f in "$GAME/bin/ekron-realms" "$GAME"/lib/ekron-realms/*.so; do
+            objdump -p "$f" | sed -n 's/^\s*NEEDED\s*//p' | while read -r lib; do
+              case "$lib" in
+                libSDL2-2.0.so.0|libc.so.6|libm.so.6|libstdc++.so.6|libgcc_s.so.1|libdl.so.2|libpthread.so.0|ld-linux-aarch64.so.1) ;;
+                *) echo "::error::$(basename "$f") needs $lib, which the handheld firmwares don't ship"; exit 1 ;;
+              esac
+            done
+            newest="$(objdump -T "$f" | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -n 1)"
+            echo "$(basename "$f"): newest glibc symbol $newest"
+          done
+          # From the extracted package, the way the launch script runs it.
+          cd /tmp
+          "$GAME/bin/ekron-realms" --version
+          "$GAME/bin/ekron-realms" --headless-smoke
+          "$GAME/bin/ekron-realms" --engine-info | tee /tmp/engine-info.log
+          REALMS_CORE=pascal "$GAME/bin/ekron-realms" --headless-smoke | tee /tmp/pascal-smoke.log
+          grep -q 'realmsCore=pascal-quake2' /tmp/pascal-smoke.log
+          grep -q 'Quake 2 game API 3' /tmp/engine-info.log
+
+      - name: Upload PortMaster package
+        uses: actions/upload-artifact@v7
+        with:
+          name: ekron-realms-portmaster-aarch64
+          path: build/ekron-realms-*-portmaster-aarch64.zip
+          if-no-files-found: error

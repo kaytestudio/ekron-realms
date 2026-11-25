@@ -183,6 +183,242 @@ jobs:
           path: build/ekron-realms-*-windows-x64.zip
           if-no-files-found: error
 
+  # Windows 11 on ARM (Snapdragon X, ...): the same package, native ARM64.
+  # LLVM-MinGW (MSYS2 CLANGARM64) for the C++, SDL2 built from source (its
+  # MinGW release has no ARM64 build), and Free Pascal main for the core and
+  # the game module: aarch64-win64 is in no Free Pascal release yet (3.2.4
+  # included), so a cross compiler and the RTL are built from a pinned commit
+  # with the x86_64 Lazarus compiler (x64 emulation), and cached.
+  windows-arm64-zip:
+    name: Windows 11 ARM64 package (.zip)
+    runs-on: windows-11-arm
+    timeout-minutes: 120
+    env:
+      FPC_COMMIT: 37918075fb773569af2d4e9fc1ddb99b0b411a48
+      FPC_ARM64: C:\fpc-aarch64
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          clean: true
+          fetch-depth: 1
+          submodules: false
+
+      - name: Install LLVM-MinGW (CLANGARM64) toolchain
+        id: msys2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: CLANGARM64
+          update: false
+          path-type: minimal
+          install: >-
+            mingw-w64-clang-aarch64-clang
+            mingw-w64-clang-aarch64-cmake
+            mingw-w64-clang-aarch64-ninja
+            mingw-w64-clang-aarch64-python
+            unzip
+
+      - name: Restore SDL2 ${{ env.SDL2_VERSION }} (ARM64)
+        id: sdl2-cache
+        uses: actions/cache@v5
+        with:
+          path: sdl2-arm64
+          key: sdl2-clangarm64-${{ env.SDL2_VERSION }}-v1
+
+      - name: Build SDL2 ${{ env.SDL2_VERSION }} for ARM64
+        if: steps.sdl2-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 -o /tmp/sdl2-src.tar.gz \
+            "https://github.com/libsdl-org/SDL/releases/download/release-${SDL2_VERSION}/SDL2-${SDL2_VERSION}.tar.gz"
+          mkdir -p /tmp/sdl2-src
+          tar -xzf /tmp/sdl2-src.tar.gz -C /tmp/sdl2-src --strip-components=1
+          cmake -S /tmp/sdl2-src -B /tmp/sdl2-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$PWD/sdl2-arm64" \
+            -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TEST=OFF
+          cmake --build /tmp/sdl2-build -j"$(nproc)"
+          cmake --install /tmp/sdl2-build
+
+      - name: Check SDL2 (ARM64)
+        run: |
+          set -euo pipefail
+          test -f sdl2-arm64/bin/SDL2.dll
+          test -f sdl2-arm64/lib/cmake/SDL2/SDL2Config.cmake
+          llvm-objdump -f sdl2-arm64/bin/SDL2.dll | grep -Eiq 'arm64|aarch64'
+
+      - name: Restore Free Pascal (aarch64-win64)
+        id: fpc-arm64-cache
+        uses: actions/cache@v5
+        with:
+          path: C:\fpc-aarch64
+          key: fpc-aarch64-win64-${{ env.FPC_COMMIT }}-v1
+
+      # The bootstrap compiler: Lazarus's x86_64 Free Pascal 3.2.2 (the x64 job's cache).
+      - name: Restore the bootstrap Free Pascal (Lazarus, x86_64)
+        if: steps.fpc-arm64-cache.outputs.cache-hit != 'true'
+        id: fpc-cache
+        uses: actions/cache@v5
+        with:
+          path: C:\lazarus\fpc
+          key: fpc-lazarus-win64-v1
+
+      - name: Install the bootstrap Free Pascal (Lazarus, x86_64)
+        if: steps.fpc-arm64-cache.outputs.cache-hit != 'true' && steps.fpc-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: choco install lazarus -y --no-progress
+
+      - name: Free Pascal sources (main, pinned)
+        if: steps.fpc-arm64-cache.outputs.cache-hit != 'true'
+        uses: actions/checkout@v7
+        with:
+          repository: fpc/FPCSource
+          ref: ${{ env.FPC_COMMIT }}
+          path: fpcsrc
+          fetch-depth: 1
+          submodules: false
+
+      # The x86_64 compiler (x64 emulation) builds an aarch64-win64 cross
+      # compiler (ppcrossa64, itself x86_64) and the aarch64-win64 RTL with
+      # it: the core and the game module need nothing else (SysUtils, Math,
+      # Strings, ctypes, Windows). Free Pascal's own make.exe and tools first
+      # on PATH, clang (CLANGARM64) as the ARM64 assembler.
+      - name: Build Free Pascal for aarch64-win64
+        if: steps.fpc-arm64-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        env:
+          MSYS2_ROOT: ${{ steps.msys2.outputs.msys2-location }}
+        run: |
+          $ppc = Get-ChildItem C:\lazarus\fpc -Recurse -Filter ppcx64.exe |
+            Where-Object { $_.DirectoryName -like '*\x86_64-win64' } | Select-Object -First 1
+          if (-not $ppc) { throw "ppcx64.exe (x86_64-win64) not found under C:\lazarus\fpc" }
+          $bin = $ppc.DirectoryName
+          if (-not (Test-Path "$bin\make.exe")) { throw "make.exe not found next to $($ppc.FullName)" }
+          $clang = Join-Path $env:MSYS2_ROOT 'clangarm64\bin'
+          if (-not (Test-Path "$clang\clang.exe")) { throw "clang.exe not found in $clang" }
+          $env:PATH = "$bin;$clang;$env:SystemRoot\System32;$env:SystemRoot"
+          & $ppc.FullName -iV
+          $ErrorActionPreference = 'Continue' # compiler output on stderr is not a script error
+          function Invoke-Make([string]$what, [string[]]$makeArgs) {
+            & "$bin\make.exe" @makeArgs *>&1 | Tee-Object -FilePath "fpc-$what.log" | Out-Null
+            $code = $LASTEXITCODE
+            Get-Content "fpc-$what.log" -Tail 30
+            if ($code -ne 0) {
+              Get-Content "fpc-$what.log" -Tail 8 | Where-Object { $_.Trim() } | ForEach-Object { "::error::[fpc-$what] $($_.Trim())" }
+              exit 1
+            }
+          }
+          # "make cycle" for another CPU: the main RTL and a native compiler
+          # (x86_64), then ppcrossa64 with them, then the aarch64-win64 RTL with
+          # ppcrossa64 (NoNativeBinaries: no ARM64-native compiler on top).
+          Invoke-Make 'cycle' @('-C', 'fpcsrc/compiler', 'cycle', "PP=$($ppc.FullName -replace '\\','/')",
+            'CPU_TARGET=aarch64', 'OS_TARGET=win64', 'BINUTILSPREFIX=', 'NoNativeBinaries=1')
+          $cross = Resolve-Path fpcsrc\compiler\ppcrossa64.exe -ErrorAction SilentlyContinue
+          if (-not $cross) { "::error::fpcsrc\compiler\ppcrossa64.exe not built"; exit 1 }
+          if (-not (Test-Path fpcsrc\rtl\units\aarch64-win64\sysutils.ppu)) { "::error::the aarch64-win64 RTL was not built"; exit 1 }
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force "$env:FPC_ARM64\bin", "$env:FPC_ARM64\units\rtl" | Out-Null
+          Copy-Item $cross "$env:FPC_ARM64\bin\"
+          Copy-Item fpcsrc\rtl\units\aarch64-win64\* "$env:FPC_ARM64\units\rtl\" -Recurse
+          # Free Pascal reads fpc.cfg from the compiler's own folder
+          Set-Content -Encoding ascii "$env:FPC_ARM64\bin\fpc.cfg" "-Fu$($env:FPC_ARM64 -replace '\\','/')/units/rtl"
+
+      - name: Check the Free Pascal ARM64 compiler
+        run: |
+          set -euo pipefail
+          ppc="$(cygpath -u "$FPC_ARM64")/bin/ppcrossa64.exe"
+          "$ppc" -iV
+          test "$("$ppc" -iTP)" = aarch64
+          test "$("$ppc" -iTO)" = win64
+          mkdir -p /tmp/fpc-smoke
+          cat > /tmp/fpc-smoke/smoke.pas <<'EOF'
+          program smoke;
+          uses SysUtils, Math, ctypes;
+          begin
+            WriteLn(Format('fpc %s %d %d', [FloatToStrF(Sqrt(2.0), ffFixed, 8, 4), SizeOf(cint), Floor(2.5)]));
+          end.
+          EOF
+          "$ppc" -Mobjfpc -O2 -FE"$(cygpath -m /tmp/fpc-smoke)" "$(cygpath -m /tmp/fpc-smoke/smoke.pas)"
+          /tmp/fpc-smoke/smoke.exe | tee /tmp/fpc-smoke/out.txt
+          grep -q 'fpc 1.4142 4 2' /tmp/fpc-smoke/out.txt
+          echo "FPC_EXE=$(cygpath -m "$ppc")" >> "$GITHUB_ENV"
+
+      - name: Configure and build Windows ARM64 desktop client
+        run: |
+          set -o pipefail
+          {
+            cmake -S . -B build -G Ninja \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DSDL2_DIR="$PWD/sdl2-arm64/lib/cmake/SDL2" \
+              -DFPC_EXECUTABLE="$FPC_EXE" \
+              -DENABLE_FPC_CLIENT=OFF \
+              -DENABLE_PASCAL_CORE=ON \
+              -DENABLE_GAME_MODULE=ON \
+              -DEKRON_REQUIRE_INTRO_VIDEO=ON &&
+            cmake --build build -j"$(nproc)" &&
+            test -f build/ekron-realms.exe &&
+            test -f build/SDL2.dll &&
+            test -f build/realms_core.dll &&
+            test -f build/realms_game.dll
+          } 2>&1 | tee /tmp/windows-arm64-build.log || {
+            tail -n 8 /tmp/windows-arm64-build.log | while IFS= read -r line; do
+              [ -n "$line" ] && echo "::error::[windows-arm64-build] $line"
+            done
+            exit 1
+          }
+          grep -q 'Intro video backend: MediaFoundation' /tmp/windows-arm64-build.log
+
+      - name: Run CTest smoke checks
+        run: |
+          set -uo pipefail
+          ctest --test-dir build --output-on-failure -V 2>&1 | tee /tmp/ctest.log && exit 0
+          echo "::error::[ctest] $(sed -n '/tests FAILED:/,$p' /tmp/ctest.log | grep -E '^\s*[0-9]+ - ' | sed 's/^\s*//' | paste -sd ';' -)"
+          grep -iE 'fail|error|exception|assert|timeout|not run|missing|cannot' /tmp/ctest.log |
+            grep -vE ' Passed|tests FAILED|^\s*[0-9]+ - |Test timeout computed' | head -n 72 |
+            paste -d '|' - - - - - - - - | while IFS= read -r group; do echo "::error::[ctest] $group"; done
+          exit 1
+
+      - name: Build and verify the Windows ARM64 package
+        run: |
+          set -euo pipefail
+          (cd build && cpack -G ZIP)
+          ZIP="$(ls build/ekron-realms-*-windows-arm64.zip | head -n 1)"
+          test -f "$ZIP"
+          rm -rf /tmp/pkg && mkdir -p /tmp/pkg && unzip -q "$ZIP" -d /tmp/pkg
+          APP="$(ls -d /tmp/pkg/ekron-realms-*-windows-arm64)"
+          ls "$APP"
+          # Native ARM64 binaries only, needing nothing but each other and Windows.
+          for f in "$APP"/*.exe "$APP"/*.dll; do
+            llvm-objdump -f "$f" | grep -Eiq 'arm64|aarch64' || { echo "::error::$(basename "$f") is not an ARM64 binary"; exit 1; }
+            llvm-objdump -p "$f" | sed -n 's/^\s*DLL Name: //p' | while read -r dll; do
+              if [ -f "$APP/$dll" ] || [ -f "/c/Windows/System32/$dll" ] || [[ "${dll,,}" == api-ms-win-* ]]; then
+                continue
+              fi
+              echo "::error::$(basename "$f") needs $dll, which is neither in the package nor in System32"
+              exit 1
+            done
+          done
+          llvm-objdump -p "$APP/ekron-realms.exe" | grep -Eq 'Subsystem\s+0*2(\s|$)' # GUI: no console window
+          export PATH="/usr/bin:/c/Windows/System32:/c/Windows"
+          cd /tmp
+          "$APP/ekron-realms.exe" --version | tee /tmp/version.log
+          grep -q 'Windows arm64' /tmp/version.log
+          "$APP/ekron-realms.exe" --headless-smoke
+          "$APP/ekron-realms.exe" --engine-info | tee /tmp/engine-info.log
+          REALMS_CORE=pascal "$APP/ekron-realms.exe" --headless-smoke | tee /tmp/pascal-smoke.log
+          grep -q 'realmsCore=pascal-quake2' /tmp/pascal-smoke.log
+          grep -q 'Quake 2 game API 3' /tmp/engine-info.log
+
+      - name: Upload Windows ARM64 package
+        uses: actions/upload-artifact@v7
+        with:
+          name: ekron-realms-windows-arm64-zip
+          path: build/ekron-realms-*-windows-arm64.zip
+          if-no-files-found: error
+
   # The same client with Visual C++ (C++ only: the package comes from the
   # MinGW job above).
   windows-msvc:

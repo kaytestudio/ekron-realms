@@ -1,6 +1,9 @@
 #pragma once
-// Self-contained OpenGL 3.3 Core loader backed by SDL_GL_GetProcAddress.
-// Avoids platform-specific OpenGL header differences and deprecation warnings on macOS & Linux.
+// Self-contained OpenGL 3.3 Core / OpenGL ES 3.0 loader backed by
+// SDL_GL_GetProcAddress. Avoids platform-specific OpenGL header differences
+// and deprecation warnings on macOS & Linux. Every entry point below is in
+// both APIs, so one renderer runs on desktop GL and on GLES-only GPUs
+// (handhelds such as the Anbernic RG40XXH, Mali-G31).
 
 #if defined(__has_include)
 #if __has_include(<SDL.h>)
@@ -15,6 +18,8 @@
 #endif
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
+#include <string>
 #include <type_traits>
 
 using GLenum     = unsigned int;
@@ -169,7 +174,50 @@ using PFN_glRenderbufferStorage    = void (APIENTRYP)(GLenum, GLenum, GLsizei, G
 using PFN_glFramebufferRenderbuffer = void (APIENTRYP)(GLenum, GLenum, GLenum, GLuint);
 using PFN_glCheckFramebufferStatus = GLenum (APIENTRYP)(GLenum);
 
+// The renderer's shaders are GLSL 330 core. On OpenGL ES the first line
+// "#version 330 core" becomes this prelude (GLSL ES 3.00 with explicit
+// precisions; sampler2DArray has no default one). tools/validate_desktop_shaders.py
+// checks every shader in both forms.
+constexpr const char *kDesktopShaderVersion = "#version 330 core\n";
+constexpr const char *kGlesShaderPrelude = "#version 300 es\n"
+                                           "precision highp float;\n"
+                                           "precision highp int;\n"
+                                           "precision highp sampler2D;\n"
+                                           "precision highp sampler2DArray;\n";
+
+inline std::string shaderSource(const char *source, bool es) {
+    std::string text(source ? source : "");
+    const std::string desktop(kDesktopShaderVersion);
+    if (es && text.compare(0, desktop.size(), desktop) == 0) text.replace(0, desktop.size(), kGlesShaderPrelude);
+    return text;
+}
+
+// The context to ask SDL for first: OpenGL ES 3.0 where the build defaults to
+// it (EKRON_GLES, handheld builds) or EKRON_GLES=1 asks for it, else OpenGL
+// 3.3 Core; main.cpp falls back to the other one when it fails.
+inline bool preferGles() {
+    if (const char *env = std::getenv("EKRON_GLES"); env && env[0] != '\0') return std::string(env) != "0";
+#if defined(EKRON_GLES_DEFAULT) && EKRON_GLES_DEFAULT
+    return true;
+#else
+    return false;
+#endif
+}
+
+// SDL attributes for the context; call before SDL_CreateWindow.
+inline void setContextAttributes(bool es) {
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, es ? 0 : 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, es ? SDL_GL_CONTEXT_PROFILE_ES : SDL_GL_CONTEXT_PROFILE_CORE);
+#if defined(__APPLE__)
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, es ? 0 : SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG);
+#endif
+    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
+}
+
 struct Api {
+    bool es = false; // an OpenGL ES 3.0 context (see shaderSource)
     PFN_glViewport                Viewport = nullptr;
     PFN_glClearColor              ClearColor = nullptr;
     PFN_glClear                   Clear = nullptr;

@@ -9,6 +9,7 @@ This document describes how to build the Realms project using CMake on Windows, 
 - [Platform-Specific Instructions](#platform-specific-instructions)
   - [macOS](#macos)
   - [Windows 11](#windows-11)
+  - [Handhelds (Anbernic RG40XXH, PortMaster)](#handhelds-anbernic-rg40xxh-portmaster)
   - [Linux](#linux)
 - [Build Types](#build-types)
 - [Build Targets](#build-targets)
@@ -141,7 +142,7 @@ cpack -G DragNDrop
 
 ### Windows 11
 
-The native C++ client (`ekron-realms.exe`, SDL2 + OpenGL) runs on 64-bit Windows 10 and 11. CI (`.github/workflows/desktop-windows.yml`) builds it on Windows Server 2025, the server edition of Windows 11 24H2, with both toolchains below, and makes the release ZIP with MinGW.
+The native C++ client (`ekron-realms.exe`, SDL2 + OpenGL) runs on 64-bit Windows 10 and 11, x64 and ARM64. CI (`.github/workflows/desktop-windows.yml`) builds it on Windows Server 2025, the server edition of Windows 11 24H2, with both toolchains below, and makes the release ZIP with MinGW.
 
 #### MinGW-w64 (MSYS2 UCRT64)
 
@@ -173,12 +174,43 @@ The Visual C++ runtime is linked statically (`/MT`), so the exe does not need th
 
 #### Windows notes
 
-- **Package**: `cpack -G ZIP` (the default generator on Windows) makes `ekron-realms-<version>-windows-x64.zip`, a portable folder with `ekron-realms.exe`, `SDL2.dll`, the Free Pascal DLLs and `assets\`. Unzip it anywhere; there is no installer.
+- **Package**: `cpack -G ZIP` (the default generator on Windows) makes `ekron-realms-<version>-windows-x64.zip` (`-windows-arm64.zip` from an ARM64 build), a portable folder with `ekron-realms.exe`, `SDL2.dll`, the Free Pascal DLLs and `assets\`. Unzip it anywhere; there is no installer.
 - **User data** (saves, settings): `%APPDATA%\KayteStudio\EkronRealms\`. Quake 2's `baseq2` folder (with `pak0.pak`) is found there or in `assets\`, or pass `--quake2 <dir>` / `EKRON_QUAKE2_DIR`; `--engine-info` shows what is found.
 - **Intro video**: decoded by Media Foundation, part of Windows. Windows N editions need Microsoft's *Media Feature Pack* (Settings > Apps > Optional features); without it the game starts without the intro.
 - **Console output**: the exe is a GUI program (no console window from Explorer). Started from Command Prompt, PowerShell or Windows Terminal, `--help`, `--version`, `--engine-info` and the log print to that window.
 - **Not on Windows**: the Free Pascal launcher programs (`realms-launcher`, `realms-pascal`, which use the Unix sys layer) and the experimental online presence (POSIX sockets + OpenSSL). The legacy `sys/win32` and `sys/win64` Pascal sources are not built.
 - **SmartScreen**: the release exe is not code-signed, so Windows may warn on first start: **More info**, then **Run anyway**.
+
+#### Windows 11 on ARM (ARM64)
+
+The same client builds natively for ARM64 (Snapdragon X and other ARM64 PCs) with LLVM-MinGW, in an MSYS2 **CLANGARM64** shell (`pacman -S mingw-w64-clang-aarch64-clang mingw-w64-clang-aarch64-cmake mingw-w64-clang-aarch64-ninja`). The SDL2 MinGW package has no ARM64 build, so build SDL2 from its source release first:
+
+```bash
+cmake -S SDL2-2.32.10 -B sdl2-build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_INSTALL_PREFIX=C:/SDL2-arm64 -DSDL_STATIC=OFF -DSDL_TEST=OFF
+cmake --build sdl2-build && cmake --install sdl2-build
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DSDL2_DIR=C:/SDL2-arm64/lib/cmake/SDL2 \
+  -DFPC_EXECUTABLE=C:/fpc-aarch64/bin/ppcrossa64.exe   # optional
+cmake --build build
+(cd build && cpack)   # build/ekron-realms-<version>-windows-arm64.zip
+```
+
+No Free Pascal release targets aarch64-win64 yet (3.2.4 included). The `windows-arm64-zip` job in `desktop-windows.yml` builds a cross compiler (`ppcrossa64.exe`, an x86_64 program that runs under Windows 11's x64 emulation) and the aarch64-win64 RTL from a pinned commit of Free Pascal's main branch with the Lazarus x86_64 compiler: `make -C compiler cycle CPU_TARGET=aarch64 OS_TARGET=win64 BINUTILSPREFIX= NoNativeBinaries=1`, with clang on `PATH` as the assembler. Next to `ppcrossa64.exe`, an `fpc.cfg` with `-Fu<the RTL units>` is all the core and the game module need. Without `FPC_EXECUTABLE`, the build uses the C++ reference core and map mode runs without the game.
+
+### Handhelds (Anbernic RG40XXH, PortMaster)
+
+The desktop client also runs on aarch64 Linux handhelds that have only OpenGL ES and a gamepad, such as the Anbernic RG40XXH (Allwinner H700, Mali-G31, 640x480), packaged as a [PortMaster](https://portmaster.games/) port. `-DEKRON_GLES=ON` makes OpenGL ES 3.0 the first choice (the desktop builds try OpenGL 3.3 Core first and fall back to ES); `EKRON_GLES=1` or `EKRON_GLES=0` in the environment overrides it in any build. On an aarch64 Linux machine or container, preferably with glibc 2.35 or older (Ubuntu 22.04) so the binary runs on the handheld firmwares:
+
+```bash
+sudo apt-get install build-essential cmake ninja-build libsdl2-dev fpc zip
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DEKRON_GLES=ON -DEKRON_INTRO_VIDEO=OFF -DENABLE_FPC_CLIENT=OFF
+cmake --build build
+tools/make_portmaster_zip.sh build ekron-realms-portmaster-aarch64.zip
+```
+
+`tools/make_portmaster_zip.sh` installs the build into `ekronrealms/` (`bin/`, `lib/ekron-realms/`, `share/ekron-realms/`) and adds the two launch scripts, `port.json`, `README.md` and `gameinfo.xml` from `sys/portmaster/`, plus the licenses. The package uses the firmware's SDL2 and GLES driver and bundles neither. **Ekron Realms** starts the city; **Ekron Realms - Quake 2** starts `base1` with the `pak0.pak` copied to `ports/ekronrealms/baseq2/`. Settings and saves go to `ports/ekronrealms/conf/`. CI: `.github/workflows/handheld-portmaster.yml` (Ubuntu 22.04 on an ARM64 runner) checks the shaders as GLSL ES 3.00, builds, tests and checks the package. The gamepad controls are in [docs/CONTROLS.md](docs/CONTROLS.md#gamepad).
 
 ### Linux
 
@@ -554,9 +586,11 @@ Pushing a tag that starts with `v` (for example `git tag v1.0.0 && git push orig
 | `ekron-realms-<version>-android-debug.apk` | `android-sandbox.yml` (debug key) |
 | `ekron-realms-<version>-ios-debug-unsigned.ipa` | `ios-sandbox.yml` (unsigned) |
 | `ekron-realms-<version>-windows-x64.zip` | `desktop-windows.yml` (MinGW-w64; exe not code-signed) |
-| `SHA256SUMS.txt` | checksums of the five |
+| `ekron-realms-<version>-windows-arm64.zip` | `desktop-windows.yml` (LLVM-MinGW, Windows 11 on ARM; exe not code-signed) |
+| `ekron-realms-<version>-portmaster-aarch64.zip` | `handheld-portmaster.yml` (PortMaster port: Anbernic RG40XXH and other aarch64 handhelds) |
+| `SHA256SUMS.txt` | checksums of the seven |
 
-A release that already exists keeps its notes and gets the files (re-running replaces them). Otherwise the workflow creates the release with install notes and generated release notes, as a pre-release when the version has a suffix (`v1.1.0-rc1`). Tag pushes don't trigger the five build workflows on their own, so each tag is built once. The workflow warns when the tag differs from `project(EkronRealms VERSION ...)` in `CMakeLists.txt`. That project version is also the version inside every package: the desktop builds, the Android `versionName` (with `versionCode` = x·10000 + y·100 + z, read by `sys/android/app/build.gradle.kts`) and the iOS `MARKETING_VERSION` (passed by `ios-sandbox.yml`). The Android and iOS workflows check it in the built app, so bump it in `CMakeLists.txt` only.
+A release that already exists keeps its notes and gets the files (re-running replaces them). Otherwise the workflow creates the release with install notes and generated release notes, as a pre-release when the version has a suffix (`v1.1.0-rc1`). Tag pushes don't trigger the six build workflows on their own, so each tag is built once. The workflow warns when the tag differs from `project(EkronRealms VERSION ...)` in `CMakeLists.txt`. That project version is also the version inside every package: the desktop builds, the Android `versionName` (with `versionCode` = x·10000 + y·100 + z, read by `sys/android/app/build.gradle.kts`) and the iOS `MARKETING_VERSION` (passed by `ios-sandbox.yml`). The Android and iOS workflows check it in the built app, so bump it in `CMakeLists.txt` only.
 
 ---
 

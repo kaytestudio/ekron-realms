@@ -1,6 +1,6 @@
 # ЭКРОН — Нативный клиент для ПК (`sys/desktop`)
 
-Нативный десктопный клиент городской песочницы **ЭКРОН** для **macOS (`.app`)**, **Linux (`.deb`)** и **Windows 10 / 11 (`.zip`)**, использующий общее C++17-ядро мира/физики (`sys/android/app/src/main/cpp`) и общие 3D-ассеты (`sys/android/app/src/main/assets`) на базе **SDL2 + OpenGL 3.3 Core**, а также опциональный лаунчер на **Free Pascal (`realms-launcher`)**.
+Нативный десктопный клиент городской песочницы **ЭКРОН** для **macOS (`.app`)**, **Linux (`.deb`)**, **Windows 10 / 11 (`.zip`, x64 и ARM64)** и портативных консолей на aarch64 Linux вроде **Anbernic RG40XXH** (порт PortMaster), использующий общее C++17-ядро мира/физики (`sys/android/app/src/main/cpp`) и общие 3D-ассеты (`sys/android/app/src/main/assets`) на базе **SDL2 + OpenGL 3.3 Core** (или OpenGL ES 3.0), а также опциональный лаунчер на **Free Pascal (`realms-launcher`)**.
 
 ## Управление (клавиатура и мышь)
 
@@ -22,6 +22,17 @@
 - **`Tab` / `[` `]` / `Enter`** (на картах Quake 2) — инвентарь: открыть/закрыть, выбрать предыдущий/следующий предмет, использовать выбранный
 - **`F6` / `F9`** (на картах Quake 2) — быстрое сохранение / быстрая загрузка (`save quick` / `load quick`; в консоли — `save <имя>` и `load <имя>`). Сохранения лежат в папке пользовательских данных, в `save/<имя>/`
 - На картах Quake 2 над нижней панелью — строка состояния игры (здоровье, патроны, броня, подобранный предмет, таймеры); с `pak0.pak` — с иконками и цифрами Quake 2. `cl_statusbar 0` скрывает её, тогда здоровье, броня и патроны выводятся текстом в верхней панели
+
+## Геймпад
+
+Любой контроллер, который знает SDL (Xbox, PlayStation, Switch Pro, встроенный геймпад портативной консоли), управляет всей игрой; клавиатура и мышь работают параллельно. Кнопки названы по раскладке Xbox.
+
+- **Левый стик** — передвижение (в городе также крестовина); **правый стик** — обзор
+- **`Start`** — меню паузы (`Esc`); в меню крестовина вверх/вниз выбирает кнопку, **`A`** нажимает, **`B`** закрывает. Каталог и магазин требуют мыши, **`B`** закрывает их
+- **В городе:** `A` — прыжок (подъём в полёте), `B` — приседание (спуск в полёте), `X` — взаимодействие (`E`), `Y` — поворот (`R`), `RT` / `LT` — левый / правый клик, `LB` / `RB` — предыдущий / следующий инструмент
+- **На картах Quake 2:** `A` или `LT` — прыжок, `B` — приседание, `RT` — огонь, `LB` / `RB` — предыдущее / следующее оружие, `X` — использовать предмет, `Y` — инвентарь, крестовина: вверх — компьютер помощи, вниз — счёт, влево / вправо — предыдущий / следующий предмет; `Back` + `LB` / `RB` — быстрое сохранение / загрузка
+
+Полная таблица — в [docs/CONTROLS.md](../../docs/CONTROLS.md#gamepad).
 
 ## Заставка
 
@@ -85,11 +96,15 @@ API — в `Localization.h`. Тест `tests/native/localization_test.cpp` пр�
 
 ## Сборка
 
-В GitHub Actions сборка разделена на три независимых workflow:
+В GitHub Actions сборка разделена на четыре независимых workflow:
 - **`.github/workflows/desktop-debian.yml`** — сборка и проверка пакета Debian (`.deb`, артефакт `ekron-realms-linux-deb`);
 - **`.github/workflows/desktop-macos.yml`** — сборка и проверка бандла macOS (`EkronRealms.app`, артефакт `ekron-realms-macos-app`);
 - **`.github/workflows/desktop-windows.yml`** — сборка Windows (MinGW-w64 и Visual C++ на Windows Server 2025, серверной версии
-  Windows 11 24H2), тесты и ZIP-архив (`ekron-realms-<версия>-windows-x64.zip`, артефакт `ekron-realms-windows-zip`).
+  Windows 11 24H2), тесты и ZIP-архив (`ekron-realms-<версия>-windows-x64.zip`, артефакт `ekron-realms-windows-zip`), а также
+  нативная сборка для Windows 11 на ARM (LLVM-MinGW на `windows-11-arm`: `ekron-realms-<версия>-windows-arm64.zip`,
+  артефакт `ekron-realms-windows-arm64-zip`);
+- **`.github/workflows/handheld-portmaster.yml`** — сборка OpenGL ES для портативных консолей на aarch64 (Anbernic RG40XXH),
+  проверка шейдеров как GLSL ES 3.00 и порт PortMaster (`ekron-realms-<версия>-portmaster-aarch64.zip`).
 
 ### Linux (Debian/Ubuntu `.deb`)
 ```sh
@@ -120,3 +135,18 @@ Visual Studio 2022 тоже подходит (`-G "Visual Studio 17 2022" -A x64
 Сохранения и настройки лежат в `%APPDATA%\KayteStudio\EkronRealms\`. Exe не подписан, поэтому SmartScreen может
 предупредить при первом запуске: «Подробнее» → «Выполнить в любом случае». В Windows нет лаунчеров на Free Pascal
 (`realms-launcher`, `realms-pascal`) и экспериментального онлайн-присутствия.
+
+Для **Windows 11 на ARM** — то же в оболочке MSYS2 **CLANGARM64**, но SDL2 собирается из исходников (у пакета MinGW нет
+сборки ARM64), а Free Pascal для aarch64-win64 есть пока только в основной ветке (см. `BUILD.md`); архив называется
+`ekron-realms-<версия>-windows-arm64.zip`.
+
+### Портативные консоли (Anbernic RG40XXH, PortMaster)
+На aarch64 Linux (лучше Ubuntu 22.04, чтобы glibc была не новее, чем в прошивках):
+```sh
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DEKRON_GLES=ON -DEKRON_INTRO_VIDEO=OFF -DENABLE_FPC_CLIENT=OFF
+cmake --build build
+tools/make_portmaster_zip.sh build ekron-realms-portmaster-aarch64.zip
+```
+`-DEKRON_GLES=ON` делает OpenGL ES 3.0 первым выбором; переменная окружения `EKRON_GLES=1` / `EKRON_GLES=0` переопределяет
+его в любой сборке. Порт использует SDL2 и драйвер GLES прошивки. **Ekron Realms** запускает город, **Ekron Realms - Quake 2** —
+карту `base1` с `pak0.pak` в `ports/ekronrealms/baseq2/`; настройки и сохранения — в `ports/ekronrealms/conf/`.

@@ -20,6 +20,7 @@
 #include "ekron_sandbox.h"
 #include "DesktopHudLayout.h"
 #include "IntroScreen.h"
+#include "DesktopGamepad.h"
 #include "IntroVideo.h"
 #include "DesktopOnlineClient.h"
 #include "FpvDrone.h"
@@ -304,6 +305,10 @@ std::string executableDir(const char *argv0) {
 const char *realmsPlatformTag() {
 #if defined(__APPLE__)
     return "desktop-macos";
+#elif defined(_WIN32)
+    return "desktop-windows";
+#elif defined(EKRON_GLES_DEFAULT) && EKRON_GLES_DEFAULT
+    return "handheld-linux"; // the OpenGL ES build (PortMaster handhelds)
 #else
     return "desktop-linux";
 #endif
@@ -578,6 +583,113 @@ int runHeadlessSmoke(const std::string &assetRoot, const char *argv0) {
     return 0;
 }
 
+static_assert(int(ekron::desktop::PadButton::A) == SDL_CONTROLLER_BUTTON_A &&
+                  int(ekron::desktop::PadButton::Start) == SDL_CONTROLLER_BUTTON_START &&
+                  int(ekron::desktop::PadButton::RightShoulder) == SDL_CONTROLLER_BUTTON_RIGHTSHOULDER &&
+                  int(ekron::desktop::PadButton::DpadRight) == SDL_CONTROLLER_BUTTON_DPAD_RIGHT,
+              "PadButton mirrors SDL_GameControllerButton");
+
+SDL_Keycode padKeycode(ekron::desktop::PadKey key) {
+    using ekron::desktop::PadKey;
+    switch (key) {
+    case PadKey::Escape: return SDLK_ESCAPE;
+    case PadKey::Space: return SDLK_SPACE;
+    case PadKey::C: return SDLK_c;
+    case PadKey::E: return SDLK_e;
+    case PadKey::R: return SDLK_r;
+    case PadKey::Tab: return SDLK_TAB;
+    case PadKey::Return: return SDLK_RETURN;
+    case PadKey::LeftBracket: return SDLK_LEFTBRACKET;
+    case PadKey::RightBracket: return SDLK_RIGHTBRACKET;
+    case PadKey::F1: return SDLK_F1;
+    case PadKey::F6: return SDLK_F6;
+    case PadKey::F9: return SDLK_F9;
+    }
+    return SDLK_UNKNOWN;
+}
+
+// The open game controllers (SDL GameController API; SDL_GAMECONTROLLERCONFIG
+// adds mappings, as PortMaster's launch scripts set it). SDL_Quit closes them.
+class Gamepads {
+public:
+    void openAll() {
+        for (int i = 0; i < SDL_NumJoysticks(); ++i) open(i);
+    }
+    void open(int deviceIndex) {
+        if (!SDL_IsGameController(deviceIndex)) return;
+        const SDL_JoystickID id = SDL_JoystickGetDeviceInstanceID(deviceIndex);
+        for (const Pad &pad : pads_)
+            if (pad.id == id) return;
+        if (SDL_GameController *controller = SDL_GameControllerOpen(deviceIndex)) {
+            const char *name = SDL_GameControllerName(controller);
+            std::cout << "[Ekron] Game controller: " << (name ? name : "unknown") << "\n";
+            pads_.push_back({controller, id, {false, false}});
+        }
+    }
+    void close(SDL_JoystickID id) {
+        for (auto it = pads_.begin(); it != pads_.end(); ++it) {
+            if (it->id != id) continue;
+            SDL_GameControllerClose(it->controller);
+            pads_.erase(it);
+            return;
+        }
+    }
+    bool button(SDL_GameControllerButton b) const {
+        for (const Pad &pad : pads_)
+            if (SDL_GameControllerGetButton(pad.controller, b)) return true;
+        return false;
+    }
+    // A trigger axis event: true when it turns into a press.
+    bool triggerPressed(const SDL_ControllerAxisEvent &e) {
+        if (e.axis != SDL_CONTROLLER_AXIS_TRIGGERLEFT && e.axis != SDL_CONTROLLER_AXIS_TRIGGERRIGHT) return false;
+        for (Pad &pad : pads_) {
+            if (pad.id != e.which) continue;
+            bool &down = pad.trigger[e.axis == SDL_CONTROLLER_AXIS_TRIGGERRIGHT ? 1 : 0];
+            const bool was = down;
+            down = ekron::desktop::padTriggerDown(e.value, was);
+            return down && !was;
+        }
+        return false;
+    }
+    // The held controls; the d-pad also walks in the sandbox (in a map it
+    // works the inventory).
+    ekron::desktop::PadFrame sample(bool mapMode) const {
+        using namespace ekron::desktop;
+        PadFrame f;
+        float lookX = 0.0f, lookY = 0.0f;
+        for (const Pad &pad : pads_) {
+            const auto axis = [&](SDL_GameControllerAxis a) { return padAxis(SDL_GameControllerGetAxis(pad.controller, a)); };
+            f.moveRight += axis(SDL_CONTROLLER_AXIS_LEFTX);
+            f.moveForward -= axis(SDL_CONTROLLER_AXIS_LEFTY);
+            lookX += axis(SDL_CONTROLLER_AXIS_RIGHTX);
+            lookY -= axis(SDL_CONTROLLER_AXIS_RIGHTY);
+            if (!mapMode) {
+                f.moveRight += float(SDL_GameControllerGetButton(pad.controller, SDL_CONTROLLER_BUTTON_DPAD_RIGHT)) -
+                               float(SDL_GameControllerGetButton(pad.controller, SDL_CONTROLLER_BUTTON_DPAD_LEFT));
+                f.moveForward += float(SDL_GameControllerGetButton(pad.controller, SDL_CONTROLLER_BUTTON_DPAD_UP)) -
+                                 float(SDL_GameControllerGetButton(pad.controller, SDL_CONTROLLER_BUTTON_DPAD_DOWN));
+            }
+            f.jump = f.jump || SDL_GameControllerGetButton(pad.controller, SDL_CONTROLLER_BUTTON_A) ||
+                     (mapMode && pad.trigger[0]);
+            f.crouch = f.crouch || SDL_GameControllerGetButton(pad.controller, SDL_CONTROLLER_BUTTON_B);
+            f.attack = f.attack || pad.trigger[1];
+        }
+        f.moveRight = std::clamp(f.moveRight, -1.0f, 1.0f);
+        f.moveForward = std::clamp(f.moveForward, -1.0f, 1.0f);
+        f.lookRight = padLookRate(std::clamp(lookX, -1.0f, 1.0f));
+        f.lookUp = padLookRate(std::clamp(lookY, -1.0f, 1.0f));
+        return f;
+    }
+
+private:
+    struct Pad {
+        SDL_GameController *controller;
+        SDL_JoystickID id;
+        bool trigger[2]; // LT, RT pressed
+    };
+    std::vector<Pad> pads_;
+};
+
 struct CatalogEntry {
     int itemType; // -1 for FPV drone action
     Str title;
@@ -781,6 +893,10 @@ int main(int argc, char **argv)
         std::cerr << "[Ekron] SDL_Init failed: " << SDL_GetError() << "\n";
         return 1;
     }
+    // Game controllers: optional (the keyboard and mouse still work without).
+    Gamepads gamepads;
+    if (SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER) == 0) gamepads.openAll();
+    else std::cerr << "[Ekron] No game controller support: " << SDL_GetError() << "\n";
 
     // UI language: --lang > EKRON_LANG > saved pause-menu choice > OS locale > English.
     const std::string settingsPath = resolveSettingsPath();
@@ -845,33 +961,34 @@ int main(int argc, char **argv)
     bool lastPauseOpen = false, lastCatalogOpen = false, lastShopOpen = false;
     float sandboxYaw = 0.0f, sandboxPitch = 0.0f; // camera to restore after killserver
 
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
-#if defined(__APPLE__)
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG);
-#endif
-    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
-
-    SDL_Window *window = SDL_CreateWindow(
-        i18n::tr(Str::WindowTitle),
-        SDL_WINDOWPOS_CENTERED,
-        SDL_WINDOWPOS_CENTERED,
-        1280,
-        720,
-        SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI
-    );
-    if (!window) {
-        std::cerr << "[Ekron] SDL_CreateWindow failed: " << SDL_GetError() << "\n";
-        SDL_Quit();
-        return 1;
-    }
-
-    SDL_GLContext glCtx = SDL_GL_CreateContext(window);
-    if (!glCtx) {
-        std::cerr << "[Ekron] SDL_GL_CreateContext (OpenGL 3.3 Core) failed: " << SDL_GetError() << "\n";
+    // OpenGL 3.3 Core, or OpenGL ES 3.0 on GLES-only GPUs (handhelds): the
+    // preferred one first (ekron::gl::preferGles), then the other. Some SDL
+    // backends fix the API with the window, so each try gets a new window.
+    SDL_Window *window = nullptr;
+    SDL_GLContext glCtx = nullptr;
+    bool glesContext = ekron::gl::preferGles();
+    for (int attempt = 0; attempt < 2 && !glCtx; ++attempt, glesContext = !glesContext) {
+        const char *api = glesContext ? "OpenGL ES 3.0" : "OpenGL 3.3 Core";
+        ekron::gl::setContextAttributes(glesContext);
+        window = SDL_CreateWindow(
+            i18n::tr(Str::WindowTitle),
+            SDL_WINDOWPOS_CENTERED,
+            SDL_WINDOWPOS_CENTERED,
+            1280,
+            720,
+            SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI
+        );
+        if (!window) {
+            std::cerr << "[Ekron] SDL_CreateWindow (" << api << ") failed: " << SDL_GetError() << "\n";
+            continue;
+        }
+        glCtx = SDL_GL_CreateContext(window);
+        if (glCtx) break; // keep glesContext: the loop increment is skipped
+        std::cerr << "[Ekron] SDL_GL_CreateContext (" << api << ") failed: " << SDL_GetError() << "\n";
         SDL_DestroyWindow(window);
+        window = nullptr;
+    }
+    if (!glCtx) {
         SDL_Quit();
         return 1;
     }
@@ -879,8 +996,10 @@ int main(int argc, char **argv)
     SDL_GL_SetSwapInterval(1);
 
     ekron::gl::Api gl;
+    gl.es = glesContext;
+    std::cout << "[Ekron] " << (gl.es ? "OpenGL ES 3.0" : "OpenGL 3.3 Core") << " context\n";
     if (!gl.load()) {
-        std::cerr << "[Ekron] Failed to resolve OpenGL 3.3 Core entry points.\n";
+        std::cerr << "[Ekron] Failed to resolve " << (gl.es ? "OpenGL ES 3.0" : "OpenGL 3.3 Core") << " entry points.\n";
         SDL_GL_DeleteContext(glCtx);
         SDL_DestroyWindow(window);
         SDL_Quit();
@@ -1042,6 +1161,7 @@ int main(int argc, char **argv)
     bool running = !startupQuit; // the window was closed during the intro or loading
     bool catalogOpen = false;
     bool pauseOpen = false;
+    int pauseSelection = -1; // the pause button the d-pad selected (-1: none)
     bool shopOpen = false;
     bool flying = spawnCfg.enabled && spawnCfg.startFlying;
     // "Start with Flight" unlock grants noclip flight on (re)spawn.
@@ -1302,6 +1422,80 @@ int main(int argc, char **argv)
     engine.print(std::string("Realms engine ready: ") + engine.backendName() + " (" + engine.backendOrigin() +
                  "). Press ` for the console.");
 
+    // A pause menu button, clicked or pressed with the gamepad.
+    auto activatePauseButton = [&](int idx) {
+        sound.ui("ui_click");
+        if (idx == 0) { pauseOpen = false; syncMouseCapture(); }
+        else if (idx == 1) {
+            if (mapMode.active()) toggleNoclip();
+            else { flying = !flying; player.reset(world.x, world.y, world.z); }
+            pauseOpen = false; syncMouseCapture();
+        }
+        else if (idx == 2) { if (!mapMode.active()) teleportToRoad(); pauseOpen = false; syncMouseCapture(); }
+        else if (idx == 3) { if (!mapMode.active()) respawnCar(); pauseOpen = false; syncMouseCapture(); }
+        else if (idx == 4) { if (!mapMode.respawn(engine)) respawnPlayer(); pauseOpen = false; syncMouseCapture(); }
+        else if (idx == 5) { if (!mapMode.active()) copySpawnJson(); pauseOpen = false; syncMouseCapture(); }
+        else if (idx == 6) { cycleLanguage(); } // keep the menu open to show the new language
+        else if (idx == 7) { running = false; }
+    };
+
+    // Game controller buttons become the keys and clicks they stand for
+    // (DesktopGamepad.h), queued behind the current event.
+    auto pushKey = [&](SDL_Keycode key) {
+        SDL_Event e{};
+        e.type = SDL_KEYDOWN;
+        e.key.windowID = SDL_GetWindowID(window);
+        e.key.state = SDL_PRESSED;
+        e.key.keysym.sym = key;
+        e.key.keysym.scancode = SDL_GetScancodeFromKey(key);
+        SDL_PushEvent(&e);
+        e.type = SDL_KEYUP;
+        e.key.state = SDL_RELEASED;
+        SDL_PushEvent(&e);
+    };
+    auto pushClick = [&](Uint8 button) {
+        SDL_Event e{};
+        e.type = SDL_MOUSEBUTTONDOWN;
+        e.button.windowID = SDL_GetWindowID(window);
+        e.button.button = button;
+        e.button.state = SDL_PRESSED;
+        e.button.clicks = 1;
+        SDL_PushEvent(&e);
+    };
+    auto handlePadButton = [&](ekron::desktop::PadButton button) {
+        using Kind = ekron::desktop::PadBinding::Kind;
+        const ekron::desktop::PadContext context{pauseOpen, catalogOpen || shopOpen, mapMode.active(),
+                                                 gamepads.button(SDL_CONTROLLER_BUTTON_BACK)};
+        const ekron::desktop::PadBinding binding = ekron::desktop::padBinding(button, context);
+        switch (binding.kind) {
+        case Kind::None: break;
+        case Kind::Key: pushKey(padKeycode(binding.key)); break;
+        case Kind::MouseLeft: pushClick(SDL_BUTTON_LEFT); break;
+        case Kind::MouseRight: pushClick(SDL_BUTTON_RIGHT); break;
+        case Kind::GameCommand: mapMode.gameCommand(binding.command); break;
+        case Kind::MenuUp:
+            pauseSelection = pauseSelection <= 0 ? kPauseMenuButtons - 1 : pauseSelection - 1;
+            sound.ui("ui_click");
+            break;
+        case Kind::MenuDown:
+            pauseSelection = pauseSelection < 0 || pauseSelection + 1 >= kPauseMenuButtons ? 0 : pauseSelection + 1;
+            sound.ui("ui_click");
+            break;
+        case Kind::MenuConfirm: activatePauseButton(std::max(pauseSelection, 0)); break;
+        case Kind::PrevTool:
+        case Kind::NextTool: {
+            // keys 1-3: gravity gun, FPV remote, empty hands
+            const int current = tools.tool == sandbox::HandTool::GRAVITY_GUN    ? 0
+                                : tools.tool == sandbox::HandTool::DRONE_REMOTE ? 1
+                                                                                : 2;
+            const int next = (current + (binding.kind == Kind::NextTool ? 1 : 2)) % 3;
+            pushKey(SDLK_1 + next);
+            break;
+        }
+        }
+    };
+    gamepads.openAll(); // controllers plugged in during the intro
+
     auto lastTick = std::chrono::steady_clock::now();
 
     while (running) {
@@ -1322,6 +1516,16 @@ int main(int argc, char **argv)
             } else if (ev.type == SDL_WINDOWEVENT && (ev.window.event == SDL_WINDOWEVENT_MINIMIZED ||
                                                       ev.window.event == SDL_WINDOWEVENT_RESTORED)) {
                 sound.mixer().setPaused(ev.window.event == SDL_WINDOWEVENT_MINIMIZED);
+            } else if (ev.type == SDL_CONTROLLERDEVICEADDED) {
+                gamepads.open(ev.cdevice.which);
+            } else if (ev.type == SDL_CONTROLLERDEVICEREMOVED) {
+                gamepads.close(ev.cdevice.which);
+            } else if (ev.type == SDL_CONTROLLERBUTTONDOWN) {
+                if (!console.isOpen()) handlePadButton(ekron::desktop::PadButton(ev.cbutton.button));
+            } else if (ev.type == SDL_CONTROLLERAXISMOTION) {
+                if (gamepads.triggerPressed(ev.caxis) && !console.isOpen())
+                    handlePadButton(ev.caxis.axis == SDL_CONTROLLER_AXIS_TRIGGERRIGHT ? ekron::desktop::PadButton::RightTrigger
+                                                                                      : ekron::desktop::PadButton::LeftTrigger);
             } else if (console.handleEvent(ev, engine)) {
                 syncMouseCapture();
             } else if (ev.type == SDL_KEYDOWN && !ev.key.repeat) {
@@ -1335,6 +1539,7 @@ int main(int argc, char **argv)
                         drone.leave();
                     } else {
                         pauseOpen = !pauseOpen;
+                        pauseSelection = -1;
                     }
                     syncMouseCapture();
                 } else if (key == SDLK_F11) {
@@ -1464,19 +1669,8 @@ int main(int argc, char **argv)
                     for (int idx = 0; idx < kPauseMenuButtons; ++idx) {
                         Rect btn{px + 28.0f, py + 62.0f + float(idx) * 42.0f, pw - 56.0f, 34.0f};
                         if (btn.contains(mx, my)) {
-                            sound.ui("ui_click");
-                            if (idx == 0) { pauseOpen = false; syncMouseCapture(); }
-                            else if (idx == 1) {
-                                if (mapMode.active()) toggleNoclip();
-                                else { flying = !flying; player.reset(world.x, world.y, world.z); }
-                                pauseOpen = false; syncMouseCapture();
-                            }
-                            else if (idx == 2) { if (!mapMode.active()) teleportToRoad(); pauseOpen = false; syncMouseCapture(); }
-                            else if (idx == 3) { if (!mapMode.active()) respawnCar(); pauseOpen = false; syncMouseCapture(); }
-                            else if (idx == 4) { if (!mapMode.respawn(engine)) respawnPlayer(); pauseOpen = false; syncMouseCapture(); }
-                            else if (idx == 5) { if (!mapMode.active()) copySpawnJson(); pauseOpen = false; syncMouseCapture(); }
-                            else if (idx == 6) { cycleLanguage(); } // keep the menu open to show the new language
-                            else if (idx == 7) { running = false; }
+                            pauseSelection = -1;
+                            activatePauseButton(idx);
                         }
                     }
                 } else if (catalogOpen && ev.button.button == SDL_BUTTON_LEFT) {
@@ -1673,6 +1867,17 @@ int main(int argc, char **argv)
         }
 
         const Uint8 *keys = SDL_GetKeyboardState(nullptr);
+        // Game controller sticks, jump / crouch and the attack trigger.
+        const ekron::desktop::PadFrame pad = !catalogOpen && !pauseOpen && !shopOpen && !console.isOpen()
+                                                 ? gamepads.sample(mapMode.active())
+                                                 : ekron::desktop::PadFrame{};
+        if ((pad.lookRight != 0.0f || pad.lookUp != 0.0f) && (mapMode.active() || !drone.piloting())) {
+            const float look = realms::sandbox::lookScale(engine) * dt;
+            const float pitchLimit = mapMode.active() ? 1.55f : 1.3f;
+            world.yaw -= pad.lookRight * look;
+            world.pitch = std::clamp(world.pitch + realms::sandbox::pitchSign(engine) * pad.lookUp * look, -pitchLimit,
+                                     pitchLimit);
+        }
         float moveRight = 0.0f;
         float moveForward = 0.0f;
         float verticalMove = 0.0f;
@@ -1700,6 +1905,9 @@ int main(int argc, char **argv)
                 if (keys[SDL_SCANCODE_S]) moveForward -= 1.0f;
                 if (keys[SDL_SCANCODE_SPACE]) verticalMove += 1.0f;
                 if (keys[SDL_SCANCODE_LCTRL] || keys[SDL_SCANCODE_RCTRL] || (flying && keys[SDL_SCANCODE_C])) verticalMove -= 1.0f;
+                moveRight += pad.moveRight;
+                moveForward += pad.moveForward;
+                if (flying) verticalMove = std::clamp(verticalMove + float(pad.jump) - float(pad.crouch), -1.0f, 1.0f);
                 const float len = std::hypot(moveRight, moveForward);
                 if (len > 1.0f) {
                     moveRight /= len;
@@ -1711,16 +1919,19 @@ int main(int argc, char **argv)
         if (mapMode.active() && !pauseOpen) {
             realms::WalkInput walkInput;
             if (!catalogOpen && !shopOpen && !console.isOpen()) {
-                walkInput.forward = float(keys[SDL_SCANCODE_W]) - float(keys[SDL_SCANCODE_S]);
-                walkInput.right = float(keys[SDL_SCANCODE_D]) - float(keys[SDL_SCANCODE_A]);
-                const bool down = keys[SDL_SCANCODE_LCTRL] || keys[SDL_SCANCODE_RCTRL] || keys[SDL_SCANCODE_C];
-                walkInput.jump = keys[SDL_SCANCODE_SPACE] != 0;
+                walkInput.forward = std::clamp(float(keys[SDL_SCANCODE_W]) - float(keys[SDL_SCANCODE_S]) + pad.moveForward,
+                                               -1.0f, 1.0f);
+                walkInput.right = std::clamp(float(keys[SDL_SCANCODE_D]) - float(keys[SDL_SCANCODE_A]) + pad.moveRight,
+                                             -1.0f, 1.0f);
+                const bool down = keys[SDL_SCANCODE_LCTRL] || keys[SDL_SCANCODE_RCTRL] || keys[SDL_SCANCODE_C] || pad.crouch;
+                walkInput.jump = keys[SDL_SCANCODE_SPACE] != 0 || pad.jump;
                 walkInput.crouch = down;
                 walkInput.up = float(walkInput.jump) - float(down);
             }
             // Left mouse fires the game's weapon (game module maps).
-            const bool attack = !catalogOpen && !shopOpen && !console.isOpen() && SDL_GetRelativeMouseMode() &&
-                                (SDL_GetMouseState(nullptr, nullptr) & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0;
+            // So does the right trigger.
+            const bool attack = pad.attack || (!catalogOpen && !shopOpen && !console.isOpen() && SDL_GetRelativeMouseMode() &&
+                                               (SDL_GetMouseState(nullptr, nullptr) & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0);
             mapMode.update(engine, walkInput, world.yaw, world.pitch, dt, attack);
             for (const std::string &message : mapMode.takeGameMessages()) showToast(message);
         }
@@ -2345,6 +2556,8 @@ int main(int argc, char **argv)
                 renderer.drawBorder(px + 28.0f, by, pw - 56.0f, 34.0f, 1.0f,
                                     quitBtn ? ekron::desktop::Color{0.78f, 0.30f, 0.32f, 0.95f}
                                             : ekron::desktop::Color{0.26f, 0.58f, 0.52f, 0.9f});
+                if (int(i) == pauseSelection) // the gamepad's choice
+                    renderer.drawBorder(px + 25.0f, by - 3.0f, pw - 50.0f, 40.0f, 2.0f, {0.96f, 0.86f, 0.36f, 1.0f});
                 renderer.drawCenteredText(px + pw * 0.5f, by + 17.0f, labels[i], fitText(labels[i], 1.45f, pw - 72.0f),
                                           {0.96f, 0.98f, 1.0f, 1.0f});
             }

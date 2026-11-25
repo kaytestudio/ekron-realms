@@ -1,0 +1,45 @@
+{
+  "version": 4,
+  "name": "ekronrealms.zip",
+  "items": [
+    "Ekron Realms.sh",
+    "Ekron Realms - Quake 2.sh",
+    "ekronrealms"
+  ],
+  "items_opt": [],
+  "attr": {
+    "title": "Ekron Realms",
+    "porter": [
+      "Kayte Studio"
+    ],
+    "desc": "An urban sandbox city on the Realms engine, a Free Pascal port of the Quake 2 stack. Explore the city, drive and fly a drone, or play Quake 2 maps with your own data.",
+    "desc_md": null,
+    "inst": "Ready to run: the city needs no extra files. For Quake 2 maps, copy pak0.pak (and pak1.pak, pak2.pak) from your Quake 2 baseq2 folder into ports/ekronrealms/baseq2, then start Ekron Realms - Quake 2.",
+    "inst_md": null,
+    "genres": [
+      "fps"
+    ],
+    "image": null,
+    "rtr": true,
+    "exp": false,
+    "runtime": [],
+    "store": [
+      {
+        "name": "Steam",
+        "gameurl": "https://store.steampowered.com/app/2320/Quake_II/",
+        "developerurl": ""
+      },
+      {
+        "name": "GoG",
+        "gameurl": "https://www.gog.com/en/game/quake_ii_quad_damage",
+        "developerurl": ""
+      }
+    ],
+    "availability": "free",
+    "reqs": [],
+    "arch": [
+      "aarch64"
+    ],
+    "min_glibc": "2.35"
+  }
+}

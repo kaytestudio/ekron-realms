@@ -19,6 +19,31 @@
 | `G` / `L` | Open the in-game store / Cycle UI language (English → Русский → Português → Español) |
 | `` ` `` | Realms console (Quake 2 style: `set`, `seta`, `alias`, `exec`, `cvarlist`, `cmdlist`, `noclip`, `respawn`, `play`, `soundlist`, `s_volume`, `quit`…) |
 
+## Gamepad
+
+Any controller SDL knows (Xbox, PlayStation, Switch Pro, the built-in pad of a handheld such as the Anbernic RG40XXH) plays the whole game; a keyboard and mouse still work alongside it. The buttons are named in the Xbox layout (A = bottom, B = right, X = left, Y = top).
+
+| Button | City | Quake 2 map |
+| :--- | :--- | :--- |
+| Left stick | Move (the d-pad too) | Move |
+| Right stick | Look | Look |
+| `A` | Jump (`Space`; up in flight) | Jump, held |
+| `B` | Crouch (`C`; down in flight) | Crouch, held |
+| `X` | Interact (`E`) | Use the selected item (`Enter`, `invuse`) |
+| `Y` | Rotate (`R`) | Inventory (`Tab`, `inven`) |
+| `RT` | Left click: grab / place / use the tool | Fire, held |
+| `LT` | Right click: freeze / cancel | Jump, held |
+| `LB` / `RB` | Previous / next tool (`1`-`3`) | Previous / next weapon (`weapprev` / `weapnext`) |
+| D-pad | Move | Up: help computer (`F1`); down: scores (`score`); left / right: previous / next item (`[` / `]`) |
+| `Back` + `LB` / `RB` | | Quick save / quick load (`F6` / `F9`) |
+| `Start` | Pause menu (`Esc`), or close the catalog or store | Pause menu |
+
+In the pause menu, the d-pad up and down selects a button, `A` presses it and `B` closes the menu. The build catalog and the store need the mouse; `B` closes them. The right stick turns at up to 2.8 radians a second at full tilt with the default `sensitivity` 3 (it scales with `sensitivity`, and `m_invert 1` inverts up and down), with a squared response for fine aim; both sticks ignore the inner 20% of their travel. The pad does nothing while the console is open. `SDL_GAMECONTROLLERCONFIG` adds mappings for pads SDL doesn't know.
+
+### OpenGL ES
+
+The client draws with OpenGL 3.3 Core, or OpenGL ES 3.0 where that is all the GPU offers (Mali, PowerVR and Adreno handhelds): it tries one, then the other. Builds made with `-DEKRON_GLES=ON` try OpenGL ES first; `EKRON_GLES=1` or `EKRON_GLES=0` in the environment picks the first try in any build. The handheld package is in [BUILD.md](../BUILD.md#handhelds-anbernic-rg40xxh-portmaster).
+
 ## Command line
 
 ```text

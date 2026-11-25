@@ -20,6 +20,7 @@
 #endif
 
 #include <string>
+#include <vector>
 
 namespace ekron::desktop {
 
@@ -40,22 +41,41 @@ public:
     void update(const IntroFrame &f) {
         if (!f.pixels || f.width <= 0 || f.height <= 0 || f.serial == serial_) return;
         serial_ = f.serial;
-        const GLenum format = f.bgra ? GL_BGRA : GL_RGBA;
+        GLenum format = f.bgra ? GL_BGRA : GL_RGBA;
+        const void *pixels = f.pixels;
+        int rowLength = f.stride / 4;
+        if (f.bgra && gl_.es) { // OpenGL ES has no GL_BGRA upload: swap to RGBA here
+            swizzled_.resize(size_t(f.width) * size_t(f.height) * 4);
+            const auto *src = static_cast<const uint8_t *>(f.pixels);
+            for (int y = 0; y < f.height; ++y) {
+                const uint8_t *row = src + size_t(y) * size_t(f.stride);
+                uint8_t *dst = swizzled_.data() + size_t(y) * size_t(f.width) * 4;
+                for (int x = 0; x < f.width; ++x, row += 4, dst += 4) {
+                    dst[0] = row[2];
+                    dst[1] = row[1];
+                    dst[2] = row[0];
+                    dst[3] = row[3];
+                }
+            }
+            format = GL_RGBA;
+            pixels = swizzled_.data();
+            rowLength = f.width;
+        }
         gl_.PixelStorei(GL_UNPACK_ALIGNMENT, 4);
-        gl_.PixelStorei(GL_UNPACK_ROW_LENGTH, f.stride / 4);
+        gl_.PixelStorei(GL_UNPACK_ROW_LENGTH, rowLength);
         if (!texture_) gl_.GenTextures(1, &texture_);
         gl_.BindTexture(GL_TEXTURE_2D, texture_);
         if (f.width != width_ || f.height != height_) {
             width_ = f.width;
             height_ = f.height;
             gl_.TexImage2D(GL_TEXTURE_2D, 0, static_cast<GLint>(GL_RGBA8), width_, height_, 0, format,
-                           GL_UNSIGNED_BYTE, f.pixels);
+                           GL_UNSIGNED_BYTE, pixels);
             gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, static_cast<GLint>(GL_LINEAR));
             gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, static_cast<GLint>(GL_LINEAR));
             gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, static_cast<GLint>(GL_CLAMP_TO_EDGE));
             gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, static_cast<GLint>(GL_CLAMP_TO_EDGE));
         } else {
-            gl_.TexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width_, height_, format, GL_UNSIGNED_BYTE, f.pixels);
+            gl_.TexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width_, height_, format, GL_UNSIGNED_BYTE, pixels);
         }
         gl_.PixelStorei(GL_UNPACK_ROW_LENGTH, 0);
     }
@@ -70,10 +90,16 @@ private:
     int width_ = 0;
     int height_ = 0;
     uint64_t serial_ = 0;
+    std::vector<uint8_t> swizzled_;
 };
 
 bool isSkipKey(SDL_Keycode key) {
     return key == SDLK_ESCAPE || key == SDLK_SPACE || key == SDLK_RETURN || key == SDLK_KP_ENTER;
+}
+
+// A, B or Start on a game controller (handhelds have no keyboard)
+bool isSkipButton(Uint8 button) {
+    return button == SDL_CONTROLLER_BUTTON_A || button == SDL_CONTROLLER_BUTTON_B || button == SDL_CONTROLLER_BUTTON_START;
 }
 
 } // namespace
@@ -92,7 +118,8 @@ bool runStartupScreens(SDL_Window *window, ekron::gl::Api &gl, DesktopRenderer &
             if (ev.type == SDL_QUIT) return false;
             if (!playing) continue;
             if ((ev.type == SDL_KEYDOWN && !ev.key.repeat && isSkipKey(ev.key.keysym.sym)) ||
-                ev.type == SDL_MOUSEBUTTONDOWN)
+                ev.type == SDL_MOUSEBUTTONDOWN ||
+                (ev.type == SDL_CONTROLLERBUTTONDOWN && isSkipButton(ev.cbutton.button)))
                 playing = false;
         }
         if (playing && !intro->update()) playing = false;
