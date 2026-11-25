@@ -18,11 +18,13 @@ on:
       - 'realms/**'
       - 'tests/realms/**'
       - 'tests/native/desktop_hud_layout_test.cpp'
+      - 'tests/native/desktop_gamepad_test.cpp'
       - 'tests/native/localization_test.cpp'
       - 'tests/native/shop_catalog_test.cpp'
       - 'tests/native/sound_test.cpp'
       - 'tests/native/intro_video_test.cpp'
       - 'tools/check_glsl_keywords.py'
+      - 'tools/validate_desktop_shaders.py'
       - 'sys/linux/**'
       - 'tests/pascal/**'
       - '.gitmodules'
@@ -42,11 +44,13 @@ on:
       - 'realms/**'
       - 'tests/realms/**'
       - 'tests/native/desktop_hud_layout_test.cpp'
+      - 'tests/native/desktop_gamepad_test.cpp'
       - 'tests/native/localization_test.cpp'
       - 'tests/native/shop_catalog_test.cpp'
       - 'tests/native/sound_test.cpp'
       - 'tests/native/intro_video_test.cpp'
       - 'tools/check_glsl_keywords.py'
+      - 'tools/validate_desktop_shaders.py'
       - 'sys/linux/**'
       - 'tests/pascal/**'
       - '.gitmodules'
@@ -90,7 +94,13 @@ jobs:
             fpc \
             fp-units-fcl \
             file \
-            dpkg-dev
+            dpkg-dev \
+            glslang-tools
+
+      # Every desktop shader as GLSL 330 and as the GLSL ES 3.00 of the GLES path.
+      - name: Validate the desktop shaders
+        shell: bash
+        run: python3 tools/validate_desktop_shaders.py
 
       - name: Configure and build Linux desktop client
         shell: bash

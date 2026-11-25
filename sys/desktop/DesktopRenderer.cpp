@@ -578,7 +578,9 @@ void DesktopGltfModel::release(ekron::gl::Api &gl) {
 }
 
 GLuint DesktopRenderer::compileProgram(ekron::gl::Api &gl, const char *vsSrc, const char *fsSrc, std::string &errOut) {
-    auto compileStage = [&](GLenum type, const char *src) -> GLuint {
+    auto compileStage = [&](GLenum type, const char *glsl) -> GLuint {
+        const std::string text = ekron::gl::shaderSource(glsl, gl.es); // GLSL ES 3.00 on GLES
+        const char *src = text.c_str();
         GLuint sh = gl.CreateShader(type);
         gl.ShaderSource(sh, 1, &src, nullptr);
         gl.CompileShader(sh);

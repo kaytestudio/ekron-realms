@@ -210,6 +210,16 @@ if(ENABLE_DESKTOP_SANDBOX)
 
     add_library(ekron_sandbox_objects OBJECT ${DESKTOP_SOURCES})
     set_target_properties(ekron_sandbox_objects PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    # Handhelds with GLES-only GPUs (Anbernic RG40XXH): ask for OpenGL ES 3.0
+    # first. Either way the client falls back to the other API at run time,
+    # and EKRON_GLES=0/1 in the environment overrides the default.
+    option(EKRON_GLES "Prefer an OpenGL ES 3.0 context over OpenGL 3.3 Core" OFF)
+    if(EKRON_GLES)
+        target_compile_definitions(ekron_sandbox_objects PUBLIC EKRON_GLES_DEFAULT=1)
+        message(STATUS "Preferred graphics API: OpenGL ES 3.0")
+    else()
+        message(STATUS "Preferred graphics API: OpenGL 3.3 Core")
+    endif()
     target_include_directories(ekron_sandbox_objects PUBLIC
         "${DESKTOP_SRC_DIR}"
         "${SHARED_CPP_DIR}"
@@ -536,9 +546,11 @@ if(TARGET ekron-realms)
             "${SHARED_ASSETS_DIR}/env"
             DESTINATION "${CMAKE_INSTALL_DATADIR}/ekron-realms"
         )
-        install(FILES "${SHARED_ASSETS_DIR}/intro.mp4"
-            DESTINATION "${CMAKE_INSTALL_DATADIR}/ekron-realms"
-        )
+        if(NOT EKRON_INTRO_BACKEND STREQUAL "none") # 14 MB nothing plays otherwise (handheld builds)
+            install(FILES "${SHARED_ASSETS_DIR}/intro.mp4"
+                DESTINATION "${CMAKE_INSTALL_DATADIR}/ekron-realms"
+            )
+        endif()
         install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/Resources/ekron-realms.desktop"
             DESTINATION "${CMAKE_INSTALL_DATADIR}/applications"
         )
@@ -561,6 +573,10 @@ enable_testing()
 
 add_executable(ekron_desktop_hud_layout_test tests/native/desktop_hud_layout_test.cpp)
 add_test(NAME ekron_desktop_hud_layout COMMAND ekron_desktop_hud_layout_test)
+
+# Game controller bindings (SDL-independent).
+add_executable(ekron_desktop_gamepad_test tests/native/desktop_gamepad_test.cpp)
+add_test(NAME ekron_desktop_gamepad COMMAND ekron_desktop_gamepad_test)
 
 # In-game store catalog / wallet / purchase rules (SDL-independent).
 add_executable(ekron_shop_catalog_test
@@ -888,10 +904,15 @@ set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/kaytestudio/ekron-realms")
 set(CPACK_PACKAGING_INSTALL_PREFIX "/usr")
 
 if(WIN32)
-    # ekron-realms-<version>-windows-x64.zip, one top-level folder.
+    # ekron-realms-<version>-windows-<x64|arm64>.zip, one top-level folder.
+    set(_ekron_windows_arch "x64")
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(ARM64|arm64|aarch64|AARCH64)$" OR
+       CMAKE_CXX_COMPILER_ARCHITECTURE_ID MATCHES "^(ARM64|arm64|aarch64)$" OR CMAKE_GENERATOR_PLATFORM STREQUAL "ARM64")
+        set(_ekron_windows_arch "arm64")
+    endif()
     set(CPACK_GENERATOR "ZIP")
     set(CPACK_PACKAGING_INSTALL_PREFIX "/")
-    set(CPACK_PACKAGE_FILE_NAME "ekron-realms-${PROJECT_VERSION}-windows-x64")
+    set(CPACK_PACKAGE_FILE_NAME "ekron-realms-${PROJECT_VERSION}-windows-${_ekron_windows_arch}")
 elseif(APPLE)
     set(CPACK_GENERATOR "DragNDrop;TGZ")
     set(CPACK_PACKAGING_INSTALL_PREFIX "/")

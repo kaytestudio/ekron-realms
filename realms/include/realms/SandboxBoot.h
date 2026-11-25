@@ -20,7 +20,8 @@ namespace realms::sandbox {
 using MapChangedFn = std::function<void(const std::string &path)>;
 
 struct BootOptions {
-    // "desktop-linux", "desktop-macos", "android", "ios" (NOSET cvar realms_platform).
+    // "desktop-linux", "desktop-macos", "desktop-windows", "handheld-linux", "android",
+    // "ios" (NOSET cvar realms_platform).
     std::string platform;
     // Quake 2 command-line script (see Engine::commandLineScript).
     std::string commandLine;

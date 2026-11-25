@@ -1,6 +1,6 @@
 name: Release
 
-# Pushing a version tag (v1.0.0, v1.1.0-pre, ...) builds the five packages
+# Pushing a version tag (v1.0.0, v1.1.0-pre, ...) builds the seven packages
 # with the regular CI workflows and attaches them to that tag's GitHub
 # release. An existing release (made by hand, with its own notes) keeps its
 # notes and gets the files; otherwise the release is created here, as a
@@ -27,10 +27,12 @@ jobs:
     uses: ./.github/workflows/ios-sandbox.yml
   windows:
     uses: ./.github/workflows/desktop-windows.yml
+  handheld:
+    uses: ./.github/workflows/handheld-portmaster.yml
 
   publish:
     name: Attach the packages to the release
-    needs: [linux, macos, android, ios, windows]
+    needs: [linux, macos, android, ios, windows, handheld]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -65,6 +67,14 @@ jobs:
         with:
           name: ekron-realms-windows-zip
           path: in/windows
+      - uses: actions/download-artifact@v7
+        with:
+          name: ekron-realms-windows-arm64-zip
+          path: in/windows-arm64
+      - uses: actions/download-artifact@v7
+        with:
+          name: ekron-realms-portmaster-aarch64
+          path: in/portmaster
 
       - name: Name the packages after the version
         run: |
@@ -86,6 +96,8 @@ jobs:
           cp "$(one in/android '*.apk')" "out/ekron-realms-$ver-android-debug.apk"
           cp "$(one in/ios '*.ipa')" "out/ekron-realms-$ver-ios-debug-unsigned.ipa"
           cp "$(one in/windows '*-windows-x64.zip')" "out/ekron-realms-$ver-windows-x64.zip"
+          cp "$(one in/windows-arm64 '*-windows-arm64.zip')" "out/ekron-realms-$ver-windows-arm64.zip"
+          cp "$(one in/portmaster '*-portmaster-aarch64.zip')" "out/ekron-realms-$ver-portmaster-aarch64.zip"
           (cd out && sha256sum -- * > SHA256SUMS.txt)
           ls -l out
           cat out/SHA256SUMS.txt
@@ -107,6 +119,8 @@ jobs:
 
           - **Linux** (\`ekron-realms-$ver-linux-amd64.deb\`): \`sudo apt install ./ekron-realms-$ver-linux-amd64.deb\`, then run \`ekron-realms\`.
           - **Windows 10 / 11** (\`ekron-realms-$ver-windows-x64.zip\`): unzip it anywhere and run \`ekron-realms.exe\` (no installer; saves go to \`%APPDATA%\\KayteStudio\\EkronRealms\`). The exe is not code-signed, so SmartScreen may warn: choose **More info**, then **Run anyway**.
+          - **Windows 11 on ARM** (\`ekron-realms-$ver-windows-arm64.zip\`): the same, built natively for ARM64 (Snapdragon X and other ARM64 PCs).
+          - **Anbernic RG40XXH and other PortMaster handhelds** (\`ekron-realms-$ver-portmaster-aarch64.zip\`): an aarch64 PortMaster port (OpenGL ES 3.0, gamepad controls). Copy it into PortMaster's \`autoinstall\` folder (PortMaster installs it when it next starts) or unzip it into \`ports/\`, then start **Ekron Realms** from Ports.
           - **macOS** (\`ekron-realms-$ver-macos-unsigned.app.zip\`): the app is only ad-hoc signed: no Developer ID signature, not notarised. Unzip it, then right-click the app and choose **Open** (or run \`xattr -dr com.apple.quarantine EkronRealms.app\`).
           - **Android** (\`ekron-realms-$ver-android-debug.apk\`): a debug build, signed only with the Android debug key, not a release signature. Allow installs from unknown sources to sideload it.
           - **iOS** (\`ekron-realms-$ver-ios-debug-unsigned.ipa\`): an unsigned debug build. It has to be re-signed with your own Apple ID or certificate (Xcode, AltStore, Sideloadly, ...) before it installs.

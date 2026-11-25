@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<gameList>
+  <game>
+    <path>./Ekron Realms.sh</path>
+    <name>Ekron Realms</name>
+    <desc>An urban sandbox city on the Realms engine, a Free Pascal port of the Quake 2 stack. Explore the city, drive and fly a drone.</desc>
+    <developer>Kayte Studio</developer>
+    <genre>Sandbox</genre>
+    <image>./ekronrealms/cover.png</image>
+  </game>
+  <game>
+    <path>./Ekron Realms - Quake 2.sh</path>
+    <name>Ekron Realms - Quake 2</name>
+    <desc>Quake 2 maps on the Realms engine. Needs pak0.pak from your own Quake 2 in ports/ekronrealms/baseq2.</desc>
+    <developer>Kayte Studio</developer>
+    <genre>FPS</genre>
+    <image>./ekronrealms/cover.png</image>
+  </game>
+</gameList>

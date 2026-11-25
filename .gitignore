@@ -56,6 +56,8 @@ doc/generated/
 *.html
 *.pdf
 *.xml
+# PortMaster's game list entry for the handheld port
+!sys/portmaster/gameinfo.xml
 
 # Keep only essential project files
 !.gitignore
