@@ -50,6 +50,18 @@ object BuildCatalog {
         CatalogItem(32, "Малый металлический ящик", "catalog/rendered/crate_metal_small.webp",3),
         CatalogItem(33, "Большой металлический ящик", "catalog/rendered/crate_metal_large.webp",3),
         CatalogItem(34, "Бетонный блок малый", "catalog/rendered/block_small.webp",1),
-        CatalogItem(35, "Бетонный блок большой", "catalog/rendered/block_large.webp",1)
+        CatalogItem(35, "Бетонный блок большой", "catalog/rendered/block_large.webp",1),
+        CatalogItem(36, "Мешки с песком", "catalog/rendered/sandbags.webp",-1),
+        CatalogItem(37, "Колючая проволока", "catalog/rendered/razor_wire.webp",-1),
+        CatalogItem(38, "Противотанковый ёж", "catalog/rendered/hedgehog.webp",-1),
+        CatalogItem(39, "Уличный фонарь", "catalog/rendered/street_lamp.webp",-1),
+        CatalogItem(40, "Дорожный знак", "catalog/rendered/road_sign.webp",-1),
+        CatalogItem(41, "Кирпичи на поддоне", "catalog/rendered/brick_pallet.webp",-1),
+        CatalogItem(42, "Газовый баллон", "catalog/rendered/gas_tank.webp",-1),
+        CatalogItem(43, "Забор (дерево)", "catalog/rendered/fence_wood.webp",-1),
+        CatalogItem(44, "Забор (металл)", "catalog/rendered/fence_metal.webp",-1),
+        CatalogItem(45, "Кабельная катушка", "catalog/rendered/cable_spool.webp",-1),
+        CatalogItem(46, "Бак для воды", "catalog/rendered/water_tank.webp",-1),
+        CatalogItem(47, "Ящик для инструментов", "catalog/rendered/toolbox.webp",-1)
     )
 }
