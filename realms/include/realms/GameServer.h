@@ -1,9 +1,17 @@
 // Server half of Quake 2 (sv_game.c, sv_world.c, parts of sv_init.c and
 // sv_user.c) on realms::Engine. Loads the game module and calls GetGameAPI
 // with a game_import_t whose traces go to the Engine, so it works on both
-// cores. One local client, RunFrame at 10 Hz.
+// cores. RunFrame at 10 Hz.
 //
-// Sounds, prints and temp entities from the game are queued (takeEvents).
+// Clients (svs.clients): client 0 is the local player in edict 1, connected
+// by start(). In deathmatch or coop (GameServerConfig) more clients can
+// connect, client n in edict n + 1; each has its own usercmds, player
+// state, events, inventory and snapshots. Without a client index the
+// calls below are for client 0.
+//
+// Sounds, prints and temp entities from the game are queued per client
+// (takeEvents): prints and layouts for one client go to that client only,
+// everything else to every client.
 // Only one GameServer can run at a time; the game module is process-global.
 #pragma once
 
@@ -60,8 +68,9 @@ struct GameEvent {
 };
 
 // An entity the client would get in its frame (SV_BuildClientFrame, minus
-// the PVS cull): it has a model, is not SVF_NOCLIENT and is not the local
-// player's own body. `model` is the config string ("*3",
+// the PVS cull): it has a model, is not SVF_NOCLIENT and is not the viewing
+// player's own body. Other players (modelindex 255) get their
+// "players/<model>/tris.md2". `model` is the config string ("*3",
 // "models/items/armor/shard/tris.md2", loaded as
 // the .md3 at that path); `inlineModel` > 0 for brush models.
 struct GameRenderEntity {
@@ -134,6 +143,12 @@ struct GameServerConfig {
     int hand = 0;                 // the userinfo hand: 0 right, 1 left, 2 centre (GameServer::clampHand)
     int skill = 1;                // 0 easy .. 3 nightmare
     std::string spawnPoint;       // targetname of an info_player_start ("" = the default one)
+    // SV_InitGame: deathmatch makes maxclients 1 into 8; coop makes 1 or
+    // more than 4 into 4; neither is single player (maxclients 1). At most
+    // Q2_MAX_CLIENTS. Deathmatch wins over coop.
+    bool deathmatch = false;
+    bool coop = false;
+    int maxClients = 1;
 };
 
 class GameServer {
@@ -176,6 +191,41 @@ public:
     // Only the game frames (no player input), for tests and dedicated use.
     int runFrames(int count);
 
+    // ---- clients
+    // SV_InitGame's maxclients for GameServerConfig's three settings.
+    static int maxClientsFor(bool deathmatch, bool coop, int requested);
+    int maxClients() const { return int(clients_.size()); }
+    bool clientActive(int client) const;
+    int clientCount() const; // active clients, the local one included
+    bool deathmatch() const { return deathmatch_; }
+    bool coop() const { return coop_; }
+    // SV_DirectConnect + SV_Begin_f: a new client in the first free slot
+    // (1 .. maxClients() - 1); -1 + error when the server is full or the
+    // game refuses it (ClientConnect's "rejmsg").
+    int connectClient(const std::string &name, float fov, int hand, std::string &error,
+                      const std::string &ip = "loopback");
+    // SV_DropClient: ClientDisconnect. Not for client 0 (stop() ends the game).
+    void disconnectClient(int client);
+    // A client's usercmds for dt seconds (split into <= 250 ms commands,
+    // leftover milliseconds carried), without running the game.
+    void clientMove(int client, const GameUserCmd &cmd, double dt);
+    // RunFrame for every 100 ms of dt that passed (at most 5); the number run.
+    int advance(double dt);
+    void clientCommand(int client, const std::string &line);
+    void setFov(int client, float fov);
+    void setHand(int client, int hand);
+    const char *userinfo(int client) const;
+    const q2edict_t *player(int client) const;
+    const q2player_state_t *playerState(int client) const;
+    Vec3 playerOrigin(int client) const;
+    // What client `client` draws: every entity but its own body; other
+    // players (modelindex 255) as players/<model>/tris.md2 from their
+    // CS_PLAYERSKINS string.
+    std::vector<GameRenderEntity> renderEntitiesFor(int client, bool withInline = false) const;
+    const std::array<int16_t, Q2_MAX_ITEMS> &inventory(int client) const;
+    std::vector<GameEvent> takeEvents(int client);
+    void snapshot(int client, GameSnapshot &out, bool full);
+
     // A client command ("give all", "use shotgun", "god", ...) or a server
     // command ("sv addip 1.2.3.4" without the "sv").
     void clientCommand(const std::string &line);
@@ -190,14 +240,14 @@ public:
     // as P_ProjectSource treats it.
     static int clampHand(int hand) { return hand == 1 || hand == 2 ? hand : 0; }
     // The local client's userinfo string ("\\name\\Player\\skin\\...").
-    const char *userinfo() const { return userinfo_; }
+    const char *userinfo() const { return userinfo(0); }
 
     // ---- what the sandbox draws / plays
     int numEdicts() const;
     const q2edict_t *edict(int index) const;
     const q2edict_t *player() const { return edict(1); }
-    const q2player_state_t *playerState() const;
-    Vec3 playerOrigin() const;
+    const q2player_state_t *playerState() const { return playerState(0); }
+    Vec3 playerOrigin() const { return playerOrigin(0); }
     Vec3 viewOrigin() const;  // origin + viewoffset
     Vec3 viewAngles() const;  // ps.viewangles + kick_angles (Quake 2 conventions)
     int frameNumber() const { return frameNum_; }
@@ -206,17 +256,19 @@ public:
     // client's lerpfrac: draw entities between the last two frames).
     double lerpFraction() const;
     // Entities to draw, in edict order. `withInline` keeps brush models.
-    std::vector<GameRenderEntity> renderEntities(bool withInline = false) const;
+    std::vector<GameRenderEntity> renderEntities(bool withInline = false) const {
+        return renderEntitiesFor(0, withInline);
+    }
     const std::string &configString(int index) const;
     // The player's item counts from the last svc_inventory, by item index
     // (CS_ITEMS + index names it); the game sends them while its inventory
     // screen is open.
-    const std::array<int16_t, Q2_MAX_ITEMS> &inventory() const { return inventory_; }
+    const std::array<int16_t, Q2_MAX_ITEMS> &inventory() const { return inventory(0); }
     // Model name of an edict ("*3", "models/items/armor/body/tris.md2"), "" if none.
     std::string modelName(int modelindex) const;
     // Inline model number for a "*n" modelindex, 0 otherwise.
     int inlineModel(int modelindex) const;
-    std::vector<GameEvent> takeEvents();
+    std::vector<GameEvent> takeEvents() { return takeEvents(0); }
     // RF_BEAM entities (lasers), which renderEntities leaves out.
     std::vector<GameBeamEntity> beamEntities() const;
     // Every entity with a looping sound, the local player's own included.
@@ -224,7 +276,7 @@ public:
     // The client's view of this sandbox frame (GameSnapshot), taking the
     // queued events. `full` sends everything (a client starting over);
     // otherwise only what changed since the last snapshot.
-    void snapshot(GameSnapshot &out, bool full);
+    void snapshot(GameSnapshot &out, bool full) { snapshot(0, out, full); }
 
     // ---- game_import_t, used by the static thunks (public for the tests)
     q2trace_t trace(const float *start, const float *mins, const float *maxs, const float *end, q2edict_t *passent,
@@ -245,6 +297,23 @@ private:
     };
     struct CvarMirror;
     struct TagBlock;
+    // svs.clients[n]
+    struct Client {
+        bool active = false;
+        int edict = 0; // n + 1
+        std::string name = "Player", ip = "loopback";
+        float fov = 90.0f;
+        int hand = 0;
+        char userinfo[512] = {};
+        q2usercmd_t lastCmd{};
+        double msecAccumulator = 0.0;
+        std::deque<GameEvent> events;
+        std::array<int16_t, Q2_MAX_ITEMS> inventory{};
+        // what the last snapshot() sent
+        std::vector<std::string> sentConfigStrings;
+        std::array<int16_t, Q2_MAX_ITEMS> sentInventory{};
+        int snapshotFrame = -1;
+    };
 
     friend struct GameImports;
 
@@ -272,7 +341,19 @@ private:
     void print(int level, const std::string &text, GameEvent::Kind kind, int entity);
     void gameError(const std::string &text);
     void prepWorldFrame();
-    void sendUserCmd(int msec, const GameUserCmd &cmd);
+    void sendUserCmd(int client, int msec, const GameUserCmd &cmd);
+    // The client in edict `edict`, -1 for any other edict.
+    int clientOfEdict(int edict) const;
+    // To client edict `target`'s queue, or every active client's for 0.
+    void pushEvent(GameEvent ev, int target);
+    void setInventory(int target, const std::array<int16_t, Q2_MAX_ITEMS> &inventory);
+    // userinfo for a client: name, skin, hand, fov, rate, msg, ip.
+    void buildUserinfo(Client &c);
+    void userinfoChanged(int client);
+    bool beginClient(int client, std::string &error);
+    // CL_LoadClientinfo: "players/<model>/tris.md2" for a modelindex 255
+    // entity's skinnum (CS_PLAYERSKINS + skinnum & 0xff), male if unknown.
+    std::string playerModel(int skinnum) const;
     void *tagMalloc(int size, int tag);
     void tagFree(void *block);
     void freeTags(int tag);
@@ -289,11 +370,8 @@ private:
     std::string lastError_;
 
     std::vector<std::string> configStrings_;
-    std::array<int16_t, Q2_MAX_ITEMS> inventory_{};
-    // what the last snapshot() sent
-    std::vector<std::string> sentConfigStrings_;
-    std::array<int16_t, Q2_MAX_ITEMS> sentInventory_{};
-    int snapshotFrame_ = -1;
+    std::vector<Client> clients_;
+    bool deathmatch_ = false, coop_ = false;
     std::vector<int32_t> modelHeadnodes_; // by modelindex: 0 world, -1 not a brush model
     std::vector<AreaNode> areaNodes_;
     int numAreaNodes_ = 0;
@@ -309,20 +387,11 @@ private:
     std::vector<std::string> argv_;
     std::string args_;
     std::vector<unsigned char> msg_;
-    std::deque<GameEvent> events_;
     std::vector<std::string> commands_;
-    q2usercmd_t lastCmd_{};
     TagBlock *tags_ = nullptr;
 
     double frameAccumulator_ = 0.0;
-    double msecAccumulator_ = 0.0;
     int frameNum_ = 0;
-    char userinfo_[512] = {};
-    std::string playerName_ = "Player";
-    // userinfo_ for the local client: name, skin, hand, fov, rate, msg, ip.
-    void buildUserinfo();
-    float fov_ = 90.0f;
-    int hand_ = 0;
     bool inGameCall_ = false;
     void *abortJump_ = nullptr;
 };

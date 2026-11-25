@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <cmath>
 #include <csetjmp>
 #include <cstdarg>
@@ -611,8 +612,12 @@ bool GameServer::saveGame(const std::string &name, std::string &error) {
         error = "You must be in a game to save.";
         return false;
     }
+    if (deathmatch_) {
+        error = "Can't savegame in a deathmatch";
+        return false;
+    }
     const q2player_state_t *ps = playerState();
-    if (!ps || ps->stats[Q2_STAT_HEALTH] <= 0) {
+    if (maxClients() == 1 && (!ps || ps->stats[Q2_STAT_HEALTH] <= 0)) {
         error = "Can't savegame while dead!";
         return false;
     }
@@ -688,14 +693,17 @@ bool GameServer::start(Engine &engine, const GameServerConfig &config, std::stri
     }
     gServer = this;
 
-    // SV_InitGame: single player.
+    // SV_InitGame: single player, deathmatch or coop, read by the game's Init.
+    deathmatch_ = config.deathmatch;
+    coop_ = config.coop && !config.deathmatch;
+    const int slots = maxClientsFor(deathmatch_, coop_, config.maxClients);
     engine.registerCvar("deathmatch", "0", REALMS_CVAR_LATCH);
     engine.registerCvar("coop", "0", REALMS_CVAR_LATCH);
     engine.registerCvar("skill", std::to_string(config.skill), REALMS_CVAR_LATCH);
     engine.registerCvar("maxclients", "1", REALMS_CVAR_SERVERINFO | REALMS_CVAR_LATCH);
-    engine.forceSetCvar("deathmatch", "0");
-    engine.forceSetCvar("coop", "0");
-    engine.forceSetCvar("maxclients", "1");
+    engine.forceSetCvar("deathmatch", deathmatch_ ? "1" : "0");
+    engine.forceSetCvar("coop", coop_ ? "1" : "0");
+    engine.forceSetCvar("maxclients", std::to_string(slots));
     engine.registerCvar("sv_airaccelerate", "0", 0);
     engine.registerCvar("dedicated", "0", REALMS_CVAR_NOSET);
 
@@ -723,8 +731,8 @@ bool GameServer::start(Engine &engine, const GameServerConfig &config, std::stri
             return false;
         }
         gameInitialised_ = true;
-        // svs.clients: one local client in edict 1
-        if (ge_->max_edicts < 2 || !ge_->edicts) {
+        // svs.clients: client n in edict n + 1
+        if (ge_->max_edicts < slots + 1 || !ge_->edicts) {
             error = "game Init left no edicts";
             stop();
             return false;
@@ -761,7 +769,6 @@ bool GameServer::start(Engine &engine, const GameServerConfig &config, std::stri
     std::string name = fs::path(path).stem().string();
     mapName_ = name;
     configStrings_.assign(Q2_MAX_CONFIGSTRINGS, std::string());
-    inventory_.fill(0);
     modelHeadnodes_.assign(Q2_MAX_MODELS, -1);
     configStrings_[Q2_CS_MODELS + 1] = path;
     modelHeadnodes_[1] = 0;
@@ -769,7 +776,7 @@ bool GameServer::start(Engine &engine, const GameServerConfig &config, std::stri
     std::snprintf(checksum, sizeof(checksum), "%d", int32_t(info.checksum));
     configStrings_[Q2_CS_MAPCHECKSUM] = checksum;
     configStrings_[Q2_CS_AIRACCEL] = engine.cvarString("sv_airaccelerate", "0");
-    configStrings_[Q2_CS_MAXCLIENTS] = "1";
+    configStrings_[Q2_CS_MAXCLIENTS] = std::to_string(slots);
     for (int i = 1; i < info.num_models && i + 1 < Q2_MAX_MODELS; i++) {
         MapModel mod;
         if (!engine.mapModel(i, mod)) break;
@@ -780,14 +787,14 @@ bool GameServer::start(Engine &engine, const GameServerConfig &config, std::stri
     clearWorld();
     frameNum_ = 0;
     frameAccumulator_ = 0.0;
-    msecAccumulator_ = 0.0;
-    lastCmd_ = q2usercmd_t{};
-    events_.clear();
     msg_.clear();
 
     // clients[i].edict
-    q2edict_t *client = edictNum(1);
-    client->s.number = 1;
+    clients_.assign(size_t(slots), Client{});
+    for (int i = 0; i < slots; i++) {
+        clients_[size_t(i)].edict = i + 1;
+        edictNum(i + 1)->s.number = i + 1;
+    }
 
     struct SpawnArgs {
         std::string name, entities, spawnpoint;
@@ -827,34 +834,118 @@ bool GameServer::start(Engine &engine, const GameServerConfig &config, std::stri
     }
 
     // SV_DirectConnect + SV_Begin_f for the local client
-    playerName_ = config.playerName;
-    fov_ = config.fov;
-    hand_ = clampHand(config.hand);
-    buildUserinfo();
+    Client &local = clients_[0];
+    local.name = config.playerName;
+    local.fov = config.fov;
+    local.hand = clampHand(config.hand);
+    if (!beginClient(0, error)) {
+        if (ge_ && error.rfind("the game rejected", 0) == 0) stop();
+        return false;
+    }
+    running_ = true;
+    registerCommands();
+    return true;
+}
+
+int GameServer::maxClientsFor(bool deathmatch, bool coop, int requested) {
+    if (deathmatch) return requested <= 1 ? 8 : std::min(requested, int(Q2_MAX_CLIENTS));
+    if (coop) return requested <= 1 || requested > 4 ? 4 : requested;
+    return 1;
+}
+
+bool GameServer::beginClient(int client, std::string &error) {
+    Client &c = clients_[size_t(client)];
+    c.events.clear();
+    c.inventory.fill(0);
+    c.lastCmd = q2usercmd_t{};
+    c.msecAccumulator = 0.0;
+    c.sentConfigStrings.clear();
+    c.sentInventory.fill(0);
+    c.snapshotFrame = -1;
+    buildUserinfo(c);
     struct ConnectArgs {
+        Client *c;
         bool ok = false;
-    } connect;
+    } connect{&c};
     if (!guarded(
             "ClientConnect",
             [](GameServer &s, void *a) {
-                static_cast<ConnectArgs *>(a)->ok = s.ge_->ClientConnect(s.edictNum(1), s.userinfo_) != 0;
+                auto *ca = static_cast<ConnectArgs *>(a);
+                ca->ok = s.ge_->ClientConnect(s.edictNum(ca->c->edict), ca->c->userinfo) != 0;
             },
             &connect)) {
         error = "ClientConnect failed: " + lastError_;
         return false;
     }
     if (!connect.ok) {
-        error = "the game rejected the local client";
-        stop();
+        // the game says why in the userinfo's "rejmsg"
+        std::string why;
+        const std::string info = c.userinfo, key = "\\rejmsg\\";
+        const size_t at = info.find(key);
+        if (at != std::string::npos) why = info.substr(at + key.size(), info.find('\\', at + key.size()) - at - key.size());
+        error = client == 0 ? "the game rejected the local client" : "the game rejected the client";
+        if (!why.empty()) error += ": " + why;
         return false;
     }
-    if (!guarded("ClientBegin", [](GameServer &s, void *) { s.ge_->ClientBegin(s.edictNum(1)); }, nullptr)) {
+    c.active = true;
+    if (!guarded("ClientBegin", [](GameServer &s, void *a) { s.ge_->ClientBegin(s.edictNum(*static_cast<int *>(a))); },
+                 &c.edict)) {
         error = "ClientBegin failed: " + lastError_;
         return false;
     }
-    running_ = true;
-    registerCommands();
     return true;
+}
+
+int GameServer::connectClient(const std::string &name, float fov, int hand, std::string &error, const std::string &ip) {
+    if (!running_) {
+        error = "no game is running";
+        return -1;
+    }
+    int slot = -1;
+    for (int i = 1; i < maxClients() && slot < 0; i++)
+        if (!clients_[size_t(i)].active) slot = i;
+    if (slot < 0) {
+        error = "Server is full.";
+        return -1;
+    }
+    Client &c = clients_[size_t(slot)];
+    c.name = name;
+    c.fov = fov;
+    c.hand = clampHand(hand);
+    c.ip = ip.empty() ? std::string("loopback") : ip;
+    if (!beginClient(slot, error)) {
+        if (slot < maxClients()) clients_[size_t(slot)].active = false;
+        return -1;
+    }
+    return slot;
+}
+
+void GameServer::disconnectClient(int client) {
+    if (!running_ || client <= 0 || !clientActive(client)) return;
+    guarded("ClientDisconnect",
+            [](GameServer &s, void *a) { s.ge_->ClientDisconnect(s.edictNum(*static_cast<int *>(a))); },
+            &clients_[size_t(client)].edict);
+    if (client < maxClients()) {
+        Client &c = clients_[size_t(client)];
+        const int edict = c.edict;
+        c = Client{};
+        c.edict = edict;
+    }
+}
+
+bool GameServer::clientActive(int client) const {
+    return client >= 0 && client < maxClients() && clients_[size_t(client)].active;
+}
+
+int GameServer::clientCount() const {
+    int n = 0;
+    for (const Client &c : clients_) n += c.active ? 1 : 0;
+    return n;
+}
+
+int GameServer::clientOfEdict(int edict) const {
+    const int client = edict - 1;
+    return client >= 0 && client < maxClients() ? client : -1;
 }
 
 void GameServer::stop() {
@@ -865,7 +956,13 @@ void GameServer::stop() {
     unregisterCommands();
     if (ge_ && gameInitialised_) {
         if (running_) {
-            guarded("ClientDisconnect", [](GameServer &s, void *) { s.ge_->ClientDisconnect(s.edictNum(1)); }, nullptr);
+            for (Client &c : clients_) {
+                if (!c.active || !ge_) continue;
+                c.active = false;
+                guarded("ClientDisconnect",
+                        [](GameServer &s, void *a) { s.ge_->ClientDisconnect(s.edictNum(*static_cast<int *>(a))); },
+                        &c.edict);
+            }
         }
         if (ge_) guarded("Shutdown", [](GameServer &s, void *) { s.ge_->Shutdown(); }, nullptr);
     }
@@ -877,7 +974,7 @@ void GameServer::stop() {
     cvars_.clear();
     argv_.clear();
     args_.clear();
-    events_.clear();
+    clients_.clear();
     numAreaNodes_ = 0;
     areaNodes_.clear();
     gServer = nullptr;
@@ -926,8 +1023,8 @@ void GameServer::prepWorldFrame() {
             break;
         default: break;
         }
-        events_.push_back(std::move(ee));
-        if (!ev.text.empty()) events_.push_back(std::move(ev));
+        pushEvent(std::move(ee), 0);
+        if (!ev.text.empty()) pushEvent(std::move(ev), 0);
         ent->s.event = 0;
     }
 }
@@ -943,13 +1040,13 @@ int GameServer::runFrames(int count) {
     return ran;
 }
 
-void GameServer::sendUserCmd(int msec, const GameUserCmd &in) {
+void GameServer::sendUserCmd(int client, int msec, const GameUserCmd &in) {
     q2usercmd_t cmd{};
     cmd.msec = uint8_t(std::clamp(msec, 1, 250));
     // The game views cmd.angles + delta_angles (set at spawn / teleport, see
     // PutClientInServer); GameUserCmd holds the absolute view, so take the
     // delta out like a Quake 2 client's accumulated cl.viewangles would.
-    const q2player_state_t *ps = playerState();
+    const q2player_state_t *ps = playerState(client);
     const int dp = ps ? ps->pmove.delta_angles[0] : 0, dy = ps ? ps->pmove.delta_angles[1] : 0;
     cmd.angles[0] = int16_t(uint16_t(q2::angleToShort(in.pitch) - dp));
     cmd.angles[1] = int16_t(uint16_t(q2::angleToShort(in.yaw) - dy));
@@ -963,23 +1060,38 @@ void GameServer::sendUserCmd(int msec, const GameUserCmd &in) {
     if (in.attack || in.use || in.up > 0) cmd.buttons |= Q2_BUTTON_ANY;
     cmd.impulse = uint8_t(std::clamp(in.impulse, 0, 255));
     cmd.lightlevel = 128; // g_ai FindTarget ignores players in the dark (light_level <= 5)
-    lastCmd_ = cmd;
-    guarded("ClientThink", [](GameServer &s, void *) { s.ge_->ClientThink(s.edictNum(1), &s.lastCmd_); }, nullptr);
+    Client &c = clients_[size_t(client)];
+    c.lastCmd = cmd;
+    guarded("ClientThink", [](GameServer &s, void *a) {
+        auto *cl = static_cast<Client *>(a);
+        s.ge_->ClientThink(s.edictNum(cl->edict), &cl->lastCmd);
+    }, &c);
+}
+
+void GameServer::clientMove(int client, const GameUserCmd &cmd, double dt) {
+    if (!running_ || dt <= 0 || !clientActive(client)) return;
+    dt = std::min(dt, 0.5);
+    clients_[size_t(client)].msecAccumulator += dt * 1000.0;
+    int ms = int(clients_[size_t(client)].msecAccumulator);
+    GameUserCmd c = cmd;
+    while (ms > 0 && running_ && clientActive(client)) {
+        const int m = std::min(ms, 250);
+        sendUserCmd(client, m, c);
+        c.impulse = 0; // an impulse goes out once
+        ms -= m;
+        if (clientActive(client)) clients_[size_t(client)].msecAccumulator -= m;
+    }
 }
 
 int GameServer::frame(const GameUserCmd &cmd, double dt) {
     if (!running_ || dt <= 0) return 0;
+    clientMove(0, cmd, dt);
+    return advance(dt);
+}
+
+int GameServer::advance(double dt) {
+    if (!running_ || dt <= 0) return 0;
     dt = std::min(dt, 0.5);
-    msecAccumulator_ += dt * 1000.0;
-    int ms = int(msecAccumulator_);
-    GameUserCmd c = cmd;
-    while (ms > 0 && running_) {
-        const int m = std::min(ms, 250);
-        sendUserCmd(m, c);
-        c.impulse = 0; // an impulse goes out once
-        ms -= m;
-        msecAccumulator_ -= m;
-    }
     frameAccumulator_ += dt;
     int ran = 0;
     while (frameAccumulator_ >= kFrameSeconds && running_) {
@@ -1023,40 +1135,61 @@ void GameServer::tokenize(const std::string &line) {
     }
 }
 
-void GameServer::clientCommand(const std::string &line) {
-    if (!running_) return;
+void GameServer::clientCommand(const std::string &line) { clientCommand(0, line); }
+
+void GameServer::clientCommand(int client, const std::string &line) {
+    if (!running_ || !clientActive(client)) return;
     tokenize(line);
     if (argv_.empty()) return;
-    guarded("ClientCommand", [](GameServer &s, void *) { s.ge_->ClientCommand(s.edictNum(1)); }, nullptr);
+    guarded("ClientCommand",
+            [](GameServer &s, void *a) { s.ge_->ClientCommand(s.edictNum(*static_cast<int *>(a))); },
+            &clients_[size_t(client)].edict);
 }
 
-void GameServer::buildUserinfo() {
-    // Info strings can't hold backslashes, quotes or semicolons.
-    std::string name;
-    for (char c : playerName_)
-        if (c != '\\' && c != '"' && c != ';' && static_cast<unsigned char>(c) >= 32) name += c;
-    if (name.empty()) name = "Player";
-    std::snprintf(userinfo_, sizeof(userinfo_),
-                  "\\name\\%s\\skin\\male/grunt\\hand\\%d\\fov\\%g\\rate\\25000\\msg\\1\\ip\\loopback",
-                  name.c_str(), hand_, double(clampFov(fov_)));
+void GameServer::buildUserinfo(Client &c) {
+    // Info strings can't hold backslashes, quotes or semicolons. "spectator"
+    // is the client's cvar (0): the game makes anyone without it a
+    // deathmatch spectator.
+    auto clean = [](const std::string &in, const char *fallback) {
+        std::string out;
+        for (char ch : in)
+            if (ch != '\\' && ch != '"' && ch != ';' && static_cast<unsigned char>(ch) >= 32) out += ch;
+        return out.empty() ? std::string(fallback) : out;
+    };
+    const std::string name = clean(c.name, "Player"), ip = clean(c.ip, "loopback");
+    std::snprintf(c.userinfo, sizeof(c.userinfo),
+                  "\\name\\%s\\skin\\male/grunt\\hand\\%d\\fov\\%g\\rate\\25000\\msg\\1\\spectator\\0\\ip\\%s",
+                  name.c_str(), c.hand, double(clampFov(c.fov)), ip.c_str());
 }
 
-void GameServer::setFov(float fov) {
-    if (!running_) return;
-    fov_ = fov;
-    buildUserinfo();
+void GameServer::userinfoChanged(int client) {
+    buildUserinfo(clients_[size_t(client)]);
     guarded(
-        "ClientUserinfoChanged", [](GameServer &s, void *) { s.ge_->ClientUserinfoChanged(s.edictNum(1), s.userinfo_); },
-        nullptr);
+        "ClientUserinfoChanged",
+        [](GameServer &s, void *a) {
+            auto *c = static_cast<Client *>(a);
+            s.ge_->ClientUserinfoChanged(s.edictNum(c->edict), c->userinfo);
+        },
+        &clients_[size_t(client)]);
 }
 
-void GameServer::setHand(int hand) {
-    if (!running_) return;
-    hand_ = clampHand(hand);
-    buildUserinfo();
-    guarded(
-        "ClientUserinfoChanged", [](GameServer &s, void *) { s.ge_->ClientUserinfoChanged(s.edictNum(1), s.userinfo_); },
-        nullptr);
+void GameServer::setFov(float fov) { setFov(0, fov); }
+void GameServer::setHand(int hand) { setHand(0, hand); }
+
+void GameServer::setFov(int client, float fov) {
+    if (!running_ || !clientActive(client)) return;
+    clients_[size_t(client)].fov = fov;
+    userinfoChanged(client);
+}
+
+void GameServer::setHand(int client, int hand) {
+    if (!running_ || !clientActive(client)) return;
+    clients_[size_t(client)].hand = clampHand(hand);
+    userinfoChanged(client);
+}
+
+const char *GameServer::userinfo(int client) const {
+    return client >= 0 && client < maxClients() ? clients_[size_t(client)].userinfo : "";
 }
 
 void GameServer::serverCommand(const std::string &line) {
@@ -1140,13 +1273,17 @@ const q2edict_t *GameServer::edict(int index) const {
     return edictNum(index);
 }
 
-const q2player_state_t *GameServer::playerState() const {
-    const q2edict_t *p = player();
+const q2edict_t *GameServer::player(int client) const {
+    return client >= 0 && client < std::max(maxClients(), 1) ? edict(client + 1) : nullptr;
+}
+
+const q2player_state_t *GameServer::playerState(int client) const {
+    const q2edict_t *p = player(client);
     return p && p->client ? &p->client->ps : nullptr;
 }
 
-Vec3 GameServer::playerOrigin() const {
-    const q2edict_t *p = player();
+Vec3 GameServer::playerOrigin(int client) const {
+    const q2edict_t *p = player(client);
     return p ? V(p->s.origin) : Vec3{};
 }
 
@@ -1186,20 +1323,31 @@ double GameServer::lerpFraction() const {
     return std::clamp(frameAccumulator_ / kFrameSeconds, 0.0, 1.0);
 }
 
-std::vector<GameRenderEntity> GameServer::renderEntities(bool withInline) const {
+std::string GameServer::playerModel(int skinnum) const {
+    // CL_LoadClientinfo: CS_PLAYERSKINS + n is "name\model/skin"
+    const std::string &cs = configString(Q2_CS_PLAYERSKINS + (skinnum & 0xff));
+    const size_t name = cs.find('\\');
+    std::string model = name == std::string::npos ? std::string() : cs.substr(name + 1);
+    model = model.substr(0, model.find('/'));
+    bool ok = !model.empty();
+    for (char ch : model)
+        if (!std::isalnum(static_cast<unsigned char>(ch)) && ch != '_' && ch != '-') ok = false;
+    return "players/" + (ok ? model : std::string("male")) + "/tris.md2";
+}
+
+std::vector<GameRenderEntity> GameServer::renderEntitiesFor(int client, bool withInline) const {
     std::vector<GameRenderEntity> out;
     if (!running_) return out;
-    const int clients = std::max(1, std::atoi(configString(Q2_CS_MAXCLIENTS).c_str()));
     for (int i = 1; i < numEdicts(); i++) {
         const q2edict_t *e = edict(i);
         if (!e || !e->inuse || (e->svflags & Q2_SVF_NOCLIENT)) continue;
-        if (i <= clients) continue; // the local player's body (first person)
-        if (e->s.modelindex <= 0 || e->s.modelindex >= Q2_MAX_MODELS) continue; // 255: player skins
+        if (i == client + 1) continue; // the viewer's own body (first person)
+        if (e->s.modelindex <= 0 || e->s.modelindex >= Q2_MAX_MODELS) continue;
         if (e->s.renderfx & (Q2_RF_BEAM | Q2_RF_VIEWERMODEL)) continue;
         GameRenderEntity r;
         r.number = i;
         r.modelindex = e->s.modelindex;
-        r.model = modelName(e->s.modelindex);
+        r.model = e->s.modelindex == 255 ? playerModel(e->s.skinnum) : modelName(e->s.modelindex);
         if (r.model.empty() || r.model[0] == '#') continue; // vwep names are per client
         r.inlineModel = inlineModel(e->s.modelindex);
         if (r.inlineModel > 0 && !withInline) continue;
@@ -1265,62 +1413,101 @@ std::vector<GameLoopSound> GameServer::loopSounds() const {
     return out;
 }
 
-void GameServer::snapshot(GameSnapshot &out, bool full) {
+void GameServer::snapshot(int client, GameSnapshot &out, bool full) {
     out = GameSnapshot{};
-    out.running = running_;
-    if (!running_) {
-        snapshotFrame_ = -1;
-        sentConfigStrings_.clear();
+    out.running = running_ && clientActive(client);
+    if (!out.running) {
+        if (client >= 0 && client < maxClients()) {
+            clients_[size_t(client)].snapshotFrame = -1;
+            clients_[size_t(client)].sentConfigStrings.clear();
+        }
         return;
     }
+    Client &c = clients_[size_t(client)];
     out.frameNumber = frameNum_;
     out.lerpFraction = lerpFraction();
-    if (const q2player_state_t *ps = playerState()) {
+    if (const q2player_state_t *ps = playerState(client)) {
         out.hasPlayer = true;
         out.player = *ps;
     }
-    out.playerOrigin = playerOrigin();
-    if (full || frameNum_ != snapshotFrame_) {
+    out.playerOrigin = playerOrigin(client);
+    if (full || frameNum_ != c.snapshotFrame) {
         out.entitiesChanged = true;
-        out.entities = renderEntities(true);
+        out.entities = renderEntitiesFor(client, true);
         out.beams = beamEntities();
         out.loopSounds = loopSounds();
     }
-    snapshotFrame_ = frameNum_;
-    if (full || sentConfigStrings_.size() != configStrings_.size()) {
-        sentConfigStrings_.assign(configStrings_.size(), std::string());
+    c.snapshotFrame = frameNum_;
+    if (full || c.sentConfigStrings.size() != configStrings_.size()) {
+        c.sentConfigStrings.assign(configStrings_.size(), std::string());
         full = true;
     }
     for (size_t i = 0; i < configStrings_.size(); i++) {
-        if (full ? configStrings_[i].empty() : configStrings_[i] == sentConfigStrings_[i]) continue;
+        if (full ? configStrings_[i].empty() : configStrings_[i] == c.sentConfigStrings[i]) continue;
         out.configStrings.emplace_back(int(i), configStrings_[i]);
-        sentConfigStrings_[i] = configStrings_[i];
+        c.sentConfigStrings[i] = configStrings_[i];
     }
-    if (full || inventory_ != sentInventory_) {
+    if (full || c.inventory != c.sentInventory) {
         out.inventoryChanged = true;
-        out.inventory = inventory_;
-        sentInventory_ = inventory_;
+        out.inventory = c.inventory;
+        c.sentInventory = c.inventory;
     }
-    out.events = takeEvents();
+    out.events = takeEvents(client);
 }
 
-std::vector<GameEvent> GameServer::takeEvents() {
-    std::vector<GameEvent> out(std::make_move_iterator(events_.begin()), std::make_move_iterator(events_.end()));
-    events_.clear();
+std::vector<GameEvent> GameServer::takeEvents(int client) {
+    if (client < 0 || client >= maxClients()) return {};
+    std::deque<GameEvent> &q = clients_[size_t(client)].events;
+    std::vector<GameEvent> out(std::make_move_iterator(q.begin()), std::make_move_iterator(q.end()));
+    q.clear();
     return out;
+}
+
+const std::array<int16_t, Q2_MAX_ITEMS> &GameServer::inventory(int client) const {
+    static const std::array<int16_t, Q2_MAX_ITEMS> none{};
+    return client >= 0 && client < maxClients() ? clients_[size_t(client)].inventory : none;
+}
+
+void GameServer::pushEvent(GameEvent ev, int target) {
+    // SV_Multicast / SV_Unicast: one client's (prints, layouts, its
+    // inventory), or every connected client's; nothing for a non-client
+    // target (Quake 2 refuses those)
+    auto push = [](Client &c, GameEvent e) {
+        c.events.push_back(std::move(e));
+        if (c.events.size() > 1024) c.events.pop_front();
+    };
+    if (target != 0) {
+        const int client = clientOfEdict(target);
+        if (clientActive(client)) push(clients_[size_t(client)], std::move(ev));
+        return;
+    }
+    Client *last = nullptr;
+    for (Client &c : clients_) {
+        if (!c.active) continue;
+        if (last) push(*last, ev);
+        last = &c;
+    }
+    if (last) push(*last, std::move(ev));
+}
+
+void GameServer::setInventory(int target, const std::array<int16_t, Q2_MAX_ITEMS> &inventory) {
+    for (int i = 0; i < maxClients(); i++)
+        if (clients_[size_t(i)].active && (target == 0 || target == clients_[size_t(i)].edict))
+            clients_[size_t(i)].inventory = inventory;
 }
 
 // ------------------------------------------------------------ messages
 
 void GameServer::print(int level, const std::string &text, GameEvent::Kind kind, int entity) {
-    if (engine_) engine_->print(text, kind == GameEvent::Kind::CenterPrint ? REALMS_PRINT_DEVELOPER : REALMS_PRINT_INFO);
+    // the console shows broadcasts and the local player's prints
+    if (engine_ && (entity == 0 || entity == 1))
+        engine_->print(text, kind == GameEvent::Kind::CenterPrint ? REALMS_PRINT_DEVELOPER : REALMS_PRINT_INFO);
     GameEvent ev;
     ev.kind = kind;
     ev.level = level;
     ev.entity = entity;
     ev.text = text;
-    events_.push_back(std::move(ev));
-    if (events_.size() > 1024) events_.pop_front();
+    pushEvent(std::move(ev), entity);
 }
 
 void GameServer::queueSound(const float *origin, q2edict_t *ent, int channel, int soundindex, float volume,
@@ -1348,8 +1535,7 @@ void GameServer::queueSound(const float *origin, q2edict_t *ent, int channel, in
     }
     // S_RegisterSound: "*name" are the player model's sexed sounds.
     ev.text = name[0] == '*' ? "players/male/" + name.substr(1) : "sound/" + name;
-    events_.push_back(std::move(ev));
-    if (events_.size() > 1024) events_.pop_front();
+    pushEvent(std::move(ev), 0);
 }
 
 namespace {
@@ -1490,13 +1676,15 @@ void GameServer::flushMessage(const float *origin, int entity) {
         ev.kind = GameEvent::Kind::StuffText;
         ev.text = str();
         break;
-    case svc_inventory: // CL_ParseInventory
-        for (int16_t &count : inventory_) count = int16_t(shortv());
+    case svc_inventory: { // CL_ParseInventory
+        std::array<int16_t, Q2_MAX_ITEMS> inventory{};
+        for (int16_t &count : inventory) count = int16_t(shortv());
+        setInventory(entity, inventory);
         return;
+    }
     default: return;
     }
-    events_.push_back(std::move(ev));
-    if (events_.size() > 1024) events_.pop_front();
+    pushEvent(std::move(ev), entity);
 }
 
 // ------------------------------------------------------------ config strings
