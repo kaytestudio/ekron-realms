@@ -66,6 +66,10 @@ void encodeGameDemoHeader(const GameDemoHeader &header, std::vector<uint8_t> &ou
 // Appends one record (the length, then the record).
 void encodeGameDemoRecord(GameDemoState &state, const GameSnapshot &snapshot, float seconds,
                           std::vector<uint8_t> &out);
+// Reads back one record (the bytes after its length); false when they are
+// damaged or don't fit `state` (then `state` is left half updated).
+bool decodeGameDemoRecord(GameDemoState &state, const uint8_t *data, size_t size, GameSnapshot &snapshot,
+                          float &seconds);
 
 class GameDemoWriter {
 public:

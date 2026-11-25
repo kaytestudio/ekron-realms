@@ -52,6 +52,9 @@ add_library(realms_quake2 STATIC
     "${CMAKE_CURRENT_LIST_DIR}/src/Q2Pmove.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/src/GameServer.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/src/GameClient.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/src/GameNet.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/src/Net.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/src/NetChannel.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/src/GameView.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/src/GameEffects.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/src/GameSound.cpp"
@@ -65,6 +68,9 @@ add_library(realms_quake2 STATIC
     "${CMAKE_CURRENT_LIST_DIR}/src/Quake2Module.cpp"
 )
 target_link_libraries(realms_quake2 PUBLIC realms_engine)
+if(WIN32)
+    target_link_libraries(realms_quake2 PUBLIC ws2_32) # UDP sockets (realms/Net.h)
+endif()
 target_compile_features(realms_quake2 PUBLIC cxx_std_17)
 set_target_properties(realms_quake2 PROPERTIES POSITION_INDEPENDENT_CODE ON)
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")

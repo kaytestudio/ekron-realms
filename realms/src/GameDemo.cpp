@@ -548,6 +548,13 @@ void encodeGameDemoRecord(GameDemoState &state, const GameSnapshot &snapshot, fl
     out.insert(out.end(), body.begin(), body.end());
 }
 
+bool decodeGameDemoRecord(GameDemoState &state, const uint8_t *data, size_t size, GameSnapshot &snapshot,
+                          float &seconds) {
+    if (!data && size) return false;
+    In in{data, data + size};
+    return decodeRecord(state, in, snapshot, seconds) && in.p == in.end;
+}
+
 bool GameDemoWriter::open(const std::string &path, const GameDemoHeader &header, std::string &error) {
     close();
     std::error_code ec;

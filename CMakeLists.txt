@@ -786,6 +786,13 @@ add_executable(realms_game_demo_test tests/realms/game_demo_test.cpp)
 target_link_libraries(realms_game_demo_test PRIVATE realms_quake2)
 add_test(NAME realms_game_demo COMMAND realms_game_demo_test)
 
+# Ekron networking (realms/Net.h, NetChannel.h, GameNet.h): addresses, UDP
+# on 127.0.0.1, the channel over a lossy link, snapshots over it - no game
+# module needed.
+add_executable(realms_net_test tests/realms/net_test.cpp)
+target_link_libraries(realms_net_test PRIVATE realms_quake2)
+add_test(NAME realms_net COMMAND realms_net_test)
+
 # Quake 2 client effects (realms::GameEffects): temp entities, muzzle
 # flashes, trails, lights, explosions - no game module needed.
 add_executable(realms_game_effects_test tests/realms/game_effects_test.cpp)
