@@ -71,6 +71,10 @@ public:
     bool layoutShown() const { return quake2().layoutShown(); }
     void toggleHelp() { quake2().toggleHelp(); }
     void drawLayout(realms::Engine &engine, ekron::gl::Api &gl, DesktopRenderer &renderer, int hudW, int hudH);
+    // Quake 2's status bar (the game's CS_STATUSBAR program: health, ammo,
+    // armor, the item picked up, timers), its bottom at barBottom. Off with
+    // cl_statusbar 0.
+    void drawStatusBar(realms::Engine &engine, ekron::gl::Api &gl, DesktopRenderer &renderer, int hudW, int barBottom);
     // Centre prints / pickup messages since the last call (for toasts).
     std::vector<std::string> takeGameMessages() { return view_.takeMessages(); }
     // The game's entities for DesktopRenderer::setMapEntities: .md3 models
@@ -111,6 +115,8 @@ private:
         int width = 0, height = 0;
     };
     const LayoutPic &layoutPic(realms::Engine &engine, ekron::gl::Api &gl, const std::string &name);
+    void drawLayoutItems(realms::Engine &engine, ekron::gl::Api &gl, DesktopRenderer &renderer,
+                         const std::vector<realms::GameLayoutItem> &items, int scale, float offsetY);
     GLuint skinTexture(realms::Engine &engine, ekron::gl::Api &gl, const std::string &name);
 
     mapview::Quake2View view_;

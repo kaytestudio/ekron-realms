@@ -2019,7 +2019,8 @@ int main(int argc, char **argv)
                               {0.95f, 0.97f, 1.0f, 1.0f});
             const realms::MapWalker &walker = mapMode.walker();
             char mapBuf[200]{};
-            const std::string gameStatus = mapMode.gameStatus();
+            // health / armor / ammo as text only when the Quake 2 status bar is off
+            const std::string gameStatus = engine.cvarBool("cl_statusbar", true) ? std::string() : mapMode.gameStatus();
             std::snprintf(mapBuf, sizeof(mapBuf), "%.0f %.0f %.0f  %s  %s%s%s", walker.origin[0], walker.origin[1],
                           walker.origin[2], mapMode.summary().c_str(),
                           walker.noclip ? "[NOCLIP]" : (walker.waterLevel >= 2 ? "[SWIM]" : (walker.ducked ? "[DUCK]" : "")),
@@ -2035,7 +2036,8 @@ int main(int argc, char **argv)
                                       ekron::desktop::fitHudTextScale(1.30f, ekron::font::measureTextWidth(mapControls, 1.30f),
                                                                       float(hudW) - 48.0f),
                                       {0.82f, 0.95f, 0.90f, 1.0f});
-            // the help computer / scores, over the map HUD (F1)
+            // Quake 2's status bar above the controls bar, then the help computer / scores (F1)
+            mapMode.drawStatusBar(engine, gl, renderer, hudW, hudH - 48);
             mapMode.drawLayout(engine, gl, renderer, hudW, hudH);
         } else {
         // Top-left status bar
