@@ -114,6 +114,18 @@ glTF maps run the game too. Name nodes (Blender empties, for example) after Quak
 - Recording goes on through a respawn. It stops on its own when the map changes or the game stops. A demo recorded on another version of the map is refused. A file cut short, by a crash for example, plays up to where it ends.
 - `timedemo 1`, then `demomap <name>`: a benchmark, as in Quake 2. Each recorded frame is drawn once, one after the other, as fast as the computer can draw them, and at the end the console shows `<frames> frames, <seconds> seconds: <fps> fps`. On the desktop, vsync is off while it runs. On Android and iOS the frame rate can't go above the screen's refresh rate. `timedemo 0` (the default) plays demos at their own speed again.
 
+### Multiplayer
+
+Deathmatch and coop work as in Quake 2, over UDP, with the same console commands and cvars. The player who starts the game hosts it (a listen server) and plays in it too; the others join with `connect`.
+
+- To host: `deathmatch 1` (or `coop 1`), then `map <name>`. A deathmatch is for 8 players and coop for 4 unless `maxclients` says otherwise (deathmatch up to 256 players, coop up to 4). The console then shows `Deathmatch for 8 players: listening on UDP port 27910.`, and the game's own settings (`fraglimit`, `timelimit`, `dmflags`...) apply. Hosting needs `librealms_game`.
+- `deathmatch`, `coop` and `maxclients` are read when a game starts: typed during a game, they are for the next `map`. `deathmatch 0; coop 0`, then `map <name>`, is single player again.
+- `port` (default `27910`) is the UDP port the host listens on, on all its network interfaces. Others on the internet can only join if that port is reachable (forwarded on the router).
+- To join: `connect <address>`, for example `connect 192.168.1.20` or `connect example.net:27911` (the port is 27910 when left out). The host's map is opened from your own data, so you need the same map: a map that isn't there, or a different version of it, is refused with a message. Joining doesn't need `librealms_game`: the host runs the game.
+- `disconnect` leaves the game; the map is then walked as without the game. `reconnect` joins the last server again. When the host changes map, its players follow it; when it quits, or nothing comes from it for a while, the console says so.
+- `name`, `fov` and `hand` are sent to the host, when joining and when they change. While connected, `record` records what you see in the host's game. The game's console commands (`give`, `kill`, `cmd`...) only work on the host for now.
+- Other players are drawn with `players/<model>/tris.md3`, so they look like boxes without those models (see [Models](#models-md3)).
+
 ### Models (`.md3`)
 
 Map mode draws Quake 3 `.md3` models (IDP3 version 15), not Quake 2's `.md2`. The game still names its models `models/<path>/tris.md2`; map mode loads `models/<path>/tris.md3` instead, loose or from a pak, in the same places as the rest of the data. Quake 2's own `.md2` files are never read, so with only `pak0.pak` installed, monsters, items and weapons are drawn as boxes until `.md3` versions with those names are added (a pak placed after `pak0.pak`, such as `baseq2/pak1.pak`, or loose files).
