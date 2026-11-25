@@ -340,7 +340,9 @@ jobs:
       - name: Check the Free Pascal ARM64 compiler
         run: |
           set -euo pipefail
+          trap 'echo "::error::[fpc-check] failed: $BASH_COMMAND"' ERR
           ppc="$(cygpath -u "$FPC_ARM64")/bin/ppcrossa64.exe"
+          ls -l "$(dirname "$ppc")"
           "$ppc" -iV
           test "$("$ppc" -iTP)" = aarch64
           test "$("$ppc" -iTO)" = win64
@@ -352,7 +354,12 @@ jobs:
             WriteLn(Format('fpc %s %d %d', [FloatToStrF(Sqrt(2.0), ffFixed, 8, 4), SizeOf(cint), Floor(2.5)]));
           end.
           EOF
-          "$ppc" -Mobjfpc -O2 -FE"$(cygpath -m /tmp/fpc-smoke)" "$(cygpath -m /tmp/fpc-smoke/smoke.pas)"
+          "$ppc" -Mobjfpc -O2 -FE"$(cygpath -m /tmp/fpc-smoke)" "$(cygpath -m /tmp/fpc-smoke/smoke.pas)" 2>&1 |
+            tee /tmp/fpc-smoke/build.log || {
+            grep -iE 'error|fatal|warning' /tmp/fpc-smoke/build.log | head -n 9 | while IFS= read -r line; do echo "::error::[fpc-smoke] $line"; done
+            tail -n 3 /tmp/fpc-smoke/build.log | while IFS= read -r line; do echo "::error::[fpc-smoke] $line"; done
+            exit 1
+          }
           /tmp/fpc-smoke/smoke.exe | tee /tmp/fpc-smoke/out.txt
           grep -q 'fpc 1.4142 4 2' /tmp/fpc-smoke/out.txt
           echo "FPC_EXE=$(cygpath -m "$ppc")" >> "$GITHUB_ENV"
