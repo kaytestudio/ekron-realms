@@ -377,7 +377,7 @@ void namesAndFiles() {
     realms::Engine engine;
     CHECK(engine.init(cfg));
     const std::string path = realms::gameDemoPath(engine, "run1");
-    CHECK(path == (tmp / "demos" / "run1.ekd").string());
+    CHECK(fs::path(path) == tmp / "demos" / "run1.ekd");
     CHECK(realms::gameDemoPath(engine, "../run1").empty());
 
     // the writer makes the folder; the engine finds the file by its VFS name

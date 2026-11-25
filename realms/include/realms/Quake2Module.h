@@ -223,6 +223,7 @@ private:
     std::unique_ptr<GameServer> game_;
     GameClient client_;
     GameDemoWriter recorder_;
+    std::string recordFile_; // "demos/<name>.ekd", for messages
     std::unique_ptr<GameDemoReader> demo_;
     GameSnapshot demoNext_;   // read, not yet due
     bool demoHasNext_ = false;

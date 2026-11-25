@@ -214,6 +214,7 @@ bool Quake2Module::startRecording(Engine &engine, const std::string &name, std::
     RealmsMapInfo info{};
     if (engine.mapInfo(info)) header.mapChecksum = info.checksum;
     if (!recorder_.open(path, header, why)) return false;
+    recordFile_ = gameDemoFile(name);
     // CL_Record_f writes the client's gamestate first: here everything the
     // client holds, plus the layout shown now
     GameSnapshot first = client_.fullSnapshot();
@@ -233,7 +234,7 @@ bool Quake2Module::startRecording(Engine &engine, const std::string &name, std::
 
 bool Quake2Module::stopRecording() {
     if (!recorder_.isOpen()) return false;
-    const std::string file = recorder_.path();
+    const std::string file = recordFile_;
     const int records = recorder_.records();
     const uint64_t bytes = recorder_.bytes();
     recorder_.close();
@@ -376,7 +377,7 @@ void Quake2Module::sync(float seconds) {
     GameSnapshot snapshot;
     game_->snapshot(snapshot, client_.needsFull());
     if (recorder_.isOpen() && !recorder_.write(snapshot, seconds)) {
-        const std::string file = recorder_.path();
+        const std::string file = recordFile_;
         stopRecording();
         if (engine_) engine_->print("record: can't write " + file + ", stopped", REALMS_PRINT_WARNING);
     }

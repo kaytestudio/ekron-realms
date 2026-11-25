@@ -520,7 +520,8 @@ std::string gameDemoFile(const std::string &name) {
 std::string gameDemoPath(const Engine &engine, const std::string &name) {
     const std::string file = gameDemoFile(name);
     if (file.empty() || engine.writableRoot().empty()) return std::string();
-    return (fs::path(engine.writableRoot()) / file).string();
+    // the folder and the file name as parts: native separators on Windows
+    return (fs::path(engine.writableRoot()) / kGameDemoDir / file.substr(std::strlen(kGameDemoDir) + 1)).string();
 }
 
 void encodeGameDemoHeader(const GameDemoHeader &header, std::vector<uint8_t> &out) {
