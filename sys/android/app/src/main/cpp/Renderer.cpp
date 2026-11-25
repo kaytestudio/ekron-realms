@@ -24,6 +24,7 @@
 #include "SoundSnapshot.h"
 #include "realms/GameSave.h"
 #include "realms/SandboxBoot.h"
+#include "realms/ViewGamma.h"
 
 namespace {
 std::mutex commandMutex;
@@ -158,6 +159,7 @@ uniform int alphaMode;
 uniform float alphaCutoff;
 uniform vec3 eye;
 uniform float modelRoughness;
+uniform float viewGamma; // realms/ViewGamma.h
 uniform vec3 lightDirection;
 uniform vec3 lightColor;
 uniform vec3 ambientColor;
@@ -210,7 +212,7 @@ void main(){
  float d=max(length(toEye)-22.0,0.0);
  float fog=1.0-exp(-d*d*.00022);
  vec3 fogColor=pow(vec3(.56,.61,.63),vec3(2.2));
- outColor=vec4(pow(max(mix(lit,fogColor,fog),vec3(0.0)),vec3(1.0/2.2)),alpha);
+ outColor=vec4(pow(max(mix(lit,fogColor,fog),vec3(0.0)),vec3(viewGamma/2.2)),alpha);
 })";
 const char *skyVertex=R"(#version 300 es
 out vec2 screen;
@@ -228,8 +230,9 @@ uniform float cameraRoll;
 uniform bool skyBox;
 uniform mat3 skyMatrix;
 uniform sampler2DArray skyTextures;
+uniform float viewGamma; // realms/ViewGamma.h
 out vec4 outColor;
-void main(){
+vec4 sky(){
  vec3 ray=normalize(vec3(screen.x*aspect/focal,screen.y/focal,-1.0));
  ray.xy=mat2(cos(cameraRoll),-sin(cameraRoll),sin(cameraRoll),cos(cameraRoll))*ray.xy;
  if(skyBox){
@@ -242,12 +245,15 @@ void main(){
   if(a.x>=a.y&&a.x>=a.z){layer=d.x>0.0?0.0:1.0;st=vec2(d.x>0.0?-d.y:d.y,d.z)/a.x;}
   else if(a.y>=a.z){layer=d.y>0.0?2.0:3.0;st=vec2(d.y>0.0?d.x:-d.x,d.z)/a.y;}
   else{layer=d.z>0.0?4.0:5.0;st=vec2(-d.y,d.z>0.0?-d.x:d.x)/a.z;}
-  outColor=vec4(texture(skyTextures,vec3((st.x+1.0)*.5,(1.0-st.y)*.5,layer)).rgb,1.0);
-  return;
+  return vec4(texture(skyTextures,vec3((st.x+1.0)*.5,(1.0-st.y)*.5,layer)).rgb,1.0);
  }
  float altitude=cos(angles.y)*ray.y-sin(angles.y)*ray.z;
  float blend=smoothstep(0.0,.85,max(altitude,0.0));
- outColor=vec4(mix(vec3(.56,.61,.63),vec3(.32,.41,.51),blend),1.0);
+ return vec4(mix(vec3(.56,.61,.63),vec3(.32,.41,.51),blend),1.0);
+}
+void main(){
+ vec4 c=sky();
+ outColor=vec4(pow(c.rgb,vec3(viewGamma)),c.a);
 })";
 // Map mode: the Quake 2 game's full-screen blend (player_state_t::blend:
 // damage, pickups, powerups, under water) over the 3D view, as ref_gl's
@@ -704,12 +710,14 @@ void Renderer::render(){
  };
  // Both displays render the same world snapshot, but with independent cameras.
  // No physics update, player HUD, remote viewmodel or drone self-mesh in feed.
+ const float viewGamma=realms::gammaExponent(realms_android::ensureEngine(app_).cvarFloat("vid_gamma",1.f)); // brightness
  auto drawWorld=[&](physics::Vec3 cameraEye,float cameraYaw,float cameraPitch,float viewRoll,int viewX,int viewY,int viewWidth,int viewHeight){
  glViewport(viewX,viewY,viewWidth,viewHeight);glClearColor(.56f,.61f,.63f,1);glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
  glBindVertexArray(vao_);
  if(skyProgram_){glDisable(GL_DEPTH_TEST);glDepthMask(GL_FALSE);glUseProgram(skyProgram_);
   glUniform1f(glGetUniformLocation(skyProgram_,"aspect"),float(viewWidth)/viewHeight);
   glUniform1f(glGetUniformLocation(skyProgram_,"focal"),realms::kSandboxFocalLength);
+  glUniform1f(glGetUniformLocation(skyProgram_,"viewGamma"),viewGamma);
   glUniform2f(glGetUniformLocation(skyProgram_,"angles"),cameraYaw,cameraPitch);
   glUniform1f(glGetUniformLocation(skyProgram_,"cameraRoll"),viewRoll);
   glDrawArrays(GL_TRIANGLES,0,3);glDepthMask(GL_TRUE);glEnable(GL_DEPTH_TEST);
@@ -727,6 +735,7 @@ void Renderer::render(){
  glUniform1f(glGetUniformLocation(program_,"cameraRoll"),viewRoll);
  glUniform3f(glGetUniformLocation(program_,"eye"),cameraEye.x,cameraEye.y,cameraEye.z);glUniform2f(glGetUniformLocation(program_,"angles"),cameraYaw,cameraPitch);glUniform1f(glGetUniformLocation(program_,"aspect"),float(viewWidth)/viewHeight);
  glUniform1f(glGetUniformLocation(program_,"focal"),realms::kSandboxFocalLength);
+ glUniform1f(glGetUniformLocation(program_,"viewGamma"),viewGamma);
  glBindVertexArray(vao_);glBindBuffer(GL_ARRAY_BUFFER,buffer_);glBufferData(GL_ARRAY_BUFFER,vertices.size()*sizeof(Vertex),vertices.data(),GL_STREAM_DRAW);glDrawArrays(GL_TRIANGLES,0,static_cast<GLsizei>(vertices.size()));
  city_.draw(program_,cameraEye.x,cameraEye.z);
 
@@ -878,12 +887,14 @@ void Renderer::renderMap(float dt){
  const physics::Vec3 eye=mapMode_.drawEye();
  const float aspect=float(width_)/float(height_);
  const float focal=mapMode_.focalLength(engine);
+ const float viewGamma=realms::gammaExponent(engine.cvarFloat("vid_gamma",1.f)); // brightness
  const mapview::Quake2View::DrawAngles camera=mapMode_.drawAngles(mapYaw_,mapPitch_); // + Quake 2's view kick
  glViewport(0,0,width_,height_);glClearColor(.56f,.61f,.63f,1);glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
  glBindVertexArray(vao_);
  if(skyProgram_){glDisable(GL_DEPTH_TEST);glDepthMask(GL_FALSE);glUseProgram(skyProgram_);
   glUniform1f(glGetUniformLocation(skyProgram_,"aspect"),aspect);
   glUniform1f(glGetUniformLocation(skyProgram_,"focal"),focal);
+  glUniform1f(glGetUniformLocation(skyProgram_,"viewGamma"),viewGamma);
   glUniform2f(glGetUniformLocation(skyProgram_,"angles"),camera.yaw,camera.pitch);
   glUniform1f(glGetUniformLocation(skyProgram_,"cameraRoll"),camera.roll);
   const GLuint skyTexture=mapMode_.skyTexture();
@@ -912,6 +923,7 @@ void Renderer::renderMap(float dt){
  glUniform2f(glGetUniformLocation(program_,"angles"),camera.yaw,camera.pitch);
  glUniform1f(glGetUniformLocation(program_,"aspect"),aspect);
  glUniform1f(glGetUniformLocation(program_,"focal"),focal);
+ glUniform1f(glGetUniformLocation(program_,"viewGamma"),viewGamma);
  mapMode_.draw(program_,city_,engine,mapYaw_,mapPitch_,aspect);
  glBindVertexArray(vao_);
  if(polyBlendProgram_&&stats.blend[3]>0.f&&engine.cvarBool("gl_polyblend",true)){

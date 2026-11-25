@@ -7,6 +7,7 @@
 
 #include "realms/Engine.h"
 #include "realms/ViewFov.h"
+#include "realms/ViewGamma.h"
 
 #include <GLES3/gl3.h>
 
@@ -21,6 +22,7 @@ public:
         float yaw = 0.0f, pitch = 0.0f, aspect = 1.0f; // the sandbox camera convention
         float roll = 0.0f;                              // Quake2View::drawAngles
         float focal = realms::kSandboxFocalLength;    // realms::mapFocalLength(fov) in map mode
+        float gamma = 1.0f;                             // realms::gammaExponent(vid_gamma)
     };
 
     Quake2Gles() = default;

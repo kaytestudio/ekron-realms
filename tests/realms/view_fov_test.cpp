@@ -1,6 +1,10 @@
 // realms/ViewFov.h: map mode's focal length follows Quake 2's fov (Hor+,
-// the fov is the horizontal angle of a 4:3 screen), clamped like the game.
+// the fov is the horizontal angle of a 4:3 screen), clamped like the game;
+// realms/ViewGamma.h: vid_gamma's exponent, and the cvar on the shared list.
+#include "realms/Engine.h"
+#include "realms/SandboxBoot.h"
 #include "realms/ViewFov.h"
+#include "realms/ViewGamma.h"
 
 #include <cmath>
 #include <cstdio>
@@ -47,6 +51,29 @@ int main() {
     CHECK(std::isfinite(mapFocalLength(0.0f)) && mapFocalLength(0.0f) > 0.0f);
     // The sandbox keeps its 72 degree vertical view.
     CHECK(near(2.0f * std::atan(1.0f / kSandboxFocalLength) * kDegrees, 72.0f, 1e-3f));
+
+    // vid_gamma: 1 leaves the colour, higher is brighter (a smaller exponent),
+    // clamped to the slider's 0.1 .. 2.0.
+    CHECK(near(gammaExponent(1.0f), 1.0f));
+    CHECK(near(gammaExponent(2.0f), 0.5f));
+    CHECK(near(gammaExponent(0.5f), 2.0f));
+    CHECK(near(gammaExponent(5.0f), 0.5f));
+    CHECK(near(gammaExponent(0.0f), 10.0f));
+    CHECK(near(gammaExponent(-1.0f), 10.0f));
+    CHECK(near(gammaExponent(std::numeric_limits<float>::quiet_NaN()), 1.0f));
+    CHECK(std::pow(0.5f, gammaExponent(1.5f)) > 0.5f); // brighter mid grey
+    {
+        realms::Engine engine;
+        realms::EngineConfig cfg;
+        cfg.backend = realms::BackendPreference::Native;
+        CHECK(engine.init(cfg));
+        realms::sandbox::registerSharedCvars(engine, "fov-test");
+        CHECK(engine.hasCvar("vid_gamma") && (engine.cvarFlags("vid_gamma") & REALMS_CVAR_ARCHIVE));
+        CHECK(near(engine.cvarFloat("vid_gamma", 0.0f), 1.0f));
+        engine.executeNow("vid_gamma 1.3");
+        CHECK(near(gammaExponent(engine.cvarFloat("vid_gamma", 1.0f)), 1.0f / 1.3f));
+        engine.shutdown();
+    }
 
     std::printf("view_fov: %d/%d checks passed\n", gChecks - gFailures, gChecks);
     return gFailures ? 1 : 0;

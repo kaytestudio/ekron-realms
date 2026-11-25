@@ -56,6 +56,7 @@ uniform vec3 ambientColor;
 uniform int dlightCount;
 uniform vec4 dlights[32];
 uniform vec4 dlightColors[32];
+uniform float viewGamma; // realms/ViewGamma.h
 out vec4 outColor;
 void main(){
  vec4 s=textured?texture(skin,texUV):vec4(1.0);
@@ -78,7 +79,7 @@ void main(){
  float d=max(length(toEye)-22.0,0.0);
  float fog=1.0-exp(-d*d*.00022);
  vec3 fogColor=pow(vec3(.56,.61,.63),vec3(2.2));
- outColor=vec4(pow(max(mix(c,fogColor,fog),vec3(0.0)),vec3(1.0/2.2)),alpha);
+ outColor=vec4(pow(max(mix(c,fogColor,fog),vec3(0.0)),vec3(viewGamma/2.2)),alpha);
 })";
 
 const char *effectVertex=R"(#version 300 es
@@ -108,6 +109,7 @@ const char *effectFragment=R"(#version 300 es
 precision highp float;
 in vec4 tint;
 in vec3 corner;
+uniform float viewGamma; // realms/ViewGamma.h
 out vec4 outColor;
 void main(){
  float a=tint.a;
@@ -116,7 +118,7 @@ void main(){
   if(r>1.0)discard;
   a*=1.0-smoothstep(.55,1.0,r);
  }
- outColor=vec4(tint.rgb,a);
+ outColor=vec4(pow(max(tint.rgb,vec3(0.0)),vec3(viewGamma)),a);
 })";
 
 GLuint compile(GLenum type, const char *text) {
@@ -164,6 +166,7 @@ void setCamera(GLuint p, const Quake2Gles::Camera &c) {
     glUniform1f(glGetUniformLocation(p, "cameraRoll"), c.roll);
     glUniform1f(glGetUniformLocation(p, "aspect"), c.aspect);
     glUniform1f(glGetUniformLocation(p, "focal"), c.focal);
+    glUniform1f(glGetUniformLocation(p, "viewGamma"), c.gamma);
 }
 
 } // namespace
