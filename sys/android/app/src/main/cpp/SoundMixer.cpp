@@ -80,6 +80,13 @@ int Mixer::findClip(const std::string &name) const {
     return -1;
 }
 
+void Mixer::dropClip(int clip) {
+    auto empty = std::make_shared<Clip>();
+    empty->pcm = std::make_shared<const Pcm>();
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (clip >= 0 && size_t(clip) < clips_.size()) clips_[size_t(clip)] = std::move(empty);
+}
+
 int Mixer::clipCount() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return int(clips_.size());
@@ -119,6 +126,7 @@ float safePitch(float pitch) { return std::isfinite(pitch) ? std::clamp(pitch, 0
 VoiceId Mixer::play(int clip, const PlayParams &params) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (clip < 0 || size_t(clip) >= clips_.size()) return 0;
+    if (!clips_[size_t(clip)]->ogg && clips_[size_t(clip)]->frames <= 0) return 0; // dropped
     auto voice = std::make_unique<Voice>();
     voice->clip = clips_[size_t(clip)];
     if (voice->clip->ogg) {

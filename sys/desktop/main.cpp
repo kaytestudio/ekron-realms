@@ -2015,12 +2015,17 @@ int main(int argc, char **argv)
         // Sound: the listener is the camera (the drone while piloting it).
         sound.syncCvars(engine);
         if (mapMode.active()) {
+            // Quake 2's CD track (music/trackNN.ogg), playing on with the menu open
+            gameSound.music(engine, sound.mixer(), mapMode.quake2().cdTrack());
+            sound.director().gameMusic = gameSound.musicPlaying(sound.mixer());
             sound.director().map(ekron::audio::mapFrame(!pauseOpen, engine, mapMode.walker(), world.yaw), dt, sound);
             // the game's own sounds, the effects' and the entity loops
             std::vector<realms::GameEvent> gameSounds = mapMode.takeGameSounds();
             if (pauseOpen) gameSound.stop(sound.mixer());
             else gameSound.update(engine, sound.mixer(), gameSounds, mapMode.loopSounds(), mapMode.listener(), dt);
         } else {
+            if (gameSound.musicTrack()) gameSound.stopMusic(sound.mixer());
+            sound.director().gameMusic = false;
             ekron::audio::Listener ear;
             const physics::Vec3 earAt = drone.piloting() ? drone.camera() : physics::Vec3{world.x, world.y, world.z};
             ear.x = earAt.x;
@@ -2589,6 +2594,7 @@ int main(int argc, char **argv)
     }
 
     gameSound.stop(sound.mixer());
+    gameSound.stopMusic(sound.mixer());
     audio.close();
     sound.unregisterCommands(engine);
     droneModel.release(gl);

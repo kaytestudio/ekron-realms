@@ -88,6 +88,49 @@ void GameSoundPlayer::stop(Mixer &mixer) {
     scheduler_.clear();
 }
 
+std::vector<std::string> GameSoundPlayer::musicFiles(int track) {
+    std::vector<std::string> out;
+    if (track < 2 || track > 99) return out;
+    char n[8];
+    std::snprintf(n, sizeof(n), "%02d", track);
+    out.push_back(std::string("music/track") + n + ".ogg");
+    out.push_back(std::string("music/Track") + n + ".ogg");
+    out.push_back(std::string("music/") + n + ".ogg");
+    return out;
+}
+
+void GameSoundPlayer::music(realms::Engine &engine, Mixer &mixer, int track) {
+    if (track < 0) track = 0;
+    if (track == musicTrack_) return;
+    stopMusic(mixer);
+    musicTrack_ = track;
+    for (const std::string &name : musicFiles(track)) {
+        std::vector<unsigned char> bytes;
+        if (!engine.loadFile(name, bytes)) continue;
+        musicClip_ = mixer.addStream("q2music:" + name, std::move(bytes));
+        if (musicClip_ < 0) {
+            engine.print("music: " + name + " is not an Ogg Vorbis file\n");
+            return;
+        }
+        PlayParams params;
+        params.loop = true; // CDAudio_Play(track, true)
+        params.bus = Bus::Music;
+        params.fadeIn = 1.0f;
+        musicVoice_ = mixer.play(musicClip_, params);
+        engine.print("music: " + name + "\n", REALMS_PRINT_DEVELOPER);
+        return;
+    }
+    if (track >= 2) engine.print("music: no file for track " + std::to_string(track) + "\n", REALMS_PRINT_DEVELOPER);
+}
+
+void GameSoundPlayer::stopMusic(Mixer &mixer) {
+    if (musicVoice_) mixer.stop(musicVoice_, 1.0f);
+    if (musicClip_ >= 0) mixer.dropClip(musicClip_); // the fading voice keeps its own copy
+    musicVoice_ = 0;
+    musicClip_ = -1;
+    musicTrack_ = 0;
+}
+
 std::string GameSoundPlayer::summary() const {
     size_t loaded = 0, missing = 0;
     for (const auto &kv : clips_) (kv.second >= 0 ? loaded : missing)++;

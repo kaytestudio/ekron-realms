@@ -90,6 +90,9 @@ public:
     float musicDelay = 25.0f;
     float musicGapMin = 150.0f, musicGapMax = 300.0f;
     void startMusicNow() { musicTimer_ = 0.0f; }
+    // The game plays its own music (Quake 2's CD track): the city's fades
+    // out and waits until it ends.
+    bool gameMusic = false;
 
     // Spatial gain / pan of a sound at (x, y, z) heard from `l`.
     static float distanceGain(const Listener &l, float x, float y, float z);

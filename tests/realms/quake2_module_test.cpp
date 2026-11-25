@@ -256,7 +256,7 @@ bsp_builder::MapDef arena() {
     door.brushes = {{{0, -64, 0}, {16, 64, 128}, REALMS_CONTENTS_SOLID, 2}};
     def.inlineModels.push_back(door);
     def.entities = "{\n\"classname\" \"worldspawn\"\n\"message\" \"Realms module arena\"\n\"sky\" \"testsky_\"\n"
-                   "\"skyrotate\" \"90\"\n\"skyaxis\" \"0 0 1\"\n}\n"
+                   "\"skyrotate\" \"90\"\n\"skyaxis\" \"0 0 1\"\n\"sounds\" \"7\"\n}\n"
                    "{\n\"classname\" \"info_player_start\"\n\"origin\" \"-320 0 24\"\n\"angle\" \"0\"\n}\n"
                    "{\n\"classname\" \"item_armor_shard\"\n\"origin\" \"-160 0 16\"\n}\n"
                    "{\n\"classname\" \"func_door\"\n\"model\" \"*1\"\n\"angle\" \"-1\"\n\"speed\" \"200\"\n}\n";
@@ -323,6 +323,7 @@ void moduleWithoutGame(realms::Engine &engine) {
     q2.open(engine, geometry, config, why);
     CHECK(why.empty());
     CHECK(!q2.gameRunning() && q2.game() == nullptr);
+    CHECK(q2.cdTrack() == 0); // no game, no music
     CHECK(q2.lightmapped());
     CHECK(q2.lighting().width() > 0 && q2.lighting().height() > 0);
     CHECK(q2.lightmap().size() == size_t(q2.lighting().width()) * size_t(q2.lighting().height()) * 4);
@@ -673,6 +674,7 @@ void viewWithGame(realms::Engine &engine) {
     std::printf("[module] game: %s\n", view.module().game()->moduleOrigin().c_str());
     CHECK(view.session().summary().find(", game") != std::string::npos);
     realms::Quake2Module &q2 = view.module();
+    CHECK(q2.cdTrack() == 7); // worldspawn "sounds" -> CS_CDTRACK
     CHECK(q2.status() == "HP 100  Armor 0  Ammo 0" || q2.status().rfind("HP 100  Armor 0", 0) == 0);
     // the walker mirrors the game's player: spawn + 9 + 1, eye 22 above
     const realms::MapWalker &w = view.session().walker();

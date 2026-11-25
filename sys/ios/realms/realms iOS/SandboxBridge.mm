@@ -805,11 +805,14 @@ public:
         drawEffects(encoder, p, device);
     }
 
+    // Quake 2's CD track is playing (the city's music waits).
+    bool musicPlaying() const { return mixer_ && sound_.musicPlaying(*mixer_); }
     // Quake 2 sounds on the sandbox mixer; silent while paused.
     void playSounds(realms::Engine &engine, ekron::audio::Mixer &mixer, double dt, bool paused) {
         mixer_ = &mixer;
         realms::Quake2Module &q2 = view_->module();
         std::vector<realms::GameEvent> sounds = q2.takeSounds();
+        sound_.music(engine, mixer, q2.cdTrack()); // Quake 2's CD track, on through the pause
         if (paused || !q2.gameRunning()) {
             sound_.stop(mixer);
             return;
@@ -840,7 +843,10 @@ private:
         count_ = 0;
         ranges_.clear();
         skins_.clear();
-        if (mixer_) sound_.stop(*mixer_);
+        if (mixer_) {
+            sound_.stop(*mixer_);
+            sound_.stopMusic(*mixer_);
+        }
         reuseCity_ = false;
         cityScale_ = 1.0f;
         cityOffset_ = {};
@@ -2616,6 +2622,7 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
         ear.y = cameraEye.y;
         ear.z = cameraEye.z;
         ear.yaw = cameraYaw;
+        sound.director().gameMusic = false;
         sound.director().sandbox(ekron::audio::sandboxFrame(gameplayReady_ && cityModel_.ready(), ear, world_, tools_,
                                                             drone_, player_, seatedCar_, flying_,
                                                             droneThrottle_.load()),
@@ -3060,6 +3067,7 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
     if (gSoundHeard) {
         auto &sound = IosSound();
         sound.syncCvars(engine);
+        sound.director().gameMusic = mapMode_.musicPlaying();
         sound.director().map(ekron::audio::mapFrame(gameplayReady_, engine, mapMode_.session().walker(), mapYaw_), dt,
                              sound);
     }
