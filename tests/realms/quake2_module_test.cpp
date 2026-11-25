@@ -11,6 +11,7 @@
 #include "Quake2View.h"
 
 #include "realms/Engine.h"
+#include "realms/GameDemo.h"
 #include "realms/GameHudCanvas.h"
 #include "realms/GameSave.h"
 #include "realms/SandboxBoot.h"
@@ -431,6 +432,178 @@ void moduleWithoutGame(realms::Engine &engine) {
     q2.open(engine, geometry, plain, why);
     CHECK(q2.textures().empty() && q2.sky().empty() && q2.lightmapped());
     q2.close();
+}
+
+bool consoleHas(const realms::Engine &engine, const std::string &text) {
+    for (const realms::ConsoleLine &l : engine.console())
+        if (l.text.find(text) != std::string::npos) return true;
+    return false;
+}
+
+// A demo made here (no game module needed) played back through Quake2View:
+// "demomap" loads its map, the view plays it at the recorded pace, the
+// camera follows the recorded player, then the map is walked again.
+void demoWithoutGame(realms::Engine &engine) {
+    realms::sandbox::registerMapCommands(engine);
+    const std::string mapPath = engine.mapPath();
+    CHECK(mapPath == "maps/arena.bsp");
+    RealmsMapInfo info{};
+    CHECK(engine.mapInfo(info));
+    {
+        realms::GameDemoWriter w;
+        realms::GameDemoHeader header;
+        header.mapPath = mapPath;
+        header.mapChecksum = info.checksum;
+        std::string error;
+        CHECK(w.open(realms::gameDemoPath(engine, "synthetic"), header, error));
+        // the door (model 1) rises 8 units a server frame; the player walks
+        // +X and turns 3 degrees a frame
+        for (int i = 0; i <= 10; i++) {
+            realms::GameSnapshot s;
+            s.running = true;
+            s.frameNumber = 1 + i;
+            s.hasPlayer = true;
+            s.player.viewangles[0] = 10.0f;
+            s.player.viewangles[1] = 30.0f + 3.0f * float(i);
+            s.player.viewoffset[2] = 22.0f;
+            s.player.fov = 90.0f;
+            s.player.stats[Q2_STAT_HEALTH] = 100 - i;
+            s.playerOrigin = {-320.0f + 10.0f * float(i), 0.0f, 34.0f};
+            s.entitiesChanged = true;
+            realms::GameRenderEntity door;
+            door.number = 2;
+            door.modelindex = 2;
+            door.model = "*1";
+            door.inlineModel = 1;
+            door.origin = {0.0f, 0.0f, 8.0f * float(i)};
+            door.oldOrigin = door.origin;
+            door.solid = 3;
+            s.entities = {door};
+            if (i == 0) {
+                s.configStrings = {{Q2_CS_NAME, "Synthetic"},
+                                   {Q2_CS_CDTRACK, "7"},
+                                   {Q2_CS_MODELS + 1, mapPath},
+                                   {Q2_CS_MODELS + 2, "*1"}};
+                realms::GameEvent print;
+                print.kind = realms::GameEvent::Kind::Print;
+                print.text = "hello from the demo\n";
+                realms::GameEvent sound;
+                sound.kind = realms::GameEvent::Kind::Sound;
+                sound.text = "sound/world/klaxon2.wav";
+                s.events = {print, sound};
+            }
+            CHECK(w.write(s, i == 0 ? 0.0f : 0.1f));
+        }
+    }
+
+    // no game, no demo: nothing to record, nothing to stop
+    engine.clearConsole();
+    {
+        realms::Quake2Module idle; // registers record / stop
+        realms::MapGeometry g;
+        std::string why;
+        CHECK(realms::loadMapGeometry(engine, g, why));
+        realms::Quake2ModuleConfig config;
+        config.startGame = false;
+        idle.open(engine, g, config, why);
+        engine.exec("record nogame\n");
+        CHECK(consoleHas(engine, "record: You must be in a level to record."));
+        CHECK(!idle.recording() && !std::filesystem::exists(realms::gameDemoPath(engine, "nogame")));
+        engine.exec("stop\n");
+        CHECK(consoleHas(engine, "Not recording a demo."));
+        engine.exec("record\n");
+        CHECK(consoleHas(engine, "USAGE: record <demoname>"));
+    }
+
+    // demomap's mistakes leave the cvar alone
+    engine.exec("demomap nosuch\n");
+    CHECK(consoleHas(engine, "demomap: can't find demos/nosuch.ekd"));
+    engine.exec("demomap ../up\n");
+    CHECK(consoleHas(engine, "demomap: bad demo name \"../up\""));
+    CHECK(engine.cvarString(realms::kGameDemoCvar, "").empty());
+
+    engine.exec("demomap synthetic\n");
+    CHECK(engine.mapLoaded() && engine.mapPath() == mapPath);
+    CHECK(engine.cvarString(realms::kGameDemoCvar, "") == "demos/synthetic.ekd");
+    mapview::Quake2View view;
+    mapview::Quake2ViewOptions options;
+    options.startGame = false; // no game module needed to play a demo
+    realms::MapGeometry geometry;
+    std::string error;
+    CHECK(view.open(engine, options, geometry, error));
+    realms::Quake2Module &q2 = view.module();
+    CHECK(engine.cvarString(realms::kGameDemoCvar, "").empty()); // used up
+    CHECK(q2.demoPlaying() && view.gameRunning() && q2.game() == nullptr);
+    CHECK(view.session().summary().find(", demo") != std::string::npos);
+    CHECK(consoleHas(engine, "playing demo demos/synthetic.ekd"));
+    CHECK(consoleHas(engine, "hello from the demo")); // the demo's prints
+    CHECK(q2.cdTrack() == 7 && q2.client().configString(Q2_CS_NAME) == "Synthetic");
+    CHECK(q2.stats().health == 100);
+    bool klaxon = false;
+    for (const realms::GameEvent &e : q2.takeSounds()) klaxon |= e.text == "sound/world/klaxon2.wav";
+    CHECK(klaxon);
+    CHECK(view.modelPoses().size() == 2 && view.modelPoses()[1].visible);
+    // the camera is the recorded player's, whatever look the host passes
+    realms::Vec3 cam = view.cameraAngles(1.0f, 0.5f);
+    CHECK(near(cam[0], 10.0f, 1e-4f) && near(cam[1], 30.0f, 1e-4f) && near(cam[2], 0.0f, 1e-4f));
+    physics::Vec3 eye = view.eye();
+    CHECK(near(eye.x, -320.0f / 32.0f, 1e-3f) && near(eye.y, 56.0f / 32.0f, 1e-3f));
+    // input is ignored: the recorded player walks, not ours
+    realms::WalkInput back;
+    back.forward = -1.0f;
+    engine.exec("record during\n");
+    CHECK(consoleHas(engine, "record: can't record while a demo plays") && !q2.recording());
+
+    // half a second: the records due at 0.1 .. 0.5 s
+    view.update(engine, back, 2.0f, 0.0f, 0.25f, true);
+    view.update(engine, back, 2.0f, 0.0f, 0.25f, true);
+    CHECK(q2.demoPlaying() && q2.client().frameNumber() == 6 && q2.stats().health == 95);
+    cam = view.cameraAngles(1.0f, 0.5f);
+    CHECK(near(cam[1], 45.0f, 1e-4f));
+    eye = view.eye();
+    CHECK(near(eye.x, -270.0f / 32.0f, 1e-3f));
+    CHECK(near(view.session().walker().origin[0], -270.0f, 1e-3f)); // the walker follows
+    CHECK(view.modelPoses().size() == 2 && view.modelPoses()[1].transform[13] > 30.0f / 32.0f &&
+          view.modelPoses()[1].transform[13] < 41.0f / 32.0f); // risen 32 .. 40 units
+    // the rest, then the end: back to walking where the demo left off
+    for (int i = 0; i < 5; i++) view.update(engine, {}, 0.0f, 0.0f, 0.1f, false);
+    CHECK(q2.demoPlaying() && q2.client().frameNumber() == 11);
+    engine.clearConsole();
+    view.update(engine, {}, 0.0f, 0.0f, 0.1f, false);
+    CHECK(!q2.demoPlaying() && !view.gameRunning());
+    CHECK(consoleHas(engine, "Demo finished: 11 frames, 1.0 seconds."));
+    CHECK(view.modelPoses().empty() && q2.modelPoses().empty() && q2.status().empty());
+    CHECK(near(view.session().walker().origin[0], -220.0f, 1e-3f));
+    view.update(engine, {}, 0.0f, 0.0f, 0.1f, false); // walking
+    CHECK(!view.gameRunning());
+
+    // "stop" ends a playing demo too
+    engine.exec("demomap synthetic.ekd\n");
+    CHECK(view.open(engine, options, geometry, error) && q2.demoPlaying());
+    engine.exec("stop\n");
+    CHECK(!q2.demoPlaying() && consoleHas(engine, "Stopped demo playback."));
+
+    // a demo for another map is refused (the game starts as usual)
+    engine.forceSetCvar(realms::kGameDemoCvar, "demos/synthetic.ekd");
+    CHECK(engine.loadMap("maps/surfaces.bsp"));
+    CHECK(view.open(engine, options, geometry, error) && !q2.demoPlaying());
+    CHECK(consoleHas(engine, "demomap: demos/synthetic.ekd was recorded on maps/arena.bsp, not maps/surfaces.bsp"));
+    CHECK(engine.cvarString(realms::kGameDemoCvar, "").empty());
+    // a damaged one plays up to the damage
+    {
+        std::vector<unsigned char> bytes;
+        CHECK(engine.loadFile("demos/synthetic.ekd", bytes));
+        bytes.resize(bytes.size() - 3); // cut short in the last record
+        std::ofstream(realms::gameDemoPath(engine, "cut"), std::ios::binary)
+            .write(reinterpret_cast<const char *>(bytes.data()), std::streamsize(bytes.size()));
+    }
+    engine.clearConsole();
+    engine.exec("demomap cut\n");
+    CHECK(view.open(engine, options, geometry, error) && q2.demoPlaying());
+    for (int i = 0; i < 12 && q2.demoPlaying(); i++) view.update(engine, {}, 0.0f, 0.0f, 0.1f, false);
+    CHECK(!q2.demoPlaying() && consoleHas(engine, "Demo finished: 10 frames, 0.9 seconds."));
+    view.close();
+    CHECK(engine.loadMap(mapPath));
 }
 
 void viewWithoutGame(realms::Engine &engine) {
@@ -962,6 +1135,82 @@ void viewWithGame(realms::Engine &engine) {
     // the level copy and the build probes are gone
     CHECK(!std::filesystem::exists(std::filesystem::path(slot) / "load.sav") &&
           !std::filesystem::exists(std::filesystem::path(slot) / "probe.ssv"));
+    // Demos: "record" a walk (turning, firing), "stop", then "demomap" plays
+    // it back frame for frame: the same player, camera, door and HUD at
+    // every step, without the player's input.
+    step("record and play back");
+    if (view.gameRunning()) {
+        engine.clearConsole();
+        engine.exec("record walk1\n");
+        CHECK(q2.recording() && consoleHas(engine, "recording to demos/walk1.ekd."));
+        engine.exec("record walk2\n");
+        CHECK(consoleHas(engine, "record: Already recording."));
+        struct Frame {
+            realms::Vec3 origin, camera;
+            int health = 0, armor = 0;
+            size_t poses = 0;
+            float door = 0.0f;
+        };
+        auto frameNow = [&](float lookYaw, float lookPitch) {
+            Frame f;
+            f.origin = view.session().walker().origin;
+            f.camera = view.cameraAngles(lookYaw, lookPitch);
+            f.health = q2.stats().health;
+            f.armor = q2.stats().armor;
+            f.poses = view.modelPoses().size();
+            f.door = f.poses > 1 ? view.modelPoses()[1].transform[13] : 0.0f;
+            return f;
+        };
+        std::vector<Frame> recorded;
+        recorded.push_back(frameNow(yaw, 0.0f));
+        realms::WalkInput walk2;
+        walk2.forward = 1.0f;
+        walk2.right = 0.3f;
+        for (int i = 0; i < 20; i++) {
+            const float look = yaw + 0.02f * float(i);
+            view.update(engine, walk2, look, 0.0f, 0.05f, i % 5 == 0);
+            recorded.push_back(frameNow(look, 0.0f));
+        }
+        engine.exec("stop\n");
+        CHECK(!q2.recording() && consoleHas(engine, "Stopped demo: demos/walk1.ekd, 21 frames"));
+        CHECK(std::filesystem::exists(realms::gameDemoPath(engine, "walk1")));
+        view.close();
+
+        engine.exec("demomap walk1\n");
+        CHECK(engine.mapPath() == "maps/arena.bsp" && engine.cvarString(realms::kGameDemoCvar, "") == "demos/walk1.ekd");
+        CHECK(view.open(engine, options, geometry, error));
+        CHECK(q2.demoPlaying() && view.gameRunning() && q2.game() == nullptr);
+        auto same = [](const Frame &a, const Frame &b) {
+            bool s = a.health == b.health && a.armor == b.armor && a.poses == b.poses && near(a.door, b.door, 1e-4f);
+            for (size_t k = 0; k < 3; k++) {
+                // the game keeps its view angles in -180 .. 180 (SHORT2ANGLE)
+                const float turn = std::remainder(a.camera[k] - b.camera[k], 360.0f);
+                s = s && near(a.origin[k], b.origin[k], 1e-3f) && std::fabs(turn) <= 0.05f;
+            }
+            return s;
+        };
+        int matches = same(frameNow(yaw + 1.0f, 0.4f), recorded[0]) ? 1 : 0;
+        for (int i = 0; i < 20; i++) {
+            // other input, other look: ignored
+            view.update(engine, {}, yaw + 1.0f, 0.4f, 0.05f, true);
+            if (same(frameNow(yaw + 1.0f, 0.4f), recorded[size_t(i) + 1])) matches++;
+            else std::fprintf(stderr, "  playback frame %d differs\n", i + 1);
+        }
+        CHECK(matches == 21);
+        CHECK(q2.demoPlaying());
+        view.update(engine, {}, yaw, 0.0f, 0.05f, false);
+        CHECK(!q2.demoPlaying() && !view.gameRunning() && consoleHas(engine, "Demo finished: 21 frames, 1.0 seconds."));
+
+        // a map change stops a recording
+        view.close();
+        CHECK(view.open(engine, options, geometry, error) && view.gameRunning() && !q2.demoPlaying());
+        engine.exec("record walk3\n");
+        view.update(engine, {}, yaw, 0.0f, 0.05f, false);
+        CHECK(q2.recording());
+        view.close();
+        CHECK(!q2.recording() && consoleHas(engine, "Stopped demo: demos/walk3.ekd, 2 frames"));
+    }
+
     step("close");
     view.close();
     CHECK(!view.active() && !view.gameRunning());
@@ -1170,6 +1419,8 @@ int main(int argc, char **argv) {
     moduleWithoutGame(engine);
     step("view without game");
     viewWithoutGame(engine);
+    step("demo without game");
+    demoWithoutGame(engine);
     step("surface effects");
     surfaceEffects(engine);
 

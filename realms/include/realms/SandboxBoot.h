@@ -45,6 +45,8 @@ void registerSharedCvars(Engine &engine, const std::string &platform);
 //   killserver   unloads the map
 //   load <name>  loads a save game (GameSave.h): its map, then the game reads
 //                it back when it starts there
+//   demomap <name>  plays demos/<name>.ekd (GameDemo.h): its map, then
+//                Quake2Module plays the demo there instead of the game
 // Also registers map_mesh_scale (units per glTF metre, default 32) and
 // map_mesh_thickness (collision slab thickness, 0 = 2 units).
 void registerMapCommands(Engine &engine, MapChangedFn onChange = {});

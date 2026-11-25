@@ -112,7 +112,7 @@ jobs:
           run_test ekron-debug-test -O2 tests/native/debug_player_test.cpp
           run_test ekron-texture-test -O2 tests/native/texture_mesh_test.cpp
           run_test ekron-gltf-test -O1 tests/native/gltf_scene_test.cpp /tmp/ekron-GltfScene.o /tmp/ekron-ImageDecode.o
-          run_test realms-bridge-test -O2 -Irealms/include tests/realms/realms_bridge_test.cpp realms/src/Engine.cpp realms/src/NativeCore.cpp realms/src/NativeCModel.cpp realms/src/SandboxBoot.cpp realms/src/GameSave.cpp realms/src/MeshMap.cpp realms/src/MapGeometry.cpp realms/src/MapLighting.cpp realms/src/MapWalker.cpp
+          run_test realms-bridge-test -O2 -Irealms/include tests/realms/realms_bridge_test.cpp realms/src/Engine.cpp realms/src/NativeCore.cpp realms/src/NativeCModel.cpp realms/src/SandboxBoot.cpp realms/src/GameSave.cpp realms/src/GameDemo.cpp realms/src/MeshMap.cpp realms/src/MapGeometry.cpp realms/src/MapLighting.cpp realms/src/MapWalker.cpp
 
           if [ "${#failed[@]}" -ne 0 ]; then
             echo "::error title=native tests::${#failed[@]} failing: ${failed[*]}"
@@ -183,7 +183,7 @@ jobs:
           }
           tail -n 2 /tmp/pascal-static.log
           if ! clang++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic -Irealms/include -DREALMS_PASCAL_STATIC \
-            tests/realms/realms_bridge_test.cpp realms/src/Engine.cpp realms/src/NativeCore.cpp realms/src/NativeCModel.cpp realms/src/SandboxBoot.cpp realms/src/GameSave.cpp realms/src/MeshMap.cpp realms/src/MapGeometry.cpp realms/src/MapLighting.cpp realms/src/MapWalker.cpp \
+            tests/realms/realms_bridge_test.cpp realms/src/Engine.cpp realms/src/NativeCore.cpp realms/src/NativeCModel.cpp realms/src/SandboxBoot.cpp realms/src/GameSave.cpp realms/src/GameDemo.cpp realms/src/MeshMap.cpp realms/src/MapGeometry.cpp realms/src/MapLighting.cpp realms/src/MapWalker.cpp \
             build/realms-macos-static/librealms_core.a -Wl,-no_fixup_chains -o /tmp/realms-bridge-static > /tmp/realms-static-link.log 2>&1; then
             cat /tmp/realms-static-link.log
             echo "::error title=Pascal static core (link)::$(grep -v '^ *$' /tmp/realms-static-link.log | head -n 24 | tr '\n' ' ' | cut -c1-2000)"
@@ -209,7 +209,7 @@ jobs:
           nm -gU build/realms-macos-static/librealms_game.a
           if ! clang++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic -Irealms/include -Itests/realms -I$S -DREALMS_PASCAL_STATIC -DREALMS_GAME_STATIC \
             tests/realms/quake2_module_test.cpp $S/Quake2View.cpp $S/MapSession.cpp \
-            realms/src/Engine.cpp realms/src/NativeCore.cpp realms/src/NativeCModel.cpp realms/src/SandboxBoot.cpp realms/src/GameSave.cpp realms/src/MeshMap.cpp realms/src/MapGeometry.cpp realms/src/MapLighting.cpp realms/src/MapWalker.cpp \
+            realms/src/Engine.cpp realms/src/NativeCore.cpp realms/src/NativeCModel.cpp realms/src/SandboxBoot.cpp realms/src/GameSave.cpp realms/src/GameDemo.cpp realms/src/MeshMap.cpp realms/src/MapGeometry.cpp realms/src/MapLighting.cpp realms/src/MapWalker.cpp \
             realms/src/Q2Pmove.cpp realms/src/GameServer.cpp realms/src/GameClient.cpp realms/src/GameView.cpp realms/src/GameEffects.cpp realms/src/GameSound.cpp realms/src/GameLayout.cpp realms/src/GameHudCanvas.cpp realms/src/Md3Model.cpp realms/src/Image.cpp realms/src/MapSky.cpp realms/src/MapTextures.cpp realms/src/Quake2Module.cpp \
             build/realms-macos-static/librealms_core.a build/realms-macos-static/librealms_game.a -Wl,-no_fixup_chains \
             -o /tmp/realms-quake2-static > /tmp/realms-q2-link.log 2>&1; then

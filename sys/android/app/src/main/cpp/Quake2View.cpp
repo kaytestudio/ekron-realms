@@ -129,7 +129,11 @@ bool Quake2View::open(realms::Engine &engine, const Quake2ViewOptions &options, 
     config.startGame = options.startGame;
     std::string why;
     q2_.open(engine, geometry, config, why);
-    if (q2_.gameRunning()) {
+    if (q2_.demoPlaying()) {
+        session_.summary() += ", demo";
+        q2_.mirrorPlayer(session_.walker());
+        syncPoses();
+    } else if (q2_.gameRunning()) {
         session_.summary() += ", game";
         engine.print("map: Quake 2 game running (" + q2_.game()->moduleOrigin() + "); " +
                      std::to_string(q2_.game()->numEdicts()) + " edicts\n");

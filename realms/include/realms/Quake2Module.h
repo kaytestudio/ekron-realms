@@ -6,6 +6,7 @@
 
 #include "realms/Engine.h"
 #include "realms/GameClient.h"
+#include "realms/GameDemo.h"
 #include "realms/GameEffects.h"
 #include "realms/GameLayout.h"
 #include "realms/GameServer.h"
@@ -61,11 +62,15 @@ public:
     // why the game isn't running ("" when it is, or wasn't wanted).
     void open(Engine &engine, const MapGeometry &geometry, const Quake2ModuleConfig &config, std::string &why);
     void close();
-    // Restarts the game on the same map (respawn); false + why on failure.
+    // Restarts the game on the same map (respawn; it ends a playing demo);
+    // false + why on failure.
     bool restartGame(Engine &engine, std::string &why);
 
     // ---- game
+    // The game or a demo runs: there is a game to draw and play. Everything
+    // below reads the client (client()), so it works the same for both.
     bool gameRunning() const;
+    // The server, while the game itself runs (nullptr during a demo).
     const GameServer *game() const;
     GameServer *game();
     // The client's state (realms/GameClient.h): what the sandbox draws and
@@ -136,6 +141,23 @@ public:
     // A Quake 2 client command for the game ("inven", "invnext", "invuse"...).
     void clientCommand(const std::string &line);
 
+    // ---- demos (realms/GameDemo.h)
+    // Quake 2's "record <name>": what the client gets from now on goes to
+    // <writable root>/demos/<name>.ekd, starting with everything it holds.
+    // Only while the game runs (not during a demo); false + why.
+    bool startRecording(Engine &engine, const std::string &name, std::string &why);
+    // "stop": closes the demo file ("Stopped demo: ..." on the console);
+    // false when not recording. A map change or the game stopping stops it too.
+    bool stopRecording();
+    bool recording() const { return recorder_.isOpen(); }
+    // A demo plays instead of the game: open() plays the one demomap named
+    // (the NOSET cvar kGameDemoCvar) on its map. Records are applied at
+    // the pace they were recorded (frame()'s dt); the walker and the
+    // player's look are ignored and the camera follows the recorded player.
+    // At its end (or stopDemo) the map is walked as without a game.
+    bool demoPlaying() const { return demo_ != nullptr; }
+    void stopDemo();
+
     // ---- drawing (map space)
     // Indexed by inline model number (0 unused); empty without a game.
     const std::vector<Quake2ModelPose> &modelPoses() const { return poses_; }
@@ -182,14 +204,31 @@ public:
     bool lightAt(const Vec3 &point, std::array<float, 3> &rgb) const;
 
 private:
+    bool serverRunning() const { return game_ && game_->running(); }
     bool startGame(Engine &engine, std::string &why);
-    void sync();
+    bool startDemo(Engine &engine, const std::string &file, std::string &why);
+    void advanceDemo(double dt);
+    void finishDemo();
+    void resetClientSide();
+    // The server's snapshot for this frame: recorded, then received.
+    void sync(float seconds);
+    // One snapshot (from the server or a demo) into the client, then
+    // everything the module derives from it brought up to date.
+    void receive(GameSnapshot snapshot);
     MapLightStyles currentLightStyles() const;
     bool lightAt(const Vec3 &point, const std::vector<GameDynamicLight> &dlights, std::array<float, 3> &rgb) const;
 
     std::string executableDir_;
+    Engine *engine_ = nullptr; // open()'s, for console messages
     std::unique_ptr<GameServer> game_;
     GameClient client_;
+    GameDemoWriter recorder_;
+    std::unique_ptr<GameDemoReader> demo_;
+    GameSnapshot demoNext_;   // read, not yet due
+    bool demoHasNext_ = false;
+    bool demoAtEnd_ = false;  // nothing more to read: the demo ends next frame
+    double demoClock_ = 0.0;  // seconds played
+    double demoDue_ = 0.0;    // when demoNext_ is due
     std::string failure_;
     std::vector<Quake2ModelPose> poses_;
     std::vector<std::string> messages_;
