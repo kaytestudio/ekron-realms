@@ -687,6 +687,12 @@ public:
     realms::Quake2Module::PlayerStats stats() const { return view_->module().stats(); }
     // The focal length map mode draws with: from the game's fov, or the fov
     // cvar without a game (realms/ViewFov.h).
+    // The camera the map is drawn with: the player's look plus the game's
+    // view kick, or its death view (mapview::Quake2View::drawAngles).
+    mapview::Quake2View::DrawAngles drawAngles(float renderYaw, float renderPitch) const {
+        if (!view_) return {renderYaw, renderPitch, 0.0f};
+        return view_->drawAngles(renderYaw, renderPitch);
+    }
     float focalLength(const realms::Engine &engine) const {
         return realms::mapFocalLength(view_ ? view_->module().viewFov(engine) : 90.0f);
     }
@@ -3090,11 +3096,12 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
     id<MTLRenderCommandEncoder> encoder = [commandBuffer renderCommandEncoderWithDescriptor:passDesc];
     if (encoder) {
         const std::array<float, 9> skyMatrix = mapMode_.skyMatrix();
+        const mapview::Quake2View::DrawAngles camera = mapMode_.drawAngles(mapYaw_, mapPitch_); // + the view kick
         [self encodeSceneSetup:encoder
                      cameraEye:mapMode_.drawEye()
-                           yaw:mapYaw_
-                         pitch:mapPitch_
-                          roll:0.0f
+                           yaw:camera.yaw
+                         pitch:camera.pitch
+                          roll:camera.roll
                         aspect:aspect
                          focal:mapMode_.focalLength(engine)
                         skyBox:mapMode_.skyTexture()

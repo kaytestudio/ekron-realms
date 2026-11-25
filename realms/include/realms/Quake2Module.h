@@ -76,8 +76,14 @@ public:
     // always-run speeds (cl_forwardspeed / cl_sidespeed / cl_upspeed 200, x2).
     static GameUserCmd userCmd(const WalkInput &mapInput, bool attack);
 
+    // The view the client draws (CL_CalcViewValues): the player's origin plus
+    // the interpolated ps.viewoffset (view height, bob, fall).
     Vec3 viewOrigin() const;
-    Vec3 viewAngles() const;
+    Vec3 viewAngles() const; // the server's: ps.viewangles + kick_angles
+    // The camera's angles (Quake 2 degrees) for the player's `look`: plus the
+    // interpolated kick angles (weapon kick, damage, fall, run and bob pitch
+    // and roll), or the game's death view while dead. `look` without a game.
+    Vec3 cameraAngles(const Vec3 &look) const;
     bool noclip() const;
     void toggleNoclip();
     // The walker mirrors the game's player (HUD, sound director, saves).

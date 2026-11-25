@@ -19,6 +19,7 @@ layout(location=2) in vec2 uv;
 uniform mat4 objectTransform;
 uniform vec3 eye;
 uniform vec2 angles;
+uniform float cameraRoll;
 uniform float aspect;
 uniform float focal;
 out vec3 worldNormal;
@@ -29,6 +30,7 @@ void main(){
  float cy=cos(angles.x),sy=sin(angles.x),cp=cos(angles.y),sp=sin(angles.y);
  vec3 q=vec3(cy*p.x-sy*p.z,p.y,sy*p.x+cy*p.z);
  q=vec3(q.x,cp*q.y+sp*q.z,-sp*q.y+cp*q.z);
+ q.xy=mat2(cos(cameraRoll),sin(cameraRoll),-sin(cameraRoll),cos(cameraRoll))*q.xy;
  float f=focal;
  gl_Position=vec4(q.x*f/aspect,q.y*f,-1.001334*q.z-.200134,-q.z);
  worldNormal=mat3(objectTransform)*normal;texUV=uv;toEye=p;
@@ -85,6 +87,7 @@ layout(location=1) in vec4 color;
 layout(location=2) in vec3 shape;
 uniform vec3 eye;
 uniform vec2 angles;
+uniform float cameraRoll;
 uniform float aspect;
 uniform float focal;
 out vec4 tint;
@@ -94,6 +97,7 @@ void main(){
  float cy=cos(angles.x),sy=sin(angles.x),cp=cos(angles.y),sp=sin(angles.y);
  vec3 q=vec3(cy*p.x-sy*p.z,p.y,sy*p.x+cy*p.z);
  q=vec3(q.x,cp*q.y+sp*q.z,-sp*q.y+cp*q.z);
+ q.xy=mat2(cos(cameraRoll),sin(cameraRoll),-sin(cameraRoll),cos(cameraRoll))*q.xy;
  float f=focal;
  gl_Position=vec4(q.x*f/aspect,q.y*f,-1.001334*q.z-.200134,-q.z);
  tint=color;corner=shape;
@@ -157,6 +161,7 @@ GLuint program(const char *vs, const char *fs) {
 void setCamera(GLuint p, const Quake2Gles::Camera &c) {
     glUniform3f(glGetUniformLocation(p, "eye"), c.eye.x, c.eye.y, c.eye.z);
     glUniform2f(glGetUniformLocation(p, "angles"), c.yaw, c.pitch);
+    glUniform1f(glGetUniformLocation(p, "cameraRoll"), c.roll);
     glUniform1f(glGetUniformLocation(p, "aspect"), c.aspect);
     glUniform1f(glGetUniformLocation(p, "focal"), c.focal);
 }

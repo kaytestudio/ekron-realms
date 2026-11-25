@@ -716,8 +716,18 @@ void viewWithGame(realms::Engine &engine) {
     bool picked = false, pickupSound = false, styleChanged = false, doorMoved = false;
     CHECK(q2.stats().blend[3] == 0.0f); // dry and unhurt: no screen blend
     std::array<float, 4> pickupBlend{};
+    // the view kick (p_view.c SV_CalcViewOffset: run_pitch, bob_pitch,
+    // bob_roll): the camera tilts while walking, drawn as it is computed
+    constexpr float d2r = 3.14159265358979f / 180.0f;
+    float maxKick = 0.0f;
+    bool kickDrawn = true;
     for (int i = 0; i < 40; i++) {
         view.update(engine, in, yaw, 0.0f, 0.05f, false);
+        const realms::Vec3 cam = view.cameraAngles(yaw, 0.0f);
+        maxKick = std::max(maxKick, std::fabs(cam[0]) + std::fabs(cam[2]));
+        const mapview::Quake2View::DrawAngles drawn = view.drawAngles(yaw, 0.0f);
+        kickDrawn &= near(drawn.pitch, -cam[0] * d2r, 1e-4f) && near(drawn.roll, cam[2] * d2r, 1e-4f) &&
+                     near(drawn.yaw, mapview::renderYawFromMap(cam[1]), 1e-4f);
         // the pickup flash: bonus_alpha 0.25 in Touch_Item, SV_AddBlend (0.85, 0.7, 0.3) in p_view.c
         if (const std::array<float, 4> b = q2.stats().blend; b[3] > pickupBlend[3]) pickupBlend = b;
         for (const std::string &m : view.takeMessages()) picked |= m == "Armor Shard";
@@ -727,6 +737,8 @@ void viewWithGame(realms::Engine &engine) {
     }
     CHECK(picked);
     CHECK(pickupSound);
+    CHECK(maxKick > 0.1f && maxKick < 15.0f);
+    CHECK(kickDrawn);
     CHECK(styleChanged); // style 1 flickers (worldspawn's CS_LIGHTS + 1)
     CHECK(doorMoved);    // the door rises (render +Y) as the game moves it
     CHECK(view.session().walker().origin[0] > -250.0f);
@@ -873,6 +885,14 @@ void viewWithGame(realms::Engine &engine) {
     engine.exec("kill\n");
     for (int i = 0; i < 3; i++) view.update(engine, {}, yaw, 0.0f, 0.1f, false);
     CHECK(q2.stats().health <= 0);
+    // the death view (SV_CalcViewOffset): roll 40, pitch -15, whatever the
+    // player's look, no kick
+    {
+        const realms::Vec3 dead = view.cameraAngles(yaw + 1.0f, 0.5f);
+        CHECK(near(dead[2], 40.0f, 0.01f) && near(dead[0], -15.0f, 0.01f));
+        const mapview::Quake2View::DrawAngles drawn = view.drawAngles(yaw + 1.0f, 0.5f);
+        CHECK(near(drawn.roll, 40.0f * d2r, 1e-3f) && near(drawn.pitch, 15.0f * d2r, 1e-3f));
+    }
     std::string refused;
     CHECK(!q2.game()->saveGame("dead", refused) && refused == "Can't savegame while dead!");
     CHECK(!realms::gameSaveComplete(realms::gameSaveDir(engine, "dead")));

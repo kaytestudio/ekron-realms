@@ -67,6 +67,12 @@ public:
               float renderPitch, float aspect);
     // The focal length map mode draws with (the "focal" uniform): from the
     // game's fov, or the fov cvar without a game (realms/ViewFov.h).
+    // The camera the map is drawn with: the player's look plus the game's
+    // view kick, or its death view (mapview::Quake2View::drawAngles).
+    mapview::Quake2View::DrawAngles drawAngles(float renderYaw, float renderPitch) const {
+        if (!view_) return {renderYaw, renderPitch, 0.0f};
+        return view_->drawAngles(renderYaw, renderPitch);
+    }
     float focalLength(const realms::Engine &engine) const {
         return realms::mapFocalLength(view_ ? view_->module().viewFov(engine) : 90.0f);
     }
