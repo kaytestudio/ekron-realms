@@ -190,8 +190,12 @@ extern "C" JNIEXPORT void JNICALL Java_com_example_realms_MainActivity_nativeMov
  stickForward=gameplayReady&&std::isfinite(forward)?std::clamp(forward,-1.f,1.f):0;
 }
 
-extern "C" JNIEXPORT void JNICALL Java_com_example_realms_MainActivity_nativeDrive(JNIEnv*,jobject,jfloat steer,jfloat throttle){
+// Left stick owns the throttle, right stick owns the steering; separate axes
+// so the two sticks never overwrite each other.
+extern "C" JNIEXPORT void JNICALL Java_com_example_realms_MainActivity_nativeDriveSteer(JNIEnv*,jobject,jfloat steer){
  driveSteer=gameplayReady&&std::isfinite(steer)?std::clamp(steer,-1.f,1.f):0;
+}
+extern "C" JNIEXPORT void JNICALL Java_com_example_realms_MainActivity_nativeDriveThrottle(JNIEnv*,jobject,jfloat throttle){
  driveThrottle=gameplayReady&&std::isfinite(throttle)?std::clamp(throttle,-1.f,1.f):0;
 }
 extern "C" JNIEXPORT void JNICALL Java_com_example_realms_MainActivity_nativeCommand(JNIEnv*,jobject,jint command){
@@ -455,14 +459,14 @@ void Renderer::render(){
    float c=std::cos(car.yaw),s=std::sin(car.yaw);
    float forwardSpeed=car.vx*c-car.vz*s,lateralSpeed=car.vx*s+car.vz*c;
    // Stick right turns right (camera forward is (-sin yaw,-cos yaw), car nose is (cos yaw,-sin yaw)).
-   // Steering bites only while rolling and flips in reverse, like a real car.
-   float bite=std::clamp(std::abs(forwardSpeed)/3.f,0.f,1.f);
+   // Steering bites only while rolling, flips in reverse and calms down at speed.
+   float bite=std::clamp(std::abs(forwardSpeed)/3.f,0.f,1.f)/(1.f+std::abs(forwardSpeed)*.04f);
    car.yaw-=steer*1.8f*bite*(forwardSpeed<-.1f?-1.f:1.f)*dt;
    int rounded=int(std::lround(car.yaw/1.57079632679f))%4;if(rounded<0)rounded+=4;car.rotation=rounded;
    c=std::cos(car.yaw);s=std::sin(car.yaw);
-   forwardSpeed=(forwardSpeed+throttle*11.f*dt)*std::exp(-(throttle!=0 ? .35f : 1.6f)*dt);
+   forwardSpeed=(forwardSpeed+throttle*14.f*dt)*std::exp(-(throttle!=0 ? .35f : 1.6f)*dt);
    lateralSpeed*=std::exp(-9.f*dt); // tyre grip: kill the ice-like sideways slide
-   forwardSpeed=std::clamp(forwardSpeed,-7.f,18.f);
+   forwardSpeed=std::clamp(forwardSpeed,-9.f,30.f);
    car.vx=c*forwardSpeed+s*lateralSpeed;car.vz=-s*forwardSpeed+c*lateralSpeed;
    if(std::abs(car.yaw-previousYaw)>.0001f)rebuildBuiltCollision();
    auto seat=sandbox::driverSeat(car);seatTime_=std::min(1.f,seatTime_+dt/.65f);float t=seatTime_*seatTime_*(3-2*seatTime_);auto p=seatFrom_+(seat-seatFrom_)*t;
