@@ -2,6 +2,7 @@
 
 #include "realms/GameSave.h"
 #include "realms/SandboxBoot.h"
+#include "realms/ViewSize.h"
 
 #include <algorithm>
 #include <cmath>
@@ -30,6 +31,17 @@ void registerSharedCvars(Engine &engine, const std::string &platform) {
     // Quake 2's handedness (userinfo): 0 right, 1 left (the view weapon mirrored),
     // 2 centre (no view weapon); the game fires from that side.
     engine.registerCvar("hand", "0", REALMS_CVAR_ARCHIVE | REALMS_CVAR_USERINFO);
+    // Quake 2's screen size (realms/ViewSize.h): the 3D view in maps shrunk to
+    // 40 .. 100 per cent, the rest tiled; "sizeup" / "sizedown" step it by 10
+    // (SCR_SizeUp_f / SCR_SizeDown_f), within those bounds.
+    engine.registerCvar("viewsize", "100", REALMS_CVAR_ARCHIVE);
+    Engine *e = &engine;
+    const auto resize = [e](int step) {
+        const float now = e->cvarFloat("viewsize", 100.0f);
+        e->setCvar("viewsize", std::to_string(clampViewSize((std::isfinite(now) ? now : 100.0f) + float(step))));
+    };
+    engine.addCommand("sizeup", [resize](const CommandArgs &) { resize(10); });
+    engine.addCommand("sizedown", [resize](const CommandArgs &) { resize(-10); });
     // Brightness of the 3D view (realms/ViewGamma.h), as in Yamagi Quake II:
     // higher is brighter, 0.1 .. 2.0. 1 leaves the view as it is.
     engine.registerCvar("vid_gamma", "1", REALMS_CVAR_ARCHIVE);

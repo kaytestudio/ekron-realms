@@ -82,6 +82,11 @@ public:
     // runs; false when there is none to draw (the caller draws its own).
     bool drawCrosshair(realms::Engine &engine, ekron::gl::Api &gl, DesktopRenderer &renderer, int style, int hudW,
                        int hudH);
+    // Quake 2's viewsize border (SCR_TileClear): the HUD outside `view` (HUD
+    // units, realms::GameHudCanvas::viewRect) tiled with pics/backtile.pcx at
+    // the HUD scale. Nothing when the view fills the HUD.
+    void drawViewBorder(realms::Engine &engine, ekron::gl::Api &gl, DesktopRenderer &renderer,
+                        const realms::ViewRect &view, int hudW, int hudH);
     // Centre prints / pickup messages since the last call (for toasts).
     std::vector<std::string> takeGameMessages() { return view_.takeMessages(); }
     // The game's entities for DesktopRenderer::setMapEntities: .md3 models

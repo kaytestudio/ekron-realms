@@ -1278,11 +1278,16 @@ void DesktopRenderer::renderMapWorld(ekron::gl::Api &gl,
                                      float yaw,
                                      float pitch,
                                      float roll,
-                                     float focal) {
+                                     float focal,
+                                     const realms::ViewRect *view) {
     focal_ = focal;
     gl.BindFramebuffer(GL_FRAMEBUFFER, 0);
-    const float aspect = float(std::max(drawableW, 1)) / float(std::max(drawableH, 1));
-    gl.Viewport(0, 0, drawableW, drawableH);
+    // glClear below ignores the viewport: the whole drawable, the border
+    // tiles go over it with the HUD
+    const realms::ViewRect v = view && view->width > 0 && view->height > 0 ? *view
+                                                                          : realms::ViewRect{0, 0, drawableW, drawableH};
+    const float aspect = float(std::max(v.width, 1)) / float(std::max(v.height, 1));
+    gl.Viewport(v.x, drawableH - v.y - v.height, v.width, v.height);
     gl.Disable(GL_CULL_FACE);
     gl.Enable(GL_DEPTH_TEST);
     gl.DepthFunc(GL_LEQUAL);
@@ -1684,6 +1689,23 @@ void DesktopRenderer::drawIcon(ekron::gl::Api &gl, GLuint tex, float x, float y,
     uiVertices_.push_back({x,     y,     0.0f, 0.0f, tint.r, tint.g, tint.b, tint.a, 2.0f});
     uiVertices_.push_back({x + w, y + h, 1.0f, 1.0f, tint.r, tint.g, tint.b, tint.a, 2.0f});
     uiVertices_.push_back({x,     y + h, 0.0f, 1.0f, tint.r, tint.g, tint.b, tint.a, 2.0f});
+    if (!uiCmds_.empty() && uiCmds_.back().texture == tex) {
+        uiCmds_.back().count += 6;
+    } else {
+        uiCmds_.push_back({tex, first, 6});
+    }
+}
+
+void DesktopRenderer::drawIconRegion(GLuint tex, float x, float y, float w, float h, float u0, float v0, float u1,
+                                     float v1) {
+    if (!tex || w <= 0.0f || h <= 0.0f) return;
+    const GLint first = static_cast<GLint>(uiVertices_.size());
+    uiVertices_.push_back({x,     y,     u0, v0, 1.0f, 1.0f, 1.0f, 1.0f, 2.0f});
+    uiVertices_.push_back({x + w, y,     u1, v0, 1.0f, 1.0f, 1.0f, 1.0f, 2.0f});
+    uiVertices_.push_back({x + w, y + h, u1, v1, 1.0f, 1.0f, 1.0f, 1.0f, 2.0f});
+    uiVertices_.push_back({x,     y,     u0, v0, 1.0f, 1.0f, 1.0f, 1.0f, 2.0f});
+    uiVertices_.push_back({x + w, y + h, u1, v1, 1.0f, 1.0f, 1.0f, 1.0f, 2.0f});
+    uiVertices_.push_back({x,     y + h, u0, v1, 1.0f, 1.0f, 1.0f, 1.0f, 2.0f});
     if (!uiCmds_.empty() && uiCmds_.back().texture == tex) {
         uiCmds_.back().count += 6;
     } else {

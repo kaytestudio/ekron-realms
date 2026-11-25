@@ -730,6 +730,13 @@ public:
     }
     // The HUD drew Quake 2's crosshair pic: the overlay's "+" stays hidden.
     bool crosshairDrawn() const { return hud_.crosshairDrawn(); }
+    // Where the 3D view goes on a width x height drawable (pixels, top-left
+    // origin): shrunk by Quake 2's viewsize while the game runs, framed by
+    // the tiles hudTexture draws (realms::GameHudCanvas::viewRect).
+    realms::ViewRect viewRect(const realms::Engine &engine, int width, int height) const {
+        if (!view_) return {0, 0, width, height};
+        return realms::GameHudCanvas::viewRect(engine, view_->module(), width, height);
+    }
     // Bit 0: a layout screen is shown (help computer, scores); bit 1: the inventory.
     int hudScreens() const {
         if (!gameRunning()) return 0;
@@ -761,7 +768,7 @@ public:
               id<MTLCommandQueue> queue,
               float renderYaw,
               float renderPitch,
-              CGSize drawableSize) {
+              MTLViewport viewport) { // the 3D view (Quake 2's viewsize)
         const physics::Vec3 eye = drawEye();
         const matrix_float4x4 identity = matrix_identity_float4x4;
         if (reuseCity_) {
@@ -803,7 +810,7 @@ public:
         }
         view_->entities(engine, renderYaw, renderPitch, engine.cvarBool("cl_gun", true), entityVertices_,
                         entityBatches_);
-        drawEntities(encoder, p, samplers, engine, device, queue, quake, drawableSize);
+        drawEntities(encoder, p, samplers, engine, device, queue, quake, viewport);
         if (translucent) drawTriangles(encoder, p, mapQuake, identity, 1);
         drawEffects(encoder, p, device);
     }
@@ -1029,7 +1036,7 @@ private:
                       id<MTLDevice> device,
                       id<MTLCommandQueue> queue,
                       SandboxQuakeUniforms quake,
-                      CGSize drawableSize) {
+                      MTLViewport viewport) {
         if (entityVertices_.empty() || entityBatches_.empty()) return;
         id<MTLBuffer> vertices = [device newBufferWithBytes:entityVertices_.data()
                                                      length:entityVertices_.size() * sizeof(mapview::EntityVertex)
@@ -1038,7 +1045,7 @@ private:
         [encoder setVertexBuffer:vertices offset:0 atIndex:0];
         [encoder setFragmentTexture:p.white atIndex:2];
         [encoder setFragmentSamplerState:samplers[0][0] atIndex:0]; // repeat: .md3 texture coordinates may wrap
-        MTLViewport full = {0.0, 0.0, drawableSize.width, drawableSize.height, 0.0, 1.0};
+        MTLViewport full = viewport;
         MTLViewport weapon = full;
         weapon.zfar = 0.3;
         for (int pass = 0; pass < 2; ++pass) {
@@ -3103,10 +3110,18 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
     }];
 
     const CGSize drawSize = view.drawableSize;
-    const float aspect = float(drawSize.width / drawSize.height);
+    // Quake 2's viewsize: the view shrunk in the middle, the HUD's tiles around it
+    const realms::ViewRect viewRect = mapMode_.viewRect(engine, int(drawSize.width), int(drawSize.height));
+    const bool fullView = viewRect == realms::ViewRect{0, 0, int(drawSize.width), int(drawSize.height)};
+    const MTLViewport viewport = {double(viewRect.x), double(viewRect.y), double(viewRect.width),
+                                  double(viewRect.height), 0.0, 1.0};
+    const MTLViewport screen = {0.0, 0.0, drawSize.width, drawSize.height, 0.0, 1.0};
+    const float aspect = float(std::max(viewRect.width, 1)) / float(std::max(viewRect.height, 1));
     passDesc.colorAttachments[0].loadAction = MTLLoadActionClear;
     passDesc.colorAttachments[0].storeAction = MTLStoreActionStore;
-    passDesc.colorAttachments[0].clearColor = MTLClearColorMake(0.56, 0.61, 0.63, 1.0);
+    // black under the HUD's last partial texel when the view is shrunk
+    passDesc.colorAttachments[0].clearColor =
+        fullView ? MTLClearColorMake(0.56, 0.61, 0.63, 1.0) : MTLClearColorMake(0.0, 0.0, 0.0, 1.0);
     passDesc.depthAttachment.loadAction = MTLLoadActionClear;
     passDesc.depthAttachment.storeAction = MTLStoreActionDontCare;
     passDesc.depthAttachment.clearDepth = 1.0;
@@ -3115,6 +3130,7 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
     if (encoder) {
         const std::array<float, 9> skyMatrix = mapMode_.skyMatrix();
         const mapview::Quake2View::DrawAngles camera = mapMode_.drawAngles(mapYaw_, mapPitch_); // + the view kick
+        [encoder setViewport:viewport];
         [self encodeSceneSetup:encoder
                      cameraEye:mapMode_.drawEye()
                            yaw:camera.yaw
@@ -3138,7 +3154,7 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
         pipelines.white = whiteTexture_;
         pipelines.whiteArray = fallbackArrayTexture_;
         mapMode_.draw(encoder, pipelines, gltfSamplers_, cityModel_, engine, device_, commandQueue_, mapYaw_, mapPitch_,
-                      drawSize);
+                      viewport);
         // The game's screen blend (red when hurt, gold on a pickup...) over the 3D view.
         if (polyBlendPipeline_ && stats.blend[3] > 0.0f && engine.cvarBool("gl_polyblend", true)) {
             const simd_float4 blendColor = simd_make_float4(stats.blend[0], stats.blend[1], stats.blend[2], stats.blend[3]);
@@ -3149,6 +3165,7 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
             [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
         }
         // Quake 2's status bar, help computer and inventory over everything.
+        [encoder setViewport:screen];
         int hudScale = 1;
         const double hudSeconds =
             std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();

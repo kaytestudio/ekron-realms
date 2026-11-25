@@ -1,10 +1,12 @@
 // realms/ViewFov.h: map mode's focal length follows Quake 2's fov (Hor+,
 // the fov is the horizontal angle of a 4:3 screen), clamped like the game;
-// realms/ViewGamma.h: vid_gamma's exponent, and the cvar on the shared list.
+// realms/ViewGamma.h: vid_gamma's exponent, and the cvar on the shared list;
+// realms/ViewSize.h: Quake 2's viewsize rectangle, the cvar and sizeup / sizedown.
 #include "realms/Engine.h"
 #include "realms/SandboxBoot.h"
 #include "realms/ViewFov.h"
 #include "realms/ViewGamma.h"
+#include "realms/ViewSize.h"
 
 #include <cmath>
 #include <cstdio>
@@ -72,6 +74,53 @@ int main() {
         CHECK(near(engine.cvarFloat("vid_gamma", 0.0f), 1.0f));
         engine.executeNow("vid_gamma 1.3");
         CHECK(near(gammaExponent(engine.cvarFloat("vid_gamma", 1.0f)), 1.0f / 1.3f));
+        engine.shutdown();
+    }
+
+    // viewsize: SCR_CalcVrect's bounds and truncation, then its rectangle.
+    CHECK(clampViewSize(100.0f) == 100 && clampViewSize(70.0f) == 70);
+    CHECK(clampViewSize(10.0f) == 40 && clampViewSize(-5.0f) == 40 && clampViewSize(250.0f) == 100);
+    CHECK(clampViewSize(55.9f) == 55);
+    CHECK(clampViewSize(std::numeric_limits<float>::quiet_NaN()) == 100);
+    CHECK((viewRect(640, 480, 100) == ViewRect{0, 0, 640, 480}));
+    CHECK((viewRect(640, 480, 50) == ViewRect{160, 120, 320, 240}));
+    CHECK((viewRect(640, 480, 70) == ViewRect{96, 72, 448, 336}));  // 640 * 70 / 100 = 448
+    CHECK((viewRect(1001, 333, 40) == ViewRect{300, 100, 400, 133})); // integer maths, centred
+    CHECK((viewRect(640, 480, 0) == viewRect(640, 480, 40)));
+    // On a screen: in Quake 2 pixels times the HUD scale, the whole screen at 100.
+    CHECK((screenViewRect(1920, 1080, 3, 100) == ViewRect{0, 0, 1920, 1080}));
+    CHECK((screenViewRect(1920, 1080, 3, 50) == ViewRect{480, 270, 960, 540}));
+    {
+        const ViewRect r = screenViewRect(1923, 1081, 3, 70); // 641 x 360 Quake 2 pixels
+        CHECK((r == ViewRect{96 * 3, 54 * 3, 448 * 3, 252 * 3}));
+        CHECK(r.x % 3 == 0 && r.y % 3 == 0 && r.width % 3 == 0 && r.height % 3 == 0);
+    }
+    CHECK((screenViewRect(800, 600, 0, 50) == ViewRect{0, 0, 800, 600}));
+    CHECK((scaleViewRect({480, 270, 960, 540}, 1920, 1080, 3840, 2160) == ViewRect{960, 540, 1920, 1080}));
+    CHECK((scaleViewRect({1, 1, 3, 3}, 4, 4, 6, 6) == ViewRect{1, 1, 5, 5})); // edges rounded down
+    {
+        realms::Engine engine;
+        realms::EngineConfig cfg;
+        cfg.backend = realms::BackendPreference::Native;
+        CHECK(engine.init(cfg));
+        realms::sandbox::registerSharedCvars(engine, "fov-test");
+        CHECK(engine.hasCvar("viewsize") && (engine.cvarFlags("viewsize") & REALMS_CVAR_ARCHIVE));
+        CHECK(engine.cvarInt("viewsize", 0) == 100);
+        CHECK(engine.commandExists("sizeup") && engine.commandExists("sizedown"));
+        engine.executeNow("sizeup"); // already at the top
+        CHECK(engine.cvarInt("viewsize", 0) == 100);
+        engine.executeNow("sizedown");
+        engine.executeNow("sizedown");
+        CHECK(engine.cvarInt("viewsize", 0) == 80);
+        for (int i = 0; i < 10; i++) engine.executeNow("sizedown");
+        CHECK(engine.cvarInt("viewsize", 0) == 40);
+        engine.executeNow("viewsize 45");
+        engine.executeNow("sizeup");
+        CHECK(engine.cvarInt("viewsize", 0) == 55);
+        engine.executeNow("viewsize 300"); // set by hand: read bounded
+        CHECK(clampViewSize(engine.cvarFloat("viewsize", 100.0f)) == 100);
+        engine.executeNow("sizedown"); // 290, bounded as SCR_CalcVrect does
+        CHECK(engine.cvarInt("viewsize", 0) == 100);
         engine.shutdown();
     }
 

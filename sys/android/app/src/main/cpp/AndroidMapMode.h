@@ -76,6 +76,13 @@ public:
     float focalLength(const realms::Engine &engine) const {
         return realms::mapFocalLength(view_ ? view_->module().viewFov(engine) : 90.0f);
     }
+    // Where the 3D view goes on a width x height screen (pixels, top-left
+    // origin): shrunk by Quake 2's viewsize while the game runs, framed by
+    // the tiles hudTexture draws (realms::GameHudCanvas::viewRect).
+    realms::ViewRect viewRect(const realms::Engine &engine, int width, int height) const {
+        if (!view_) return {0, 0, width, height};
+        return realms::GameHudCanvas::viewRect(engine, view_->module(), width, height);
+    }
     // The game's sounds on the sandbox mixer (silent while paused).
     void playSounds(realms::Engine &engine, ekron::audio::Mixer &mixer, double dt, bool paused);
     // Quake 2's CD track is playing (the city's music waits).

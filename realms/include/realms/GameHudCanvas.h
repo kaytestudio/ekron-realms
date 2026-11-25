@@ -12,6 +12,7 @@
 
 #include "realms/GameLayout.h"
 #include "realms/Image.h"
+#include "realms/ViewSize.h"
 
 #include <array>
 #include <cstdint>
@@ -35,9 +36,10 @@ public:
     // 320 x 240 layout area fills most of the smaller side.
     static int scaleFor(int width, int height);
 
-    // Redraws the HUD of a width x height screen (pixels): the status bar
-    // (when `statusBar`) with its bottom edge at `barBottom`, then the layout
-    // and the inventory when the game shows them. `seconds` drives the
+    // Redraws the HUD of a width x height screen (pixels): the tiles around a
+    // view shrunk by "viewsize" (viewRect), the status bar (when `statusBar`)
+    // with its bottom edge at `barBottom`, then the layout and the inventory
+    // when the game shows them. `seconds` drives the
     // inventory cursor's 5 Hz blink. True when the image changed and needs
     // uploading again; an unchanged HUD is not redrawn.
     bool update(const Engine &engine, const Quake2Module &q2, int width, int height, int barBottom, bool statusBar,
@@ -59,6 +61,15 @@ public:
     // The "crosshair" cvar as Quake 2 reads it (SCR_TouchPics): 0 none,
     // 1 .. 3 the pic ch1 .. ch3, anything else 3. Ekron's default is 1.
     static int crosshairStyle(const Engine &engine);
+    // Quake 2's "viewsize" (realms/ViewSize.h), 40 .. 100; 100 unregistered.
+    static int viewSize(const Engine &engine);
+    // Where the 3D view goes on a width x height screen (pixels): shrunk by
+    // viewsize while the game runs, to meet the tiles update() draws around
+    // it at scaleFor(width, height); the whole screen otherwise.
+    static ViewRect viewRect(const Engine &engine, const Quake2Module &q2, int width, int height);
+    // SCR_TileClear: everything outside `view` (image pixels) tiled with
+    // pics/backtile.pcx from the top-left corner, or kBackFill without it.
+    void tileClear(const ViewRect &view, const FileLoader &load);
     // update() drew the game's crosshair pic: the client's own one stays off.
     bool crosshairDrawn() const { return crosshairDrawn_; }
     // Releases the pics (a new game's data may differ).
@@ -67,6 +78,7 @@ public:
     static constexpr Rgba kText{237, 237, 224, 255}, kAltText{140, 255, 140, 255};
     static constexpr Rgba kDigits{255, 209, 82, 255}, kAltDigits{255, 82, 64, 255};
     static constexpr Rgba kPanel{5, 10, 8, 209};
+    static constexpr Rgba kBackFill{38, 34, 30, 255}; // the tiles without pics/backtile.pcx
 
 private:
     const RgbaImage &pic(const std::string &name, const FileLoader &load);

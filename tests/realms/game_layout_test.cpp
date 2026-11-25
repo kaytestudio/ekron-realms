@@ -449,6 +449,68 @@ void crosshairChecks() {
     CHECK(px(18, 14)[3] == 0 && px(21, 15)[3] == 0);
 }
 
+// Quake 2's viewsize: the cvar as SCR_CalcVrect reads it, and SCR_TileClear's
+// tiles (pics/backtile.pcx from the top-left corner) around the view.
+void viewSizeChecks() {
+    using realms::GameHudCanvas;
+    realms::Engine engine;
+    realms::EngineConfig cfg;
+    cfg.backend = realms::BackendPreference::Native;
+    CHECK(engine.init(cfg));
+    CHECK(GameHudCanvas::viewSize(engine) == 100); // unregistered: the whole screen
+    realms::sandbox::registerSharedCvars(engine, "layout-test");
+    CHECK(GameHudCanvas::viewSize(engine) == 100);
+    const std::vector<std::pair<std::string, int>> sizes = {{"50", 50}, {"39", 40}, {"120", 100}, {"64.5", 64}};
+    for (const auto &s : sizes) {
+        engine.executeNow("viewsize " + s.first);
+        CHECK(GameHudCanvas::viewSize(engine) == s.second);
+    }
+    engine.shutdown();
+
+    GameHudCanvas c;
+    auto px = [&](int x, int y) {
+        const auto &img = c.image();
+        const unsigned char *p = &img.rgba[(size_t(y) * size_t(img.width) + size_t(x)) * 4];
+        return std::array<int, 4>{p[0], p[1], p[2], p[3]};
+    };
+    int loads = 0;
+    const GameHudCanvas::FileLoader load = [&](const std::string &path, std::vector<unsigned char> &out) {
+        ++loads;
+        if (path != "pics/backtile.pcx") return false;
+        out = tinyPcx(); // 2 x 2: red, clear / green, red
+        return true;
+    };
+    c.begin(10, 8);
+    const realms::ViewRect view = realms::viewRect(10, 8, 50); // (2, 2) 5 x 4
+    CHECK((view == realms::ViewRect{2, 2, 5, 4}));
+    c.tileClear(view, load);
+    CHECK(loads == 1);
+    const std::array<int, 4> red{255, 0, 0, 255}, green{0, 255, 0, 255}, clear{0, 0, 0, 0};
+    CHECK(px(0, 0) == red && px(1, 0) == clear && px(0, 1) == green && px(1, 1) == red);
+    CHECK(px(0, 2) == red && px(0, 3) == green && px(1, 3) == red); // left of the view: the tiles carry on
+    CHECK(px(8, 4) == red && px(9, 5) == red);   // right of the view
+    CHECK(px(4, 6) == red && px(4, 7) == green && px(5, 7) == red); // below it
+    bool inside = true;
+    for (int y = view.y; y < view.y + view.height; y++)
+        for (int x = view.x; x < view.x + view.width; x++) inside = inside && px(x, y) == clear;
+    CHECK(inside);
+    // without the pic: a solid fill, the view still clear
+    GameHudCanvas none;
+    none.begin(10, 8);
+    const GameHudCanvas::FileLoader missing = [](const std::string &, std::vector<unsigned char> &) { return false; };
+    none.tileClear(view, missing);
+    const auto npx = [&](int x, int y) {
+        const unsigned char *p = &none.image().rgba[(size_t(y) * 10 + size_t(x)) * 4];
+        return std::array<int, 4>{p[0], p[1], p[2], p[3]};
+    };
+    const auto fill = GameHudCanvas::kBackFill;
+    CHECK((npx(0, 0) == std::array<int, 4>{fill[0], fill[1], fill[2], fill[3]}));
+    CHECK((npx(9, 7) == std::array<int, 4>{fill[0], fill[1], fill[2], fill[3]}));
+    CHECK(npx(2, 2) == clear && npx(6, 5) == clear);
+    CHECK((npx(1, 2) == std::array<int, 4>{fill[0], fill[1], fill[2], fill[3]}));
+    CHECK((npx(7, 5) == std::array<int, 4>{fill[0], fill[1], fill[2], fill[3]}));
+}
+
 int main() {
     helpComputerChecks();
     statusBarChecks();
@@ -456,6 +518,7 @@ int main() {
     inventoryChecks();
     canvasChecks();
     crosshairChecks();
+    viewSizeChecks();
     badProgramChecks();
     std::printf("[game_layout] %d checks, %d failures\n", gChecks, gFailures);
     return gFailures == 0 ? 0 : 1;
