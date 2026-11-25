@@ -5,6 +5,7 @@
 #include "GltfScene.h"
 #include "MeshGeometry.h"
 #include "realms/ViewFov.h"
+#include "realms/ViewSize.h"
 #define STBI_NO_STDIO
 #include "third_party/stb_image.h"
 
@@ -225,7 +226,10 @@ public:
                         float yaw,
                         float pitch,
                         float roll,
-                        float focal); // realms::mapFocalLength(fov)
+                        float focal, // realms::mapFocalLength(fov)
+                        // drawable pixels, top-left origin: Quake 2's viewsize
+                        // (realms/ViewSize.h); the whole drawable without one
+                        const realms::ViewRect *view = nullptr);
 
     // Brightness of the 3D passes: the exponent of realms::gammaExponent(vid_gamma),
     // applied to the world, models, sky and particles (1 = as drawn).
@@ -238,6 +242,9 @@ public:
     void drawText(float x, float y, std::string_view utf8, float scale, Color color);
     void drawCenteredText(float cx, float cy, std::string_view utf8, float scale, Color color);
     void drawIcon(ekron::gl::Api &gl, GLuint tex, float x, float y, float w, float h, Color tint = {1, 1, 1, 1});
+    // The part (u0, v0) .. (u1, v1) of the texture, untinted: the clipped
+    // tiles of Quake 2's viewsize border (DesktopMapMode::drawViewBorder).
+    void drawIconRegion(GLuint tex, float x, float y, float w, float h, float u0, float v0, float u1, float v1);
     void flushUi(ekron::gl::Api &gl, int drawableW, int drawableH);
 
 private:

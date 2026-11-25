@@ -885,11 +885,16 @@ void Renderer::renderMap(float dt){
  mapState=mapMode_.texturedPending()?2:1;
  interactionAction=0;freezeState=0;holdingObject=false;droneMode=0;
  const physics::Vec3 eye=mapMode_.drawEye();
- const float aspect=float(width_)/float(height_);
+ // Quake 2's viewsize: the view shrunk in the middle, the HUD's tiles around it
+ const realms::ViewRect view=mapMode_.viewRect(engine,width_,height_);
+ const bool fullView=view==realms::ViewRect{0,0,width_,height_};
+ const float aspect=float(std::max(view.width,1))/float(std::max(view.height,1));
  const float focal=mapMode_.focalLength(engine);
  const float viewGamma=realms::gammaExponent(engine.cvarFloat("vid_gamma",1.f)); // brightness
  const mapview::Quake2View::DrawAngles camera=mapMode_.drawAngles(mapYaw_,mapPitch_); // + Quake 2's view kick
- glViewport(0,0,width_,height_);glClearColor(.56f,.61f,.63f,1);glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
+ // glClear ignores the viewport; black under the HUD's last partial texel when shrunk
+ glViewport(0,0,width_,height_);if(fullView)glClearColor(.56f,.61f,.63f,1);else glClearColor(0,0,0,1);glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
+ glViewport(view.x,height_-view.y-view.height,view.width,view.height);
  glBindVertexArray(vao_);
  if(skyProgram_){glDisable(GL_DEPTH_TEST);glDepthMask(GL_FALSE);glUseProgram(skyProgram_);
   glUniform1f(glGetUniformLocation(skyProgram_,"aspect"),aspect);
@@ -933,6 +938,7 @@ void Renderer::renderMap(float dt){
   glDrawArrays(GL_TRIANGLES,0,3);
   glDisable(GL_BLEND);glDepthMask(GL_TRUE);glEnable(GL_DEPTH_TEST);
  }
+ glViewport(0,0,width_,height_); // the HUD: the whole screen
  // Quake 2's status bar, help computer and inventory; unit 5 is free of the scene's textures
  glActiveTexture(GL_TEXTURE5);
  int hudScale=1;

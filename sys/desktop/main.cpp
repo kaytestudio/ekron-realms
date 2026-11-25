@@ -2198,6 +2198,9 @@ int main(int argc, char **argv)
         }
 
         renderer.setGamma(realms::gammaExponent(engine.cvarFloat("vid_gamma", 1.0f))); // brightness
+        const realms::ViewRect mapView = mapMode.active()
+            ? realms::GameHudCanvas::viewRect(engine, mapMode.quake2(), hudW, hudH)
+            : realms::ViewRect{0, 0, hudW, hudH};
         if (mapMode.active()) {
             renderer.setMapModelPoses(mapMode.modelPoses()); // doors / platforms moved by the game
             renderer.setMapSurfaces(mapMode.surfaces());     // warp, flowing, translucent, animated
@@ -2211,8 +2214,10 @@ int main(int argc, char **argv)
             renderer.setMapEffects(gl, mapEffectVertices, mapLights);
             // the camera: the player's look plus Quake 2's view kick (or the death view)
             const mapview::Quake2View::DrawAngles camera = mapMode.view().drawAngles(world.yaw, world.pitch);
+            // Quake 2's viewsize: the view shrunk in the middle (HUD units, then pixels)
+            const realms::ViewRect drawView = realms::scaleViewRect(mapView, hudW, hudH, drawW, drawH);
             renderer.renderMapWorld(gl, drawW, drawH, mapMode.model(), mapMode.eye(), camera.yaw, camera.pitch,
-                                    camera.roll, realms::mapFocalLength(mapMode.quake2().viewFov(engine)));
+                                    camera.roll, realms::mapFocalLength(mapMode.quake2().viewFov(engine)), &drawView);
         } else renderer.renderMainWorld(
             gl, drawW, drawH,
             worldVertices, ghostVertices,
@@ -2228,11 +2233,14 @@ int main(int argc, char **argv)
         // 2D Desktop HUD
         renderer.beginUi(hudW, hudH);
 
-        // Map mode: the game's full-screen blend (red when hurt, gold on a
-        // pickup, blue with the quad...) between the 3D view and the HUD.
+        // Map mode: the tiles around a view shrunk by viewsize, then the
+        // game's blend (red when hurt, gold on a pickup, blue with the
+        // quad...) over the 3D view, under the HUD.
         if (mapMode.active()) {
+            mapMode.drawViewBorder(engine, gl, renderer, mapView, hudW, hudH);
             if (const std::array<float, 4> blend = mapMode.screenBlend(engine); blend[3] > 0.0f)
-                renderer.drawRect(0.0f, 0.0f, float(hudW), float(hudH), {blend[0], blend[1], blend[2], blend[3]});
+                renderer.drawRect(float(mapView.x), float(mapView.y), float(mapView.width), float(mapView.height),
+                                  {blend[0], blend[1], blend[2], blend[3]});
         }
 
         // Center crosshair: off with crosshair 0; in a running game Quake 2's

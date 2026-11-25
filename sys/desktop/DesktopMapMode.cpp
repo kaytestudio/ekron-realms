@@ -216,6 +216,38 @@ void DesktopMapMode::drawLayoutItems(realms::Engine &engine, ekron::gl::Api &gl,
     }
 }
 
+void DesktopMapMode::drawViewBorder(realms::Engine &engine, ekron::gl::Api &gl, DesktopRenderer &renderer,
+                                    const realms::ViewRect &view, int hudW, int hudH) {
+    if (hudW <= 0 || hudH <= 0 || (view.x <= 0 && view.y <= 0 && view.width >= hudW && view.height >= hudH)) return;
+    const LayoutPic &pic = layoutPic(engine, gl, "backtile");
+    const int s = layoutScale(hudW, hudH);
+    const int tileW = pic.width * s, tileH = pic.height * s;
+    // top, bottom, left, right of the view (as SCR_TileClear's four calls)
+    const realms::ViewRect parts[4] = {{0, 0, hudW, view.y},
+                                       {0, view.y + view.height, hudW, hudH - view.y - view.height},
+                                       {0, view.y, view.x, view.height},
+                                       {view.x + view.width, view.y, hudW - view.x - view.width, view.height}};
+    const realms::GameHudCanvas::Rgba fill = realms::GameHudCanvas::kBackFill;
+    for (const realms::ViewRect &r : parts) {
+        if (r.width <= 0 || r.height <= 0) continue;
+        if (!pic.texture || tileW <= 0 || tileH <= 0) {
+            renderer.drawRect(float(r.x), float(r.y), float(r.width), float(r.height),
+                              {fill[0] / 255.0f, fill[1] / 255.0f, fill[2] / 255.0f, 1.0f});
+            continue;
+        }
+        // tiles from the HUD's top-left corner, clipped to the part
+        for (int ty = r.y / tileH * tileH; ty < r.y + r.height; ty += tileH)
+            for (int tx = r.x / tileW * tileW; tx < r.x + r.width; tx += tileW) {
+                const int x0 = std::max(tx, r.x), y0 = std::max(ty, r.y);
+                const int x1 = std::min(tx + tileW, r.x + r.width), y1 = std::min(ty + tileH, r.y + r.height);
+                if (x1 <= x0 || y1 <= y0) continue;
+                renderer.drawIconRegion(pic.texture, float(x0), float(y0), float(x1 - x0), float(y1 - y0),
+                                        float(x0 - tx) / float(tileW), float(y0 - ty) / float(tileH),
+                                        float(x1 - tx) / float(tileW), float(y1 - ty) / float(tileH));
+            }
+    }
+}
+
 bool DesktopMapMode::drawCrosshair(realms::Engine &engine, ekron::gl::Api &gl, DesktopRenderer &renderer, int style,
                                    int hudW, int hudH) {
     if (!gameRunning() || style < 1 || style > 3 || hudW <= 0 || hudH <= 0) return false;

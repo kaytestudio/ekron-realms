@@ -125,6 +125,32 @@ void GameHudCanvas::drawItems(const std::vector<GameLayoutItem> &items, const Fi
     }
 }
 
+int GameHudCanvas::viewSize(const Engine &engine) { return clampViewSize(engine.cvarFloat("viewsize", 100.0f)); }
+
+ViewRect GameHudCanvas::viewRect(const Engine &engine, const Quake2Module &q2, int width, int height) {
+    const int size = q2.gameRunning() ? viewSize(engine) : 100;
+    return screenViewRect(width, height, scaleFor(std::max(width, 1), std::max(height, 1)), size);
+}
+
+void GameHudCanvas::tileClear(const ViewRect &view, const FileLoader &load) {
+    const RgbaImage &tile = pic("backtile", load);
+    const int w = image_.width, h = image_.height;
+    for (int y = 0; y < h; y++)
+        for (int x = 0; x < w; x++) {
+            if (x >= view.x && x < view.x + view.width && y >= view.y && y < view.y + view.height) {
+                x = view.x + view.width - 1; // skip the view's row
+                continue;
+            }
+            if (tile.width <= 0) {
+                blend(x, y, kBackFill);
+                continue;
+            }
+            const unsigned char *s =
+                &tile.rgba[(size_t(y % tile.height) * size_t(tile.width) + size_t(x % tile.width)) * 4];
+            blend(x, y, {s[0], s[1], s[2], s[3]});
+        }
+}
+
 int GameHudCanvas::crosshairStyle(const Engine &engine) {
     const float v = engine.cvarFloat("crosshair", 1.0f);
     if (!std::isfinite(v)) return 3;
@@ -163,16 +189,18 @@ bool GameHudCanvas::update(const Engine &engine, const Quake2Module &q2, int wid
     };
     const int style = crosshairStyle(engine);
     const bool crosshair = style > 0 && !pic("ch" + std::to_string(style), load).rgba.empty();
+    const int size = viewSize(engine);
 
     std::string sig = std::to_string(w) + 'x' + std::to_string(h) + (layoutOn ? 'L' : '-') + (inventoryOn ? 'I' : '-');
     sig += crosshair ? char('0' + style) : '-';
+    sig += 'V' + std::to_string(size);
     sig += '\n';
     appendSignature(sig, bar);
     sig += "--\n";
     appendSignature(sig, layout);
     sig += "--\n";
     appendSignature(sig, inventory);
-    const bool nothing = bar.empty() && !layoutOn && !inventoryOn && !crosshair;
+    const bool nothing = bar.empty() && !layoutOn && !inventoryOn && !crosshair && size >= 100;
     crosshairDrawn_ = crosshair;
     if (sig == signature_ && empty_ == nothing) return false;
     signature_ = std::move(sig);
@@ -184,6 +212,7 @@ bool GameHudCanvas::update(const Engine &engine, const Quake2Module &q2, int wid
     }
 
     begin(w, h);
+    if (size < 100) tileClear(realms::viewRect(w, h, size), load); // SCR_TileClear, before the 2D
     if (crosshair) drawCrosshair(style, load); // under the HUD, as SCR_DrawCrosshair runs first
     drawItems(bar, load);
     if (layoutOn) {
