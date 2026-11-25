@@ -119,7 +119,7 @@ jobs:
 
           - **Linux** (\`ekron-realms-$ver-linux-amd64.deb\`): \`sudo apt install ./ekron-realms-$ver-linux-amd64.deb\`, then run \`ekron-realms\`.
           - **Windows 10 / 11** (\`ekron-realms-$ver-windows-x64.zip\`): unzip it anywhere and run \`ekron-realms.exe\` (no installer; saves go to \`%APPDATA%\\KayteStudio\\EkronRealms\`). The exe is not code-signed, so SmartScreen may warn: choose **More info**, then **Run anyway**.
-          - **Windows 11 on ARM** (\`ekron-realms-$ver-windows-arm64.zip\`): the same, built natively for ARM64 (Snapdragon X and other ARM64 PCs). It runs the C++ core: Quake 2 maps load without the game (no monsters or items) until Free Pascal can build for ARM64 Windows.
+          - **Windows 11 on ARM** (\`ekron-realms-$ver-windows-arm64.zip\`): the same, built natively for ARM64 (Snapdragon X and other ARM64 PCs).
           - **Anbernic RG40XXH and other PortMaster handhelds** (\`ekron-realms-$ver-portmaster-aarch64.zip\`): an aarch64 PortMaster port (OpenGL ES 3.0, gamepad controls). Copy it into PortMaster's \`autoinstall\` folder (PortMaster installs it when it next starts) or unzip it into \`ports/\`, then start **Ekron Realms** from Ports.
           - **macOS** (\`ekron-realms-$ver-macos-unsigned.app.zip\`): the app is only ad-hoc signed: no Developer ID signature, not notarised. Unzip it, then right-click the app and choose **Open** (or run \`xattr -dr com.apple.quarantine EkronRealms.app\`).
           - **Android** (\`ekron-realms-$ver-android-debug.apk\`): a debug build, signed only with the Android debug key, not a release signature. Allow installs from unknown sources to sideload it.

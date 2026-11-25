@@ -190,13 +190,13 @@ cmake -S SDL2-2.32.10 -B sdl2-build -G Ninja -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_INSTALL_PREFIX=C:/SDL2-arm64 -DSDL_STATIC=OFF -DSDL_TEST=OFF
 cmake --build sdl2-build && cmake --install sdl2-build
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-  -DSDL2_DIR=C:/SDL2-arm64/lib/cmake/SDL2 \
-  -DENABLE_PASCAL_CORE=OFF -DENABLE_GAME_MODULE=OFF -DENABLE_FPC_CLIENT=OFF
+  -DSDL2_DIR=C:/SDL2-arm64/lib/cmake/SDL2 -DENABLE_FPC_CLIENT=OFF \
+  -DFPC_EXECUTABLE=C:/fpc-aarch64/bin/ppcrossa64.exe   # optional: realms_core.dll and realms_game.dll
 cmake --build build
 (cd build && cpack)   # build/ekron-realms-<version>-windows-arm64.zip
 ```
 
-The ARM64 package is C++ only, like the Visual C++ build: it runs the C++ reference core, and map mode runs without the Quake 2 game module (maps load and can be walked, without monsters or items). No Free Pascal release targets aarch64-win64 yet (3.2.4 included), and programs built with the aarch64-win64 compiler from Free Pascal's main branch (tried at commit `37918075`, as a cross compiler with its RTL) still crash at startup, even a plain `WriteLn('hello')`. CI: the `windows-arm64-zip` job in `desktop-windows.yml`, on GitHub's `windows-11-arm` runner.
+No Free Pascal release targets aarch64-win64 yet (3.2.4 included), and programs from the aarch64-win64 compiler on Free Pascal's main branch still crash at startup (tried at `37918075`: even an empty program). The `windows-arm64-zip` job in `desktop-windows.yml` (GitHub's `windows-11-arm` runner) therefore builds the compiler from [Tino Teuber's fork](https://gitlab.com/tino-teuber/fpc-source) of main, which carries the aarch64-win64 fixes, at a pinned commit. It uses the Lazarus x86_64 compiler, which runs under Windows 11's x64 emulation: `make -C compiler cycle CPU_TARGET=aarch64 OS_TARGET=win64 BINUTILSPREFIX= NoNativeBinaries=1` makes the cross compiler `ppcrossa64.exe`, an x86_64 program, and then `make -C rtl all FPC=<ppcrossa64.exe> CPU_TARGET=aarch64 OS_TARGET=win64 BINUTILSPREFIX=` builds the RTL. Both need clang on `PATH` as the assembler. An `fpc.cfg` next to `ppcrossa64.exe` holding `-Fu<the RTL units>` is all the core and the game module need. Before building the game, the job checks that the compiler's programs run and that one of its DLLs loads into a clang program and handles a Pascal exception. In an MSYS2 shell, set `MSYS2_ARG_CONV_EXCL='*'` before running the compiler by hand, or MSYS2 rewrites `-FuC:/...` arguments. Without `FPC_EXECUTABLE`, the build uses the C++ reference core, and map mode runs without the game.
 
 ### Handhelds (Anbernic RG40XXH, PortMaster)
 
@@ -586,7 +586,7 @@ Pushing a tag that starts with `v` (for example `git tag v1.0.0 && git push orig
 | `ekron-realms-<version>-android-debug.apk` | `android-sandbox.yml` (debug key) |
 | `ekron-realms-<version>-ios-debug-unsigned.ipa` | `ios-sandbox.yml` (unsigned) |
 | `ekron-realms-<version>-windows-x64.zip` | `desktop-windows.yml` (MinGW-w64; exe not code-signed) |
-| `ekron-realms-<version>-windows-arm64.zip` | `desktop-windows.yml` (LLVM-MinGW, Windows 11 on ARM; C++ core only; exe not code-signed) |
+| `ekron-realms-<version>-windows-arm64.zip` | `desktop-windows.yml` (LLVM-MinGW + Free Pascal aarch64-win64, Windows 11 on ARM; exe not code-signed) |
 | `ekron-realms-<version>-portmaster-aarch64.zip` | `handheld-portmaster.yml` (PortMaster port: Anbernic RG40XXH and other aarch64 handhelds) |
 | `SHA256SUMS.txt` | checksums of the seven |
 

@@ -137,9 +137,9 @@ Visual Studio 2022 тоже подходит (`-G "Visual Studio 17 2022" -A x64
 (`realms-launcher`, `realms-pascal`) и экспериментального онлайн-присутствия.
 
 Для **Windows 11 на ARM** — то же в оболочке MSYS2 **CLANGARM64**, но SDL2 собирается из исходников (у пакета MinGW нет
-сборки ARM64), а сборка только на C++ (`-DENABLE_PASCAL_CORE=OFF -DENABLE_GAME_MODULE=OFF -DENABLE_FPC_CLIENT=OFF`): Free Pascal
-пока не умеет собирать работающие программы для aarch64-win64 (см. `BUILD.md`), поэтому карты Quake 2 открываются без
-игрового модуля (без монстров и предметов). Архив называется `ekron-realms-<версия>-windows-arm64.zip`.
+сборки ARM64), а ядро и игровой модуль на Free Pascal собирает кросс-компилятор aarch64-win64 (`ppcrossa64.exe`) из форка
+основной ветки Free Pascal (ни один релиз пока не поддерживает aarch64-win64, см. `BUILD.md`). Архив называется
+`ekron-realms-<версия>-windows-arm64.zip`.
 
 ### Портативные консоли (Anbernic RG40XXH, PortMaster)
 На aarch64 Linux (лучше Ubuntu 22.04, чтобы glibc была не новее, чем в прошивках):
