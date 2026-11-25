@@ -12,7 +12,7 @@ enum Material { Asphalt=0, Concrete=1, Brick=2, Rust=3, Plain=4, Wood=5, Fabric=
 // Keep the original numeric IDs stable: saved worlds and the Android catalog
 // use these values as their wire format. New catalog entries append to this
 // range instead of renumbering existing furniture and vehicles.
-static constexpr int kObjectTypeCount=36;
+static constexpr int kObjectTypeCount=48;
 struct Box { float x,y,z,w,h,d,r,g,b; int material=Concrete; };
 struct WheelState {float compression=0,load=0;bool grounded=false;};
 struct Object { int type,rotation; float x,z; float y=0; float vx=0,vy=0,vz=0,tiltX=0,tiltZ=0,yaw=0;bool awake=true,anchored=false;int surface=-1;float doorAngle=0,doorTarget=0;bool frozen=false;float spinX=0,spinZ=0;float supportCheckTime=0;float restTime=0;float embeddedTime=0;bool destroyed=false;bool floorRecoveryUsed=false;bool edgeKick=false;std::array<WheelState,4> wheels{}; };
@@ -57,7 +57,9 @@ public:
             {1.9f,.42f,.45f}, {1.42f,.70f,.34f}, {1.6f,.84f,.5f}, {.75f,1.0f,.75f},
             {.7f,1.49f,.7f}, {1.8f,1.45f,.5f}, {.72f,.20f,.72f}, {1.8f,1.45f,.45f},
             {.8f,.45f,.68f}, {.18f,2.4f,.18f}, {2.0f,.3f,.3f}, {1.15f,.82f,.8f},
-            {.72f,1.14f,.72f},{.6f,.6f,.6f},{1.4f,1.4f,1.4f},{.7f,.7f,.7f},{1.3f,1.3f,1.3f},{1.5f,.5f,.6f},{2.4f,.8f,.8f}
+            {.72f,1.14f,.72f},{.6f,.6f,.6f},{1.4f,1.4f,1.4f},{.7f,.7f,.7f},{1.3f,1.3f,1.3f},{1.5f,.5f,.6f},{2.4f,.8f,.8f},
+            {1.2f,.75f,.55f},{1.7f,.65f,.65f},{1.5f,1.5f,1.5f},{.34f,4.6f,.6f},{.72f,2.3f,.14f},{1.1f,.85f,1.1f},
+            {.46f,1.3f,.46f},{2.4f,1.6f,.16f},{2.4f,1.8f,.12f},{1.2f,1.15f,1.2f},{1.5f,1.7f,1.5f},{.85f,.46f,.45f}
         };
         int type=std::clamp(o.type,0,kObjectTypeCount-1);
         auto p=dims[type];
@@ -79,12 +81,26 @@ public:
         if(o.type==23)return 9.f;
         if(o.type==24)return 180.f;
         if(o.type==25)return 14.f;
+        if(o.type==36)return 60.f;
+        if(o.type==37)return 15.f;
+        if(o.type==38)return 120.f;
+        if(o.type==39)return 90.f;
+        if(o.type==40)return 25.f;
+        if(o.type==41)return 260.f;
+        if(o.type==42)return 32.f;
+        if(o.type==43)return 40.f;
+        if(o.type==44)return 55.f;
+        if(o.type==45)return 90.f;
+        if(o.type==46)return 140.f;
+        if(o.type==47)return 16.f;
         return o.type>=13?50.f:90.f;
     }
     static int fixedSurface(int type) {
         // Models that own their materials: window (glass + wood), the GLB UAZ and
         // the plain-painted red explosive barrel. Everything else has one fixed surface.
         if(type==2||type==8||type==29)return -1;
+        // Multi-material props (lamps, signs, fences, tanks...) paint their own parts.
+        if(type>=36)return -1;
         if(type==11||type==14||type==16||type==19||type==20||type==21||type==23||type==25||type==26||type==27||type==28||type==32||type==33)return Rust;
         if(type==9||type==3||type==4||type==5||type==6||type==13||type==15||type==17||type==22||type==30||type==31)return Wood;
         if(type==10)return Brick;

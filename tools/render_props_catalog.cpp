@@ -29,7 +29,10 @@ int main(int argc,char**argv){
   {19,"scaffold"},{20,"cone"},{21,"bin"},{22,"bench"},{23,"manhole"},{24,"barrier"},
   {25,"tire"},{26,"post"},{27,"beam"},{28,"dumpster"},{29,"explosive_barrel"},
   {30,"crate_wood_small"},{31,"crate_wood_large"},{32,"crate_metal_small"},
-  {33,"crate_metal_large"},{34,"block_small"},{35,"block_large"}
+  {33,"crate_metal_large"},{34,"block_small"},{35,"block_large"},
+  {36,"sandbags"},{37,"razor_wire"},{38,"hedgehog"},{39,"street_lamp"},
+  {40,"road_sign"},{41,"brick_pallet"},{42,"gas_tank"},{43,"fence_wood"},
+  {44,"fence_metal"},{45,"cable_spool"},{46,"water_tank"},{47,"toolbox"}
  };
  for(const auto&item:items){
   std::vector<MeshVertex> mesh;

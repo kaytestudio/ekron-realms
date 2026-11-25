@@ -323,7 +323,8 @@ class MainActivity : GameActivity() {
         selectedSlot.addView(selectedImage,FrameLayout.LayoutParams(-1,-1))
         selectedSwatch=MaterialBlockView(this,selectedSurface)
         selectedSlot.addView(selectedSwatch,FrameLayout.LayoutParams(dp(25),dp(25),Gravity.BOTTOM or Gravity.END))
-        // Selection art remains available inside the catalogue, not as a duplicate HUD opener.
+        // Show the current selection right next to the place button so it is always visible.
+        spawnActions.addView(selectedSlot,LinearLayout.LayoutParams(dp(64),dp(64)).apply { bottomMargin=dp(4);rightMargin=dp(4) })
         addControl(spawnActions,"","build") { if(requestedTool==null)nativeCommand(200+BuildCatalog.entries[selected].nativeType) }.apply { contentDescription="Установить выбранный предмет" }
         val turns=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
         addControl(turns,"","left") { nativeCommand(31) }.apply { contentDescription="Повернуть влево" }
@@ -499,7 +500,7 @@ class MainActivity : GameActivity() {
             container.addView(label("В этом разделе пока нет предметов",14f).apply { gravity=Gravity.CENTER },LinearLayout.LayoutParams(-1,0,1f))
             return
         }
-        val grid=GridView(this).apply { numColumns=4;horizontalSpacing=dp(4);verticalSpacing=dp(4);clipToPadding=false;isMotionEventSplittingEnabled=true }
+        val grid=GridView(this).apply { numColumns=3;horizontalSpacing=dp(5);verticalSpacing=dp(5);clipToPadding=false;isMotionEventSplittingEnabled=true }
         val adapter=object : BaseAdapter() {
             override fun getCount()=visibleItems.size
             override fun getItem(position: Int)=items[visibleItems[position]]
@@ -507,8 +508,8 @@ class MainActivity : GameActivity() {
             override fun getView(row: Int, convertView: View?, parent: ViewGroup): View = LinearLayout(this@MainActivity).apply {
                 val position=visibleItems[row]
                 orientation=LinearLayout.VERTICAL;gravity=Gravity.CENTER
-                contentDescription=items[position];minimumHeight=dp(84)
-                layoutParams=AbsListView.LayoutParams(-1,dp(84))
+                contentDescription=items[position];minimumHeight=dp(110)
+                layoutParams=AbsListView.LayoutParams(-1,dp(110))
                 background=GradientDrawable().apply {setColor(if(position==selected)0xaa477264.toInt() else 0x443b4652);cornerRadius=dp(6).toFloat();if(position==selected)setStroke(dp(1),0xff92d9ac.toInt())}
                 val illustration: View = ImageView(this@MainActivity).apply {
                     scaleType=ImageView.ScaleType.FIT_CENTER
@@ -517,7 +518,7 @@ class MainActivity : GameActivity() {
                 }
                 illustration.isClickable=false;illustration.isFocusable=false
                 addView(illustration,LinearLayout.LayoutParams(-1,0,1f))
-                addView(label(items[position],10f).apply { gravity=Gravity.CENTER;isClickable=false },LinearLayout.LayoutParams(-1,dp(22)))
+                addView(label(items[position],11f).apply { gravity=Gravity.CENTER;isClickable=false;maxLines=2 },LinearLayout.LayoutParams(-1,dp(30)))
             }
         }
         catalogAdapter=adapter;grid.adapter=adapter;container.addView(grid,LinearLayout.LayoutParams(-1,0,1f))

@@ -26,6 +26,20 @@ inline void appendObject(std::vector<MeshVertex>&v,const sandbox::Object&o,bool 
   }
  };
  auto cyl=[&](float cx,float cy,float cz,float rb,float rt,float halfY,float r,float g,float b,int material){appendFrustum(v,o.x+cx,o.y+cy,o.z+cz,rb,rt,halfY,r,g,b,material);};
+ // Oriented box between arbitrary directions (hedgehog beams), rotated by the object's 90deg steps.
+ auto beam=[&](float cx,float cy,float cz,float dx,float dy,float dz,float len,float t,float r,float g,float b,int material){
+  for(int i=0;i<o.rotation;i++){float old=cx;cx=cz;cz=-old;old=dx;dx=dz;dz=-old;}
+  float l=std::sqrt(dx*dx+dy*dy+dz*dz);dx/=l;dy/=l;dz/=l;
+  float ax=0,ay=1,az=0;if(std::abs(dy)>.9f){ax=1;ay=0;}
+  float sx=dy*az-dz*ay,sy=dz*ax-dx*az,sz=dx*ay-dy*ax;float sl=std::sqrt(sx*sx+sy*sy+sz*sz);sx/=sl;sy/=sl;sz/=sl;
+  float tx=sy*dz-sz*dy,ty=sz*dx-sx*dz,tz=sx*dy-sy*dx;
+  float hl=len/2,ht=t/2,px[8],py[8],pz[8];int k=0;
+  for(int a:{-1,1})for(int b2:{-1,1})for(int c:{-1,1}){px[k]=o.x+cx+a*hl*dx+b2*ht*sx+c*ht*tx;py[k]=o.y+cy+a*hl*dy+b2*ht*sy+c*ht*ty;pz[k]=o.z+cz+a*hl*dz+b2*ht*sz+c*ht*tz;k++;}
+  const int faces[6][4]={{4,5,7,6},{0,2,3,1},{2,6,7,3},{0,1,5,4},{1,3,7,5},{0,4,6,2}};
+  const float normals[6][3]={{dx,dy,dz},{-dx,-dy,-dz},{sx,sy,sz},{-sx,-sy,-sz},{tx,ty,tz},{-tx,-ty,-tz}};
+  for(int f=0;f<6;f++){const auto&n=normals[f];
+   for(int idx:{0,1,2,0,2,3}){int i=faces[f][idx];v.push_back({px[i],py[i],pz[i],r,g,b,n[0],n[1],n[2],0,0,float(material)});}}
+ };
   if(o.type==3){
   part(0,1.15f,0,1.1f,2.3f,.045f,1,1,1,Wood);
   for(int side:{-1,1}){part(.4f,1.05f,side*.035f,.075f,.14f,.025f,.22f,.24f,.25f,Plain);knob(.4f,1.05f,side*.046f,.024f);}
@@ -88,6 +102,53 @@ inline void appendObject(std::vector<MeshVertex>&v,const sandbox::Object&o,bool 
    cyl(0,.57f,0,.34f,.30f,.55f,.82f,.04f,.02f,sandbox::Plain);
    cyl(0,.06f,0,.35f,.35f,.055f,.15f,.15f,.14f,sandbox::Plain);
    cyl(0,1.08f,0,.31f,.31f,.055f,.15f,.15f,.14f,sandbox::Plain);
+  }else if(o.type==36){ // sandbag stack: three staggered rows
+   for(int row=0;row<3;row++){int n=row==1?2:3;for(int i=0;i<n;i++)part((i-(n-1)/2.f)*.4f,.14f+row*.24f,0,.38f,.22f,.5f,.62f,.55f,.4f,sandbox::Fabric);}
+  }else if(o.type==37){ // razor wire coil: square loops along X
+   for(int i=0;i<6;i++){float x=-.7f+i*.28f,h=i%2?.24f:.28f;
+    part(x,.33f-h,0,.035f,.035f,h*2,.35f,.37f,.38f,sandbox::Rust);part(x,.33f+h,0,.035f,.035f,h*2,.35f,.37f,.38f,sandbox::Rust);
+    part(x,.33f,-h,.035f,h*2,.035f,.35f,.37f,.38f,sandbox::Rust);part(x,.33f,h,.035f,h*2,.035f,.35f,.37f,.38f,sandbox::Rust);}
+  }else if(o.type==38){ // anti-tank hedgehog: three crossed steel beams
+   beam(0,.75f,0,1,1,0,2.1f,.14f,.3f,.33f,.35f,sandbox::Rust);
+   beam(0,.75f,0,-1,1,0,2.1f,.14f,.3f,.33f,.35f,sandbox::Rust);
+   beam(0,.75f,0,0,.3f,1,1.8f,.14f,.35f,.38f,.4f,sandbox::Rust);
+  }else if(o.type==39){ // street lamp: pole, arm, warm head
+   cyl(0,2.2f,0,.09f,.07f,2.2f,.28f,.3f,.32f,sandbox::Rust);
+   part(0,4.45f,-.15f,.12f,.1f,.4f,.28f,.3f,.32f,sandbox::Rust);
+   part(0,4.4f,-.3f,.3f,.14f,.4f,.9f,.85f,.6f,sandbox::Plain);
+  }else if(o.type==40){ // road sign: pole + white plate with blue field
+   cyl(0,1.05f,0,.045f,.045f,1.05f,.3f,.32f,.33f,sandbox::Rust);
+   part(0,1.85f,0,.7f,.7f,.05f,.85f,.85f,.88f,sandbox::Plain);
+   part(0,1.85f,-.03f,.56f,.56f,.02f,.15f,.35f,.7f,sandbox::Plain);
+  }else if(o.type==41){ // bricks on a pallet
+   for(float x:{-.45f,0.f,.45f})part(x,.07f,0,.14f,.14f,1.f,.48f,.28f,.12f,sandbox::Wood);
+   part(0,.17f,0,1.05f,.06f,1.05f,.58f,.36f,.16f,sandbox::Wood);
+   for(int row=0;row<4;row++)for(int i=0;i<3;i++)for(int j=0;j<3;j++)part((i-1)*.34f,.28f+row*.14f,(j-1)*.34f,.3f,.12f,.3f,.62f,.3f,.22f,sandbox::Brick);
+  }else if(o.type==42){ // gas cylinder: red body, shoulder, valve
+   cyl(0,.04f,0,.23f,.23f,.04f,.3f,.32f,.33f,sandbox::Rust);
+   cyl(0,.55f,0,.21f,.21f,.5f,.7f,.1f,.08f,sandbox::Plain);
+   cyl(0,1.08f,0,.21f,.1f,.08f,.7f,.1f,.08f,sandbox::Plain);
+   cyl(0,1.2f,0,.06f,.06f,.06f,.3f,.32f,.33f,sandbox::Rust);
+  }else if(o.type==43){ // wooden fence section
+   for(float x:{-1.1f,1.1f})part(x,.8f,0,.14f,1.6f,.14f,.4f,.26f,.12f,sandbox::Wood);
+   for(int i=0;i<7;i++)part(-.9f+i*.3f,.75f,0,.22f,1.3f,.05f,.52f,.34f,.16f,sandbox::Wood);
+   part(0,.45f,-.06f,2.2f,.1f,.04f,.4f,.26f,.12f,sandbox::Wood);part(0,1.15f,-.06f,2.2f,.1f,.04f,.4f,.26f,.12f,sandbox::Wood);
+  }else if(o.type==44){ // metal fence section: frame + bars
+   for(float x:{-1.15f,1.15f})part(x,.9f,0,.1f,1.8f,.1f,.3f,.33f,.35f,sandbox::Rust);
+   part(0,1.72f,0,2.3f,.08f,.06f,.3f,.33f,.35f,sandbox::Rust);part(0,.12f,0,2.3f,.08f,.06f,.3f,.33f,.35f,sandbox::Rust);
+   for(int i=0;i<11;i++)part(-1.f+i*.2f,.9f,0,.045f,1.6f,.045f,.35f,.38f,.4f,sandbox::Rust);
+  }else if(o.type==45){ // cable spool: wooden flanges, dark wound cable
+   cyl(0,.1f,0,.58f,.58f,.1f,.5f,.33f,.15f,sandbox::Wood);
+   cyl(0,.575f,0,.32f,.32f,.375f,.12f,.12f,.13f,sandbox::Plain);
+   cyl(0,1.05f,0,.58f,.58f,.1f,.5f,.33f,.15f,sandbox::Wood);
+  }else if(o.type==46){ // water tank: blue-grey drum with lid and hatch
+   cyl(0,.8f,0,.72f,.72f,.75f,.25f,.4f,.5f,sandbox::Rust);
+   cyl(0,1.6f,0,.74f,.74f,.05f,.2f,.33f,.42f,sandbox::Rust);
+   cyl(0,1.68f,0,.2f,.2f,.04f,.3f,.32f,.33f,sandbox::Plain);
+  }else if(o.type==47){ // red toolbox with handle
+   part(0,.18f,0,.8f,.32f,.42f,.72f,.12f,.1f,sandbox::Plain);
+   part(0,.36f,0,.82f,.06f,.44f,.55f,.1f,.08f,sandbox::Plain);
+   part(0,.42f,0,.3f,.05f,.05f,.2f,.2f,.22f,sandbox::Plain);
   }else appendCube(v,body);
  int surface=World::fixedSurface(o.type);
  if(surface>=0)for(size_t i=begin;i<v.size();i++){if(v[i].layer!=Plain||(o.type!=3&&o.type!=6)){v[i].layer=float(surface);if(o.type<13||o.type>=30)v[i].r=v[i].g=v[i].b=1;}}
