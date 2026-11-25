@@ -361,6 +361,18 @@ jobs:
             tail -n 3 fpc-smoke/build.log | while IFS= read -r line; do echo "::error::[fpc-smoke] $line"; done
             exit 1
           }
+          # Which programs run (diagnostics while aarch64-win64 is young).
+          printf '%s\n' 'program hello;' 'begin WriteLn(''hello'') end.' > fpc-smoke/hello.pas
+          printf '%s\n' 'program sysu;' 'uses SysUtils;' 'begin WriteLn(IntToStr(42)) end.' > fpc-smoke/sysu.pas
+          for prog in hello sysu smoke; do
+            for opt in -O- -O2; do
+              rm -f "fpc-smoke/$prog.exe"
+              "$ppc" -Mobjfpc $opt -FEfpc-smoke "fpc-smoke/$prog.pas" > /dev/null 2>&1 || { echo "::warning::[fpc-smoke] $prog $opt: compile failed"; continue; }
+              set +e; out="$(./fpc-smoke/$prog.exe 2>&1)"; code=$?; set -e
+              echo "::warning::[fpc-smoke] $prog $opt: exit $code: ${out:0:80}"
+            done
+          done
+          "$ppc" -Mobjfpc -O2 -FEfpc-smoke fpc-smoke/smoke.pas > /dev/null
           ./fpc-smoke/smoke.exe | tee fpc-smoke/out.txt
           grep -q 'fpc 1.4142 4 2' fpc-smoke/out.txt
           echo "FPC_EXE=$(cygpath -m "$ppc")" >> "$GITHUB_ENV"
