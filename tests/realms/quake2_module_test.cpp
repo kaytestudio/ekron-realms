@@ -577,6 +577,37 @@ void demoWithoutGame(realms::Engine &engine) {
     view.update(engine, {}, 0.0f, 0.0f, 0.1f, false); // walking
     CHECK(!view.gameRunning());
 
+    // timedemo 1: one record a frame, whatever the time between frames,
+    // then the frame rate (CL_FinishTimeDemo)
+    engine.exec("set timedemo 1\n");
+    engine.clearConsole();
+    engine.exec("demomap synthetic\n");
+    CHECK(view.open(engine, options, geometry, error) && q2.demoPlaying() && q2.timeDemoRunning());
+    CHECK(consoleHas(engine, "timing demo demos/synthetic.ekd"));
+    CHECK(q2.client().frameNumber() == 1 && q2.lastTimeDemo().frames == 0);
+    view.update(engine, {}, 0.0f, 0.0f, 5.0f, false); // a long frame: still one record
+    CHECK(q2.client().frameNumber() == 2);
+    view.update(engine, {}, 0.0f, 0.0f, 0.0f, false); // no time at all: one record
+    CHECK(q2.client().frameNumber() == 3);
+    for (int i = 0; i < 8; i++) view.update(engine, {}, 0.0f, 0.0f, 0.001f, false);
+    CHECK(q2.timeDemoRunning() && q2.client().frameNumber() == 11);
+    CHECK(near(view.session().walker().origin[0], -220.0f, 1e-3f));
+    view.update(engine, {}, 0.0f, 0.0f, 0.001f, false);
+    CHECK(!q2.demoPlaying() && !q2.timeDemoRunning());
+    const realms::Quake2Module::TimeDemoResult timed = q2.lastTimeDemo();
+    CHECK(timed.frames == 10 && timed.seconds > 0.0 && std::fabs(timed.fps * timed.seconds - 10.0) < 1e-6);
+    {
+        char line[96];
+        std::snprintf(line, sizeof line, "%i frames, %3.1f seconds: %3.1f fps", timed.frames, timed.seconds, timed.fps);
+        CHECK(consoleHas(engine, line));
+    }
+    engine.exec("set timedemo 0\n");
+    engine.exec("demomap synthetic\n");
+    CHECK(view.open(engine, options, geometry, error) && q2.demoPlaying() && !q2.timeDemoRunning());
+    CHECK(q2.lastTimeDemo().frames == 0); // forgotten with the map
+    view.update(engine, {}, 0.0f, 0.0f, 0.05f, false);
+    CHECK(q2.client().frameNumber() == 1); // back to the recorded pace
+
     // "stop" ends a playing demo too
     engine.exec("demomap synthetic.ekd\n");
     CHECK(view.open(engine, options, geometry, error) && q2.demoPlaying());
@@ -1200,6 +1231,21 @@ void viewWithGame(realms::Engine &engine) {
         CHECK(q2.demoPlaying());
         view.update(engine, {}, yaw, 0.0f, 0.05f, false);
         CHECK(!q2.demoPlaying() && !view.gameRunning() && consoleHas(engine, "Demo finished: 21 frames, 1.0 seconds."));
+
+        // timedemo: the same frames, one per update, as fast as they come
+        engine.exec("set timedemo 1\n");
+        view.close();
+        engine.exec("demomap walk1\n");
+        CHECK(view.open(engine, options, geometry, error) && q2.timeDemoRunning());
+        int timedMatches = same(frameNow(yaw, 0.0f), recorded[0]) ? 1 : 0;
+        for (int i = 0; i < 20; i++) {
+            view.update(engine, {}, yaw, 0.0f, 0.001f, false);
+            if (same(frameNow(yaw, 0.0f), recorded[size_t(i) + 1])) timedMatches++;
+        }
+        CHECK(timedMatches == 21);
+        view.update(engine, {}, yaw, 0.0f, 0.001f, false);
+        CHECK(!q2.demoPlaying() && q2.lastTimeDemo().frames == 20 && q2.lastTimeDemo().fps > 0.0);
+        engine.exec("set timedemo 0\n");
 
         // a map change stops a recording
         view.close();

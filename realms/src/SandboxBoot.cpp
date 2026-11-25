@@ -133,6 +133,9 @@ void registerMapCommands(Engine &engine, MapChangedFn onChange) {
     // (realms/GameDemo.h): the demo's map is loaded and Quake2Module plays
     // the demo on it (through the NOSET cvar cl_demofile).
     engine.registerCvar(kGameDemoCvar, "", REALMS_CVAR_NOSET);
+    // Quake 2's timedemo: 1 makes demomap play its demo as fast as frames
+    // are drawn and print the frame rate at the end (Quake2Module).
+    engine.registerCvar("timedemo", "0", 0);
     engine.addCommand("demomap", [e](const CommandArgs &args) {
         if (args.size() != 2) {
             e->print("USAGE: demomap <demoname>");

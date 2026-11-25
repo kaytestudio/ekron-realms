@@ -112,6 +112,9 @@ void Quake2Module::close() {
     demo_.reset();
     demoHasNext_ = false;
     demoAtEnd_ = false;
+    timeDemo_ = timeDemoStarted_ = false;
+    timeDemoFrames_ = 0;
+    timeDemoResult_ = TimeDemoResult{};
     demoNext_ = GameSnapshot{};
     if (game_) {
         game_->stop();
@@ -276,10 +279,18 @@ bool Quake2Module::startDemo(Engine &engine, const std::string &file, std::strin
     demo_ = std::move(reader);
     demoHasNext_ = false;
     demoAtEnd_ = false;
+    timeDemo_ = engine.cvarBool("timedemo", false);
+    timeDemoStarted_ = false;
+    timeDemoFrames_ = 0;
     demoClock_ = demoDue_ = 0.0;
     gActiveModule = this;
-    engine.print("playing demo " + file);
-    advanceDemo(0.0); // its first record is due at once
+    engine.print(std::string(timeDemo_ ? "timing demo " : "playing demo ") + file);
+    // its first record is due at once (a timedemo's frames are counted from
+    // the next one)
+    float seconds = 0.0f;
+    GameSnapshot first;
+    if (demo_->next(first, seconds)) receive(std::move(first));
+    else demoAtEnd_ = true;
     return true;
 }
 
@@ -287,6 +298,23 @@ void Quake2Module::advanceDemo(double dt) {
     if (!demo_) return;
     if (demoAtEnd_) { // the last record has been shown for a frame
         finishDemo();
+        return;
+    }
+    if (timeDemo_) {
+        // one record a frame, whatever its time (SV_Frame doesn't wait for
+        // the clock with timedemo set); the clock starts at the first frame
+        if (!timeDemoStarted_) {
+            timeDemoStarted_ = true;
+            timeDemoStart_ = std::chrono::steady_clock::now();
+        }
+        GameSnapshot next;
+        float seconds = 0.0f;
+        if (!demo_->next(next, seconds)) {
+            finishDemo();
+            return;
+        }
+        timeDemoFrames_++;
+        receive(std::move(next));
         return;
     }
     demoClock_ += std::isfinite(dt) ? std::max(dt, 0.0) : 0.0;
@@ -313,11 +341,24 @@ void Quake2Module::advanceDemo(double dt) {
 void Quake2Module::finishDemo() {
     // the end: back to walking the map
     if (!demo_) return;
+    if (timeDemo_) { // CL_FinishTimeDemo
+        TimeDemoResult r;
+        r.frames = timeDemoFrames_;
+        if (timeDemoStarted_)
+            r.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - timeDemoStart_).count();
+        r.fps = r.frames > 0 && r.seconds > 0.0 ? r.frames / r.seconds : 0.0;
+        timeDemoResult_ = r;
+    }
     if (engine_) {
         if (!demo_->error().empty())
             engine_->print("demo: " + demo_->error() + ", stopped there", REALMS_PRINT_WARNING);
         char buf[96];
-        std::snprintf(buf, sizeof buf, "Demo finished: %d frames, %.1f seconds.", demo_->records(), demo_->time());
+        if (timeDemo_)
+            std::snprintf(buf, sizeof buf, "%i frames, %3.1f seconds: %3.1f fps", timeDemoResult_.frames,
+                          timeDemoResult_.seconds, timeDemoResult_.fps);
+        else
+            std::snprintf(buf, sizeof buf, "Demo finished: %d frames, %.1f seconds.", demo_->records(),
+                          demo_->time());
         engine_->print(buf);
     }
     stopDemo();
@@ -328,6 +369,8 @@ void Quake2Module::stopDemo() {
     demo_.reset();
     demoHasNext_ = false;
     demoAtEnd_ = false;
+    timeDemo_ = timeDemoStarted_ = false;
+    timeDemoFrames_ = 0;
     demoNext_ = GameSnapshot{};
     resetClientSide();
     poses_.clear();

@@ -112,6 +112,7 @@ glTF maps run the game too. Name nodes (Blender empties, for example) after Quak
 - While a demo plays, the camera follows the recorded player and your own movement and look are ignored. When it ends, or after `stop`, the map is walked as without the game; `map <name>` starts the game again.
 - Demos are kept in the user data folder (see [Quake 2 data](#quake-2-data-baseq2)) as `demos/<name>.ekd`. `demomap` looks for them in the other data places too. A name is up to 32 letters, digits, `_` or `-`.
 - Recording goes on through a respawn. It stops on its own when the map changes or the game stops. A demo recorded on another version of the map is refused. A file cut short, by a crash for example, plays up to where it ends.
+- `timedemo 1`, then `demomap <name>`: a benchmark, as in Quake 2. Each recorded frame is drawn once, one after the other, as fast as the computer can draw them, and at the end the console shows `<frames> frames, <seconds> seconds: <fps> fps`. On the desktop, vsync is off while it runs. On Android and iOS the frame rate can't go above the screen's refresh rate. `timedemo 0` (the default) plays demos at their own speed again.
 
 ### Models (`.md3`)
 
