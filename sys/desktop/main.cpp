@@ -1499,6 +1499,7 @@ int main(int argc, char **argv)
     gamepads.openAll(); // controllers plugged in during the intro
 
     auto lastTick = std::chrono::steady_clock::now();
+    bool swapUncapped = false; // vsync off while a timedemo runs
 
     while (running) {
         int winW = 1280, winH = 720;
@@ -2589,6 +2590,12 @@ int main(int argc, char **argv)
         console.draw(renderer, hudW, hudH, engine, dt);
 
         renderer.flushUi(gl, drawW, drawH);
+        // timedemo measures how fast frames can be drawn: no vsync meanwhile
+        const bool uncapped = mapMode.active() && mapMode.quake2().timeDemoRunning();
+        if (uncapped != swapUncapped) {
+            SDL_GL_SetSwapInterval(uncapped ? 0 : 1);
+            swapUncapped = uncapped;
+        }
         SDL_GL_SwapWindow(window);
     }
 

@@ -19,6 +19,7 @@
 #include "realms/MapWalker.h"
 
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -157,6 +158,20 @@ public:
     // At its end (or stopDemo) the map is walked as without a game.
     bool demoPlaying() const { return demo_ != nullptr; }
     void stopDemo();
+    // Quake 2's timedemo: with the cvar "timedemo" set when a demo starts,
+    // every frame() shows the next record, as fast as the host draws, and
+    // the end prints "<frames> frames, <seconds> seconds: <fps> fps"
+    // (CL_FinishTimeDemo). Frames and seconds count from the first frame()
+    // after the demo started to the one after its last record. Hosts may
+    // drop their frame cap (vsync) while timeDemoRunning().
+    bool timeDemoRunning() const { return demo_ != nullptr && timeDemo_; }
+    struct TimeDemoResult {
+        int frames = 0;
+        double seconds = 0.0;
+        double fps = 0.0;
+    };
+    // The last finished timedemo (frames 0: none since open()).
+    const TimeDemoResult &lastTimeDemo() const { return timeDemoResult_; }
 
     // ---- drawing (map space)
     // Indexed by inline model number (0 unused); empty without a game.
@@ -228,6 +243,11 @@ private:
     GameSnapshot demoNext_;   // read, not yet due
     bool demoHasNext_ = false;
     bool demoAtEnd_ = false;  // nothing more to read: the demo ends next frame
+    bool timeDemo_ = false;   // a timedemo: one record a frame, timed
+    bool timeDemoStarted_ = false;
+    int timeDemoFrames_ = 0;
+    std::chrono::steady_clock::time_point timeDemoStart_{};
+    TimeDemoResult timeDemoResult_;
     double demoClock_ = 0.0;  // seconds played
     double demoDue_ = 0.0;    // when demoNext_ is due
     std::string failure_;
