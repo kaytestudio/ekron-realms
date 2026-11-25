@@ -1,9 +1,11 @@
 // MapEntityTransform.h: the view weapon points along the camera axes for
 // every yaw and pitch, brush model pitch, translation, yaw and winding.
 #include "MapEntityTransform.h"
+#include "realms/GameView.h"
 
 #include <cmath>
 #include <cstdio>
+#include <vector>
 
 namespace {
 
@@ -101,6 +103,26 @@ int main() {
         const float n[3] = {e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]};
         CHECK(n[1] > 0.99f);
         CHECK(near(a[3], 0, 1e-6f) && near(a[4], 1, 1e-6f) && near(a[5], 0, 1e-6f));
+    }
+    // hand 1 (realms::mirrorModelVertices): a gun on the right (model -y)
+    // moves to the left, its normals follow and the winding is kept (the
+    // face normal from the corners still matches the vertex normal)
+    {
+        std::vector<realms::ModelVertex> v = {{9, 9, 9, 0, 0, 1, 0, 0}, // before `first`: untouched
+                                              {0, -4, 0, 0, -1, 0, 0, 0},
+                                              {1, -4, 0, 0, -1, 0, 1, 0},
+                                              {0, -4, 1, 0, -1, 0, 0, 1}};
+        realms::mirrorModelVertices(v, 1);
+        CHECK(near(v[0].y, 9, 0));
+        bool mirrored = true;
+        for (size_t i = 1; i < 4; i++) mirrored &= near(v[i].y, 4, 1e-6f) && near(v[i].ny, 1, 1e-6f);
+        CHECK(mirrored);
+        const float e1[3] = {v[2].x - v[1].x, v[2].y - v[1].y, v[2].z - v[1].z};
+        const float e2[3] = {v[3].x - v[1].x, v[3].y - v[1].y, v[3].z - v[1].z};
+        const float ny = e1[2] * e2[0] - e1[0] * e2[2];
+        // before: corners (0,-4,0) (1,-4,0) (0,-4,1) face -y (n.y = -1, matching)
+        CHECK(ny > 0.5f); // after: faces +y, like the mirrored normals
+        CHECK(near(v[2].u, 0, 0) && near(v[2].v, 1, 0)); // corners 2 and 3 swapped
     }
     std::printf("[map entity transform] %d checks, %d failures\n", gChecks, gFailures);
     return gFailures == 0 ? 0 : 1;

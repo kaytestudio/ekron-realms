@@ -710,6 +710,40 @@ void viewWithGame(realms::Engine &engine) {
     CHECK(inRange && shard && weapon);
     view.entities(engine, yaw, 0.0f, false, ev, eb);
     for (const auto &b : eb) CHECK(!b.viewWeapon); // cl_gun 0
+    // hand 1: the view weapon mirrored to the left (render z is map -y), the
+    // userinfo sent again; hand 2: no view weapon; hand 0: back on the right
+    {
+        auto weaponSums = [&](std::array<double, 3> &sum) {
+            view.entities(engine, yaw, 0.0f, true, ev, eb);
+            sum = {0, 0, 0};
+            int count = 0;
+            for (const auto &b : eb)
+                if (b.viewWeapon)
+                    for (int i = b.first; i < b.first + b.count; i++) {
+                        sum[0] += ev[size_t(i)].x;
+                        sum[1] += ev[size_t(i)].y;
+                        sum[2] += ev[size_t(i)].z;
+                        ++count;
+                    }
+            return count;
+        };
+        std::array<double, 3> right{}, left{}, centre{};
+        const int rightCount = weaponSums(right);
+        CHECK(std::string(q2.game()->userinfo()).find("\\hand\\0\\") != std::string::npos);
+        engine.executeNow("set hand 1");
+        const int leftCount = weaponSums(left);
+        CHECK(std::string(q2.game()->userinfo()).find("\\hand\\1\\") != std::string::npos);
+        CHECK(rightCount > 0 && leftCount == rightCount);
+        CHECK(std::fabs(left[0] - right[0]) < 1e-3 && std::fabs(left[1] - right[1]) < 1e-3);
+        CHECK(std::fabs(left[2] + right[2]) < 1e-3 && std::fabs(right[2]) > 1e-3);
+        engine.executeNow("set hand 2");
+        CHECK(weaponSums(centre) == 0);
+        CHECK(std::string(q2.game()->userinfo()).find("\\hand\\2\\") != std::string::npos);
+        engine.executeNow("set hand 0");
+        CHECK(weaponSums(right) == rightCount);
+        CHECK(realms::GameServer::clampHand(3) == 0 && realms::GameServer::clampHand(-1) == 0 &&
+              realms::GameServer::clampHand(1) == 1 && realms::GameServer::clampHand(2) == 2);
+    }
 
     step("walk");
     // walk +X: pick up the shard (message + sound), then open the door

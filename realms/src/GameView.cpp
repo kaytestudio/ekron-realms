@@ -306,6 +306,17 @@ void appendModelBatches(const Md3Model &model, const GameDrawBatch &base, int fr
     }
 }
 
+void mirrorModelVertices(std::vector<ModelVertex> &vertices, size_t first) {
+    // model +Y is the gun's left: y -> -y mirrors it to the other side, as
+    // ref_gl's glScalef(-1, 1, 1) on the weapon's projection does on screen;
+    // swapping two corners keeps the triangles' winding
+    for (size_t i = first; i < vertices.size(); i++) {
+        vertices[i].y = -vertices[i].y;
+        vertices[i].ny = -vertices[i].ny;
+    }
+    for (size_t i = first; i + 2 < vertices.size(); i += 3) std::swap(vertices[i + 1], vertices[i + 2]);
+}
+
 void buildGameScene(const Engine &engine, const GameServer &server, const GameEntityLerp &lerp,
                     GameModelCache &models, const GameSceneOptions &options, GameScene &out) {
     out.clear();
@@ -342,7 +353,7 @@ void buildGameScene(const Engine &engine, const GameServer &server, const GameEn
         b.count = int(out.vertices.size()) - b.first;
         if (b.count > 0) out.batches.push_back(std::move(b));
     }
-    if (options.viewWeapon) {
+    if (options.viewWeapon && options.hand != 2) { // R_DrawAliasModel: no gun with r_lefthand 2
         const GameViewWeapon w = lerp.viewWeapon(server);
         const q2player_state_t *ps = server.playerState();
         const Md3Model *md3 = w.visible && isAliasModelName(w.model) ? models.model(engine, w.model) : nullptr;
@@ -360,7 +371,9 @@ void buildGameScene(const Engine &engine, const GameServer &server, const GameEn
             }
             b.angles[0] = -b.angles[0];
             b.color = modelColor(0);
+            const size_t first = out.vertices.size();
             appendModelBatches(*md3, b, w.frame, w.oldframe, w.backlerp, 0, out);
+            if (options.hand == 1) mirrorModelVertices(out.vertices, first);
         }
     }
 }

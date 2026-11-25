@@ -147,6 +147,9 @@ struct GameScene {
 
 struct GameSceneOptions {
     bool viewWeapon = true;   // cl_gun
+    // The "hand" cvar (userinfo): 1 draws the view weapon mirrored on the
+    // left, as ref_gl does for r_lefthand 1; 2 (centre) doesn't draw it.
+    int hand = 0;
     bool fallbackBoxes = true;
     // The view weapon follows this camera (map space, Quake 2 angles) when
     // set, so it can't lag the drawn view; else the game's view origin.
@@ -158,6 +161,10 @@ struct GameSceneOptions {
 // colour) with its own vertices and skin (Md3Model::skin for `skinnum`).
 void appendModelBatches(const Md3Model &model, const GameDrawBatch &base, int frame, int oldframe, float backlerp,
                         int skinnum, GameScene &scene);
+
+// Left-handed view weapon: mirrors vertices[first..] across the model's
+// X-Z plane and keeps each triangle's winding (triangle lists from first).
+void mirrorModelVertices(std::vector<ModelVertex> &vertices, size_t first);
 
 // Alias models and fallback boxes for every non-brush entity, and the view
 // weapon. Brush models ("*n") are left to the map renderer (use the lerped
