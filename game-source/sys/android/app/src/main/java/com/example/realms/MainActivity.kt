@@ -53,6 +53,7 @@ class MainActivity : GameActivity() {
     private var flyingNow = false
     private lateinit var joystick: StickView
     private lateinit var driveStick: StickView
+    private lateinit var movementControls: LinearLayout
     private val toolsState = ToolState()
     private var requestedTool: HandTool? = null
     private lateinit var toolActions: LinearLayout
@@ -115,7 +116,13 @@ class MainActivity : GameActivity() {
                     if(state.size>=12){interactionCode=state[11].toInt();interactionControl.visibility=if(interactionCode>0)View.VISIBLE else View.GONE
                         interactionControl.caption=when(interactionCode){6->"Подключиться";1->"Открыть";2->"Закрыть";3->"Сесть";4->"Выйти";else->""}
                         interactionControl.contentDescription=interactionControl.caption;interactionControl.invalidate()
-                        if(::driveStick.isInitialized){val driving=interactionCode==4;driveStick.visibility=if(driving)View.VISIBLE else View.GONE;if(!driving)driveStick.reset()}
+                        if(::driveStick.isInitialized){val driving=interactionCode==4;driveStick.visibility=if(driving)View.VISIBLE else View.GONE;if(!driving)driveStick.reset()
+                            // Keep the exit button clear of the drive stick area.
+                            val stick=(resources.configuration.screenHeightDp*.32f).toInt().coerceIn(120,184)
+                            val lp=interactionControl.layoutParams as FrameLayout.LayoutParams
+                            val margin=dp(if(driving)stick+30 else 8)
+                            if(lp.bottomMargin!=margin){lp.bottomMargin=margin;interactionControl.layoutParams=lp}
+                        }
                     }
                     if(state.size>=13){freezeControl.caption=if(state[12]>.5f) "Разморозить" else "Заморозить";freezeControl.contentDescription=freezeControl.caption;freezeControl.invalidate()}
                     if(state.size>=15 && ::viewToggle.isInitialized){ viewToggle.isSelected=state[14]>.5f }
@@ -264,6 +271,7 @@ class MainActivity : GameActivity() {
             nativeCommand(10)
         }
         for (control in listOf(jump,crouchControl)) movement.addView(control, LinearLayout.LayoutParams(dp(actionSize),dp(actionSize)))
+        movementControls=movement
         overlay.addView(movement, FrameLayout.LayoutParams(-2,-2,Gravity.BOTTOM or Gravity.END).apply { bottomMargin=dp(8);rightMargin=dp(8) })
         toolWheel=ToolWheelView(this) { selectTool(it) }
         overlay.addView(toolWheel,FrameLayout.LayoutParams(-1,-1))
@@ -432,6 +440,8 @@ class MainActivity : GameActivity() {
     private fun renderTools() {
         weapon.tool=toolsState.tool
         weapon.visibility=if(toolsState.viewmodelVisible&&interactionCode!=4)View.VISIBLE else View.GONE
+        // Jump/crouch sit on top of the drive stick corner; hide them while driving.
+        if(::movementControls.isInitialized)movementControls.visibility=if(interactionCode!=4)View.VISIBLE else View.GONE
         updateSelectedIcon()
         catalogControl.visibility=if(interactionCode!=4)View.VISIBLE else View.GONE
         spawnActions.visibility=if(toolsState.spawnVisible&&interactionCode!=4)View.VISIBLE else View.GONE
@@ -512,7 +522,7 @@ class MainActivity : GameActivity() {
     }
     private fun setPaused(value: Boolean) {
         if(::toolWheel.isInitialized)toolWheel.cancel()
-        closePopup();paused=value;joystick.reset();lookArea.reset();weapon.running=!value && active;nativeVertical(0f)
+        closePopup();paused=value;joystick.reset();lookArea.reset();if(::driveStick.isInitialized)driveStick.reset();weapon.running=!value && active;nativeVertical(0f)
         nativeReady(worldReady && active && !paused)
     }
     private fun showPauseMenu() {
@@ -583,7 +593,7 @@ class MainActivity : GameActivity() {
         if(::fpvControls.isInitialized)fpvControls.reset()
         closePopup();weapon.running=false
         active = false; nativeReady(false)
-        if (::joystick.isInitialized) joystick.reset();if (::lookArea.isInitialized)lookArea.reset()
+        if (::joystick.isInitialized) joystick.reset();if (::driveStick.isInitialized) driveStick.reset();if (::lookArea.isInitialized)lookArea.reset()
         try { player?.pause() } catch (_: IllegalStateException) {}
         handler.removeCallbacks(poll); nativeVertical(0f)
         super.onPause()
@@ -596,7 +606,7 @@ class MainActivity : GameActivity() {
     override fun onDestroy() { catalogExecutor.shutdownNow();nativeReady(false); player?.release(); player = null; handler.removeCallbacks(poll); super.onDestroy() }
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) hideSystemUi() else { nativeVertical(0f); if (::joystick.isInitialized) joystick.reset();if (::lookArea.isInitialized)lookArea.reset() }
+        if (hasFocus) hideSystemUi() else { nativeVertical(0f); if (::joystick.isInitialized) joystick.reset();if (::driveStick.isInitialized) driveStick.reset();if (::lookArea.isInitialized)lookArea.reset() }
     }
     @Suppress("DEPRECATION")
     private fun hideSystemUi() {

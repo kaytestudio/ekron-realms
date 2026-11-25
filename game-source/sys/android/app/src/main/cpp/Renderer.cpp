@@ -176,7 +176,7 @@ void cube(std::vector<Vertex>&v,const sandbox::Box&b){sandbox::appendCube(v,b);}
 
 }
 
-extern "C" JNIEXPORT void JNICALL Java_com_example_realms_MainActivity_nativeReady(JNIEnv*,jobject,jboolean ready){gameplayReady=ready;if(!ready){stickRight=0;stickForward=0;verticalInput=0;}}
+extern "C" JNIEXPORT void JNICALL Java_com_example_realms_MainActivity_nativeReady(JNIEnv*,jobject,jboolean ready){gameplayReady=ready;if(!ready){stickRight=0;stickForward=0;verticalInput=0;driveSteer=0;driveThrottle=0;}}
 extern "C" JNIEXPORT void JNICALL Java_com_example_realms_MainActivity_nativeDroneInput(JNIEnv*,jobject,jfloat throttle,jfloat yaw,jfloat pitch,jfloat roll){
  auto clean=[](float v){return gameplayReady&&std::isfinite(v)?std::clamp(v,-1.f,1.f):0.f;};
  droneThrottle=clean(throttle);droneYawInput=clean(yaw);dronePitchInput=clean(pitch);droneRollInput=clean(roll);
@@ -355,7 +355,7 @@ void Renderer::handleInput(){
   if(command==36&&city_.ready()){
    if(seatedCar_>=0){
     auto exit=sandbox::carExit(world_,seatedCar_,*city_.scene().collision,builtCollision_,city_.scene().minimum,city_.scene().maximum);
-    if(exit){auto&o=world_.objects[seatedCar_];o.anchored=carWasAnchored_;world_.x=exit->x;world_.y=exit->y;world_.z=exit->z;seatedCar_=-1;player_.reset(world_.x,world_.y,world_.z);resetInput();}else debugNotice=5;
+    if(exit){auto&o=world_.objects[seatedCar_];o.anchored=carWasAnchored_;world_.x=exit->x;world_.y=exit->y;world_.z=exit->z;seatedCar_=-1;driveSteer=0;driveThrottle=0;player_.reset(world_.x,world_.y,world_.z);resetInput();}else debugNotice=5;
    }else if(!tools_.holding()){
     int target=sandbox::interactionTarget(world_,*city_.scene().collision);
     if(target>=0){auto&o=world_.objects[target];if(o.type==3)o.doorTarget=o.doorTarget>.5f?0:1.57079633f;
@@ -452,15 +452,22 @@ void Renderer::render(){
    float throttle=std::clamp(driveThrottle.load(),-1.f,1.f),steer=std::clamp(driveSteer.load(),-1.f,1.f);
    float previousYaw=car.yaw;
    car.anchored=false;car.awake=true;car.restTime=0;
-   // Steering turns the continuous heading; rotation stays a snapshots for save.
-   car.yaw+=steer*1.3f*dt;int rounded=int(std::lround(car.yaw/1.57079632679f))%4;if(rounded<0)rounded+=4;car.rotation=rounded;
    float c=std::cos(car.yaw),s=std::sin(car.yaw);
-   if(throttle!=0){car.vx+=c*throttle*11.f*dt;car.vz+=-s*throttle*11.f*dt;}
-   else{car.vx*=std::exp(-2.5f*dt);car.vz*=std::exp(-2.5f*dt);}
-   float speed=std::hypot(car.vx,car.vz),maxSpeed=18.f;if(speed>maxSpeed){car.vx*=maxSpeed/speed;car.vz*=maxSpeed/speed;}
+   float forwardSpeed=car.vx*c-car.vz*s,lateralSpeed=car.vx*s+car.vz*c;
+   // Stick right turns right (camera forward is (-sin yaw,-cos yaw), car nose is (cos yaw,-sin yaw)).
+   // Steering bites only while rolling and flips in reverse, like a real car.
+   float bite=std::clamp(std::abs(forwardSpeed)/3.f,0.f,1.f);
+   car.yaw-=steer*1.8f*bite*(forwardSpeed<-.1f?-1.f:1.f)*dt;
+   int rounded=int(std::lround(car.yaw/1.57079632679f))%4;if(rounded<0)rounded+=4;car.rotation=rounded;
+   c=std::cos(car.yaw);s=std::sin(car.yaw);
+   forwardSpeed=(forwardSpeed+throttle*11.f*dt)*std::exp(-(throttle!=0 ? .35f : 1.6f)*dt);
+   lateralSpeed*=std::exp(-9.f*dt); // tyre grip: kill the ice-like sideways slide
+   forwardSpeed=std::clamp(forwardSpeed,-7.f,18.f);
+   car.vx=c*forwardSpeed+s*lateralSpeed;car.vz=-s*forwardSpeed+c*lateralSpeed;
    if(std::abs(car.yaw-previousYaw)>.0001f)rebuildBuiltCollision();
    auto seat=sandbox::driverSeat(car);seatTime_=std::min(1.f,seatTime_+dt/.65f);float t=seatTime_*seatTime_*(3-2*seatTime_);auto p=seatFrom_+(seat-seatFrom_)*t;
-   if(carChase_){world_.x=p.x-c*4.f;world_.y=p.y+1.2f;world_.z=p.z+s*4.f;world_.yaw=car.yaw;world_.pitch=-.12f;}
+   // Both cameras look along the nose: camera yaw = car yaw - 90deg.
+   if(carChase_){world_.x=p.x-c*4.f;world_.y=p.y+1.2f;world_.z=p.z+s*4.f;world_.yaw=car.yaw-1.57079632679f;world_.pitch=-.12f;}
    else{world_.x=p.x;world_.y=p.y;world_.z=p.z;world_.yaw=car.yaw-1.57079632679f;world_.pitch=0.f;}
   }
  }
