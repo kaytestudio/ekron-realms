@@ -799,6 +799,11 @@ target_include_directories(realms_map_entity_transform_test PRIVATE sys/android/
 target_link_libraries(realms_map_entity_transform_test PRIVATE realms_quake2)
 add_test(NAME realms_map_entity_transform COMMAND realms_map_entity_transform_test)
 
+# realms/ViewFov.h: map mode's focal length from Quake 2's fov. Header-only.
+add_executable(realms_view_fov_test tests/realms/view_fov_test.cpp)
+target_link_libraries(realms_view_fov_test PRIVATE realms_engine)
+add_test(NAME realms_view_fov COMMAND realms_view_fov_test)
+
 add_executable(realms_fpc_library_environ_test tests/realms/fpc_library_environ_test.cpp)
 target_include_directories(realms_fpc_library_environ_test PRIVATE realms/src)
 add_test(NAME realms_fpc_library_environ COMMAND realms_fpc_library_environ_test)

@@ -84,6 +84,7 @@ glTF maps run the game too. Name nodes (Blender empties, for example) after Quak
 
 - `sv_game 0`: walk maps without the game.
 - `cl_gun 0`: hide the view weapon.
+- `fov 110`: the field of view in maps (default 90, 1 to 160), as in Quake 2: the angle across a 4:3 screen, so a wider screen shows more at the sides. The game gets it as userinfo, and a change applies at once. The city keeps its own view.
 - The status bar (health, ammo, armor, the item just picked up, powerup timers) and the layout screens (help computer, scores, inventory) are drawn from the game's own layout programs; with `pak0.pak` installed they use its pics (icons, `pics/help.pcx`, the big digits), otherwise text and digits in the built-in font.
 - `cl_statusbar 0` (Ekron's own, not a Quake 2 cvar): hide the status bar and show health / armor / ammo as text in the map box instead.
 - `gl_polyblend 0`: turn off the screen tint the game sets (red when hurt, gold on a pickup, blue with the Quad Damage, a colour under water); it is on by default, as in Quake 2.

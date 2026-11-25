@@ -91,6 +91,7 @@ uniform vec3 eye;
 uniform vec2 angles;
 uniform float cameraRoll;
 uniform float aspect;
+uniform float focal; // realms/ViewFov.h
 // Map mode (mapview::kMapEffectShift): material packs the layer (bits
 // 0..11), Quake 2 surface effects (12..15) and an animation slot + 1
 // (16..21) whose current layer is mapAnimation[slot]. mapPass 0 draws the
@@ -110,7 +111,7 @@ void main(){
  vec3 q=vec3(cy*p.x-sy*p.z,p.y,sy*p.x+cy*p.z);
  q=vec3(q.x,cp*q.y+sp*q.z,-sp*q.y+cp*q.z);
  q.xy=mat2(cos(cameraRoll),sin(cameraRoll),-sin(cameraRoll),cos(cameraRoll))*q.xy;
- float f=1.37638;
+ float f=focal;
  gl_Position=vec4(q.x*f/aspect,q.y*f,-1.001334*q.z-.200134,-q.z);
  tint=color;worldNormal=mat3(objectTransform)*normal;texUV=uv;toEye=p;lmUV=lightUV;
  int bits=int(material+.5),slot=bits>>16; // "packed" is reserved in GLSL ES 3.00
@@ -218,6 +219,7 @@ precision highp float;
 precision highp sampler2DArray;
 in vec2 screen;
 uniform float aspect;
+uniform float focal; // realms/ViewFov.h
 uniform vec2 angles;
 uniform float cameraRoll;
 // Quake 2 skybox (map mode, realms::MapSky): layers rt lf bk ft up dn on unit
@@ -227,7 +229,7 @@ uniform mat3 skyMatrix;
 uniform sampler2DArray skyTextures;
 out vec4 outColor;
 void main(){
- vec3 ray=normalize(vec3(screen.x*aspect/1.37638,screen.y/1.37638,-1.0));
+ vec3 ray=normalize(vec3(screen.x*aspect/focal,screen.y/focal,-1.0));
  ray.xy=mat2(cos(cameraRoll),-sin(cameraRoll),sin(cameraRoll),cos(cameraRoll))*ray.xy;
  if(skyBox){
   // undo pitch, then yaw; then R_DrawSkyBox inverted (MapSky::faceCoords)
@@ -704,6 +706,7 @@ void Renderer::render(){
  glBindVertexArray(vao_);
  if(skyProgram_){glDisable(GL_DEPTH_TEST);glDepthMask(GL_FALSE);glUseProgram(skyProgram_);
   glUniform1f(glGetUniformLocation(skyProgram_,"aspect"),float(viewWidth)/viewHeight);
+  glUniform1f(glGetUniformLocation(skyProgram_,"focal"),realms::kSandboxFocalLength);
   glUniform2f(glGetUniformLocation(skyProgram_,"angles"),cameraYaw,cameraPitch);
   glUniform1f(glGetUniformLocation(skyProgram_,"cameraRoll"),viewRoll);
   glDrawArrays(GL_TRIANGLES,0,3);glDepthMask(GL_TRUE);glEnable(GL_DEPTH_TEST);
@@ -720,6 +723,7 @@ void Renderer::render(){
  glUniform3f(glGetUniformLocation(program_,"ambientColor"),.55f,.59f,.65f);
  glUniform1f(glGetUniformLocation(program_,"cameraRoll"),viewRoll);
  glUniform3f(glGetUniformLocation(program_,"eye"),cameraEye.x,cameraEye.y,cameraEye.z);glUniform2f(glGetUniformLocation(program_,"angles"),cameraYaw,cameraPitch);glUniform1f(glGetUniformLocation(program_,"aspect"),float(viewWidth)/viewHeight);
+ glUniform1f(glGetUniformLocation(program_,"focal"),realms::kSandboxFocalLength);
  glBindVertexArray(vao_);glBindBuffer(GL_ARRAY_BUFFER,buffer_);glBufferData(GL_ARRAY_BUFFER,vertices.size()*sizeof(Vertex),vertices.data(),GL_STREAM_DRAW);glDrawArrays(GL_TRIANGLES,0,static_cast<GLsizei>(vertices.size()));
  city_.draw(program_,cameraEye.x,cameraEye.z);
 
@@ -869,10 +873,12 @@ void Renderer::renderMap(float dt){
  interactionAction=0;freezeState=0;holdingObject=false;droneMode=0;
  const physics::Vec3 eye=mapMode_.drawEye();
  const float aspect=float(width_)/float(height_);
+ const float focal=mapMode_.focalLength(engine);
  glViewport(0,0,width_,height_);glClearColor(.56f,.61f,.63f,1);glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
  glBindVertexArray(vao_);
  if(skyProgram_){glDisable(GL_DEPTH_TEST);glDepthMask(GL_FALSE);glUseProgram(skyProgram_);
   glUniform1f(glGetUniformLocation(skyProgram_,"aspect"),aspect);
+  glUniform1f(glGetUniformLocation(skyProgram_,"focal"),focal);
   glUniform2f(glGetUniformLocation(skyProgram_,"angles"),mapYaw_,mapPitch_);
   glUniform1f(glGetUniformLocation(skyProgram_,"cameraRoll"),0);
   const GLuint skyTexture=mapMode_.skyTexture();
@@ -900,6 +906,7 @@ void Renderer::renderMap(float dt){
  glUniform3f(glGetUniformLocation(program_,"eye"),eye.x,eye.y,eye.z);
  glUniform2f(glGetUniformLocation(program_,"angles"),mapYaw_,mapPitch_);
  glUniform1f(glGetUniformLocation(program_,"aspect"),aspect);
+ glUniform1f(glGetUniformLocation(program_,"focal"),focal);
  mapMode_.draw(program_,city_,engine,mapYaw_,mapPitch_,aspect);
  glBindVertexArray(vao_);
  if(polyBlendProgram_&&stats.blend[3]>0.f&&engine.cvarBool("gl_polyblend",true)){

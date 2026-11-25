@@ -20,6 +20,7 @@ uniform mat4 objectTransform;
 uniform vec3 eye;
 uniform vec2 angles;
 uniform float aspect;
+uniform float focal;
 out vec3 worldNormal;
 out vec2 texUV;
 out vec3 toEye;
@@ -28,7 +29,7 @@ void main(){
  float cy=cos(angles.x),sy=sin(angles.x),cp=cos(angles.y),sp=sin(angles.y);
  vec3 q=vec3(cy*p.x-sy*p.z,p.y,sy*p.x+cy*p.z);
  q=vec3(q.x,cp*q.y+sp*q.z,-sp*q.y+cp*q.z);
- float f=1.37638;
+ float f=focal;
  gl_Position=vec4(q.x*f/aspect,q.y*f,-1.001334*q.z-.200134,-q.z);
  worldNormal=mat3(objectTransform)*normal;texUV=uv;toEye=p;
 })";
@@ -85,6 +86,7 @@ layout(location=2) in vec3 shape;
 uniform vec3 eye;
 uniform vec2 angles;
 uniform float aspect;
+uniform float focal;
 out vec4 tint;
 out vec3 corner;
 void main(){
@@ -92,7 +94,7 @@ void main(){
  float cy=cos(angles.x),sy=sin(angles.x),cp=cos(angles.y),sp=sin(angles.y);
  vec3 q=vec3(cy*p.x-sy*p.z,p.y,sy*p.x+cy*p.z);
  q=vec3(q.x,cp*q.y+sp*q.z,-sp*q.y+cp*q.z);
- float f=1.37638;
+ float f=focal;
  gl_Position=vec4(q.x*f/aspect,q.y*f,-1.001334*q.z-.200134,-q.z);
  tint=color;corner=shape;
 })";
@@ -156,6 +158,7 @@ void setCamera(GLuint p, const Quake2Gles::Camera &c) {
     glUniform3f(glGetUniformLocation(p, "eye"), c.eye.x, c.eye.y, c.eye.z);
     glUniform2f(glGetUniformLocation(p, "angles"), c.yaw, c.pitch);
     glUniform1f(glGetUniformLocation(p, "aspect"), c.aspect);
+    glUniform1f(glGetUniformLocation(p, "focal"), c.focal);
 }
 
 } // namespace

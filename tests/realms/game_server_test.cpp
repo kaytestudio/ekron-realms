@@ -283,6 +283,13 @@ void runGameChecks(realms::Engine &engine, const std::string &gameLibrary) {
     CHECK(player->linkcount > 0 && player->area.prev != nullptr);
     CHECK(player->client->ps.stats[Q2_STAT_HEALTH] == 100);
     CHECK(near(player->client->ps.fov, 90, 0.01f));
+    // the fov cvar changing: ClientUserinfoChanged copies it into ps.fov
+    server.setFov(110.0f);
+    CHECK(near(player->client->ps.fov, 110, 0.01f));
+    server.setFov(1000.0f); // clamped like the game does
+    CHECK(near(player->client->ps.fov, 160, 0.01f));
+    server.setFov(90.0f);
+    CHECK(near(player->client->ps.fov, 90, 0.01f));
     CHECK(near(server.playerOrigin()[0], -320, 0.2f) && near(server.playerOrigin()[1], 0, 0.2f));
     CHECK(near(server.playerOrigin()[2], 24 + 9 + 1, 0.2f)); // SelectSpawnPoint +9, PutClientInServer +1
     // CS_PLAYERSKINS: "name\model/skin"
