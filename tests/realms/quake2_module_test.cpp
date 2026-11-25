@@ -710,6 +710,38 @@ void viewWithGame(realms::Engine &engine) {
     CHECK(inRange && shard && weapon);
     view.entities(engine, yaw, 0.0f, false, ev, eb);
     for (const auto &b : eb) CHECK(!b.viewWeapon); // cl_gun 0
+    // hand 1: the view weapon mirrored to the left (render z is map -y), the
+    // userinfo sent again; hand 2: no view weapon; hand 0: back on the right
+    {
+        // the view weapon's corners, sorted, with z negated when `mirror`
+        auto weaponCorners = [&](bool mirror) {
+            view.entities(engine, yaw, 0.0f, true, ev, eb);
+            std::vector<std::array<float, 3>> corners;
+            for (const auto &b : eb)
+                if (b.viewWeapon)
+                    for (int i = b.first; i < b.first + b.count; i++)
+                        corners.push_back({ev[size_t(i)].x, ev[size_t(i)].y, mirror ? -ev[size_t(i)].z : ev[size_t(i)].z});
+            std::sort(corners.begin(), corners.end());
+            return corners;
+        };
+        const std::vector<std::array<float, 3>> right = weaponCorners(false);
+        CHECK(std::string(q2.game()->userinfo()).find("\\hand\\0\\") != std::string::npos);
+        engine.executeNow("set hand 1");
+        const std::vector<std::array<float, 3>> left = weaponCorners(true);
+        CHECK(std::string(q2.game()->userinfo()).find("\\hand\\1\\") != std::string::npos);
+        CHECK(!right.empty() && left.size() == right.size());
+        bool mirrored = left.size() == right.size();
+        for (size_t i = 0; mirrored && i < left.size(); i++)
+            for (int k = 0; k < 3; k++) mirrored &= near(left[i][size_t(k)], right[i][size_t(k)], 1e-4f);
+        CHECK(mirrored);
+        engine.executeNow("set hand 2");
+        CHECK(weaponCorners(false).empty());
+        CHECK(std::string(q2.game()->userinfo()).find("\\hand\\2\\") != std::string::npos);
+        engine.executeNow("set hand 0");
+        CHECK(weaponCorners(false) == right);
+        CHECK(realms::GameServer::clampHand(3) == 0 && realms::GameServer::clampHand(-1) == 0 &&
+              realms::GameServer::clampHand(1) == 1 && realms::GameServer::clampHand(2) == 2);
+    }
 
     step("walk");
     // walk +X: pick up the shard (message + sound), then open the door

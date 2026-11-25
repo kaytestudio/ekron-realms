@@ -828,7 +828,9 @@ bool GameServer::start(Engine &engine, const GameServerConfig &config, std::stri
 
     // SV_DirectConnect + SV_Begin_f for the local client
     playerName_ = config.playerName;
-    buildUserinfo(config.fov);
+    fov_ = config.fov;
+    hand_ = clampHand(config.hand);
+    buildUserinfo();
     struct ConnectArgs {
         bool ok = false;
     } connect;
@@ -1028,20 +1030,30 @@ void GameServer::clientCommand(const std::string &line) {
     guarded("ClientCommand", [](GameServer &s, void *) { s.ge_->ClientCommand(s.edictNum(1)); }, nullptr);
 }
 
-void GameServer::buildUserinfo(float fov) {
+void GameServer::buildUserinfo() {
     // Info strings can't hold backslashes, quotes or semicolons.
     std::string name;
     for (char c : playerName_)
         if (c != '\\' && c != '"' && c != ';' && static_cast<unsigned char>(c) >= 32) name += c;
     if (name.empty()) name = "Player";
     std::snprintf(userinfo_, sizeof(userinfo_),
-                  "\\name\\%s\\skin\\male/grunt\\hand\\0\\fov\\%g\\rate\\25000\\msg\\1\\ip\\loopback",
-                  name.c_str(), double(clampFov(fov)));
+                  "\\name\\%s\\skin\\male/grunt\\hand\\%d\\fov\\%g\\rate\\25000\\msg\\1\\ip\\loopback",
+                  name.c_str(), hand_, double(clampFov(fov_)));
 }
 
 void GameServer::setFov(float fov) {
     if (!running_) return;
-    buildUserinfo(fov);
+    fov_ = fov;
+    buildUserinfo();
+    guarded(
+        "ClientUserinfoChanged", [](GameServer &s, void *) { s.ge_->ClientUserinfoChanged(s.edictNum(1), s.userinfo_); },
+        nullptr);
+}
+
+void GameServer::setHand(int hand) {
+    if (!running_) return;
+    hand_ = clampHand(hand);
+    buildUserinfo();
     guarded(
         "ClientUserinfoChanged", [](GameServer &s, void *) { s.ge_->ClientUserinfoChanged(s.edictNum(1), s.userinfo_); },
         nullptr);

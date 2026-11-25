@@ -103,6 +103,8 @@ bool Quake2Module::startGame(Engine &engine, std::string &why) {
     config.playerName = engine.cvarString("name", "Player");
     config.fov = clampFov(engine.cvarFloat("fov", 90.0f));
     engine.cvarModified("fov"); // sent with the connect
+    config.hand = GameServer::clampHand(engine.cvarInt("hand", 0));
+    engine.cvarModified("hand");
     config.skill = engine.cvarInt("skill", 1);
     if (!game_->start(engine, config, why)) {
         game_.reset();
@@ -353,8 +355,11 @@ const GameScene &Quake2Module::buildScene(Engine &engine, const Vec3 &cameraOrig
     if (!gameRunning()) return scene_;
     // Like the Quake 2 client sending its userinfo when the fov cvar changes.
     if (engine.cvarModified("fov")) game_->setFov(engine.cvarFloat("fov", 90.0f));
+    const int hand = GameServer::clampHand(engine.cvarInt("hand", 0));
+    if (engine.cvarModified("hand")) game_->setHand(hand);
     GameSceneOptions opt;
     opt.viewWeapon = viewWeapon && !noclip();
+    opt.hand = hand;
     opt.hasCamera = true;
     opt.cameraOrigin = cameraOrigin;
     opt.cameraAngles = cameraAngles;

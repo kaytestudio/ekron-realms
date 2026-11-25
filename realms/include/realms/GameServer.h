@@ -103,6 +103,7 @@ struct GameServerConfig {
     std::string gameLibrary;      // explicit path (else REALMS_GAME_LIBRARY, then the search)
     std::string playerName = "Player";
     float fov = 90.0f;            // the userinfo fov (player_state_t::fov), clamped by realms::clampFov
+    int hand = 0;                 // the userinfo hand: 0 right, 1 left, 2 centre (GameServer::clampHand)
     int skill = 1;                // 0 easy .. 3 nightmare
     std::string spawnPoint;       // targetname of an info_player_start ("" = the default one)
 };
@@ -154,6 +155,14 @@ public:
     // A new userinfo fov for the local client (ClientUserinfoChanged), as
     // Quake 2's client sends when the fov cvar changes.
     void setFov(float fov);
+    // A new userinfo hand (the "hand" cvar): the side the game fires
+    // projectiles from (P_ProjectSource) and the view weapon is drawn on.
+    void setHand(int hand);
+    // Quake 2's hand values: 1 left, 2 centre; anything else is right (0),
+    // as P_ProjectSource treats it.
+    static int clampHand(int hand) { return hand == 1 || hand == 2 ? hand : 0; }
+    // The local client's userinfo string ("\\name\\Player\\skin\\...").
+    const char *userinfo() const { return userinfo_; }
 
     // ---- what the sandbox draws / plays
     int numEdicts() const;
@@ -275,7 +284,9 @@ private:
     char userinfo_[512] = {};
     std::string playerName_ = "Player";
     // userinfo_ for the local client: name, skin, hand, fov, rate, msg, ip.
-    void buildUserinfo(float fov);
+    void buildUserinfo();
+    float fov_ = 90.0f;
+    int hand_ = 0;
     bool inGameCall_ = false;
     void *abortJump_ = nullptr;
 };

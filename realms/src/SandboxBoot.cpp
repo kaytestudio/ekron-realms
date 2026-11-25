@@ -27,6 +27,9 @@ void registerSharedCvars(Engine &engine, const std::string &platform) {
     // Quake 2's crosshair (GameHudCanvas::crosshairStyle): 0 none, 1 .. 3 the
     // game's pics ch1 .. ch3 in maps. On by default, unlike Quake 2.
     engine.registerCvar("crosshair", "1", REALMS_CVAR_ARCHIVE);
+    // Quake 2's handedness (userinfo): 0 right, 1 left (the view weapon mirrored),
+    // 2 centre (no view weapon); the game fires from that side.
+    engine.registerCvar("hand", "0", REALMS_CVAR_ARCHIVE | REALMS_CVAR_USERINFO);
     // Brightness of the 3D view (realms/ViewGamma.h), as in Yamagi Quake II:
     // higher is brighter, 0.1 .. 2.0. 1 leaves the view as it is.
     engine.registerCvar("vid_gamma", "1", REALMS_CVAR_ARCHIVE);
