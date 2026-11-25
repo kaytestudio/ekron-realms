@@ -35,6 +35,17 @@ struct GameLayoutInput {
 
 std::vector<GameLayoutItem> runGameLayout(std::string_view program, const GameLayoutInput &input);
 
+// The inventory screen, as cl_inv.c's CL_DrawInventory draws it: the
+// "inventory" pic, a header, and up to 17 owned items around the selected
+// one (STAT_SELECTED_ITEM) as "hotkey count name". Items other than the
+// selected one use the second character set; with `cursor` (blinking, 5 Hz
+// in Quake 2) a ">" marks the selected one. `inventory` holds Q2_MAX_ITEMS
+// counts; `hotkey` names the key bound to "use <item name>" ("" for none).
+std::vector<GameLayoutItem> gameInventoryItems(const int16_t *inventory, int selected,
+                                               const std::function<std::string(int)> &configString, int width,
+                                               int height, bool cursor,
+                                               const std::function<std::string(const std::string &)> &hotkey = {});
+
 // The file of a Pic item, as ref_gl's Draw_FindPic finds it: "help" ->
 // "pics/help.pcx"; a name starting with '/' or '\\' is a path from the game
 // folder ("/players/male/grunt_i.pcx" -> "players/male/grunt_i.pcx").

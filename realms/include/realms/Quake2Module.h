@@ -105,6 +105,13 @@ public:
     bool layoutShown() const;
     // F1 in Quake 2 ("cmd help"): open or close the help computer.
     void toggleHelp();
+    // The inventory screen (Tab, "inven") while the game shows it
+    // (STAT_LAYOUTS & 2): the owned items from the last svc_inventory around
+    // the selected one; `cursor` draws its blinking marker.
+    bool inventoryShown() const;
+    std::vector<GameLayoutItem> inventoryItems(int width, int height, bool cursor) const;
+    // A Quake 2 client command for the game ("inven", "invnext", "invuse"...).
+    void clientCommand(const std::string &line);
 
     // ---- drawing (map space)
     // Indexed by inline model number (0 unused); empty without a game.

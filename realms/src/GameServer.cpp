@@ -583,6 +583,7 @@ bool GameServer::start(Engine &engine, const GameServerConfig &config, std::stri
     std::string name = fs::path(path).stem().string();
     mapName_ = name;
     configStrings_.assign(Q2_MAX_CONFIGSTRINGS, std::string());
+    inventory_.fill(0);
     modelHeadnodes_.assign(Q2_MAX_MODELS, -1);
     configStrings_[Q2_CS_MODELS + 1] = path;
     modelHeadnodes_[1] = 0;
@@ -1209,7 +1210,9 @@ void GameServer::flushMessage(const float *origin, int entity) {
         ev.kind = GameEvent::Kind::StuffText;
         ev.text = str();
         break;
-    case svc_inventory:
+    case svc_inventory: // CL_ParseInventory
+        for (int16_t &count : inventory_) count = int16_t(shortv());
+        return;
     default: return;
     }
     events_.push_back(std::move(ev));

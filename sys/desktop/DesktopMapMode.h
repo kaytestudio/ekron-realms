@@ -70,6 +70,8 @@ public:
     // paks when installed (realms/GameLayout.h).
     bool layoutShown() const { return quake2().layoutShown(); }
     void toggleHelp() { quake2().toggleHelp(); }
+    // Quake 2 client commands for the game's inventory ("inven", "invnext"...).
+    void gameCommand(const std::string &line) { quake2().clientCommand(line); }
     void drawLayout(realms::Engine &engine, ekron::gl::Api &gl, DesktopRenderer &renderer, int hudW, int hudH);
     // Quake 2's status bar (the game's CS_STATUSBAR program: health, ammo,
     // armor, the item picked up, timers), its bottom at barBottom. Off with

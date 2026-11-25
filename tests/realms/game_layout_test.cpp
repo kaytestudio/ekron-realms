@@ -195,6 +195,55 @@ void fieldAndTextChecks() {
     CHECK(realms::gameLayoutDigitPic('-', true) == "anum_minus");
 }
 
+void inventoryChecks() {
+    std::array<int16_t, Q2_MAX_ITEMS> inv{};
+    std::map<int, std::string> names;
+    auto config = [&](int i) {
+        auto it = names.find(i);
+        return it == names.end() ? std::string() : it->second;
+    };
+    inv[3] = 1;
+    inv[5] = 50;
+    inv[7] = 2;
+    names[Q2_CS_ITEMS + 3] = "Blaster";
+    names[Q2_CS_ITEMS + 5] = "Shells";
+    names[Q2_CS_ITEMS + 7] = "Medkit";
+    auto items = realms::gameInventoryItems(inv.data(), 5, config, 640, 480, true);
+    // 640 x 480: the pic at ((640 - 256) / 2, (480 - 240) / 2 + 8), text 24 in and 16 down
+    CHECK(at(find(items, Kind::Pic, "inventory"), 192, 128));
+    CHECK(at(find(items, Kind::Text, "hotkey ### item"), 216, 144));
+    CHECK(at(find(items, Kind::Text, "------ --- ----"), 216, 152));
+    const Item *blaster = find(items, Kind::Text, "         1 Blaster");
+    const Item *shells = find(items, Kind::Text, "        50 Shells");
+    const Item *medkit = find(items, Kind::Text, "         2 Medkit");
+    CHECK(at(blaster, 216, 160) && blaster->alt);
+    CHECK(at(shells, 216, 168) && !shells->alt); // the selected item: first character set
+    CHECK(at(medkit, 216, 176) && medkit->alt);
+    CHECK(at(find(items, Kind::Text, ">"), 208, 168));
+    CHECK(!find(realms::gameInventoryItems(inv.data(), 5, config, 640, 480, false), Kind::Text, ">"));
+    // hotkeys: the key bound to "use <name>"
+    items = realms::gameInventoryItems(inv.data(), 5, config, 640, 480, false,
+                                       [](const std::string &n) { return n == "Medkit" ? "m" : ""; });
+    CHECK(find(items, Kind::Text, "     m   2 Medkit"));
+    // 30 items, the 25th selected: 17 shown, scrolled to the end (items 13...29)
+    inv.fill(0);
+    for (int i = 0; i < 30; i++) inv[size_t(100 + i)] = 1;
+    items = realms::gameInventoryItems(inv.data(), 124, config, 640, 480, false);
+    CHECK(items.size() == 3 + 17);
+    CHECK(items.size() > 3 && items[3].y == 160 && items.back().y == 160 + 16 * 8);
+    CHECK(items.back().alt); // item 29, not selected
+    size_t plain = 0;
+    for (const Item &i : items) plain += i.kind == Kind::Text && i.y >= 160 && !i.alt;
+    CHECK(plain == 1); // only the selected line
+    // the selection near the top: no scrolling
+    items = realms::gameInventoryItems(inv.data(), 101, config, 640, 480, false);
+    CHECK(items.size() == 20 && !items[4].alt && items[3].alt);
+    // nothing owned: the frame only; no inventory: nothing
+    inv.fill(0);
+    CHECK(realms::gameInventoryItems(inv.data(), 0, config, 640, 480, true).size() == 3);
+    CHECK(realms::gameInventoryItems(nullptr, 0, config, 640, 480, true).empty());
+}
+
 void badProgramChecks() {
     Setup s;
     s.stats[0] = 9999; // not an image index
@@ -238,6 +287,7 @@ int main() {
     helpComputerChecks();
     statusBarChecks();
     fieldAndTextChecks();
+    inventoryChecks();
     badProgramChecks();
     std::printf("[game_layout] %d checks, %d failures\n", gChecks, gFailures);
     return gFailures == 0 ? 0 : 1;
