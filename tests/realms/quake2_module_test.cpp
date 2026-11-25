@@ -741,6 +741,21 @@ void viewWithGame(realms::Engine &engine) {
     CHECK(pickupSound);
     CHECK(maxKick > 0.1f && maxKick < 15.0f);
     CHECK(kickDrawn);
+    // cl_kickangles 0 (Yamagi Quake II): the camera is the player's look alone
+    engine.executeNow("set cl_kickangles 0");
+    float offKick = 0.0f;
+    for (int i = 0; i < 10; i++) {
+        view.update(engine, in, yaw, 0.0f, 0.05f, false);
+        const realms::Vec3 cam = view.cameraAngles(yaw, 0.0f);
+        offKick = std::max(offKick, std::fabs(cam[0]) + std::fabs(cam[2]));
+        for (const std::string &m : view.takeMessages()) picked |= m == "Armor Shard";
+        pickupSound |= hasSound(q2.takeSounds(), "sound/misc/ar2_pkup.wav");
+        if (const std::array<float, 4> b = q2.stats().blend; b[3] > pickupBlend[3]) pickupBlend = b;
+    }
+    CHECK(!q2.kickAngles() && offKick < 1e-4f);
+    engine.executeNow("set cl_kickangles 1");
+    view.update(engine, in, yaw, 0.0f, 0.05f, false);
+    CHECK(q2.kickAngles());
     CHECK(styleChanged); // style 1 flickers (worldspawn's CS_LIGHTS + 1)
     CHECK(doorMoved);    // the door rises (render +Y) as the game moves it
     CHECK(view.session().walker().origin[0] > -250.0f);

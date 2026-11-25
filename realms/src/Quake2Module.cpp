@@ -235,7 +235,8 @@ Vec3 Quake2Module::cameraAngles(const Vec3 &look) const {
     // plus the kick angles
     const GameViewLerp v = lerp_.view(*game_);
     Vec3 a = v.locked ? Vec3{v.angles[0], v.angles[1], v.angles[2]} : look;
-    for (size_t k = 0; k < 3; k++) a[k] += v.kick[k];
+    if (kickAngles_) // cl_kickangles
+        for (size_t k = 0; k < 3; k++) a[k] += v.kick[k];
     return a;
 }
 Vec3 Quake2Module::viewAngles() const { return gameRunning() ? game_->viewAngles() : Vec3{0, 0, 0}; }
