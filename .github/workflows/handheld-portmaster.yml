@@ -127,11 +127,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          trap 'echo "::error::[portmaster] failed: $BASH_COMMAND"' ERR
           ver="$(sed -nE 's/^project\(EkronRealms VERSION ([0-9.]+).*/\1/p' CMakeLists.txt)"
           ZIP="$PWD/build/ekron-realms-$ver-portmaster-aarch64.zip"
           bash tools/make_portmaster_zip.sh build "$ZIP"
           rm -rf /tmp/pm && mkdir -p /tmp/pm && unzip -q "$ZIP" -d /tmp/pm
-          ls -R /tmp/pm | head -n 40
+          find /tmp/pm -maxdepth 3 | sort
           test -f "/tmp/pm/Ekron Realms.sh"
           test -f "/tmp/pm/Ekron Realms - Quake 2.sh"
           python3 -c 'import json,sys; json.load(open(sys.argv[1]))' /tmp/pm/ekronrealms/port.json

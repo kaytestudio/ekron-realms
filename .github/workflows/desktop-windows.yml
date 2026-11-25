@@ -318,11 +318,19 @@ jobs:
             'CPU_TARGET=aarch64', 'OS_TARGET=win64', 'BINUTILSPREFIX=', 'NoNativeBinaries=1')
           $cross = Resolve-Path fpcsrc\compiler\ppcrossa64.exe -ErrorAction SilentlyContinue
           if (-not $cross) { "::error::fpcsrc\compiler\ppcrossa64.exe not built"; exit 1 }
-          if (-not (Test-Path fpcsrc\rtl\units\aarch64-win64\sysutils.ppu)) { "::error::the aarch64-win64 RTL was not built"; exit 1 }
+          $ppus = @(Get-ChildItem fpcsrc -Recurse -Filter sysutils.ppu | ForEach-Object { $_.DirectoryName })
+          "sysutils.ppu found in: $($ppus -join '; ')"
+          $rtlUnits = $ppus | Where-Object { $_ -like '*aarch64-win64*' } | Select-Object -First 1
+          if (-not $rtlUnits) {
+            "::error::the aarch64-win64 RTL was not built (sysutils.ppu only in: $($ppus -join '; '))"
+            Select-String -Path fpc-cycle.log -Pattern '(Error|Fatal|error:|\*\*\*)' | Select-Object -Last 9 |
+              ForEach-Object { "::error::[fpc-cycle] $($_.Line.Trim())" }
+            exit 1
+          }
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force "$env:FPC_ARM64\bin", "$env:FPC_ARM64\units\rtl" | Out-Null
           Copy-Item $cross "$env:FPC_ARM64\bin\"
-          Copy-Item fpcsrc\rtl\units\aarch64-win64\* "$env:FPC_ARM64\units\rtl\" -Recurse
+          Copy-Item "$rtlUnits\*" "$env:FPC_ARM64\units\rtl\" -Recurse
           # Free Pascal reads fpc.cfg from the compiler's own folder
           Set-Content -Encoding ascii "$env:FPC_ARM64\bin\fpc.cfg" "-Fu$($env:FPC_ARM64 -replace '\\','/')/units/rtl"
 
