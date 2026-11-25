@@ -868,6 +868,8 @@ void viewWithGame(realms::Engine &engine) {
     for (int i = 0; i < 10; i++) view.update(engine, walk, yaw, 0.0f, 0.1f, false);
     const realms::Vec3 walkedTo = q2.game()->playerOrigin();
     CHECK(std::fabs(walkedTo[0] - savedAt[0]) + std::fabs(walkedTo[1] - savedAt[1]) > 32.0f);
+    // Cmd_Kill_f ignores "kill" within 5 s of a respawn
+    for (int i = 0; i < 55; i++) view.update(engine, {}, yaw, 0.0f, 0.1f, false);
     engine.exec("kill\n");
     for (int i = 0; i < 3; i++) view.update(engine, {}, yaw, 0.0f, 0.1f, false);
     CHECK(q2.stats().health <= 0);
