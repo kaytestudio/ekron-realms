@@ -312,19 +312,22 @@ jobs:
             }
           }
           # "make cycle" for another CPU: the main RTL and a native compiler
-          # (x86_64), then ppcrossa64 with them, then the aarch64-win64 RTL with
-          # ppcrossa64 (NoNativeBinaries: no ARM64-native compiler on top).
+          # (x86_64), then ppcrossa64 with them (NoNativeBinaries implies
+          # CROSSINSTALL: no target RTL, no ARM64-native compiler on top).
           Invoke-Make 'cycle' @('-C', 'fpcsrc/compiler', 'cycle', "PP=$($ppc.FullName -replace '\\','/')",
             'CPU_TARGET=aarch64', 'OS_TARGET=win64', 'BINUTILSPREFIX=', 'NoNativeBinaries=1')
           $cross = Resolve-Path fpcsrc\compiler\ppcrossa64.exe -ErrorAction SilentlyContinue
           if (-not $cross) { "::error::fpcsrc\compiler\ppcrossa64.exe not built"; exit 1 }
+          # Then the aarch64-win64 RTL with ppcrossa64.
+          Invoke-Make 'rtl' @('-C', 'fpcsrc/rtl', 'all', "FPC=$("$cross" -replace '\\','/')",
+            'CPU_TARGET=aarch64', 'OS_TARGET=win64', 'BINUTILSPREFIX=')
           $ppus = @(Get-ChildItem fpcsrc -Recurse -Filter sysutils.ppu | ForEach-Object { $_.DirectoryName })
           "sysutils.ppu found in: $($ppus -join '; ')"
           $rtlUnits = $ppus | Where-Object { $_ -like '*aarch64-win64*' } | Select-Object -First 1
           if (-not $rtlUnits) {
             "::error::the aarch64-win64 RTL was not built (sysutils.ppu only in: $($ppus -join '; '))"
-            Select-String -Path fpc-cycle.log -Pattern '(Error|Fatal|error:|\*\*\*)' | Select-Object -Last 9 |
-              ForEach-Object { "::error::[fpc-cycle] $($_.Line.Trim())" }
+            Select-String -Path fpc-rtl.log -Pattern '(Error|Fatal|error:|\*\*\*)' | Select-Object -Last 9 |
+              ForEach-Object { "::error::[fpc-rtl] $($_.Line.Trim())" }
             exit 1
           }
           $ErrorActionPreference = 'Stop'

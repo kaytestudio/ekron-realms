@@ -152,8 +152,9 @@ jobs:
                 *) echo "::error::$(basename "$f") needs $lib, which the handheld firmwares don't ship"; exit 1 ;;
               esac
             done
-            newest="$(objdump -T "$f" | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -n 1)"
-            echo "$(basename "$f"): newest glibc symbol $newest"
+            # (the Free Pascal libraries use no libc symbols at all)
+            newest="$(objdump -T "$f" | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -n 1 || true)"
+            echo "$(basename "$f"): newest glibc symbol ${newest:-none}"
           done
           # From the extracted package, the way the launch script runs it.
           cd /tmp
