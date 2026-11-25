@@ -101,6 +101,7 @@ class MainActivity : GameActivity() {
     private lateinit var gameScreenActions: LinearLayout
     private lateinit var inventoryActions: LinearLayout
     private var mapGame = false
+    private lateinit var crosshair: TextView
     private lateinit var proneControl: HudButton
     // Localized via res/values{,-ru,-pt-rPT,-es-rES}; resolved lazily because resources are not ready during construction.
     private val items by lazy { BuildCatalog.entries.map { getString(it.labelRes) }.toTypedArray() }
@@ -165,6 +166,11 @@ class MainActivity : GameActivity() {
                     if (!nowGame && fireControl.isPressed) { fireControl.isPressed=false;nativeCommand(52) }
                     fireControl.visibility = if (nowGame) View.VISIBLE else View.GONE
                     if (::gameScreenActions.isInitialized) gameScreenActions.visibility = if (nowGame) View.VISIBLE else View.GONE
+                }
+                // status slot 22 bit 2: crosshair 0, or the game draws its own (ch1..ch3)
+                if (::crosshair.isInitialized) {
+                    val hide = state.size >= 23 && (state[22].toInt() and 4) != 0
+                    crosshair.visibility = if (hide) View.GONE else View.VISIBLE
                 }
                 // status slot 22: bit 1 = the game's inventory is open
                 if (::inventoryActions.isInitialized) {
@@ -286,7 +292,8 @@ class MainActivity : GameActivity() {
         notice = label(getString(R.string.notice_free_mode), 10f)
         heading.addView(notice)
         overlay.addView(heading, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START))
-        overlay.addView(label("+", 26f), FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
+        crosshair = label("+", 26f)
+        overlay.addView(crosshair, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
         // The reference HUD scales by available landscape height, not by a fixed phone resolution.
         val screenHeight = resources.configuration.screenHeightDp
         val actionSize = (screenHeight * .145f).toInt().coerceIn(60, 64)

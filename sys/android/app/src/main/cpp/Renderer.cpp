@@ -59,6 +59,7 @@ std::atomic<int> mapState{0}; // status slot 17: 0 sandbox, 1 map, 2 map with it
 // Status slots 18-21: the Quake 2 game runs the map (1), its player's health, armor and ammo.
 std::atomic<int> mapGame{0},mapHealth{0},mapArmor{0},mapAmmo{0};
 std::atomic<int> mapScreens{0}; // AndroidMapMode::hudScreens: layout, inventory
+std::atomic<bool> crosshairHidden{false}; // status slot 22 bit 2: crosshair 0, or the game's pic drawn
 std::mutex mapPathMutex;
 std::string mapPathShown;
 void showMapPath(const std::string &path){std::lock_guard<std::mutex> lock(mapPathMutex);mapPathShown=path;}
@@ -327,7 +328,7 @@ extern "C" JNIEXPORT jstring JNICALL Java_com_example_realms_MainActivity_native
  return env->NewStringUTF(path.c_str());
 }
 extern "C" JNIEXPORT jfloatArray JNICALL Java_com_example_realms_MainActivity_nativeStatus(JNIEnv *env,jobject){
- std::array<float,23> values{};values[17]=float(mapState.load());values[22]=float(mapScreens.load());
+ std::array<float,23> values{};values[17]=float(mapState.load());values[22]=float(mapScreens.load()|(crosshairHidden.load()?4:0));
  values[18]=float(mapGame.load());values[19]=float(mapHealth.load());values[20]=float(mapArmor.load());values[21]=float(mapAmmo.load());{std::lock_guard<std::mutex> lock(snapshotMutex);std::copy_n(snapshot.begin(),4,values.begin());values[14]=snapshot[4];values[15]=snapshot[5];values[16]=snapshot[6];}
  values[13]=float(droneMode.load());
  values[12]=float(freezeState.load());
@@ -656,6 +657,7 @@ void Renderer::render(){
  float cameraPitch=drone_.piloting()?drone_.viewPitch():world_.pitch;
  if(gameplayReady)tools_.pull(world_,dt,city_.scene().collision.get());
  if(gameplayReady&&city_.ready())soundHeard=true;
+ crosshairHidden=realms::GameHudCanvas::crosshairStyle(realms_android::ensureEngine(app_))==0;
  if(auto *sound=android_sound::get();sound&&soundHeard){
   sound->syncCvars(realms_android::ensureEngine(app_));
   ekron::audio::Listener ear;ear.x=cameraEye.x;ear.y=cameraEye.y;ear.z=cameraEye.z;ear.yaw=cameraYaw;
@@ -936,6 +938,7 @@ void Renderer::renderMap(float dt){
  }
  glActiveTexture(GL_TEXTURE0);
  mapScreens=mapMode_.hudScreens();
+ crosshairHidden=realms::GameHudCanvas::crosshairStyle(engine)==0||(hud&&mapMode_.crosshairDrawn());
  if(eglSwapBuffers(display_,surface_)==EGL_TRUE){
   const auto &w=mapMode_.session().walker();const physics::Vec3 at=mapMode_.session().eye();
   std::lock_guard<std::mutex> lock(snapshotMutex);

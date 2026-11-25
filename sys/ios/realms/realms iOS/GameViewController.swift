@@ -24,6 +24,7 @@ class GameViewController: UIViewController {
     private let coordinatesLabel = UILabel()
     private let noticeLabel = UILabel()
     private let crosshairLabel = UILabel()
+    private var crosshairHidden = false
     private let toastLabel = UILabel()
 
     private let joystick = StickControlView()
@@ -684,6 +685,8 @@ class GameViewController: UIViewController {
                 mapName = ""
             }
         }
+        // status slot 22 bit 2: crosshair 0, or the game draws its own (ch1..ch3)
+        crosshairHidden = count >= 23 && (Int(state[22]) & 4) != 0
         if count >= 17 { online.updatePose(state) }
         if count >= 15 { crouchButton.isSelected = Int(state[14]) == 1 }
         if count >= 16 { latestYawDegrees = state[15] * 180.0 / .pi }
@@ -832,7 +835,7 @@ class GameViewController: UIViewController {
         } else {
             lookControl.isHidden = false
             headingBox.isHidden = false
-            crosshairLabel.isHidden = false
+            crosshairLabel.isHidden = crosshairHidden
             joystick.isHidden = false
             pauseButton.isHidden = false
             switchWeaponButton.isHidden = mapMode

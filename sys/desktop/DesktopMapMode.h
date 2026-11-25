@@ -77,6 +77,11 @@ public:
     // armor, the item picked up, timers), its bottom at barBottom. Off with
     // cl_statusbar 0.
     void drawStatusBar(realms::Engine &engine, ekron::gl::Api &gl, DesktopRenderer &renderer, int hudW, int barBottom);
+    // Quake 2's crosshair pic (pics/chN.pcx for `style`, see
+    // GameHudCanvas::crosshairStyle) centred at the HUD scale while the game
+    // runs; false when there is none to draw (the caller draws its own).
+    bool drawCrosshair(realms::Engine &engine, ekron::gl::Api &gl, DesktopRenderer &renderer, int style, int hudW,
+                       int hudH);
     // Centre prints / pickup messages since the last call (for toasts).
     std::vector<std::string> takeGameMessages() { return view_.takeMessages(); }
     // The game's entities for DesktopRenderer::setMapEntities: .md3 models
