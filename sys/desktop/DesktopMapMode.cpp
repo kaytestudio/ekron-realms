@@ -1,6 +1,7 @@
 // Realms map mode for the desktop client (see DesktopMapMode.h).
 #include "DesktopMapMode.h"
 
+#include "realms/GameHudCanvas.h"
 #include "realms/MapGeometry.h"
 
 #include "realms/Image.h"
@@ -183,9 +184,8 @@ const DesktopMapMode::LayoutPic &DesktopMapMode::layoutPic(realms::Engine &engin
 }
 
 namespace {
-// Quake 2 pixels: a whole number of HUD pixels each, the 320 x 240 layout
-// area filling most of the smaller side.
-int layoutScale(int hudW, int hudH) { return std::max(1, int(std::min(hudW / 400.0f, hudH / 300.0f))); }
+// Quake 2 pixels: a whole number of HUD pixels each, as on the mobile HUD.
+int layoutScale(int hudW, int hudH) { return realms::GameHudCanvas::scaleFor(hudW, hudH); }
 } // namespace
 
 void DesktopMapMode::drawLayoutItems(realms::Engine &engine, ekron::gl::Api &gl, DesktopRenderer &renderer,

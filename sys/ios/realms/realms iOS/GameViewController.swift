@@ -32,6 +32,14 @@ class GameViewController: UIViewController {
     private let crouchButton = HudActionButton(caption: loc("action_crouch"), symbol: "crouch")
     /// Map mode with the Quake 2 game: held fire (commands 51 / 52).
     private let fireButton = HudActionButton(caption: loc("action_fire"), symbol: "fire")
+    // Quake 2 (map mode with the game): help computer and inventory; while the
+    // inventory is open, previous / next / use. The game draws both screens.
+    private let helpButton = HudActionButton(caption: loc("action_help"), symbol: "help")
+    private let inventoryButton = HudActionButton(caption: loc("action_inventory"), symbol: "backpack")
+    private let inventoryPrevButton = HudActionButton(caption: "", symbol: "left")
+    private let inventoryNextButton = HudActionButton(caption: "", symbol: "right")
+    private let inventoryUseButton = HudActionButton(caption: loc("action_inventory_use"), symbol: "check")
+    private var inventoryOpen = false
 
     private let switchWeaponButton = ToolSwitchButton()
     private let catalogButton = HudActionButton(caption: "", symbol: "cube")
@@ -325,6 +333,19 @@ class GameViewController: UIViewController {
         }
         hudOverlay.addSubview(fireButton)
 
+        // Quake 2's help computer and inventory: commands 53...57 ("help", "inven", "invprev", "invnext", "invuse")
+        inventoryPrevButton.accessibilityLabel = loc("action_inventory_previous")
+        inventoryNextButton.accessibilityLabel = loc("action_inventory_next")
+        for (button, command) in [(helpButton, 53), (inventoryButton, 54), (inventoryPrevButton, 55),
+                                  (inventoryNextButton, 56), (inventoryUseButton, 57)] as [(HudActionButton, Int32)] {
+            button.visualScale = 0.8
+            button.isHidden = true
+            button.onTap = { [weak self] in
+                self?.bridge?.sendCommand(command)
+            }
+            hudOverlay.addSubview(button)
+        }
+
         // Spawn strip
         buildPlaceButton.accessibilityLabel = loc("action_place_selected")
         buildPlaceButton.onTap = { [weak self] in
@@ -557,6 +578,11 @@ class GameViewController: UIViewController {
         let actionSize = min(64.0, max(56.0, b.height * 0.145))
         let rightX = b.width - rightMargin - 60.0
         pauseButton.frame = CGRect(x: rightX, y: topMargin, width: 60, height: 60)
+        helpButton.frame = CGRect(x: rightX - 128, y: topMargin, width: 60, height: 60)
+        inventoryButton.frame = CGRect(x: rightX - 64, y: topMargin, width: 60, height: 60)
+        inventoryPrevButton.frame = CGRect(x: rightX - 128, y: topMargin + 64, width: 60, height: 60)
+        inventoryNextButton.frame = CGRect(x: rightX - 64, y: topMargin + 64, width: 60, height: 60)
+        inventoryUseButton.frame = CGRect(x: rightX, y: topMargin + 64, width: 60, height: 60)
         switchWeaponButton.frame = CGRect(x: rightX, y: topMargin + 60, width: 60, height: 60)
         catalogButton.frame = CGRect(x: rightX - 64, y: topMargin + 60, width: 60, height: 60)
         removeButton.frame = CGRect(x: rightX - 64, y: topMargin + 120, width: 60, height: 60)
@@ -614,10 +640,10 @@ class GameViewController: UIViewController {
         weaponArt.tickAnimation()
         guard let bridge = bridge else { return }
 
-        var state = [Float](repeating: 0, count: 22)
+        var state = [Float](repeating: 0, count: 23)
         let count = state.withUnsafeMutableBufferPointer { buf -> Int in
             guard let base = buf.baseAddress else { return 0 }
-            return Int(bridge.pollStatus(base, count: 22))
+            return Int(bridge.pollStatus(base, count: 23))
         }
         guard count >= 14 else { return }
         let nowMap = count >= 18 && state[17] > 0.5
@@ -638,6 +664,16 @@ class GameViewController: UIViewController {
                 bridge.sendCommand(52)
             }
             fireButton.isHidden = !nowGame || wasInFpvMode
+            helpButton.isHidden = !nowGame || wasInFpvMode
+            inventoryButton.isHidden = !nowGame || wasInFpvMode
+        }
+        // status slot 22: bit 1 = the game's inventory is open
+        let nowInventory = nowGame && count >= 23 && (Int(state[22]) & 2) != 0
+        if nowInventory != inventoryOpen {
+            inventoryOpen = nowInventory
+            for button in [inventoryPrevButton, inventoryNextButton, inventoryUseButton] {
+                button.isHidden = !nowInventory || wasInFpvMode
+            }
         }
         if nowMap != mapMode {
             mapMode = nowMap
@@ -736,7 +772,8 @@ class GameViewController: UIViewController {
                 noticeLabel.text = loc("notice_flying")
             } else if mapMode {
                 if mapGame {
-                    noticeLabel.text = locF("notice_map_game", mapName, mapStats[0], mapStats[1], mapStats[2])
+                    // health, armor and ammo are on the game's own status bar
+                    noticeLabel.text = locF("notice_map_game", mapName)
                 } else {
                     noticeLabel.text = mapTexturesLoading ? locF("notice_map_textures", mapName) : locF("notice_map_mode", mapName)
                 }
@@ -782,7 +819,8 @@ class GameViewController: UIViewController {
         let normalViews: [UIView] = [
             lookControl, weaponArt, headingBox, crosshairLabel, joystick,
             pauseButton, switchWeaponButton, catalogButton, removeButton,
-            jumpButton, crouchButton, fireButton, spawnStrip, gravityStrip, remoteStrip,
+            jumpButton, crouchButton, fireButton, helpButton, inventoryButton, inventoryPrevButton,
+            inventoryNextButton, inventoryUseButton, spawnStrip, gravityStrip, remoteStrip,
             interactionButton, dronePlaceButton, altitudeContainer
         ]
         if hidden {
@@ -797,6 +835,11 @@ class GameViewController: UIViewController {
             jumpButton.isHidden = false
             crouchButton.isHidden = false
             fireButton.isHidden = !mapGame
+            helpButton.isHidden = !mapGame
+            inventoryButton.isHidden = !mapGame
+            for button in [inventoryPrevButton, inventoryNextButton, inventoryUseButton] {
+                button.isHidden = !inventoryOpen
+            }
             altitudeContainer.isHidden = !flyingNow
         }
     }

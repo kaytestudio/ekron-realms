@@ -88,6 +88,8 @@ class HudButton(context: Context, var caption: String, var symbol: String) : Vie
             "home" -> { line(24f,45f,50f,22f);line(50f,22f,76f,45f);line(31f,41f,31f,71f);line(31f,71f,69f,71f);line(69f,71f,69f,41f);line(45f,71f,45f,53f);line(45f,53f,56f,53f);line(56f,53f,56f,71f) }
             "switch" -> { line(25f,34f,75f,34f);line(75f,34f,62f,21f);line(75f,34f,62f,47f);line(75f,65f,25f,65f);line(25f,65f,38f,52f);line(25f,65f,38f,78f) }
             "remove" -> { line(32f,32f,68f,68f);line(68f,32f,32f,68f) }
+            "help" -> { canvas.drawArc(RectF(36f,18f,64f,44f),180f,250f,false,paint);line(50f,44f,50f,52f);paint.style=Paint.Style.FILL;canvas.drawCircle(50f,62f,3.5f,paint) }
+            "check" -> { line(30f,42f,44f,56f);line(44f,56f,72f,26f) }
             "fire" -> { canvas.drawCircle(50f,42f,15f,paint);line(50f,17f,50f,31f);line(50f,53f,50f,67f);line(25f,42f,39f,42f);line(61f,42f,75f,42f) }
             "jump" -> { paint.style=Paint.Style.FILL; val path=Path();path.moveTo(50f,16f);path.lineTo(28f,42f);path.lineTo(42f,42f);path.lineTo(42f,68f);path.lineTo(58f,68f);path.lineTo(58f,42f);path.lineTo(72f,42f);path.close();canvas.drawPath(path,paint) }
             "crouch", "prone" -> {

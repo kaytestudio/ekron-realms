@@ -205,6 +205,9 @@ void AndroidMapMode::releaseTriangles() {
 }
 
 void AndroidMapMode::releaseGl() {
+    if (hudTexture_) glDeleteTextures(1, &hudTexture_);
+    hudTexture_ = 0;
+    hud_ = realms::GameHudCanvas(); // redrawn (and its pics reloaded) on the next texture
     if (prepare_.valid()) prepare_.wait();
     prepare_ = {};
     model_.release();
@@ -263,6 +266,34 @@ float AndroidMapMode::spawnRenderYaw() const { return view_->spawnRenderYaw(); }
 realms::Quake2Module::PlayerStats AndroidMapMode::stats() const { return view_->module().stats(); }
 
 std::vector<std::string> AndroidMapMode::takeMessages() { return view_->takeMessages(); }
+
+GLuint AndroidMapMode::hudTexture(realms::Engine &engine, int width, int height, double seconds, int &scale) {
+    if (!view_) return 0;
+    // the status bar at the bottom edge: the map mode's touch controls keep to the corners
+    const bool changed = hud_.update(engine, view_->module(), width, height, height,
+                                     engine.cvarBool("cl_statusbar", true), seconds);
+    if (hud_.empty()) return 0;
+    if (changed || !hudTexture_) {
+        const realms::RgbaImage &img = hud_.image();
+        if (!hudTexture_) glGenTextures(1, &hudTexture_);
+        glBindTexture(GL_TEXTURE_2D, hudTexture_);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, img.width, img.height, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                     img.rgba.data());
+    }
+    scale = hud_.scale();
+    return hudTexture_;
+}
+
+int AndroidMapMode::hudScreens() const {
+    if (!gameRunning()) return 0;
+    const realms::Quake2Module &q2 = view_->module();
+    return (q2.layoutShown() ? 1 : 0) | (q2.inventoryShown() ? 2 : 0);
+}
 
 physics::Vec3 AndroidMapMode::drawEye() const {
     const physics::Vec3 e = view_->eye();

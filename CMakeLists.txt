@@ -580,7 +580,7 @@ add_executable(ekron_localization_test
     tests/native/localization_test.cpp
     sys/desktop/Localization.cpp
 )
-target_include_directories(ekron_localization_test PRIVATE sys/desktop)
+target_include_directories(ekron_localization_test PRIVATE sys/desktop realms/include)
 add_test(NAME ekron_localization COMMAND ekron_localization_test)
 
 # GLSL embedded in the desktop and Android renderers: no reserved words as

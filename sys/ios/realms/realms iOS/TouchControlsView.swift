@@ -403,6 +403,21 @@ final class HudActionButton: UIControl {
         case "remove":
             line(32, 32, 68, 68)
             line(68, 32, 32, 68)
+        case "help":
+            ctx.beginPath()
+            ctx.addArc(center: CGPoint(x: 50, y: 31), radius: 13, startAngle: .pi, endAngle: .pi * 2.4, clockwise: false)
+            ctx.strokePath()
+            line(50, 44, 50, 52)
+            ctx.fillEllipse(in: CGRect(x: 46.5, y: 58.5, width: 7, height: 7))
+        case "check":
+            line(30, 42, 44, 56)
+            line(44, 56, 72, 26)
+        case "backpack":
+            ctx.stroke(CGRect(x: 30, y: 27, width: 40, height: 38))
+            ctx.stroke(CGRect(x: 40, y: 40, width: 20, height: 17))
+            line(41, 25, 41, 18)
+            line(41, 18, 59, 18)
+            line(59, 18, 59, 25)
         case "fire":
             ctx.strokeEllipse(in: CGRect(x: 35, y: 27, width: 30, height: 30))
             line(50, 17, 50, 31)

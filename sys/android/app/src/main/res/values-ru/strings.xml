@@ -13,6 +13,11 @@
     <string name="action_jump">Прыжок</string>
     <string name="action_crouch">Присесть</string>
     <string name="action_fire">Огонь</string>
+    <string name="action_help">Справка</string>
+    <string name="action_inventory">Предметы</string>
+    <string name="action_inventory_previous">Предыдущий предмет</string>
+    <string name="action_inventory_next">Следующий предмет</string>
+    <string name="action_inventory_use">Применить</string>
     <string name="action_prone">Лечь</string>
     <string name="tool_picker_title">Выбор инструмента</string>
     <string name="tool_gravity_gun">Грави-пушка</string>
@@ -137,7 +142,7 @@
     <string name="maps_title">Карты</string>
     <string name="map_loading">Загрузка %1$s…</string>
     <string name="notice_map_mode">Карта: %1$s · пауза → Покинуть карту</string>
-    <string name="notice_map_game">Quake 2: %1$s · Здоровье %2$d · Броня %3$d · Патроны %4$d</string>
+    <string name="notice_map_game">Quake 2: %1$s</string>
     <string name="notice_map_textures">Карта: %1$s · загрузка текстур…</string>
     <string name="notice_map_failed">Не удалось загрузить карту.</string>
     <string name="maps_import">Импортировать карту…</string>
