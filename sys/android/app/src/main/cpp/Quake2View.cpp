@@ -192,6 +192,7 @@ void Quake2View::update(realms::Engine &engine, const realms::WalkInput &input, 
         session_.update(engine, input, renderYaw, renderPitch, dt);
         return;
     }
+    q2_.setKickAngles(engine.cvarBool("cl_kickangles", true)); // Yamagi Quake II's cl_kickangles
     // Quake 2 client: always-run speeds and the camera's absolute angles.
     q2_.frame(realms::Quake2Module::userCmd(walkInput(input, renderYaw, renderPitch), attack), dt);
     q2_.mirrorPlayer(session_.walker()); // HUD, sound director, retained state

@@ -84,6 +84,10 @@ public:
     // interpolated kick angles (weapon kick, damage, fall, run and bob pitch
     // and roll), or the game's death view while dead. `look` without a game.
     Vec3 cameraAngles(const Vec3 &look) const;
+    // Yamagi Quake II's cl_kickangles: false drops the kick angles from
+    // cameraAngles (the death view stays). On by default.
+    void setKickAngles(bool on) { kickAngles_ = on; }
+    bool kickAngles() const { return kickAngles_; }
     // CS_CDTRACK: the map's CD track (worldspawn "sounds"), 0 for none or
     // without a game.
     int cdTrack() const;
@@ -187,6 +191,7 @@ private:
     int lastPickup_ = 0;
     std::string layout_; // the last svc_layout
     GameEntityLerp lerp_;
+    bool kickAngles_ = true;
     GameModelCache models_;
     GameScene scene_;
     GameEffects effects_;
