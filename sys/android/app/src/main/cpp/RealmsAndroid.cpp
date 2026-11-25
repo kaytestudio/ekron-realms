@@ -1,5 +1,6 @@
 #include "RealmsAndroid.h"
 
+#include "realms/GameNetClient.h"
 #include "realms/GameServer.h"
 
 #include "realms/SandboxBoot.h"
@@ -114,6 +115,7 @@ realms::Engine &ensureEngine(android_app *app) {
         gMapChanged = true;
         gMapChange = path;
     };
+    realms::registerGameNetCommands(gEngine); // connect / disconnect / reconnect
     realms::sandbox::boot(gEngine, boot);
     __android_log_print(ANDROID_LOG_INFO, "Realms", "Realms engine ready: core=%s origin=%s",
                         gEngine.backendName().c_str(), gEngine.backendOrigin().c_str());

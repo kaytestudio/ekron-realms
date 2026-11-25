@@ -31,6 +31,7 @@
 #include "realms/GameSave.h"
 #include "realms/Engine.h"
 #include "realms/GameHudCanvas.h"
+#include "realms/GameNetClient.h"
 #include "realms/GameServer.h"
 #include "realms/GameView.h"
 #include "realms/SandboxBoot.h"
@@ -1409,6 +1410,7 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
         return false;
     };
     boot.onMapChanged = [](const std::string &path) { noteMapChange(path); };
+    realms::registerGameNetCommands(engine); // connect / disconnect / reconnect
     realms::sandbox::boot(engine, boot);
     NSLog(@"[Realms] engine ready: core=%s", engine.backendName().c_str());
     std::string where, why;

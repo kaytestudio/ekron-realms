@@ -13,6 +13,8 @@
 #include "realms/Engine.h"
 #include "realms/GameDemo.h"
 #include "realms/GameHudCanvas.h"
+#include "realms/GameNetClient.h"
+#include "realms/GameNetServer.h"
 #include "realms/GameSave.h"
 #include "realms/SandboxBoot.h"
 #include "realms/MapSky.h"
@@ -28,6 +30,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 #if defined(REALMS_GAME_STATIC)
@@ -634,6 +637,214 @@ void demoWithoutGame(realms::Engine &engine) {
     for (int i = 0; i < 12 && q2.demoPlaying(); i++) view.update(engine, {}, 0.0f, 0.0f, 0.1f, false);
     CHECK(!q2.demoPlaying() && consoleHas(engine, "Demo finished: 10 frames, 0.9 seconds."));
     view.close();
+    CHECK(engine.loadMap(mapPath));
+}
+
+// A stand-in game behind a GameNetServer (no game module needed): one
+// remote player walking along x, a door, a print on entering.
+struct NetStandIn : realms::GameNetServerGame {
+    bool active = false;
+    float x = -320.0f, fov = 90.0f;
+    int hand = 0, frame = 0;
+    std::vector<std::string> commands;
+    std::vector<realms::GameEvent> events;
+    bool sentStrings = false;
+    int maxClients() const override { return 4; }
+    int connectClient(const std::string &name, float f, int h, const std::string &, std::string &) override {
+        active = true;
+        fov = f;
+        hand = h;
+        sentStrings = false;
+        realms::GameEvent ev;
+        ev.kind = realms::GameEvent::Kind::Print;
+        ev.text = name + " entered the stand-in\n";
+        events.push_back(ev);
+        return 1;
+    }
+    void disconnectClient(int) override { active = false; }
+    void clientMove(int, const realms::GameUserCmd &cmd, double seconds) override { x += float(cmd.forward * seconds); }
+    void clientCommand(int, const std::string &line) override { commands.push_back(line); }
+    void setFov(int, float f) override { fov = f; }
+    void setHand(int, int h) override { hand = h; }
+    void snapshot(int, realms::GameSnapshot &s, bool full) override {
+        s = realms::GameSnapshot{};
+        if (!active) return;
+        s.running = true;
+        s.frameNumber = frame;
+        s.hasPlayer = true;
+        s.player.viewangles[1] = 45.0f;
+        s.player.viewoffset[2] = 22.0f;
+        s.player.fov = fov;
+        s.player.stats[Q2_STAT_HEALTH] = 77;
+        s.playerOrigin = {x, 0.0f, 34.0f};
+        s.entitiesChanged = true;
+        realms::GameRenderEntity door;
+        door.number = 9;
+        door.modelindex = 2;
+        door.model = "*1";
+        door.inlineModel = 1;
+        door.solid = 3;
+        s.entities = {door};
+        if (full || !sentStrings) {
+            s.configStrings = {{Q2_CS_NAME, "Stand-in"}, {Q2_CS_MODELS + 2, "*1"}};
+            sentStrings = true;
+        }
+        s.events.swap(events);
+    }
+};
+
+// Quake2View / Quake2Module as the client of a server: "connect" loads the
+// server's map, the view plays the server's game (its prints, the
+// player's slot, usercmds, commands, userinfo, a demo of it), the server
+// changing maps, "disconnect", the server quitting, another map.
+void netWithoutGame(realms::Engine &engine) {
+    realms::registerGameNetCommands(engine);
+    const std::string mapPath = engine.mapPath();
+    RealmsMapInfo info{};
+    CHECK(engine.mapInfo(info));
+    NetStandIn game;
+    realms::GameNetServer server;
+    std::string error;
+    CHECK(server.open(0, error, true));
+    if (!server.isOpen()) {
+        std::fprintf(stderr, "  no UDP socket: %s\n", error.c_str());
+        return;
+    }
+    server.setMap(mapPath, info.checksum);
+    const std::string address = "127.0.0.1:" + std::to_string(server.port());
+    realms::GameNetClient &net = realms::GameNetClient::instance();
+    const auto serve = [&]() {
+        const double now = realms::GameNetClient::clock();
+        server.receive(game, now);
+        game.frame++;
+        server.send(game, now);
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    };
+    // the console's connect up to the map load (the hook runs "map")
+    const auto handshake = [&]() {
+        for (int i = 0; i < 300 && net.state() != realms::GameNetClient::State::Loading; i++) {
+            serve();
+            engine.frame(0.02);
+        }
+        engine.frame(0.02); // runs the "map" the hook queued
+    };
+    engine.clearConsole();
+    engine.exec("connect " + address + "\n");
+    handshake();
+    CHECK(net.state() == realms::GameNetClient::State::Loading && net.mapPath() == mapPath);
+    CHECK(consoleHas(engine, "Connected to " + address + ": " + mapPath) && consoleHas(engine, "map: " + mapPath));
+
+    mapview::Quake2View view;
+    mapview::Quake2ViewOptions options;
+    options.startGame = false;
+    realms::MapGeometry geometry;
+    CHECK(view.open(engine, options, geometry, error));
+    realms::Quake2Module &q2 = view.module();
+    CHECK(q2.connected() && q2.game() == nullptr && net.state() == realms::GameNetClient::State::Active);
+    CHECK(view.session().summary().find(", online") != std::string::npos);
+    CHECK(consoleHas(engine, "map: playing on " + address));
+    realms::WalkInput forward;
+    forward.forward = 1.0f;
+    // render yaw 0 looks along the map's +X (Quake2View::walkInput)
+    const auto update = [&](const realms::WalkInput &in) {
+        serve();
+        view.update(engine, in, 0.0f, 0.0f, 0.02f, false);
+    };
+    for (int i = 0; i < 100 && !view.gameRunning(); i++) update({});
+    CHECK(view.gameRunning() && q2.client().configString(Q2_CS_NAME) == "Stand-in" && q2.stats().health == 77);
+    CHECK(consoleHas(engine, "Player entered the stand-in")); // the server's prints
+    CHECK(q2.listener().entity == 2);                        // slot 1: edict 2
+    CHECK(view.modelPoses().size() == 2 && view.modelPoses()[1].visible);
+    // the player's own look, not the server's (no waiting for the server)
+    const realms::Vec3 cam = view.cameraAngles(0.0f, 0.0f);
+    CHECK(near(cam[1], realms::Quake2Module::userCmd(mapview::walkInput({}, 0.0f, 0.0f), false).yaw, 1e-3f));
+    // walking: usercmds to the server, its origin back
+    const float x0 = game.x;
+    for (int i = 0; i < 50; i++) update(forward);
+    // (both ends send at most 60 times a second: frames here are quicker)
+    for (int i = 0; i < 100 && !near(q2.client().playerOrigin()[0], game.x, 0.01f); i++) update({});
+    std::printf("[module] remote walk: %.1f units\n", double(game.x - x0));
+    CHECK(game.x - x0 > 200.0f);
+    CHECK(near(q2.client().playerOrigin()[0], game.x, 0.01f));
+    // client commands and userinfo go to the server
+    q2.clientCommand("inven");
+    view.toggleNoclip();
+    engine.exec("set fov 100\n");
+    std::vector<mapview::EntityVertex> ev;
+    std::vector<mapview::EntityBatch> eb;
+    view.entities(engine, 0.0f, 0.0f, true, ev, eb); // sends the changed userinfo
+    for (int i = 0; i < 100 && (game.commands.size() < 2 || !near(q2.stats().fov, 100.0f, 1e-3f)); i++) update({});
+    CHECK(game.commands.size() == 2 && game.commands[0] == "inven" && game.commands[1] == "noclip");
+    CHECK(near(game.fov, 100.0f, 1e-3f) && near(q2.stats().fov, 100.0f, 1e-3f));
+    engine.exec("set fov 90\n");
+    // no restart on someone else's server
+    std::string why;
+    CHECK(!view.respawn(engine) && !q2.restartGame(engine, why) && why.find("disconnect first") != std::string::npos);
+    // a demo of a network game
+    engine.exec("record netgame\n");
+    CHECK(q2.recording() && consoleHas(engine, "recording to demos/netgame.ekd."));
+    for (int i = 0; i < 10; i++) update({});
+    engine.exec("stop\n");
+    CHECK(!q2.recording() && consoleHas(engine, "Stopped demo: demos/netgame.ekd"));
+
+    // the server changes maps: the client walks, then joins again
+    const uint16_t port = server.port();
+    server.close("reconnect");
+    game.active = false;
+    for (int i = 0; i < 5; i++) view.update(engine, {}, 0.0f, 0.0f, 0.02f, false);
+    CHECK(!q2.connected() && !view.gameRunning());
+    CHECK(net.state() == realms::GameNetClient::State::Challenging);
+    for (const std::string &m : view.takeMessages()) CHECK(m.find("Game stopped") == std::string::npos);
+    CHECK(server.open(port, error, true));
+    server.setMap(mapPath, info.checksum);
+    handshake();
+    CHECK(view.open(engine, options, geometry, error) && q2.connected());
+    for (int i = 0; i < 100 && !view.gameRunning(); i++) update({});
+    CHECK(view.gameRunning() && game.active);
+
+    // "disconnect": back to walking, the server lets go
+    engine.exec("disconnect\n");
+    for (int i = 0; i < 5; i++) update({});
+    CHECK(!q2.connected() && !view.gameRunning() && !game.active && server.clientCount() == 0);
+    for (const std::string &m : view.takeMessages()) CHECK(m.find("Game stopped") == std::string::npos);
+
+    // the server quitting: the view says why
+    engine.exec("reconnect\n");
+    handshake();
+    CHECK(view.open(engine, options, geometry, error) && q2.connected());
+    for (int i = 0; i < 100 && !view.gameRunning(); i++) update({});
+    CHECK(view.gameRunning());
+    server.close();
+    for (int i = 0; i < 5; i++) view.update(engine, {}, 0.0f, 0.0f, 0.02f, false);
+    CHECK(!q2.connected() && !view.gameRunning());
+    {
+        bool told = false;
+        for (const std::string &m : view.takeMessages()) told |= m == "Game stopped: Server disconnected: Server quit";
+        CHECK(told);
+    }
+
+    // another map opened while playing on a server ends the connection
+    CHECK(server.open(port, error, true));
+    server.setMap(mapPath, info.checksum);
+    engine.exec("reconnect\n");
+    handshake();
+    CHECK(view.open(engine, options, geometry, error) && q2.connected());
+    for (int i = 0; i < 100 && !view.gameRunning(); i++) update({});
+    engine.clearConsole();
+    CHECK(engine.loadMap("maps/surfaces.bsp"));
+    CHECK(view.open(engine, options, geometry, error) && !q2.connected() && !net.connected());
+    for (int i = 0; i < 5; i++) serve();
+    CHECK(!game.active && server.clientCount() == 0);
+    // the server's map isn't the one here: refused
+    server.setMap(mapPath, info.checksum ^ 1u);
+    CHECK(engine.loadMap(mapPath));
+    engine.clearConsole();
+    engine.exec("reconnect\n");
+    handshake();
+    CHECK(view.open(engine, options, geometry, error) && !q2.connected() && !net.connected());
+    CHECK(consoleHas(engine, "connect: your " + mapPath + " differs from the server's"));
+    view.close();
+    server.close();
     CHECK(engine.loadMap(mapPath));
 }
 
@@ -1467,6 +1678,8 @@ int main(int argc, char **argv) {
     viewWithoutGame(engine);
     step("demo without game");
     demoWithoutGame(engine);
+    step("network client without game");
+    netWithoutGame(engine);
     step("surface effects");
     surfaceEffects(engine);
 

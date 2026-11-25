@@ -104,6 +104,20 @@ void Quake2Module::open(Engine &engine, const MapGeometry &geometry, const Quake
         if (startDemo(engine, demo, error)) return;
         engine.print("demomap: " + error, REALMS_PRINT_WARNING);
     }
+    // "connect": the server's game when this is its map (the console's
+    // "map" loaded it for the client); another map ends the connection
+    GameNetClient &net = GameNetClient::instance();
+    if ((net.state() == GameNetClient::State::Loading || net.state() == GameNetClient::State::Active) &&
+        net.mapPath() == engine.mapPath()) {
+        std::string error;
+        if (attachNet(engine, net, error)) return;
+        engine.print("connect: " + error, REALMS_PRINT_WARNING);
+        return;
+    }
+    if (net.connected()) {
+        net.disconnect(GameNetClient::clock());
+        engine.print("Disconnected from " + net.serverName() + ".");
+    }
     if (config.startGame) startGame(engine, why);
 }
 
@@ -116,10 +130,15 @@ void Quake2Module::close() {
     timeDemoFrames_ = 0;
     timeDemoResult_ = TimeDemoResult{};
     demoNext_ = GameSnapshot{};
-    if (game_) {
-        game_->stop();
-        game_.reset();
+    // a map still loaded: the server is changing maps (its clients come
+    // back for the new one); none: killserver
+    stopServer(engine_ && engine_->mapLoaded() ? "reconnect" : "disconnect\nServer quit");
+    if (net_) {
+        // playing a server's game and another map (or none) is opened
+        if (net_->state() == GameNetClient::State::Active) net_->disconnect(GameNetClient::clock());
+        net_ = nullptr;
     }
+    viewEntity_ = 1;
     if (gActiveModule == this) gActiveModule = nullptr;
     client_.reset();
     failure_.clear();
@@ -139,12 +158,30 @@ void Quake2Module::close() {
     lightmapRgba_.clear();
 }
 
+void Quake2Module::stopServer(const std::string &command) {
+    if (listen_) listen_->close(command);
+    listen_.reset();
+    listenGame_.reset();
+    GameNetClient::instance().setLocalServerPort(0);
+    if (game_) {
+        game_->stop();
+        game_.reset();
+    }
+}
+
 bool Quake2Module::startGame(Engine &engine, std::string &why) {
     std::string where;
     if (!GameServer::moduleAvailable(executableDir_, &where, &why)) return false;
     if (!startsWithWorldspawn(engine)) {
         why = "the map has no worldspawn entity";
         return false;
+    }
+    // a restart: the listen server's clients come back for the new game
+    if (listen_) {
+        listen_->close("reconnect");
+        listen_.reset();
+        listenGame_.reset();
+        GameNetClient::instance().setLocalServerPort(0);
     }
     if (!game_) game_ = std::make_unique<GameServer>();
     GameServerConfig config;
@@ -155,10 +192,15 @@ bool Quake2Module::startGame(Engine &engine, std::string &why) {
     config.hand = GameServer::clampHand(engine.cvarInt("hand", 0));
     engine.cvarModified("hand");
     config.skill = engine.cvarInt("skill", 1);
+    // SV_InitGame: the multiplayer cvars (registerGameNetCommands)
+    config.deathmatch = engine.cvarFloat("deathmatch", 0.0f) != 0.0f;
+    config.coop = engine.cvarFloat("coop", 0.0f) != 0.0f;
+    config.maxClients = engine.cvarInt("maxclients", 1);
     if (!game_->start(engine, config, why)) {
         game_.reset();
         return false;
     }
+    if (game_->maxClients() > 1) startListening(engine);
     // a demo being recorded starts over with the new game: the player resets
     // its client too, then gets the full snapshot
     if (recorder_.isOpen() && !recorder_.write(GameSnapshot{}, 0.0f)) stopRecording();
@@ -171,6 +213,75 @@ bool Quake2Module::startGame(Engine &engine, std::string &why) {
     return true;
 }
 
+void Quake2Module::startListening(Engine &engine) {
+    const int port = engine.cvarInt("port", kNetDefaultPort);
+    auto listen = std::make_unique<GameNetServer>();
+    std::string error;
+    if (port < 0 || port > 65535 || !listen->open(uint16_t(port), error)) {
+        if (error.empty()) error = "bad port " + std::to_string(port);
+        engine.print("No listen server, others can't join: " + error, REALMS_PRINT_WARNING);
+        return;
+    }
+    RealmsMapInfo info{};
+    engine.mapInfo(info);
+    listen->setMap(engine.mapPath(), info.checksum);
+    Engine *e = &engine;
+    listen->print = [e](const std::string &text) { e->print(text); };
+    listen_ = std::move(listen);
+    listenGame_ = std::make_unique<GameServerNetGame>(*game_);
+    GameNetClient::instance().setLocalServerPort(listen_->port());
+    engine.print(std::string(game_->deathmatch() ? "Deathmatch" : "Coop") + " for " +
+                 std::to_string(game_->maxClients()) + " players: listening on UDP port " +
+                 std::to_string(listen_->port()) + ".");
+}
+
+bool Quake2Module::attachNet(Engine &engine, GameNetClient &net, std::string &why) {
+    RealmsMapInfo info{};
+    if (net.mapChecksum() && engine.mapInfo(info) && info.checksum && info.checksum != net.mapChecksum()) {
+        why = "your " + engine.mapPath() + " differs from the server's";
+        net.disconnect(GameNetClient::clock());
+        return false;
+    }
+    stopServer("");
+    resetClientSide(); // the server sends everything
+    std::string palette;
+    if (!effects_.loadPalette(engine, &palette))
+        engine.print("map: effects use the built-in palette (" + palette + ")\n", REALMS_PRINT_DEVELOPER);
+    // the connect sent the userinfo; changes from now on are sent
+    engine.cvarModified("fov");
+    engine.cvarModified("hand");
+    net_ = &net;
+    viewEntity_ = net.playerNum() >= 0 ? net.playerNum() + 1 : 1;
+    gActiveModule = this;
+    net.begin(GameNetClient::clock());
+    return true;
+}
+
+void Quake2Module::detachNet() {
+    if (!net_) return;
+    failure_ = net_->takeDisconnectReason(); // "" when the server changes maps
+    net_ = nullptr;
+    viewEntity_ = 1;
+    stopRecording();
+    resetClientSide();
+    poses_.clear();
+    scene_.clear();
+}
+
+void Quake2Module::netFrame(const GameUserCmd &cmd, double dt) {
+    gActiveModule = this;
+    std::vector<GameSnapshot> snapshots;
+    net_->frame(cmd, dt, GameNetClient::clock(), snapshots);
+    if (net_->playerNum() >= 0) viewEntity_ = net_->playerNum() + 1;
+    float seconds = float(dt);
+    for (GameSnapshot &s : snapshots) {
+        record(s, seconds);
+        seconds = 0.0f;
+        receive(std::move(s));
+    }
+    if (net_->state() != GameNetClient::State::Active) detachNet();
+}
+
 void Quake2Module::resetClientSide() {
     lastPickup_ = 0;
     layout_.clear();
@@ -181,13 +292,19 @@ void Quake2Module::resetClientSide() {
 }
 
 bool Quake2Module::restartGame(Engine &engine, std::string &why) {
+    if (net_) {
+        why = "playing on " + net_->serverName() + " (disconnect first)";
+        return false;
+    }
     if (demo_) stopDemo();
     poses_.clear();
     scene_.clear();
     return startGame(engine, why);
 }
 
-bool Quake2Module::gameRunning() const { return serverRunning() || demo_ != nullptr; }
+bool Quake2Module::gameRunning() const {
+    return serverRunning() || demo_ != nullptr || (net_ && client_.running());
+}
 const GameServer *Quake2Module::game() const { return serverRunning() ? game_.get() : nullptr; }
 GameServer *Quake2Module::game() { return serverRunning() ? game_.get() : nullptr; }
 
@@ -198,7 +315,7 @@ bool Quake2Module::startRecording(Engine &engine, const std::string &name, std::
         why = "can't record while a demo plays";
         return false;
     }
-    if (!serverRunning() || !client_.running()) {
+    if ((!serverRunning() && !net_) || !client_.running()) {
         why = "You must be in a level to record.";
         return false;
     }
@@ -268,10 +385,7 @@ bool Quake2Module::startDemo(Engine &engine, const std::string &file, std::strin
         why = file + " was recorded on another version of " + header.mapPath;
         return false;
     }
-    if (game_) {
-        game_->stop();
-        game_.reset();
-    }
+    stopServer("disconnect\nServer quit");
     resetClientSide();
     std::string palette;
     if (!effects_.loadPalette(engine, &palette))
@@ -381,7 +495,7 @@ std::string Quake2Module::takeGameFailure() {
     if (game_ && !game_->running()) { // the game stopped (game error): back to walking
         failure_ = game_->lastError();
         if (failure_.empty()) failure_ = "the game stopped";
-        game_.reset();
+        stopServer("disconnect\nServer quit");
         stopRecording();
         client_.reset();
         poses_.clear();
@@ -409,21 +523,34 @@ void Quake2Module::frame(const GameUserCmd &cmd, double dt) {
         advanceDemo(dt);
         return;
     }
+    if (net_) {
+        netFrame(cmd, dt);
+        return;
+    }
     if (!serverRunning()) return;
     gActiveModule = this;
+    // a listen server: the remote clients' usercmds before the frame, their
+    // snapshots after it
+    const double now = GameNetClient::clock();
+    if (listen_) listen_->receive(*listenGame_, now);
     game_->frame(cmd, dt);
+    if (listen_ && serverRunning()) listen_->send(*listenGame_, now);
     sync(float(dt));
+}
+
+void Quake2Module::record(const GameSnapshot &snapshot, float seconds) {
+    if (recorder_.isOpen() && !recorder_.write(snapshot, seconds)) {
+        const std::string file = recordFile_;
+        stopRecording();
+        if (engine_) engine_->print("record: can't write " + file + ", stopped", REALMS_PRINT_WARNING);
+    }
 }
 
 void Quake2Module::sync(float seconds) {
     if (!serverRunning()) return;
     GameSnapshot snapshot;
     game_->snapshot(snapshot, client_.needsFull());
-    if (recorder_.isOpen() && !recorder_.write(snapshot, seconds)) {
-        const std::string file = recordFile_;
-        stopRecording();
-        if (engine_) engine_->print("record: can't write " + file + ", stopped", REALMS_PRINT_WARNING);
-    }
+    record(snapshot, seconds);
     receive(std::move(snapshot));
 }
 
@@ -449,8 +576,9 @@ void Quake2Module::receive(GameSnapshot snapshot) {
     const double now = clientTimeMs(g);
     for (const GameEvent &ev : client_.takeEvents()) {
         effects_.handleEvent(ev, now); // temp entities, muzzle flashes, entity events
-        // the server prints its messages itself; a demo's are printed here
-        if (demo_ && engine_ && ev.kind == GameEvent::Kind::Print && !ev.text.empty()) engine_->print(ev.text);
+        // the server prints its messages itself; a demo's and a remote
+        // server's are printed here
+        if ((demo_ || net_) && engine_ && ev.kind == GameEvent::Kind::Print && !ev.text.empty()) engine_->print(ev.text);
         if (ev.kind == GameEvent::Kind::Sound) sounds_.push_back(ev);
         if (ev.kind == GameEvent::Kind::Layout) layout_ = ev.text;
         if (ev.kind == GameEvent::Kind::CenterPrint && !ev.text.empty()) {
@@ -527,9 +655,7 @@ bool Quake2Module::noclip() const {
     return ps && ps->pmove.pm_type == Q2_PM_SPECTATOR;
 }
 
-void Quake2Module::toggleNoclip() {
-    if (serverRunning()) game_->clientCommand("noclip");
-}
+void Quake2Module::toggleNoclip() { clientCommand("noclip"); }
 
 void Quake2Module::mirrorPlayer(MapWalker &w) const {
     if (!gameRunning()) return;
@@ -619,6 +745,7 @@ std::vector<GameLayoutItem> Quake2Module::inventoryItems(int width, int height, 
 
 void Quake2Module::clientCommand(const std::string &line) {
     if (serverRunning()) game_->clientCommand(line);
+    else if (net_) net_->sendCommand(line); // the server's game runs it
 }
 
 std::vector<std::string> Quake2Module::takeMessages() {
@@ -632,9 +759,19 @@ const GameScene &Quake2Module::buildScene(Engine &engine, const Vec3 &cameraOrig
     scene_.clear();
     if (!gameRunning()) return scene_;
     // Like the Quake 2 client sending its userinfo when the fov cvar changes.
-    if (serverRunning() && engine.cvarModified("fov")) game_->setFov(engine.cvarFloat("fov", 90.0f));
+    const bool userinfo = serverRunning() || net_;
+    const float fov = engine.cvarFloat("fov", 90.0f);
     const int hand = GameServer::clampHand(engine.cvarInt("hand", 0));
-    if (serverRunning() && engine.cvarModified("hand")) game_->setHand(hand);
+    const bool fovChanged = userinfo && engine.cvarModified("fov");
+    const bool handChanged = userinfo && engine.cvarModified("hand");
+    if (serverRunning()) {
+        if (fovChanged) game_->setFov(fov);
+        if (handChanged) game_->setHand(hand);
+    } else if (net_ && (fovChanged || handChanged)) {
+        char info[64];
+        std::snprintf(info, sizeof info, "\\fov\\%g\\hand\\%d", double(fov), hand);
+        net_->sendUserinfo(info);
+    }
     GameSceneOptions opt;
     opt.viewWeapon = viewWeapon && !noclip();
     opt.hand = hand;
@@ -732,7 +869,7 @@ GameListener Quake2Module::listener() const {
     if (!gameRunning()) return l;
     l.origin = client_.viewOrigin();
     l.right = gameRightVector(client_.viewAngles());
-    l.entity = 1; // the local player's edict
+    l.entity = viewEntity_; // the player's edict: 1, or its slot's on a server
     return l;
 }
 

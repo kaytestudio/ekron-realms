@@ -1,6 +1,8 @@
 // Realms Engine - game snapshots over a NetChannel (see GameNet.h).
 #include "realms/GameNet.h"
 
+#include <cmath>
+#include <cstring>
 #include <utility>
 
 namespace realms {
@@ -35,7 +37,82 @@ bool readRecord(const uint8_t *p, const uint8_t *end, GameDemoState &state, Game
     return decodeGameDemoRecord(state, p, n, s, seconds);
 }
 
+void putF32(std::vector<uint8_t> &b, float f) {
+    uint32_t u;
+    std::memcpy(&u, &f, 4);
+    for (int i = 0; i < 4; i++) b.push_back(uint8_t(u >> (8 * i)));
+}
+
+bool getF32(const uint8_t *&p, const uint8_t *end, float &f) {
+    if (end - p < 4) return false;
+    const uint32_t u = uint32_t(p[0]) | uint32_t(p[1]) << 8 | uint32_t(p[2]) << 16 | uint32_t(p[3]) << 24;
+    std::memcpy(&f, &u, 4);
+    p += 4;
+    if (!std::isfinite(f)) f = 0.0f;
+    return true;
+}
+
 } // namespace
+
+std::vector<uint8_t> encodeGameNetUserCmds(const std::vector<GameNetUserCmd> &cmds) {
+    std::vector<uint8_t> b;
+    putVar(b, cmds.size());
+    if (cmds.empty()) return b;
+    putVar(b, cmds.front().number);
+    for (const GameNetUserCmd &c : cmds) {
+        putF32(b, c.seconds);
+        putF32(b, c.cmd.forward);
+        putF32(b, c.cmd.side);
+        putF32(b, c.cmd.up);
+        putF32(b, c.cmd.pitch);
+        putF32(b, c.cmd.yaw);
+        b.push_back(uint8_t((c.cmd.attack ? 1 : 0) | (c.cmd.use ? 2 : 0)));
+        putVar(b, uint64_t(uint32_t(c.cmd.impulse)));
+    }
+    return b;
+}
+
+bool decodeGameNetUserCmds(const uint8_t *data, size_t size, std::vector<GameNetUserCmd> &out) {
+    out.clear();
+    const uint8_t *p = data, *end = data + size;
+    uint64_t count = 0, first = 0;
+    if (!getVar(p, end, count) || count > 64) return false;
+    if (count == 0) return p == end;
+    if (!getVar(p, end, first) || first == 0 || first + count - 1 > UINT32_MAX) return false;
+    for (uint64_t i = 0; i < count; i++) {
+        GameNetUserCmd c;
+        c.number = uint32_t(first + i);
+        uint64_t impulse = 0;
+        if (!getF32(p, end, c.seconds) || !getF32(p, end, c.cmd.forward) || !getF32(p, end, c.cmd.side) ||
+            !getF32(p, end, c.cmd.up) || !getF32(p, end, c.cmd.pitch) || !getF32(p, end, c.cmd.yaw) || p >= end)
+            return false;
+        const uint8_t buttons = *p++;
+        if (!getVar(p, end, impulse) || impulse > 255) return false;
+        c.cmd.attack = (buttons & 1) != 0;
+        c.cmd.use = (buttons & 2) != 0;
+        c.cmd.impulse = int(impulse);
+        out.push_back(c);
+    }
+    return p == end;
+}
+
+std::string gameNetInfoValue(const std::string &info, const std::string &key) {
+    // Info_ValueForKey: \key\value\key\value
+    size_t at = 0;
+    while (at < info.size()) {
+        if (info[at] == '\\') at++;
+        const size_t keyEnd = info.find('\\', at);
+        if (keyEnd == std::string::npos) return {};
+        const size_t valueEnd = info.find('\\', keyEnd + 1);
+        const std::string k = info.substr(at, keyEnd - at);
+        const std::string v =
+            info.substr(keyEnd + 1, valueEnd == std::string::npos ? std::string::npos : valueEnd - keyEnd - 1);
+        if (k == key) return v;
+        if (valueEnd == std::string::npos) return {};
+        at = valueEnd;
+    }
+    return {};
+}
 
 void GameNetEncoder::encode(const GameSnapshot &s, uint32_t sequence, uint32_t acked, std::vector<uint8_t> &unreliable,
                             std::vector<uint8_t> &reliable) {

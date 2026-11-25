@@ -237,6 +237,7 @@ void Engine::shutdown() {
     if (!core_) return;
     for (const auto &entry : commands_) core_->cmd_unregister(entry.first.c_str());
     commands_.clear();
+    frameHooks_.clear();
     core_->shutdown();
     core_ = nullptr;
     pascal_ = false;
@@ -675,6 +676,15 @@ void Engine::frame(double seconds) {
     const auto msec = int32_t(msecAccumulator_);
     msecAccumulator_ -= msec;
     core_->frame(msec);
+    // a hook may add another (copy: the vector can grow)
+    for (size_t i = 0; i < frameHooks_.size(); i++) {
+        const auto hook = frameHooks_[i];
+        if (hook) hook(seconds);
+    }
+}
+
+void Engine::addFrameHook(std::function<void(double)> hook) {
+    if (hook) frameHooks_.push_back(std::move(hook));
 }
 
 // ---------------------------------------------------------------- console

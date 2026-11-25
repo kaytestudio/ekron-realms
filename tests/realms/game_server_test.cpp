@@ -1,6 +1,6 @@
 // Q2Pmove on Engine traces, then the game module on GameServer: spawning,
-// walking, an armor shard pickup, a door, client commands, restart, and the
-// client-side entity list.
+// walking, an armor shard pickup, a door, client commands, restart, the
+// client-side entity list, multiplayer, and a player joining over UDP.
 //
 //   realms_game_server_test --game librealms_game.so [--pascal librealms_core.so]
 //
@@ -11,6 +11,8 @@
 #include "realms/Engine.h"
 #include "realms/GameClient.h"
 #include "realms/GameEffects.h"
+#include "realms/GameNetClient.h"
+#include "realms/GameNetServer.h"
 #include "realms/GameServer.h"
 #include "realms/GameView.h"
 #include "realms/MapGeometry.h"
@@ -25,6 +27,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -859,6 +862,156 @@ void runClientChecks(realms::Engine &engine, const std::string &gameLibrary) {
     server.stop();
 }
 
+// ------------------------------------------------------------ 4. over UDP
+
+// A listen server (GameNetServer on GameServer) and a GameNetClient on
+// 127.0.0.1: the handshake, the remote player entering the game, its
+// moves, commands and userinfo, everybody's prints, leaving.
+void runNetworkChecks(realms::Engine &engine, const std::string &gameLibrary) {
+    realms::GameServer server;
+    realms::GameServerConfig gcfg;
+    gcfg.gameLibrary = gameLibrary;
+    gcfg.playerName = "Host";
+    gcfg.deathmatch = true;
+    gcfg.maxClients = 4;
+    std::string error;
+    // the multiplayer cvars aren't latched in the engine: typed during a
+    // game, they are there for the next one
+    CHECK(server.start(engine, gcfg, error));
+    if (!server.running()) return;
+    CHECK(!(engine.cvarFlags("deathmatch") & REALMS_CVAR_LATCH) && !(engine.cvarFlags("maxclients") & REALMS_CVAR_LATCH));
+    CHECK(engine.setCvar("maxclients", "6") == REALMS_CVAR_SET_OK && engine.cvarString("maxclients") == "6");
+    CHECK(server.maxClients() == 4);
+    engine.setCvar("maxclients", "4");
+    server.takeEvents(0);
+
+    realms::GameServerNetGame game(server);
+    realms::GameNetServer net;
+    std::vector<std::string> said;
+    net.print = [&said](const std::string &t) { said.push_back(t); };
+    CHECK(net.open(0, error, true));
+    if (!net.isOpen()) {
+        std::fprintf(stderr, "  no UDP socket: %s\n", error.c_str());
+        return;
+    }
+    RealmsMapInfo info{};
+    engine.mapInfo(info);
+    net.setMap(engine.mapPath(), info.checksum);
+
+    realms::GameNetClient client;
+    realms::GameNetClient::Userinfo me;
+    me.name = "Visitor";
+    me.fov = 110.0f;
+    me.hand = 1;
+    double now = 100.0;
+    CHECK(client.connect("127.0.0.1:" + std::to_string(net.port()), me, now, error));
+    realms::GameClient view; // what the visitor draws
+    std::vector<realms::GameEvent> visitorEvents, hostEvents;
+    realms::GameUserCmd still;
+    // one 20 ms frame of everything: the server's, then the client's
+    const auto step = [&](const realms::GameUserCmd &cmd) {
+        now += 0.02;
+        net.receive(game, now);
+        server.frame(realms::GameUserCmd{}, 0.02);
+        net.send(game, now);
+        for (const auto &e : server.takeEvents(0)) hostEvents.push_back(e);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        std::vector<realms::GameSnapshot> snaps;
+        client.frame(cmd, 0.02, now, snaps);
+        for (auto &s : snaps) view.apply(std::move(s));
+        for (const auto &e : view.takeEvents()) visitorEvents.push_back(e);
+    };
+    for (int i = 0; i < 200 && client.state() != realms::GameNetClient::State::Loading; i++) step(still);
+    CHECK(client.state() == realms::GameNetClient::State::Loading);
+    std::string map;
+    CHECK(client.takeMapToLoad(map) && map == engine.mapPath() && client.mapChecksum() == info.checksum);
+    CHECK(!client.takeMapToLoad(map));
+    CHECK(net.clientCount() == 1 && net.playingCount() == 0 && server.clientCount() == 1);
+    CHECK(!said.empty() && said.back().find("Visitor connected from 127.0.0.1:") == 0);
+
+    // the map is "loaded": begin
+    CHECK(client.begin(now));
+    for (int i = 0; i < 200 && (!view.playerState() || client.playerNum() < 0); i++) step(still);
+    std::printf("[game] network client in: player %d, %d snapshots\n", client.playerNum(), view.snapshots());
+    CHECK(client.state() == realms::GameNetClient::State::Active && client.playerNum() == 1);
+    CHECK(server.clientActive(1) && server.clientCount() == 2 && net.playingCount() == 1);
+    CHECK(std::string(server.userinfo(1)).find("\\name\\Visitor\\") != std::string::npos);
+    CHECK(std::string(server.userinfo(1)).find("\\hand\\1\\") != std::string::npos);
+    CHECK(std::string(server.userinfo(1)).find("\\ip\\127.0.0.1") != std::string::npos);
+    CHECK(view.playerState() && near(view.playerState()->fov, 110, 0.01f));
+    CHECK(view.configString(Q2_CS_MAXCLIENTS) == "4");
+    CHECK(drawsEntity(view.renderEntities(), 1, "players/male/tris.md2") && !drawsEntity(view.renderEntities(), 2));
+    CHECK(hasText(visitorEvents, "Visitor entered the game") && hasText(hostEvents, "Visitor entered the game"));
+
+    // its usercmds move it (and only it)
+    {
+        const realms::Vec3 a0 = server.playerOrigin(0), a1 = server.playerOrigin(1);
+        realms::GameUserCmd run;
+        run.forward = 400;
+        run.yaw = a1[0] > 0 ? 180.0f : 0.0f;
+        for (int i = 0; i < 25; i++) step(run);
+        for (int i = 0; i < 25; i++) step(still); // (it slides to a stop)
+        const realms::Vec3 b0 = server.playerOrigin(0), b1 = server.playerOrigin(1);
+        std::printf("[game] remote player ran %.1f units\n", double(std::fabs(b1[0] - a1[0])));
+        CHECK(std::fabs(b1[0] - a1[0]) > 40);
+        CHECK(near(b0[0], a0[0], 0.01f) && near(b0[1], a0[1], 0.01f));
+        CHECK(near(view.playerOrigin()[0], b1[0], 0.5f) && near(view.playerOrigin()[1], b1[1], 0.5f));
+    }
+    // a client command for the game, its print to everyone
+    client.sendCommand("say over the wire");
+    for (int i = 0; i < 20; i++) step(still);
+    CHECK(hasText(hostEvents, "Visitor: over the wire") && hasText(visitorEvents, "Visitor: over the wire"));
+    // userinfo
+    client.sendUserinfo("\\fov\\95\\hand\\2");
+    for (int i = 0; i < 20; i++) step(still);
+    CHECK(server.player(1) && server.player(1)->client && near(server.player(1)->client->ps.fov, 95, 0.01f));
+    CHECK(std::string(server.userinfo(1)).find("\\hand\\2\\") != std::string::npos);
+    CHECK(view.playerState() && near(view.playerState()->fov, 95, 0.01f));
+    // begin again (the client opened the map again): everything again
+    {
+        view.reset();
+        CHECK(client.begin(now));
+        for (int i = 0; i < 50 && !view.playerState(); i++) step(still);
+        CHECK(view.playerState() && view.configString(Q2_CS_MAXCLIENTS) == "4" && server.clientCount() == 2);
+    }
+
+    // leaving: the game says so
+    hostEvents.clear();
+    client.disconnect(now);
+    CHECK(client.state() == realms::GameNetClient::State::Disconnected && client.takeDisconnectReason().empty());
+    for (int i = 0; i < 20; i++) step(still);
+    CHECK(!server.clientActive(1) && server.clientCount() == 1 && net.clientCount() == 0);
+    CHECK(hasText(hostEvents, "Visitor disconnected"));
+
+    // the server changing maps: its clients come back for the new one
+    CHECK(client.connect("127.0.0.1:" + std::to_string(net.port()), me, now, error));
+    for (int i = 0; i < 200 && client.state() != realms::GameNetClient::State::Loading; i++) step(still);
+    client.begin(now);
+    for (int i = 0; i < 100 && !server.clientActive(1); i++) step(still);
+    CHECK(server.clientActive(1));
+    const uint16_t port = net.port();
+    net.close("reconnect");
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    {
+        std::vector<realms::GameSnapshot> snaps;
+        client.frame(still, 0.02, now, snaps);
+    }
+    CHECK(client.state() == realms::GameNetClient::State::Challenging);
+    server.stop();
+    CHECK(server.start(engine, gcfg, error));
+    CHECK(net.open(port, error, true));
+    net.setMap(engine.mapPath(), info.checksum);
+    for (int i = 0; i < 200 && client.state() != realms::GameNetClient::State::Loading; i++) step(still);
+    CHECK(client.state() == realms::GameNetClient::State::Loading && client.takeMapToLoad(map));
+    // and quitting: the client is told why
+    net.close();
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    client.poll(now);
+    CHECK(client.state() == realms::GameNetClient::State::Disconnected);
+    CHECK(client.takeDisconnectReason() == "Server disconnected: Server quit");
+    server.stop();
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -940,6 +1093,7 @@ int main(int argc, char **argv) {
     if (!gameLibrary.empty() || realms::GameServer::moduleAvailable({}, &where, &why)) {
         runGameChecks(engine, gameLibrary);
         runClientChecks(engine, gameLibrary);
+        runNetworkChecks(engine, gameLibrary);
     } else {
         std::printf("[game] %d checks, %d failures; game module skipped: %s\n", gChecks, gFailures, why.c_str());
         engine.shutdown();

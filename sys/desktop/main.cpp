@@ -43,6 +43,7 @@
 #include "third_party/json.hpp"
 #include "realms/Engine.h"
 #include "realms/GameHudCanvas.h"
+#include "realms/GameNetClient.h"
 #include "realms/GameSave.h"
 #include "realms/GameServer.h"
 #include "realms/SandboxBoot.h"
@@ -928,6 +929,7 @@ int main(int argc, char **argv)
     std::optional<std::string> pendingMapChange;
     {
         std::vector<std::string> args(argv + (argc > 0 ? 1 : 0), argv + argc);
+        realms::registerGameNetCommands(engine); // connect / disconnect / reconnect (+connect on the command line)
         realms::sandbox::boot(engine, makeBootOptions(engineCfg, realms::Engine::commandLineScript(args), true,
                                                       [&pendingMapChange](const std::string &path) {
                                                           pendingMapChange = path;

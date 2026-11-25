@@ -333,7 +333,10 @@ private:
     q2csurface_t *surface(const std::string &name, int32_t flags, int32_t value);
     q2cvar_t *cvarGet(const char *name, const char *value, int flags);
     q2cvar_t *cvarSet(const char *name, const char *value, bool force);
-    void syncCvars();
+    // The engine's cvar values into the game's copies, but those the game
+    // registered with CVAR_LATCH (except `alsoLatched`): they keep the values
+    // they had at Init until the next game.
+    void syncCvars(const char *alsoLatched = nullptr);
     void tokenize(const std::string &line);
     void flushMessage(const float *origin, int entity);
     void queueSound(const float *origin, q2edict_t *ent, int channel, int soundindex, float volume, float attenuation,
