@@ -111,8 +111,8 @@ int gameDirToByte(const float dir[3]) {
     return bestIndex;
 }
 
-double clientTimeMs(const GameServer &server) {
-    return (std::max(server.frameNumber() - 1, 0) + server.lerpFraction()) * 100.0;
+double clientTimeMs(const GameClient &client) {
+    return (std::max(client.frameNumber() - 1, 0) + client.lerpFraction()) * 100.0;
 }
 
 GameEffects::GameEffects() {

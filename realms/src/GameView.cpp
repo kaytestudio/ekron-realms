@@ -29,13 +29,13 @@ void GameEntityLerp::reset() {
     viewPrev_ = viewCur_ = ViewSnap{};
 }
 
-GameEntityLerp::ViewSnap GameEntityLerp::viewSnap(const GameServer &server) {
+GameEntityLerp::ViewSnap GameEntityLerp::viewSnap(const GameClient &client) {
     ViewSnap s;
-    const q2player_state_t *ps = server.playerState();
-    if (!server.running() || !ps) return s;
+    const q2player_state_t *ps = client.playerState();
+    if (!client.running() || !ps) return s;
     s.valid = true;
     s.pmType = ps->pmove.pm_type;
-    const Vec3 origin = server.playerOrigin();
+    const Vec3 origin = client.playerOrigin();
     for (int k = 0; k < 3; k++) {
         s.origin[size_t(k)] = origin[size_t(k)];
         s.offset[size_t(k)] = ps->viewoffset[k];
@@ -47,17 +47,17 @@ GameEntityLerp::ViewSnap GameEntityLerp::viewSnap(const GameServer &server) {
     return s;
 }
 
-void GameEntityLerp::update(const GameServer &server) {
-    if (!server.running()) {
+void GameEntityLerp::update(const GameClient &client) {
+    if (!client.running()) {
         reset();
         return;
     }
-    if (server.frameNumber() == serverFrame_) return;
+    if (client.frameNumber() == serverFrame_) return;
     // A restarted server counts frames from 0 again: drop the old history.
-    if (server.frameNumber() < serverFrame_) reset();
-    serverFrame_ = server.frameNumber();
+    if (client.frameNumber() < serverFrame_) reset();
+    serverFrame_ = client.frameNumber();
     snapshots_++;
-    current_ = server.renderEntities(true);
+    current_ = client.renderEntities(true);
     prev_ = std::move(cur_);
     cur_.clear();
     for (const GameRenderEntity &e : current_) {
@@ -70,23 +70,23 @@ void GameEntityLerp::update(const GameServer &server) {
     }
     prevGunIndex_ = gunIndex_;
     prevGunFrame_ = gunFrame_;
-    const q2player_state_t *ps = server.playerState();
+    const q2player_state_t *ps = client.playerState();
     gunIndex_ = ps ? ps->gunindex : 0;
     gunFrame_ = ps ? ps->gunframe : 0;
     viewPrev_ = viewCur_;
-    viewCur_ = viewSnap(server);
+    viewCur_ = viewSnap(client);
 }
 
-GameViewLerp GameEntityLerp::view(const GameServer &server) const {
+GameViewLerp GameEntityLerp::view(const GameClient &client) const {
     GameViewLerp v;
     // the snapshots of the last two frames, or the live state before update()
-    const ViewSnap cur = viewCur_.valid ? viewCur_ : viewSnap(server);
-    if (!server.running() || !cur.valid) return v;
+    const ViewSnap cur = viewCur_.valid ? viewCur_ : viewSnap(client);
+    if (!client.running() || !cur.valid) return v;
     ViewSnap old = viewPrev_.valid ? viewPrev_ : cur;
     // CL_CalcViewValues: no interpolation across a teleport (256 units)
     for (int k = 0; k < 3; k++)
         if (std::fabs(cur.origin[size_t(k)] - old.origin[size_t(k)]) > 256.0f) old = cur;
-    const float frac = float(server.lerpFraction());
+    const float frac = float(client.lerpFraction());
     for (size_t k = 0; k < 3; k++) {
         v.offset[k] = old.offset[k] + frac * (cur.offset[k] - old.offset[k]);
         v.kick[k] = lerpAngle(old.kick[k], cur.kick[k], frac);
@@ -96,10 +96,10 @@ GameViewLerp GameEntityLerp::view(const GameServer &server) const {
     return v;
 }
 
-std::vector<GameLerpedEntity> GameEntityLerp::entities(const GameServer &server) const {
+std::vector<GameLerpedEntity> GameEntityLerp::entities(const GameClient &client) const {
     std::vector<GameLerpedEntity> out;
-    if (!server.running()) return out;
-    const float frac = float(server.lerpFraction());
+    if (!client.running()) return out;
+    const float frac = float(client.lerpFraction());
     // cl.time in ms at the drawn moment: the previous frame + frac
     const double clientTime = (double(serverFrame_) - 1.0 + double(frac)) * GameServer::kFrameSeconds;
     const float autorotate = float(std::fmod(clientTime * 100.0, 360.0));
@@ -152,19 +152,19 @@ std::vector<GameLerpedEntity> GameEntityLerp::entities(const GameServer &server)
     return out;
 }
 
-GameViewWeapon GameEntityLerp::viewWeapon(const GameServer &server) const {
+GameViewWeapon GameEntityLerp::viewWeapon(const GameClient &client) const {
     GameViewWeapon w;
-    const q2player_state_t *ps = server.playerState();
-    if (!server.running() || !ps || ps->gunindex <= 0) return w;
-    w.model = server.modelName(ps->gunindex);
+    const q2player_state_t *ps = client.playerState();
+    if (!client.running() || !ps || ps->gunindex <= 0) return w;
+    w.model = client.modelName(ps->gunindex);
     if (w.model.empty() || w.model[0] == '*') return w;
     w.visible = true;
-    const Vec3 eye = server.viewOrigin();
-    const Vec3 view = server.viewAngles();
+    const Vec3 eye = client.viewOrigin();
+    const Vec3 view = client.viewAngles();
     // CL_AddViewWeapon: gunoffset / gunangles between the last two frames
-    const ViewSnap cur = viewCur_.valid ? viewCur_ : viewSnap(server);
+    const ViewSnap cur = viewCur_.valid ? viewCur_ : viewSnap(client);
     const ViewSnap old = viewPrev_.valid ? viewPrev_ : cur;
-    const float frac = float(server.lerpFraction());
+    const float frac = float(client.lerpFraction());
     for (size_t k = 0; k < 3; k++) {
         w.gunOffset[k] = old.gunOffset[k] + frac * (cur.gunOffset[k] - old.gunOffset[k]);
         w.gunAngles[k] = lerpAngle(old.gunAngles[k], cur.gunAngles[k], frac);
@@ -175,7 +175,7 @@ GameViewWeapon GameEntityLerp::viewWeapon(const GameServer &server) const {
     w.oldframe = ps->gunframe;
     if (prevGunIndex_ == ps->gunindex && gunIndex_ == ps->gunindex) {
         w.oldframe = prevGunFrame_;
-        w.backlerp = 1.0f - float(server.lerpFraction());
+        w.backlerp = 1.0f - float(client.lerpFraction());
     }
     return w;
 }
@@ -317,11 +317,11 @@ void mirrorModelVertices(std::vector<ModelVertex> &vertices, size_t first) {
     for (size_t i = first; i + 2 < vertices.size(); i += 3) std::swap(vertices[i + 1], vertices[i + 2]);
 }
 
-void buildGameScene(const Engine &engine, const GameServer &server, const GameEntityLerp &lerp,
+void buildGameScene(const Engine &engine, const GameClient &client, const GameEntityLerp &lerp,
                     GameModelCache &models, const GameSceneOptions &options, GameScene &out) {
     out.clear();
-    if (!server.running()) return;
-    for (const GameLerpedEntity &l : lerp.entities(server)) {
+    if (!client.running()) return;
+    for (const GameLerpedEntity &l : lerp.entities(client)) {
         const GameRenderEntity *e = l.entity;
         if (!e || e->inlineModel > 0 || endsWithSp2(e->model)) continue;
         const Md3Model *md3 = isAliasModelName(e->model) ? models.model(engine, e->model) : nullptr;
@@ -354,8 +354,8 @@ void buildGameScene(const Engine &engine, const GameServer &server, const GameEn
         if (b.count > 0) out.batches.push_back(std::move(b));
     }
     if (options.viewWeapon && options.hand != 2) { // R_DrawAliasModel: no gun with r_lefthand 2
-        const GameViewWeapon w = lerp.viewWeapon(server);
-        const q2player_state_t *ps = server.playerState();
+        const GameViewWeapon w = lerp.viewWeapon(client);
+        const q2player_state_t *ps = client.playerState();
         const Md3Model *md3 = w.visible && isAliasModelName(w.model) ? models.model(engine, w.model) : nullptr;
         if (md3 && ps) {
             GameDrawBatch b;

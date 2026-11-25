@@ -50,6 +50,7 @@ endif()
 add_library(realms_quake2 STATIC
     "${CMAKE_CURRENT_LIST_DIR}/src/Q2Pmove.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/src/GameServer.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/src/GameClient.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/src/GameView.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/src/GameEffects.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/src/GameSound.cpp"

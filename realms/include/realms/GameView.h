@@ -1,15 +1,16 @@
 // Client-side handling of server frames (CL_AddPacketEntities,
 // CL_AddViewWeapon): entities interpolated between the last two 100 ms game
 // frames, no lerp after a teleport (>512 units) or model change, EF_ROTATE
-// and EF_ANIM*, and the view weapon. Call GameEntityLerp::update once per
-// sandbox frame after GameServer::frame.
+// and EF_ANIM*, and the view weapon, all from the client's state
+// (realms/GameClient.h). Call GameEntityLerp::update once per sandbox frame
+// after the client took the frame's snapshot.
 //
 // buildGameScene turns the result into triangle batches, one per surface of
 // each entity's .md3 model (the game's "tris.md2" names load "tris.md3"), or
 // a coloured box from the entity bounds when the model file is missing.
 #pragma once
 
-#include "realms/GameServer.h"
+#include "realms/GameClient.h"
 #include "realms/Image.h"
 #include "realms/Md3Model.h"
 
@@ -54,15 +55,15 @@ class GameEntityLerp {
 public:
     void reset();
     // Takes a snapshot when the server ran a new game frame since the last call.
-    void update(const GameServer &server);
+    void update(const GameClient &client);
 
-    // The entities of the current game frame (GameServer::renderEntities,
+    // The entities of the current game frame (GameClient::renderEntities,
     // brush models included: doors and lifts move smoothly too),
-    // interpolated at the server's lerpFraction(). Pointers into this object
+    // interpolated at the client's lerpFraction(). Pointers into this object
     // stay valid until the next update().
-    std::vector<GameLerpedEntity> entities(const GameServer &server) const;
-    GameViewWeapon viewWeapon(const GameServer &server) const;
-    GameViewLerp view(const GameServer &server) const;
+    std::vector<GameLerpedEntity> entities(const GameClient &client) const;
+    GameViewWeapon viewWeapon(const GameClient &client) const;
+    GameViewLerp view(const GameClient &client) const;
 
     int snapshots() const { return snapshots_; }
 
@@ -87,7 +88,7 @@ private:
         int pmType = 0;
         std::array<float, 3> origin{}, offset{}, kick{}, angles{}, gunOffset{}, gunAngles{};
     };
-    static ViewSnap viewSnap(const GameServer &server);
+    static ViewSnap viewSnap(const GameClient &client);
     ViewSnap viewPrev_, viewCur_;
 };
 
@@ -172,7 +173,7 @@ void mirrorModelVertices(std::vector<ModelVertex> &vertices, size_t first);
 // left to GameEffects, which draws them as glows. EF_QUAD / EF_PENT add the
 // blue / red shell and EF_BFG / EF_PLASMA / EF_SPHERETRANS fade the model,
 // like cl_ents.c.
-void buildGameScene(const Engine &engine, const GameServer &server, const GameEntityLerp &lerp,
+void buildGameScene(const Engine &engine, const GameClient &client, const GameEntityLerp &lerp,
                     GameModelCache &models, const GameSceneOptions &options, GameScene &out);
 
 } // namespace realms
