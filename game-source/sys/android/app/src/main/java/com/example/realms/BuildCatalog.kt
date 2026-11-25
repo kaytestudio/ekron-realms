@@ -54,14 +54,14 @@ object BuildCatalog {
         CatalogItem(36, "Мешки с песком", "catalog/rendered/sandbags.webp",-1),
         CatalogItem(37, "Колючая проволока", "catalog/rendered/razor_wire.webp",-1),
         CatalogItem(38, "Противотанковый ёж", "catalog/rendered/hedgehog.webp",-1),
-        CatalogItem(39, "Уличный фонарь", "catalog/rendered/street_lamp.webp",-1),
-        CatalogItem(40, "Дорожный знак", "catalog/rendered/road_sign.webp",-1),
-        CatalogItem(41, "Кирпичи на поддоне", "catalog/rendered/brick_pallet.webp",-1),
-        CatalogItem(42, "Газовый баллон", "catalog/rendered/gas_tank.webp",-1),
-        CatalogItem(43, "Забор (дерево)", "catalog/rendered/fence_wood.webp",-1),
-        CatalogItem(44, "Забор (металл)", "catalog/rendered/fence_metal.webp",-1),
-        CatalogItem(45, "Кабельная катушка", "catalog/rendered/cable_spool.webp",-1),
-        CatalogItem(46, "Бак для воды", "catalog/rendered/water_tank.webp",-1),
-        CatalogItem(47, "Ящик для инструментов", "catalog/rendered/toolbox.webp",-1)
+        CatalogItem(39, "Ящик с патронами", "catalog/rendered/ammo_crate.webp",-1),
+        CatalogItem(40, "Ящик снарядов", "catalog/rendered/shell_crate.webp",-1),
+        CatalogItem(41, "Бетонный надолб", "catalog/rendered/dragon_tooth.webp",-1),
+        CatalogItem(42, "Армейская канистра", "catalog/rendered/jerrycan.webp",-1),
+        CatalogItem(43, "Армейская палатка", "catalog/rendered/tent.webp",-1),
+        CatalogItem(44, "Маскировочная сеть", "catalog/rendered/camo_net.webp",-1),
+        CatalogItem(45, "Ящики снабжения", "catalog/rendered/supply_stack.webp",-1),
+        CatalogItem(46, "Бочка с топливом", "catalog/rendered/fuel_drum.webp",-1),
+        CatalogItem(47, "Медицинский ящик", "catalog/rendered/medkit.webp",-1)
     )
 }
