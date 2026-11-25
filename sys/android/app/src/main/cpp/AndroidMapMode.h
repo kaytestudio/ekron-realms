@@ -88,6 +88,8 @@ public:
     GLuint hudTexture(realms::Engine &engine, int width, int height, double seconds, int &scale);
     // Bit 0: a layout screen is shown (help computer, scores); bit 1: the inventory.
     int hudScreens() const;
+    // The HUD drew Quake 2's crosshair pic: the overlay's "+" stays hidden.
+    bool crosshairDrawn() const { return hud_.crosshairDrawn(); }
     // A Quake 2 client command for the game ("help", "inven", "invuse"...).
     void gameCommand(const std::string &line) {
         if (gameRunning()) view_->module().clientCommand(line);

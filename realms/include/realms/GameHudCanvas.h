@@ -53,6 +53,14 @@ public:
     void begin(int width, int height);
     void fillRect(int x, int y, int w, int h, const Rgba &color);
     void drawItems(const std::vector<GameLayoutItem> &items, const FileLoader &load, int offsetY = 0);
+    // Quake 2's crosshair (SCR_DrawCrosshair): pics/ch1.pcx .. ch3.pcx
+    // centred on the image. True when the pic was there and drawn.
+    bool drawCrosshair(int style, const FileLoader &load);
+    // The "crosshair" cvar as Quake 2 reads it (SCR_TouchPics): 0 none,
+    // 1 .. 3 the pic ch1 .. ch3, anything else 3. Ekron's default is 1.
+    static int crosshairStyle(const Engine &engine);
+    // update() drew the game's crosshair pic: the client's own one stays off.
+    bool crosshairDrawn() const { return crosshairDrawn_; }
     // Releases the pics (a new game's data may differ).
     void clearPics() { pics_.clear(); }
 
@@ -70,6 +78,7 @@ private:
     RgbaImage image_;
     int scale_ = 1;
     bool empty_ = true;
+    bool crosshairDrawn_ = false;
     std::string signature_;
 };
 

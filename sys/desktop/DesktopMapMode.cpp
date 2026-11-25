@@ -216,6 +216,18 @@ void DesktopMapMode::drawLayoutItems(realms::Engine &engine, ekron::gl::Api &gl,
     }
 }
 
+bool DesktopMapMode::drawCrosshair(realms::Engine &engine, ekron::gl::Api &gl, DesktopRenderer &renderer, int style,
+                                   int hudW, int hudH) {
+    if (!gameRunning() || style < 1 || style > 3 || hudW <= 0 || hudH <= 0) return false;
+    const LayoutPic &pic = layoutPic(engine, gl, "ch" + std::to_string(style));
+    if (!pic.texture) return false;
+    // centred in Quake 2 pixels, as GameHudCanvas::drawCrosshair on mobile
+    const int s = layoutScale(hudW, hudH);
+    const int x = ((hudW / s - pic.width) >> 1) * s, y = ((hudH / s - pic.height) >> 1) * s;
+    renderer.drawIcon(gl, pic.texture, float(x), float(y), float(pic.width * s), float(pic.height * s));
+    return true;
+}
+
 void DesktopMapMode::drawLayout(realms::Engine &engine, ekron::gl::Api &gl, DesktopRenderer &renderer, int hudW,
                                 int hudH) {
     const bool layout = layoutShown(), inventory = quake2().inventoryShown();

@@ -42,6 +42,7 @@
 #include "WorldRecovery.h"
 #include "third_party/json.hpp"
 #include "realms/Engine.h"
+#include "realms/GameHudCanvas.h"
 #include "realms/GameSave.h"
 #include "realms/GameServer.h"
 #include "realms/SandboxBoot.h"
@@ -2232,11 +2233,15 @@ int main(int argc, char **argv)
                 renderer.drawRect(0.0f, 0.0f, float(hudW), float(hudH), {blend[0], blend[1], blend[2], blend[3]});
         }
 
-        // Center crosshair (cosmetic skins from the store)
+        // Center crosshair: off with crosshair 0; in a running game Quake 2's
+        // own pic (ch1 .. ch3) unless a store skin is owned (cosmetic colours).
         ekron::desktop::Color crossColor{0.92f, 0.98f, 0.95f, 0.85f};
+        const bool crossSkin = shop.hasExtra(103) || shop.hasExtra(105);
         if (shop.hasExtra(103)) crossColor = {1.00f, 0.84f, 0.20f, 0.95f};      // Golden Crosshair
         else if (shop.hasExtra(105)) crossColor = {0.40f, 1.00f, 0.95f, 0.95f}; // Neon Sight
-        if (!catalogOpen && !pauseOpen && !shopOpen) {
+        const int crossStyle = realms::GameHudCanvas::crosshairStyle(engine);
+        if (!catalogOpen && !pauseOpen && !shopOpen && crossStyle > 0 &&
+            !(mapMode.active() && !crossSkin && mapMode.drawCrosshair(engine, gl, renderer, crossStyle, hudW, hudH))) {
             const float cx = float(hudW) * 0.5f;
             const float cy = float(hudH) * 0.5f;
             renderer.drawRect(cx - 8.0f, cy - 1.0f, 16.0f, 2.0f, crossColor);

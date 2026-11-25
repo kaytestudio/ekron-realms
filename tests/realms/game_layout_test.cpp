@@ -4,8 +4,10 @@
 // fields, client blocks, pic paths, and bad or random programs. The inventory
 // screen (cl_inv.c CL_DrawInventory), and GameHudCanvas drawing items into
 // one image for the mobile HUD.
+#include "realms/Engine.h"
 #include "realms/GameHudCanvas.h"
 #include "realms/GameLayout.h"
+#include "realms/SandboxBoot.h"
 #include "realms/q2game.h"
 
 #include <algorithm>
@@ -401,12 +403,59 @@ void badProgramChecks() {
 
 } // namespace
 
+// Quake 2's crosshair: the "crosshair" cvar read as SCR_TouchPics does, and
+// pics/chN.pcx centred as SCR_DrawCrosshair draws it.
+void crosshairChecks() {
+    using realms::GameHudCanvas;
+    realms::Engine engine;
+    realms::EngineConfig cfg;
+    cfg.backend = realms::BackendPreference::Native;
+    CHECK(engine.init(cfg));
+    CHECK(GameHudCanvas::crosshairStyle(engine) == 1); // unregistered: Ekron's default
+    realms::sandbox::registerSharedCvars(engine, "layout-test");
+    CHECK(engine.hasCvar("crosshair") && (engine.cvarFlags("crosshair") & REALMS_CVAR_ARCHIVE));
+    CHECK(GameHudCanvas::crosshairStyle(engine) == 1);
+    const std::vector<std::pair<std::string, int>> styles = {
+        {"0", 0}, {"2", 2}, {"3", 3}, {"2.9", 2}, {"4", 3}, {"-1", 3}, {"99", 3}};
+    for (const auto &s : styles) {
+        engine.executeNow("crosshair " + s.first);
+        CHECK(GameHudCanvas::crosshairStyle(engine) == s.second);
+    }
+    engine.shutdown();
+
+    GameHudCanvas c;
+    std::vector<std::string> paths;
+    const GameHudCanvas::FileLoader load = [&](const std::string &path, std::vector<unsigned char> &out) {
+        paths.push_back(path);
+        if (path != "pics/ch2.pcx") return false;
+        out = tinyPcx();
+        return true;
+    };
+    auto px = [&](int x, int y) {
+        const auto &img = c.image();
+        const unsigned char *p = &img.rgba[(size_t(y) * size_t(img.width) + size_t(x)) * 4];
+        return std::array<int, 4>{p[0], p[1], p[2], p[3]};
+    };
+    c.begin(40, 30);
+    CHECK(!c.drawCrosshair(0, load) && !c.drawCrosshair(4, load) && paths.empty());
+    CHECK(!c.drawCrosshair(1, load)); // no ch1.pcx: nothing
+    CHECK(paths.size() == 1 && paths[0] == "pics/ch1.pcx");
+    CHECK(c.drawCrosshair(2, load));
+    // the 2 x 2 pic at ((40 - 2) >> 1, (30 - 2) >> 1)
+    CHECK((px(19, 14) == std::array<int, 4>{255, 0, 0, 255}));
+    CHECK((px(20, 14) == std::array<int, 4>{0, 0, 0, 0}));
+    CHECK((px(19, 15) == std::array<int, 4>{0, 255, 0, 255}));
+    CHECK((px(20, 15) == std::array<int, 4>{255, 0, 0, 255}));
+    CHECK(px(18, 14)[3] == 0 && px(21, 15)[3] == 0);
+}
+
 int main() {
     helpComputerChecks();
     statusBarChecks();
     fieldAndTextChecks();
     inventoryChecks();
     canvasChecks();
+    crosshairChecks();
     badProgramChecks();
     std::printf("[game_layout] %d checks, %d failures\n", gChecks, gFailures);
     return gFailures == 0 ? 0 : 1;

@@ -727,6 +727,8 @@ public:
         scale = hud_.scale();
         return hudTexture_;
     }
+    // The HUD drew Quake 2's crosshair pic: the overlay's "+" stays hidden.
+    bool crosshairDrawn() const { return hud_.crosshairDrawn(); }
     // Bit 0: a layout screen is shown (help computer, scores); bit 1: the inventory.
     int hudScreens() const {
         if (!gameRunning()) return 0;
@@ -1353,6 +1355,7 @@ void IosSoundStart(const std::string &bundleRoot, realms::Engine &engine) {
     std::atomic<int> mapArmor_;                   // player's health, armor
     std::atomic<int> mapAmmo_;                    // and ammo
     std::atomic<int> mapScreens_;                 // status slot 22: MetalMapMode::hudScreens
+    std::atomic<bool> crosshairHidden_;           // slot 22 bit 2: crosshair 0 or the game's pic
     std::string mapPathShown_;                    // snapshotMutex_
 }
 
@@ -2540,6 +2543,7 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
         world_.z = std::clamp(world_.z, lo[2] + 0.25f, hi[2] - 0.25f);
     }
 
+    crosshairHidden_ = realms::GameHudCanvas::crosshairStyle([self realms]) == 0;
     interactionAction_ = 0;
     if (seatedCar_ >= 0) {
         interactionAction_ = 4;
@@ -3064,6 +3068,7 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
     mapArmor_ = stats.armor;
     mapAmmo_ = stats.ammo;
     mapScreens_ = mapMode_.hudScreens();
+    crosshairHidden_ = realms::GameHudCanvas::crosshairStyle(engine) == 0 || mapMode_.crosshairDrawn();
     if (gSoundHeard) {
         auto &sound = IosSound();
         sound.syncCvars(engine);
@@ -3271,7 +3276,8 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
     if (!outValues || count <= 0) return 0;
     std::array<float, 23> values{};
     values[17] = float(mapState_.load());
-    values[22] = float(mapScreens_.load());
+    // bits 0 / 1: MetalMapMode::hudScreens; bit 2: hide the overlay's crosshair
+    values[22] = float(mapScreens_.load() | (crosshairHidden_.load() ? 4 : 0));
     values[18] = float(mapGame_.load());
     values[19] = float(mapHealth_.load());
     values[20] = float(mapArmor_.load());

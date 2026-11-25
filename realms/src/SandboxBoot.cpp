@@ -24,6 +24,9 @@ void registerSharedCvars(Engine &engine, const std::string &platform) {
     // Quake 2's field of view (map mode; realms/ViewFov.h), sent to the game as userinfo.
     engine.registerCvar("fov", "90", REALMS_CVAR_ARCHIVE | REALMS_CVAR_USERINFO);
     engine.registerCvar("name", "Player", REALMS_CVAR_ARCHIVE | REALMS_CVAR_USERINFO);
+    // Quake 2's crosshair (GameHudCanvas::crosshairStyle): 0 none, 1 .. 3 the
+    // game's pics ch1 .. ch3 in maps. On by default, unlike Quake 2.
+    engine.registerCvar("crosshair", "1", REALMS_CVAR_ARCHIVE);
     // Game sound (sys/android/app/src/main/cpp/SoundSystem): master and music volume, 0..1.
     engine.registerCvar("s_volume", "0.8", REALMS_CVAR_ARCHIVE);
     engine.registerCvar("s_musicvolume", "0.4", REALMS_CVAR_ARCHIVE);
