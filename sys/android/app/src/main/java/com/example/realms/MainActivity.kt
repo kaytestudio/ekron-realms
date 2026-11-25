@@ -39,7 +39,8 @@ class MainActivity : GameActivity() {
     private external fun nativeVertical(value: Float)
     private external fun nativeDroneInput(throttle:Float,yaw:Float,pitch:Float,roll:Float)
     private external fun nativeMove(right: Float, forward: Float)
-    private external fun nativeDrive(steer: Float, throttle: Float)
+    private external fun nativeDriveSteer(steer: Float)
+    private external fun nativeDriveThrottle(throttle: Float)
     private external fun nativeLook(dx: Float, dy: Float)
     private lateinit var lookArea: LookView
     private lateinit var fpvLayer: FrameLayout
@@ -54,6 +55,7 @@ class MainActivity : GameActivity() {
     private lateinit var joystick: StickView
     private lateinit var driveStick: StickView
     private lateinit var movementControls: LinearLayout
+    private var wasDriving = false
     private val toolsState = ToolState()
     private var requestedTool: HandTool? = null
     private lateinit var toolActions: LinearLayout
@@ -116,7 +118,9 @@ class MainActivity : GameActivity() {
                     if(state.size>=12){interactionCode=state[11].toInt();interactionControl.visibility=if(interactionCode>0)View.VISIBLE else View.GONE
                         interactionControl.caption=when(interactionCode){6->"Подключиться";1->"Открыть";2->"Закрыть";3->"Сесть";4->"Выйти";else->""}
                         interactionControl.contentDescription=interactionControl.caption;interactionControl.invalidate()
-                        if(::driveStick.isInitialized){val driving=interactionCode==4;driveStick.visibility=if(driving)View.VISIBLE else View.GONE;if(!driving)driveStick.reset()
+                        if(::driveStick.isInitialized){val driving=interactionCode==4;driveStick.visibility=if(driving)View.VISIBLE else View.GONE
+                            if(!driving){driveStick.reset();if(wasDriving){joystick.reset();nativeDriveThrottle(0f)}}
+                            wasDriving=driving
                             // Keep the exit button clear of the drive stick area.
                             val stick=(resources.configuration.screenHeightDp*.32f).toInt().coerceIn(120,184)
                             val lp=interactionControl.layoutParams as FrameLayout.LayoutParams
@@ -236,11 +240,16 @@ class MainActivity : GameActivity() {
         val screenHeight = resources.configuration.screenHeightDp
         val actionSize = (screenHeight * .145f).toInt().coerceIn(60, 64)
         val stickSize = (screenHeight * .32f).toInt().coerceIn(120, 184)
-        joystick = StickView(this) { right, forward -> weapon.moving=kotlin.math.hypot(right,forward)>.1f;nativeMove(right, forward) }
+        joystick = StickView(this) { right, forward ->
+            // Behind the wheel the left stick is the gas pedal: up = forward, down = reverse.
+            if(interactionCode==4){weapon.moving=false;nativeDriveThrottle(forward)}
+            else {weapon.moving=kotlin.math.hypot(right,forward)>.1f;nativeMove(right, forward)}
+        }
         overlay.addView(joystick, FrameLayout.LayoutParams(dp(stickSize), dp(stickSize), Gravity.BOTTOM or Gravity.START).apply {
             leftMargin = dp(14); bottomMargin = dp(22)
         })
-        driveStick = StickView(this) { steer, throttle -> nativeDrive(steer, throttle) }.apply { visibility = View.GONE }
+        // Right stick only steers; the throttle lives on the left stick.
+        driveStick = StickView(this) { steer, _ -> nativeDriveSteer(steer) }.apply { visibility = View.GONE }
         overlay.addView(driveStick, FrameLayout.LayoutParams(dp(stickSize), dp(stickSize), Gravity.BOTTOM or Gravity.END).apply {
             rightMargin = dp(14); bottomMargin = dp(22)
         })
