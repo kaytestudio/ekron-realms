@@ -71,6 +71,7 @@ void Quake2Module::close() {
     poses_.clear();
     messages_.clear();
     lastPickup_ = 0;
+    layout_.clear();
     lerp_.reset();
     models_.clear();
     scene_.clear();
@@ -100,6 +101,7 @@ bool Quake2Module::startGame(Engine &engine, std::string &why) {
         return false;
     }
     lastPickup_ = 0;
+    layout_.clear();
     lerp_.reset();
     effects_.reset();
     sounds_.clear();
@@ -167,6 +169,7 @@ void Quake2Module::sync() {
     for (const GameEvent &ev : game_->takeEvents()) {
         effects_.handleEvent(ev, now); // temp entities, muzzle flashes, entity events
         if (ev.kind == GameEvent::Kind::Sound) sounds_.push_back(ev);
+        if (ev.kind == GameEvent::Kind::Layout) layout_ = ev.text;
         if (ev.kind == GameEvent::Kind::CenterPrint && !ev.text.empty()) {
             std::string t = ev.text;
             while (!t.empty() && (t.back() == '\n' || t.back() == ' ')) t.pop_back();
@@ -250,6 +253,40 @@ std::string Quake2Module::status() const {
     char buf[96];
     std::snprintf(buf, sizeof(buf), "HP %d  Armor %d  Ammo %d", s.health, s.armor, s.ammo);
     return buf;
+}
+
+namespace {
+std::vector<GameLayoutItem> runLayout(const GameServer &g, const std::string &program, int width, int height) {
+    const q2player_state_t *ps = g.playerState();
+    if (!ps || program.empty()) return {};
+    GameLayoutInput in;
+    in.stats = ps->stats;
+    in.configString = [&g](int index) { return g.configString(index); };
+    in.width = width;
+    in.height = height;
+    in.serverFrame = g.frameNumber();
+    return runGameLayout(program, in);
+}
+} // namespace
+
+bool Quake2Module::layoutShown() const {
+    if (!gameRunning()) return false;
+    const q2player_state_t *ps = game_->playerState();
+    return ps && (ps->stats[Q2_STAT_LAYOUTS] & 1) && !layout_.empty();
+}
+
+std::vector<GameLayoutItem> Quake2Module::layoutItems(int width, int height) const {
+    if (!layoutShown()) return {};
+    return runLayout(*game_, layout_, width, height);
+}
+
+std::vector<GameLayoutItem> Quake2Module::statusBarItems(int width, int height) const {
+    if (!gameRunning()) return {};
+    return runLayout(*game_, game_->configString(Q2_CS_STATUSBAR), width, height);
+}
+
+void Quake2Module::toggleHelp() {
+    if (gameRunning()) game_->clientCommand("help");
 }
 
 std::vector<std::string> Quake2Module::takeMessages() {

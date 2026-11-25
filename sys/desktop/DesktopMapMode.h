@@ -65,6 +65,12 @@ public:
         if (!engine.cvarBool("gl_polyblend", true)) return {};
         return quake2().stats().blend;
     }
+    // Quake 2's help computer / scores (F1, "cmd help"): the game's
+    // svc_layout drawn over the HUD while it shows it, with pics from the
+    // paks when installed (realms/GameLayout.h).
+    bool layoutShown() const { return quake2().layoutShown(); }
+    void toggleHelp() { quake2().toggleHelp(); }
+    void drawLayout(realms::Engine &engine, ekron::gl::Api &gl, DesktopRenderer &renderer, int hudW, int hudH);
     // Centre prints / pickup messages since the last call (for toasts).
     std::vector<std::string> takeGameMessages() { return view_.takeMessages(); }
     // The game's entities for DesktopRenderer::setMapEntities: .md3 models
@@ -100,6 +106,11 @@ public:
 private:
     void syncPoses();
     void releaseSkins(ekron::gl::Api &gl);
+    struct LayoutPic {
+        GLuint texture = 0; // 0: tried, not loadable
+        int width = 0, height = 0;
+    };
+    const LayoutPic &layoutPic(realms::Engine &engine, ekron::gl::Api &gl, const std::string &name);
     GLuint skinTexture(realms::Engine &engine, ekron::gl::Api &gl, const std::string &name);
 
     mapview::Quake2View view_;
@@ -108,6 +119,7 @@ private:
     DesktopRenderer::MapSurfaces surfaces_;
     size_t modelCount_ = 1; // world + inline models drawn from the map geometry
     std::unordered_map<std::string, GLuint> skins_; // 0: tried, not loadable
+    std::unordered_map<std::string, LayoutPic> layoutPics_;
     std::vector<mapview::EntityVertex> entityVertices_;
     std::vector<mapview::EntityBatch> entityBatches_;
     std::vector<mapview::EffectVertex> effectVertices_;

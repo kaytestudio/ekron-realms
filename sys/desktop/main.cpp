@@ -682,7 +682,8 @@ void printHelp(const char *exe) {
         << "  V / H               Toggle FPV/Chase camera / Return drone home\n"
         << "  N / P / F11 / Esc   Noclip flight / Copy spawn.json / Fullscreen / Pause menu\n"
         << "  L                   Cycle UI language (English / Русский / Português / Español)\n"
-        << "  `                   Realms console (cvarlist, cmdlist, set, alias, exec, noclip, quit...)\n";
+        << "  `                   Realms console (cvarlist, cmdlist, set, alias, exec, noclip, quit...)\n"
+        << "  F1 (Quake 2 maps)   Help computer: objectives, kills, goals and secrets\n";
 }
 
 } // namespace
@@ -1339,6 +1340,7 @@ int main(int argc, char **argv)
                     // Map mode: sandbox tools, catalog and shop are off.
                     if (!pauseOpen && key == SDLK_n) toggleNoclip();
                     else if (!pauseOpen && key == SDLK_r) mapMode.respawn(engine);
+                    else if (!pauseOpen && key == SDLK_F1) mapMode.toggleHelp(); // Quake 2's "cmd help"
                 } else if (!pauseOpen && key == SDLK_g) {
                     if (!drone.piloting() && seatedCar < 0) {
                         shopOpen = !shopOpen;
@@ -2027,12 +2029,14 @@ int main(int argc, char **argv)
                               {0.86f, 0.80f, 0.62f, 0.95f});
             renderer.drawRect(14.0f, float(hudH) - 42.0f, float(hudW) - 28.0f, 28.0f, {0.05f, 0.08f, 0.11f, 0.72f});
             const std::string mapControls = mapMode.gameRunning()
-                ? "WASD move  •  Space jump  •  Ctrl crouch  •  Mouse fire  •  N noclip  •  R restart  •  ` console: give / use / killserver"
+                ? "WASD move  •  Space jump  •  Ctrl crouch  •  Mouse fire  •  N noclip  •  R restart  •  F1 help  •  ` console: give / use / killserver"
                 : "WASD move  •  Space jump  •  Ctrl crouch  •  N noclip  •  R respawn  •  ` console: killserver";
             renderer.drawCenteredText(float(hudW) * 0.5f, float(hudH) - 28.0f, mapControls,
                                       ekron::desktop::fitHudTextScale(1.30f, ekron::font::measureTextWidth(mapControls, 1.30f),
                                                                       float(hudW) - 48.0f),
                                       {0.82f, 0.95f, 0.90f, 1.0f});
+            // the help computer / scores, over the map HUD (F1)
+            mapMode.drawLayout(engine, gl, renderer, hudW, hudH);
         } else {
         // Top-left status bar
         ekron::desktop::Color hudAccent{0.18f, 0.68f, 0.58f, 0.85f};

@@ -732,6 +732,28 @@ void viewWithGame(realms::Engine &engine) {
     CHECK(near(pickupBlend[0], 0.85f, 0.01f) && near(pickupBlend[1], 0.7f, 0.01f) && near(pickupBlend[2], 0.3f, 0.01f));
     CHECK(q2.stats().blend[3] == 0.0f); // bonus_alpha fades by 0.1 a game frame
 
+    // F1 ("cmd help"): the game sends its help computer layout and shows it
+    // (STAT_LAYOUTS & 1); a second F1 closes it
+    step("help computer");
+    CHECK(!q2.layoutShown() && q2.layoutItems(640, 480).empty());
+    q2.toggleHelp();
+    for (int i = 0; i < 3; i++) view.update(engine, {}, yaw, 0.0f, 0.1f, false);
+    CHECK(q2.layoutShown());
+    {
+        const std::vector<realms::GameLayoutItem> help = q2.layoutItems(640, 480);
+        bool skill = false, header = false, background = false;
+        for (const realms::GameLayoutItem &it : help) {
+            skill |= it.kind == realms::GameLayoutItem::Kind::Text && it.text == "medium" && it.x == 362 && it.y == 132;
+            header |= it.kind == realms::GameLayoutItem::Kind::Text && it.text == " kills     goals    secrets";
+            background |= it.kind == realms::GameLayoutItem::Kind::Pic && it.text == "help";
+        }
+        CHECK(skill && header && background);
+    }
+    CHECK(!q2.statusBarItems(640, 480).empty()); // the single-player status bar program
+    q2.toggleHelp();
+    for (int i = 0; i < 3; i++) view.update(engine, {}, yaw, 0.0f, 0.1f, false);
+    CHECK(!q2.layoutShown());
+
     // firing: the blaster's muzzle flash lights the view and the view weapon
     // (yellow, through R_LightPoint), its sound plays
     step("fire");

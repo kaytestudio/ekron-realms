@@ -52,10 +52,12 @@ glTF maps run the game too. Name nodes (Blender empties, for example) after Quak
 | `W A S D` / `Space` / `Ctrl` | Move / Jump / Crouch |
 | `Left Click` | Fire the current weapon (with the mouse captured) |
 | `N` / `R` | Noclip / Restart the map (respawn without the game) |
+| `F1` | Help computer (Quake 2's `cmd help`): skill, level name, the map's objectives, kills, goals and secrets; `F1` again closes it. In the console, `help` does the same and `score` shows the scores |
 | `` ` `` | Console: Quake 2 client commands such as `give all`, `give shotgun`, `use blaster`, `god`, `notarget`, `kill`, `weapnext`, `cmd <command>`, server commands with `sv <command>`, and `killserver` |
 
 - `sv_game 0`: walk maps without the game.
 - `cl_gun 0`: hide the view weapon.
+- Layout screens (help computer, scores) are drawn from the game's layout program; with `pak0.pak` installed they use its pics (`pics/help.pcx`, digits), otherwise text on a dark panel. Desktop only for now.
 - `gl_polyblend 0`: turn off the screen tint the game sets (red when hurt, gold on a pickup, blue with the Quad Damage, a colour under water); it is on by default, as in Quake 2.
 - `REALMS_GAME_LIBRARY=/path/to/librealms_game.so`: use another game build.
 

@@ -3,6 +3,9 @@
 
 #include "realms/MapGeometry.h"
 
+#include "realms/Image.h"
+
+#include <algorithm>
 #include <cstdio>
 #include <vector>
 
@@ -145,6 +148,73 @@ void DesktopMapMode::releaseSkins(ekron::gl::Api &gl) {
     for (auto &kv : skins_)
         if (kv.second) gl.DeleteTextures(1, &kv.second);
     skins_.clear();
+    for (auto &kv : layoutPics_)
+        if (kv.second.texture) gl.DeleteTextures(1, &kv.second.texture);
+    layoutPics_.clear();
+}
+
+const DesktopMapMode::LayoutPic &DesktopMapMode::layoutPic(realms::Engine &engine, ekron::gl::Api &gl,
+                                                           const std::string &name) {
+    const auto it = layoutPics_.find(name);
+    if (it != layoutPics_.end()) return it->second;
+    LayoutPic pic;
+    std::vector<unsigned char> bytes;
+    realms::RgbaImage img;
+    std::string error;
+    // Quake 2 pics: 8-bit PCX, palette index 255 transparent
+    if (layoutPics_.size() < 256 && engine.loadFile(realms::gameLayoutPicPath(name), bytes) &&
+        realms::decodePcx(bytes, img, error, 255) && img.width > 0 && img.height > 0) {
+        gl.GenTextures(1, &pic.texture);
+        gl.BindTexture(GL_TEXTURE_2D, pic.texture);
+        gl.PixelStorei(GL_UNPACK_ALIGNMENT, 1);
+        gl.TexImage2D(GL_TEXTURE_2D, 0, static_cast<GLint>(GL_RGBA8), img.width, img.height, 0, GL_RGBA,
+                      GL_UNSIGNED_BYTE, img.rgba.data());
+        gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, static_cast<GLint>(GL_NEAREST));
+        gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, static_cast<GLint>(GL_NEAREST));
+        gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, static_cast<GLint>(GL_CLAMP_TO_EDGE));
+        gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, static_cast<GLint>(GL_CLAMP_TO_EDGE));
+        gl.BindTexture(GL_TEXTURE_2D, 0);
+        pic.width = img.width;
+        pic.height = img.height;
+    }
+    return layoutPics_[name] = pic;
+}
+
+void DesktopMapMode::drawLayout(realms::Engine &engine, ekron::gl::Api &gl, DesktopRenderer &renderer, int hudW,
+                                int hudH) {
+    if (!layoutShown() || hudW <= 0 || hudH <= 0) return;
+    // Quake 2 pixels: a whole number of HUD pixels each, the 320 x 240
+    // layout area filling most of the smaller side.
+    const int s = std::max(1, int(std::min(hudW / 400.0f, hudH / 300.0f)));
+    const int w = hudW / s, h = hudH / s;
+    const float k = float(s);
+    const std::vector<realms::GameLayoutItem> items = quake2().layoutItems(w, h);
+    // a dim panel under the 320 x 240 area, so the text reads without the "help" pic
+    renderer.drawRect(float(w / 2 - 168) * k, float(h / 2 - 128) * k, 336.0f * k, 256.0f * k,
+                      {0.02f, 0.04f, 0.03f, 0.82f});
+    const Color text{0.93f, 0.93f, 0.88f, 1.0f}, altText{0.55f, 1.0f, 0.55f, 1.0f};
+    const Color digits{1.0f, 0.82f, 0.32f, 1.0f}, altDigits{1.0f, 0.32f, 0.25f, 1.0f};
+    for (const realms::GameLayoutItem &item : items) {
+        const float x = float(item.x) * k, y = float(item.y) * k;
+        switch (item.kind) {
+        case realms::GameLayoutItem::Kind::Pic: {
+            const LayoutPic &pic = layoutPic(engine, gl, item.text);
+            if (pic.texture) renderer.drawIcon(gl, pic.texture, x, y, float(pic.width) * k, float(pic.height) * k);
+            break;
+        }
+        case realms::GameLayoutItem::Kind::Text:
+            renderer.drawText(x, y, item.text, k, item.alt ? altText : text);
+            break;
+        case realms::GameLayoutItem::Kind::Number:
+            for (size_t i = 0; i < item.text.size(); i++) {
+                const float dx = x + float(i) * 24.0f * k;
+                const LayoutPic &pic = layoutPic(engine, gl, realms::gameLayoutDigitPic(item.text[i], item.alt));
+                if (pic.texture) renderer.drawIcon(gl, pic.texture, dx, y, float(pic.width) * k, float(pic.height) * k);
+                else renderer.drawText(dx, y, std::string(1, item.text[i]), 3.0f * k, item.alt ? altDigits : digits);
+            }
+            break;
+        }
+    }
 }
 
 GLuint DesktopMapMode::skinTexture(realms::Engine &engine, ekron::gl::Api &gl, const std::string &name) {
