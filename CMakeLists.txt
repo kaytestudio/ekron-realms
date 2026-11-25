@@ -779,6 +779,13 @@ target_include_directories(realms_game_save_test PRIVATE tests/realms)
 target_link_libraries(realms_game_save_test PRIVATE realms_quake2)
 add_test(NAME realms_game_save COMMAND realms_game_save_test)
 
+# Ekron demo files (realms::GameDemoWriter / GameDemoReader): snapshots
+# round-trip, changes-only encoding, cut-short and damaged files - no game
+# module needed.
+add_executable(realms_game_demo_test tests/realms/game_demo_test.cpp)
+target_link_libraries(realms_game_demo_test PRIVATE realms_quake2)
+add_test(NAME realms_game_demo COMMAND realms_game_demo_test)
+
 # Quake 2 client effects (realms::GameEffects): temp entities, muzzle
 # flashes, trails, lights, explosions - no game module needed.
 add_executable(realms_game_effects_test tests/realms/game_effects_test.cpp)

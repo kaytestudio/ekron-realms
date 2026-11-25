@@ -104,6 +104,15 @@ glTF maps run the game too. Name nodes (Blender empties, for example) after Quak
 - A save is tied to the build of the game that wrote it. A save from another build is refused with a message, and the map then starts from the beginning.
 - Like Quake 2's `load`, it restores one level: the levels visited before are kept only across the game's level changes (`gamemap`), which map mode doesn't run yet.
 
+### Demos
+
+`record <name>` in the console starts recording a demo while the game runs, and `stop` ends it. `demomap <name>` opens the demo's map and plays it back at the speed it was recorded. These are Quake 2's commands, but the files are Ekron's own: Quake 2 `.dm2` demos can't be played, and Ekron demos don't play in Quake 2.
+
+- A demo holds what the player saw and heard: the player's view, the entities, effects, sounds, messages, status bar and layouts. Playing one doesn't run the game, so it works without `librealms_game` too.
+- While a demo plays, the camera follows the recorded player and your own movement and look are ignored. When it ends, or after `stop`, the map is walked as without the game; `map <name>` starts the game again.
+- Demos are kept in the user data folder (see [Quake 2 data](#quake-2-data-baseq2)) as `demos/<name>.ekd`. `demomap` looks for them in the other data places too. A name is up to 32 letters, digits, `_` or `-`.
+- Recording goes on through a respawn. It stops on its own when the map changes or the game stops. A demo recorded on another version of the map is refused. A file cut short, by a crash for example, plays up to where it ends.
+
 ### Models (`.md3`)
 
 Map mode draws Quake 3 `.md3` models (IDP3 version 15), not Quake 2's `.md2`. The game still names its models `models/<path>/tris.md2`; map mode loads `models/<path>/tris.md3` instead, loose or from a pak, in the same places as the rest of the data. Quake 2's own `.md2` files are never read, so with only `pak0.pak` installed, monsters, items and weapons are drawn as boxes until `.md3` versions with those names are added (a pak placed after `pak0.pak`, such as `baseq2/pak1.pak`, or loose files).

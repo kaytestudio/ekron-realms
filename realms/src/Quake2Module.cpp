@@ -33,6 +33,10 @@ CameraAxes cameraAxes(const Vec3 &angles) {
             {cr * sp * cy + sr * sy, cr * sp * sy - sr * cy, cr * cp}};
 }
 
+// The module whose game or demo runs (the last one opened or run): "record"
+// and "stop" act on it.
+Quake2Module *gActiveModule = nullptr;
+
 } // namespace
 
 Quake2Module::Quake2Module() : lightStyles_(defaultLightStyles()) {}
@@ -43,6 +47,33 @@ void Quake2Module::open(Engine &engine, const MapGeometry &geometry, const Quake
     close();
     why.clear();
     executableDir_ = config.executableDir;
+    engine_ = &engine;
+    gActiveModule = this;
+    // Quake 2's demo commands (cl_main.c CL_Record_f / CL_Stop_f), on
+    // whichever module runs when they are typed
+    Engine *e = &engine;
+    const auto active = [e]() { return gActiveModule && gActiveModule->engine_ == e ? gActiveModule : nullptr; };
+    if (!engine.commandExists("record"))
+        engine.addCommand("record", [e, active](const CommandArgs &args) {
+            if (args.size() != 2) {
+                e->print("USAGE: record <demoname>");
+                return;
+            }
+            Quake2Module *q = active();
+            std::string error = "You must be in a level to record.";
+            if (q && q->startRecording(*e, args[1], error)) e->print("recording to " + gameDemoFile(args[1]) + ".");
+            else e->print("record: " + error, REALMS_PRINT_WARNING);
+        });
+    if (!engine.commandExists("stop"))
+        engine.addCommand("stop", [e, active](const CommandArgs &) {
+            Quake2Module *q = active();
+            if (q && q->demoPlaying()) {
+                q->stopDemo();
+                e->print("Stopped demo playback.");
+            } else if (!q || !q->stopRecording()) {
+                e->print("Not recording a demo.");
+            }
+        });
     if (config.lightmaps && geometry.source == MapGeometrySource::Faces) {
         std::string error;
         if (!lighting_.load(engine, error))
@@ -65,14 +96,28 @@ void Quake2Module::open(Engine &engine, const MapGeometry &geometry, const Quake
         if (!sky_.load(engine, sky, &error))
             engine.print("map: no sky: " + error + "\n", REALMS_PRINT_DEVELOPER);
     }
+    // "demomap": its demo instead of the game
+    const std::string demo = engine.cvarString(kGameDemoCvar, "");
+    if (!demo.empty()) {
+        engine.forceSetCvar(kGameDemoCvar, "");
+        std::string error;
+        if (startDemo(engine, demo, error)) return;
+        engine.print("demomap: " + error, REALMS_PRINT_WARNING);
+    }
     if (config.startGame) startGame(engine, why);
 }
 
 void Quake2Module::close() {
+    stopRecording();
+    demo_.reset();
+    demoHasNext_ = false;
+    demoAtEnd_ = false;
+    demoNext_ = GameSnapshot{};
     if (game_) {
         game_->stop();
         game_.reset();
     }
+    if (gActiveModule == this) gActiveModule = nullptr;
     client_.reset();
     failure_.clear();
     poses_.clear();
@@ -111,34 +156,190 @@ bool Quake2Module::startGame(Engine &engine, std::string &why) {
         game_.reset();
         return false;
     }
-    lastPickup_ = 0;
-    layout_.clear();
-    client_.reset(); // the first snapshot is a full one
-    lerp_.reset();
-    effects_.reset();
-    sounds_.clear();
+    // a demo being recorded starts over with the new game: the player resets
+    // its client too, then gets the full snapshot
+    if (recorder_.isOpen() && !recorder_.write(GameSnapshot{}, 0.0f)) stopRecording();
+    resetClientSide(); // the first snapshot is a full one
     std::string palette;
     if (!effects_.loadPalette(engine, &palette))
         engine.print("map: effects use the built-in palette (" + palette + ")\n", REALMS_PRINT_DEVELOPER);
-    sync();
+    gActiveModule = this;
+    sync(0.0f);
     return true;
 }
 
+void Quake2Module::resetClientSide() {
+    lastPickup_ = 0;
+    layout_.clear();
+    client_.reset();
+    lerp_.reset();
+    effects_.reset();
+    sounds_.clear();
+}
+
 bool Quake2Module::restartGame(Engine &engine, std::string &why) {
+    if (demo_) stopDemo();
     poses_.clear();
     scene_.clear();
     return startGame(engine, why);
 }
 
-bool Quake2Module::gameRunning() const { return game_ && game_->running(); }
-const GameServer *Quake2Module::game() const { return gameRunning() ? game_.get() : nullptr; }
-GameServer *Quake2Module::game() { return gameRunning() ? game_.get() : nullptr; }
+bool Quake2Module::gameRunning() const { return serverRunning() || demo_ != nullptr; }
+const GameServer *Quake2Module::game() const { return serverRunning() ? game_.get() : nullptr; }
+GameServer *Quake2Module::game() { return serverRunning() ? game_.get() : nullptr; }
+
+// ------------------------------------------------------------ demos
+
+bool Quake2Module::startRecording(Engine &engine, const std::string &name, std::string &why) {
+    if (demo_) {
+        why = "can't record while a demo plays";
+        return false;
+    }
+    if (!serverRunning() || !client_.running()) {
+        why = "You must be in a level to record.";
+        return false;
+    }
+    if (recorder_.isOpen()) {
+        why = "Already recording.";
+        return false;
+    }
+    const std::string path = gameDemoPath(engine, name);
+    if (path.empty()) {
+        why = engine.writableRoot().empty() ? "no writable folder for demos"
+                                            : "bad demo name \"" + name + "\" (1 to 32 of A-Z a-z 0-9 _ -)";
+        return false;
+    }
+    GameDemoHeader header;
+    header.mapPath = engine.mapPath();
+    RealmsMapInfo info{};
+    if (engine.mapInfo(info)) header.mapChecksum = info.checksum;
+    if (!recorder_.open(path, header, why)) return false;
+    recordFile_ = gameDemoFile(name);
+    // CL_Record_f writes the client's gamestate first: here everything the
+    // client holds, plus the layout shown now
+    GameSnapshot first = client_.fullSnapshot();
+    if (!layout_.empty()) {
+        GameEvent layout;
+        layout.kind = GameEvent::Kind::Layout;
+        layout.text = layout_;
+        first.events.push_back(std::move(layout));
+    }
+    if (!recorder_.write(first, 0.0f)) {
+        why = "can't write " + path;
+        recorder_.close();
+        return false;
+    }
+    return true;
+}
+
+bool Quake2Module::stopRecording() {
+    if (!recorder_.isOpen()) return false;
+    const std::string file = recordFile_;
+    const int records = recorder_.records();
+    const uint64_t bytes = recorder_.bytes();
+    recorder_.close();
+    if (engine_)
+        engine_->print("Stopped demo: " + file + ", " + std::to_string(records) + " frames, " +
+                       std::to_string((bytes + 1023) / 1024) + " KB.");
+    return true;
+}
+
+bool Quake2Module::startDemo(Engine &engine, const std::string &file, std::string &why) {
+    std::vector<unsigned char> bytes;
+    if (!engine.loadFile(file, bytes)) {
+        why = "can't find " + file;
+        return false;
+    }
+    auto reader = std::make_unique<GameDemoReader>();
+    if (!reader->open(std::vector<uint8_t>(bytes.begin(), bytes.end()), why)) {
+        why = file + ": " + why;
+        return false;
+    }
+    const GameDemoHeader &header = reader->header();
+    if (header.mapPath != engine.mapPath()) {
+        why = file + " was recorded on " + header.mapPath + ", not " + engine.mapPath();
+        return false;
+    }
+    RealmsMapInfo info{};
+    if (header.mapChecksum && engine.mapInfo(info) && info.checksum && info.checksum != header.mapChecksum) {
+        why = file + " was recorded on another version of " + header.mapPath;
+        return false;
+    }
+    if (game_) {
+        game_->stop();
+        game_.reset();
+    }
+    resetClientSide();
+    std::string palette;
+    if (!effects_.loadPalette(engine, &palette))
+        engine.print("map: effects use the built-in palette (" + palette + ")\n", REALMS_PRINT_DEVELOPER);
+    demo_ = std::move(reader);
+    demoHasNext_ = false;
+    demoAtEnd_ = false;
+    demoClock_ = demoDue_ = 0.0;
+    gActiveModule = this;
+    engine.print("playing demo " + file);
+    advanceDemo(0.0); // its first record is due at once
+    return true;
+}
+
+void Quake2Module::advanceDemo(double dt) {
+    if (!demo_) return;
+    if (demoAtEnd_) { // the last record has been shown for a frame
+        finishDemo();
+        return;
+    }
+    demoClock_ += std::isfinite(dt) ? std::max(dt, 0.0) : 0.0;
+    bool received = false;
+    while (demo_) {
+        if (!demoHasNext_) {
+            float seconds = 0.0f;
+            if (!demo_->next(demoNext_, seconds)) {
+                demoAtEnd_ = true;
+                if (!received) finishDemo();
+                return;
+            }
+            demoHasNext_ = true;
+            demoDue_ += double(seconds);
+        }
+        if (demoDue_ > demoClock_ + 1e-4) return; // due (within rounding: 0.1 ms)
+        demoHasNext_ = false;
+        receive(std::move(demoNext_));
+        received = true;
+        demoNext_ = GameSnapshot{};
+    }
+}
+
+void Quake2Module::finishDemo() {
+    // the end: back to walking the map
+    if (!demo_) return;
+    if (engine_) {
+        if (!demo_->error().empty())
+            engine_->print("demo: " + demo_->error() + ", stopped there", REALMS_PRINT_WARNING);
+        char buf[96];
+        std::snprintf(buf, sizeof buf, "Demo finished: %d frames, %.1f seconds.", demo_->records(), demo_->time());
+        engine_->print(buf);
+    }
+    stopDemo();
+}
+
+void Quake2Module::stopDemo() {
+    if (!demo_) return;
+    demo_.reset();
+    demoHasNext_ = false;
+    demoAtEnd_ = false;
+    demoNext_ = GameSnapshot{};
+    resetClientSide();
+    poses_.clear();
+    scene_.clear();
+}
 
 std::string Quake2Module::takeGameFailure() {
     if (game_ && !game_->running()) { // the game stopped (game error): back to walking
         failure_ = game_->lastError();
         if (failure_.empty()) failure_ = "the game stopped";
         game_.reset();
+        stopRecording();
         client_.reset();
         poses_.clear();
         scene_.clear();
@@ -160,15 +361,37 @@ GameUserCmd Quake2Module::userCmd(const WalkInput &in, bool attack) {
 }
 
 void Quake2Module::frame(const GameUserCmd &cmd, double dt) {
-    if (!gameRunning()) return;
+    if (demo_) {
+        gActiveModule = this;
+        advanceDemo(dt);
+        return;
+    }
+    if (!serverRunning()) return;
+    gActiveModule = this;
     game_->frame(cmd, dt);
-    sync();
+    sync(float(dt));
 }
 
-void Quake2Module::sync() {
-    if (!gameRunning()) return;
-    // everything below reads the client's state, made from the server's snapshot
-    client_.update(*game_);
+void Quake2Module::sync(float seconds) {
+    if (!serverRunning()) return;
+    GameSnapshot snapshot;
+    game_->snapshot(snapshot, client_.needsFull());
+    if (recorder_.isOpen() && !recorder_.write(snapshot, seconds)) {
+        const std::string file = recordFile_;
+        stopRecording();
+        if (engine_) engine_->print("record: can't write " + file + ", stopped", REALMS_PRINT_WARNING);
+    }
+    receive(std::move(snapshot));
+}
+
+void Quake2Module::receive(GameSnapshot snapshot) {
+    if (!snapshot.running) { // the game started over (in a demo): so does the client
+        resetClientSide();
+        poses_.clear();
+        return;
+    }
+    // everything below reads the client's state, made from the snapshots
+    client_.apply(std::move(snapshot));
     const GameClient &g = client_;
     if (const q2player_state_t *ps = g.playerState()) {
         const int pickup = ps->stats[Q2_STAT_PICKUP_STRING];
@@ -183,6 +406,8 @@ void Quake2Module::sync() {
     const double now = clientTimeMs(g);
     for (const GameEvent &ev : client_.takeEvents()) {
         effects_.handleEvent(ev, now); // temp entities, muzzle flashes, entity events
+        // the server prints its messages itself; a demo's are printed here
+        if (demo_ && engine_ && ev.kind == GameEvent::Kind::Print && !ev.text.empty()) engine_->print(ev.text);
         if (ev.kind == GameEvent::Kind::Sound) sounds_.push_back(ev);
         if (ev.kind == GameEvent::Kind::Layout) layout_ = ev.text;
         if (ev.kind == GameEvent::Kind::CenterPrint && !ev.text.empty()) {
@@ -241,7 +466,12 @@ Vec3 Quake2Module::cameraAngles(const Vec3 &look) const {
     // CL_CalcViewValues: the player's own look (the death view while dead)
     // plus the kick angles
     const GameViewLerp v = lerp_.view(client_);
-    Vec3 a = v.locked ? Vec3{v.angles[0], v.angles[1], v.angles[2]} : look;
+    Vec3 own = look;
+    if (demo_) { // the recorded player's look (set by every usercmd), not ours
+        const q2player_state_t *ps = client_.playerState();
+        own = ps ? Vec3{ps->viewangles[0], ps->viewangles[1], ps->viewangles[2]} : Vec3{};
+    }
+    Vec3 a = v.locked ? Vec3{v.angles[0], v.angles[1], v.angles[2]} : own;
     if (kickAngles_) // cl_kickangles
         for (size_t k = 0; k < 3; k++) a[k] += v.kick[k];
     return a;
@@ -255,7 +485,7 @@ bool Quake2Module::noclip() const {
 }
 
 void Quake2Module::toggleNoclip() {
-    if (gameRunning()) game_->clientCommand("noclip");
+    if (serverRunning()) game_->clientCommand("noclip");
 }
 
 void Quake2Module::mirrorPlayer(MapWalker &w) const {
@@ -345,7 +575,7 @@ std::vector<GameLayoutItem> Quake2Module::inventoryItems(int width, int height, 
 }
 
 void Quake2Module::clientCommand(const std::string &line) {
-    if (gameRunning()) game_->clientCommand(line);
+    if (serverRunning()) game_->clientCommand(line);
 }
 
 std::vector<std::string> Quake2Module::takeMessages() {
@@ -359,9 +589,9 @@ const GameScene &Quake2Module::buildScene(Engine &engine, const Vec3 &cameraOrig
     scene_.clear();
     if (!gameRunning()) return scene_;
     // Like the Quake 2 client sending its userinfo when the fov cvar changes.
-    if (engine.cvarModified("fov")) game_->setFov(engine.cvarFloat("fov", 90.0f));
+    if (serverRunning() && engine.cvarModified("fov")) game_->setFov(engine.cvarFloat("fov", 90.0f));
     const int hand = GameServer::clampHand(engine.cvarInt("hand", 0));
-    if (engine.cvarModified("hand")) game_->setHand(hand);
+    if (serverRunning() && engine.cvarModified("hand")) game_->setHand(hand);
     GameSceneOptions opt;
     opt.viewWeapon = viewWeapon && !noclip();
     opt.hand = hand;

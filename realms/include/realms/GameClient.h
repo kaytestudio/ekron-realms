@@ -30,6 +30,10 @@ public:
     bool needsFull() const { return !running_; }
     // Shorthand: server.snapshot(full when needed), then apply.
     void update(GameServer &server);
+    // Everything the client holds as one full snapshot (no events): what a
+    // demo starts with when it is recorded in the middle of a game. Applied
+    // to a reset client it gives the same state. Not running: running false.
+    GameSnapshot fullSnapshot() const;
 
     bool running() const { return running_; }
     int frameNumber() const { return frameNumber_; }

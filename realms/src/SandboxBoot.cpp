@@ -1,5 +1,6 @@
 // Realms Engine - shared sandbox boot sequence (see SandboxBoot.h).
 
+#include "realms/GameDemo.h"
 #include "realms/GameSave.h"
 #include "realms/SandboxBoot.h"
 #include "realms/ViewSize.h"
@@ -125,6 +126,38 @@ void registerMapCommands(Engine &engine, MapChangedFn onChange) {
         e->forceSetCvar("skill", std::to_string(info.skill));
         std::string quoted;
         for (char c : info.mapPath)
+            if (c != '"') quoted += c;
+        e->insertText("map \"" + quoted + "\"\n");
+    });
+    // Quake 2's "demomap <demo>" (SV_DemoMap_f) for Ekron demos
+    // (realms/GameDemo.h): the demo's map is loaded and Quake2Module plays
+    // the demo on it (through the NOSET cvar cl_demofile).
+    engine.registerCvar(kGameDemoCvar, "", REALMS_CVAR_NOSET);
+    engine.addCommand("demomap", [e](const CommandArgs &args) {
+        if (args.size() != 2) {
+            e->print("USAGE: demomap <demoname>");
+            return;
+        }
+        const std::string file = gameDemoFile(args[1]);
+        std::vector<unsigned char> bytes;
+        if (file.empty() || !e->loadFile(file, bytes)) {
+            e->print("demomap: " + (file.empty() ? "bad demo name \"" + args[1] + "\"" : "can't find " + file),
+                     REALMS_PRINT_WARNING);
+            return;
+        }
+        GameDemoHeader header;
+        std::string error;
+        if (!GameDemoReader::readHeader(std::vector<uint8_t>(bytes.begin(), bytes.end()), header, error)) {
+            e->print("demomap: " + file + ": " + error, REALMS_PRINT_WARNING);
+            return;
+        }
+        if (e->findMap(header.mapPath).empty()) {
+            e->print("demomap: " + file + " needs " + header.mapPath, REALMS_PRINT_WARNING);
+            return;
+        }
+        e->forceSetCvar(kGameDemoCvar, file);
+        std::string quoted;
+        for (char c : header.mapPath)
             if (c != '"') quoted += c;
         e->insertText("map \"" + quoted + "\"\n");
     });

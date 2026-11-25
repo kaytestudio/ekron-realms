@@ -56,6 +56,26 @@ void GameClient::update(GameServer &server) {
     apply(std::move(s));
 }
 
+GameSnapshot GameClient::fullSnapshot() const {
+    GameSnapshot s;
+    s.running = running_;
+    if (!running_) return s;
+    s.frameNumber = frameNumber_;
+    s.lerpFraction = lerpFraction_;
+    s.hasPlayer = hasPlayer_;
+    s.player = player_;
+    s.playerOrigin = playerOrigin_;
+    s.entitiesChanged = true;
+    s.entities = entities_;
+    s.beams = beams_;
+    s.loopSounds = loopSounds_;
+    for (size_t i = 0; i < configStrings_.size(); i++)
+        if (!configStrings_[i].empty()) s.configStrings.emplace_back(int(i), configStrings_[i]);
+    s.inventoryChanged = true;
+    s.inventory = inventory_;
+    return s;
+}
+
 Vec3 GameClient::viewOrigin() const {
     Vec3 o = playerOrigin();
     if (const q2player_state_t *ps = playerState())
