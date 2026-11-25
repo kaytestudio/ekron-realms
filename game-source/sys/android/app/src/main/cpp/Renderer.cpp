@@ -458,10 +458,13 @@ void Renderer::render(){
    car.anchored=false;car.awake=true;car.restTime=0;
    float c=std::cos(car.yaw),s=std::sin(car.yaw);
    float forwardSpeed=car.vx*c-car.vz*s,lateralSpeed=car.vx*s+car.vz*c;
-   // Stick right turns right (camera forward is (-sin yaw,-cos yaw), car nose is (cos yaw,-sin yaw)).
-   // Steering bites only while rolling, flips in reverse and calms down at speed.
-   float bite=std::clamp(std::abs(forwardSpeed)/3.f,0.f,1.f)/(1.f+std::abs(forwardSpeed)*.04f);
-   car.yaw-=steer*1.8f*bite*(forwardSpeed<-.1f?-1.f:1.f)*dt;
+   // Real bicycle model: steered front wheels, yaw rate = v/L*tan(steer).
+   // The car cannot pivot in place, turns around its rear axle and the steer
+   // naturally reverses when backing up. Stick right turns right.
+   float steerAngle=steer*.6f/(1.f+std::abs(forwardSpeed)*.045f);
+   float yawRate=forwardSpeed/2.5f*std::tan(steerAngle);
+   float maxYawRate=14.f/std::max(2.f,std::abs(forwardSpeed)); // tyre lateral-grip limit
+   car.yaw-=std::clamp(yawRate,-maxYawRate,maxYawRate)*dt;
    int rounded=int(std::lround(car.yaw/1.57079632679f))%4;if(rounded<0)rounded+=4;car.rotation=rounded;
    c=std::cos(car.yaw);s=std::sin(car.yaw);
    forwardSpeed=(forwardSpeed+throttle*14.f*dt)*std::exp(-(throttle!=0 ? .35f : 1.6f)*dt);
