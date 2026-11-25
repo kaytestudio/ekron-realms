@@ -43,6 +43,8 @@ int gChecks = 0;
 
 namespace fs = std::filesystem;
 
+const char *const kDeathmatchSpots[4] = {"-400 200 24", "300 300 24", "300 -300 24", "-200 -300 24"};
+
 // 1024 x 1024 room, floor top z = 0, ceiling at 256. A 16 unit step and a
 // 40 unit block for Pmove, a water pool, a door (*1) across the middle, an
 // armor shard on the way to it, the player start at -320 0 facing +X.
@@ -68,6 +70,10 @@ bsp_builder::MapDef arena() {
                    "{\n\"classname\" \"info_player_start\"\n\"origin\" \"-320 0 24\"\n\"angle\" \"0\"\n}\n"
                    "{\n\"classname\" \"item_armor_shard\"\n\"origin\" \"-160 0 16\"\n}\n"
                    "{\n\"classname\" \"func_door\"\n\"model\" \"*1\"\n\"angle\" \"-1\"\n\"speed\" \"200\"\n}\n";
+    // deathmatch and coop starts (the game frees them in single player)
+    for (const char *origin : kDeathmatchSpots)
+        def.entities += std::string("{\n\"classname\" \"info_player_deathmatch\"\n\"origin\" \"") + origin + "\"\n}\n";
+    def.entities += "{\n\"classname\" \"info_player_coop\"\n\"origin\" \"-400 -150 24\"\n}\n";
     return def;
 }
 
@@ -647,6 +653,212 @@ void runGameChecks(realms::Engine &engine, const std::string &gameLibrary) {
     server.stop();
 }
 
+// ------------------------------------------------------------ 3. clients
+
+bool hasText(const std::vector<realms::GameEvent> &events, const std::string &needle, int entity = -1) {
+    for (const auto &e : events)
+        if (e.kind == realms::GameEvent::Kind::Print && e.text.find(needle) != std::string::npos &&
+            (entity < 0 || e.entity == entity))
+            return true;
+    return false;
+}
+
+bool drawsEntity(const std::vector<realms::GameRenderEntity> &ents, int number, const std::string &model = {}) {
+    for (const auto &e : ents)
+        if (e.number == number) return model.empty() || e.model == model;
+    return false;
+}
+
+bool atDeathmatchSpot(const realms::Vec3 &o) {
+    for (const char *spot : kDeathmatchSpots) {
+        float x = 0, y = 0;
+        std::sscanf(spot, "%f %f", &x, &y);
+        if (near(o[0], x, 0.2f) && near(o[1], y, 0.2f)) return true;
+    }
+    return false;
+}
+
+void runClientChecks(realms::Engine &engine, const std::string &gameLibrary) {
+    realms::GameServer server;
+    realms::GameServerConfig gcfg;
+    gcfg.gameLibrary = gameLibrary;
+    gcfg.playerName = "Tester";
+    std::string error;
+
+    // single player: one client, nobody else gets in
+    CHECK(server.start(engine, gcfg, error));
+    if (!server.running()) return;
+    CHECK(server.maxClients() == 1 && server.clientCount() == 1 && server.clientActive(0));
+    CHECK(!server.deathmatch() && !server.coop());
+    CHECK(server.connectClient("Other", 90, 0, error) == -1 && error == "Server is full.");
+    CHECK(std::string(server.userinfo()).find("\\spectator\\0\\ip\\loopback") != std::string::npos);
+    std::string saveError;
+    server.stop();
+    CHECK(server.maxClients() == 0 && server.clientCount() == 0);
+
+    // deathmatch for four
+    gcfg.deathmatch = true;
+    gcfg.maxClients = 4;
+    const bool dm = server.start(engine, gcfg, error);
+    if (!dm) std::fprintf(stderr, "  deathmatch start failed: %s\n", error.c_str());
+    CHECK(dm);
+    if (!dm) return;
+    std::printf("[game] deathmatch started\n");
+    CHECK(server.deathmatch() && !server.coop() && server.maxClients() == 4 && server.clientCount() == 1);
+    CHECK(server.configString(Q2_CS_MAXCLIENTS) == "4");
+    CHECK(engine.cvarString("deathmatch") == "1" && engine.cvarString("coop") == "0");
+    CHECK(engine.cvarString("maxclients") == "4");
+    CHECK(atDeathmatchSpot(server.playerOrigin()));
+    CHECK(!server.saveGame("dm", saveError) && saveError == "Can't savegame in a deathmatch");
+    server.takeEvents();
+
+    const int second = server.connectClient("Second", 100, 1, error);
+    if (second < 0) std::fprintf(stderr, "  connect failed: %s\n", error.c_str());
+    CHECK(second == 1);
+    if (second != 1) return;
+    CHECK(server.clientActive(1) && server.clientCount() == 2);
+    const q2edict_t *p1 = server.player(0), *p2 = server.player(1);
+    CHECK(p1 == server.player() && p2 == server.edict(2));
+    CHECK(p2 && p2->inuse && p2->client && p2->s.number == 2 && p2->s.modelindex == 255);
+    if (!p1 || !p2 || !p2->client || !p1->client) return;
+    CHECK(server.configString(Q2_CS_PLAYERSKINS + 1) == "Second\\male/grunt");
+    CHECK(std::string(server.userinfo(1)).find("\\name\\Second\\") != std::string::npos);
+    CHECK(std::string(server.userinfo(1)).find("\\hand\\1\\") != std::string::npos);
+    CHECK(near(p2->client->ps.fov, 100, 0.01f) && near(p1->client->ps.fov, 90, 0.01f));
+    CHECK(atDeathmatchSpot(server.playerOrigin(1)));
+    CHECK(p1->client->ps.stats[Q2_STAT_HEALTH] == 100 && p2->client->ps.stats[Q2_STAT_HEALTH] == 100);
+    // the broadcast reached both
+    {
+        const auto e0 = server.takeEvents(0), e1 = server.takeEvents(1);
+        CHECK(hasText(e0, "Second entered the game") && hasText(e1, "Second entered the game"));
+    }
+    // each sees the other's body, never its own
+    {
+        const auto v0 = server.renderEntitiesFor(0), v1 = server.renderEntitiesFor(1);
+        CHECK(drawsEntity(v0, 2, "players/male/tris.md2") && !drawsEntity(v0, 1));
+        CHECK(drawsEntity(v1, 1, "players/male/tris.md2") && !drawsEntity(v1, 2));
+        CHECK(server.renderEntities().size() == v0.size());
+    }
+    // client commands: "say" goes to everyone, "players" to the one asking
+    server.clientCommand(1, "say hello there");
+    {
+        const auto e0 = server.takeEvents(0), e1 = server.takeEvents(1);
+        CHECK(hasText(e0, "Second: hello there", 1) && hasText(e1, "Second: hello there", 2));
+    }
+    server.clientCommand(1, "players");
+    {
+        const auto e0 = server.takeEvents(0), e1 = server.takeEvents(1);
+        CHECK(hasText(e1, "2 players", 2) && !hasText(e0, "players"));
+    }
+    // "inven": the inventory goes to that client only
+    server.clientCommand(1, "inven");
+    {
+        const auto &inv1 = server.inventory(1), &inv0 = server.inventory(0);
+        CHECK(std::any_of(inv1.begin(), inv1.end(), [](int16_t n) { return n > 0; }));
+        CHECK(std::all_of(inv0.begin(), inv0.end(), [](int16_t n) { return n == 0; }));
+        CHECK(&server.inventory() == &inv0);
+    }
+    server.clientCommand(1, "inven");
+    // userinfo per client
+    server.setFov(1, 120.0f);
+    server.setHand(1, 2);
+    CHECK(near(p2->client->ps.fov, 120, 0.01f) && near(p1->client->ps.fov, 90, 0.01f));
+    CHECK(std::string(server.userinfo(1)).find("\\hand\\2\\") != std::string::npos);
+    CHECK(std::string(server.userinfo(0)).find("\\hand\\0\\") != std::string::npos);
+    // moves: one client's usercmds move that player only
+    {
+        const realms::Vec3 a0 = server.playerOrigin(0), a1 = server.playerOrigin(1);
+        realms::GameUserCmd run;
+        run.forward = 400;
+        run.yaw = a1[0] > 0 ? 180.0f : 0.0f; // away from the nearest side wall
+        const int frame = server.frameNumber();
+        for (int i = 0; i < 10; i++) server.clientMove(1, run, 0.05);
+        CHECK(server.frameNumber() == frame); // usercmds don't run the game
+        const realms::Vec3 b0 = server.playerOrigin(0), b1 = server.playerOrigin(1);
+        CHECK(std::fabs(b1[0] - a1[0]) > 20);
+        CHECK(near(b0[0], a0[0], 0.01f) && near(b0[1], a0[1], 0.01f));
+        CHECK(server.advance(0.25) == 2 && server.frameNumber() == frame + 2);
+        server.clientMove(5, run, 0.05); // not a client: ignored
+        server.clientMove(-1, run, 0.05);
+    }
+    // snapshots per client, each with its own "sent" state
+    {
+        realms::GameSnapshot s1, s0, again;
+        server.snapshot(1, s1, true);
+        CHECK(s1.running && s1.hasPlayer && s1.entitiesChanged && !s1.configStrings.empty());
+        CHECK(near(s1.playerOrigin[0], server.playerOrigin(1)[0], 1e-4f));
+        CHECK(near(s1.player.fov, 120, 0.01f));
+        CHECK(drawsEntity(s1.entities, 1) && !drawsEntity(s1.entities, 2));
+        server.snapshot(1, again, false);
+        CHECK(again.running && again.configStrings.empty() && !again.entitiesChanged);
+        server.snapshot(0, s0, false); // client 0 has not had one: everything
+        CHECK(s0.running && s0.entitiesChanged && s0.configStrings.size() == s1.configStrings.size());
+        CHECK(drawsEntity(s0.entities, 2) && !drawsEntity(s0.entities, 1));
+        realms::GameSnapshot none;
+        server.snapshot(3, none, true); // a free slot
+        CHECK(!none.running && !none.hasPlayer);
+    }
+    // the game refuses a wrong password (not "addip": the module's
+    // SVCmd_AddIP_f runs past its filter array while the list is empty)
+    engine.setCvar("password", "secret");
+    CHECK(server.connectClient("Third", 90, 0, error) == -1);
+    CHECK(error.find("Password required or incorrect.") != std::string::npos);
+    CHECK(server.clientCount() == 2 && !server.clientActive(2));
+    engine.setCvar("password", "");
+    // a client's address goes in its userinfo "ip"
+    CHECK(server.connectClient("Remote", 90, 0, error, "10.1.2.3") == 2);
+    CHECK(std::string(server.userinfo(2)).find("\\ip\\10.1.2.3") != std::string::npos);
+    server.disconnectClient(2);
+    CHECK(server.clientCount() == 2 && !server.clientActive(2));
+    // a client leaving
+    server.takeEvents(0);
+    server.disconnectClient(1);
+    CHECK(!server.clientActive(1) && server.clientCount() == 1 && !p2->inuse);
+    CHECK(server.configString(Q2_CS_PLAYERSKINS + 1).empty());
+    CHECK(hasText(server.takeEvents(0), "Second disconnected"));
+    CHECK(server.takeEvents(1).empty());
+    CHECK(!drawsEntity(server.renderEntitiesFor(0), 2));
+    server.disconnectClient(0); // the local client only leaves with stop()
+    CHECK(server.clientActive(0));
+    // the server filling up: slots 1, 2, 3, then full
+    CHECK(server.connectClient("Back", 90, 0, error) == 1);
+    CHECK(server.connectClient("Fourth", 90, 0, error) == 2);
+    CHECK(server.connectClient("Fifth", 90, 0, error) == 3);
+    CHECK(server.connectClient("Sixth", 90, 0, error) == -1 && error == "Server is full.");
+    CHECK(server.clientCount() == 4);
+    CHECK(server.frame(realms::GameUserCmd{}, 0.5) == 5);
+    server.stop();
+    CHECK(!server.running() && server.clientCount() == 0);
+
+    // coop: the second player at the info_player_coop
+    gcfg.deathmatch = false;
+    gcfg.coop = true;
+    gcfg.maxClients = 1;
+    CHECK(server.start(engine, gcfg, error));
+    if (server.running()) {
+        CHECK(server.coop() && !server.deathmatch() && server.maxClients() == 4);
+        CHECK(engine.cvarString("coop") == "1" && engine.cvarString("deathmatch") == "0");
+        CHECK(near(server.playerOrigin()[0], -320, 0.2f) && near(server.playerOrigin()[1], 0, 0.2f));
+        CHECK(server.connectClient("Buddy", 90, 0, error) == 1);
+        CHECK(near(server.playerOrigin(1)[0], -400, 0.2f) && near(server.playerOrigin(1)[1], -150, 0.2f));
+        CHECK(server.playerState(0) && server.playerState(0)->stats[Q2_STAT_HEALTH] == 100);
+        CHECK(server.playerState(1) && server.playerState(1)->stats[Q2_STAT_HEALTH] == 100);
+    }
+    server.stop();
+    // both set: deathmatch wins
+    gcfg.deathmatch = true;
+    CHECK(server.start(engine, gcfg, error));
+    CHECK(server.deathmatch() && !server.coop() && server.maxClients() == 8);
+    server.stop();
+    // back to single player
+    gcfg.deathmatch = gcfg.coop = false;
+    CHECK(server.start(engine, gcfg, error));
+    CHECK(server.maxClients() == 1 && engine.cvarString("deathmatch") == "0" && engine.cvarString("maxclients") == "1");
+    CHECK(server.configString(Q2_CS_MAXCLIENTS) == "1");
+    CHECK(near(server.playerOrigin()[0], -320, 0.2f));
+    server.stop();
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -705,9 +917,29 @@ int main(int argc, char **argv) {
         CHECK(door && world && !misplaced);
     }
 
+    // SV_InitGame's maxclients
+    CHECK(realms::GameServer::maxClientsFor(false, false, 8) == 1);
+    CHECK(realms::GameServer::maxClientsFor(true, false, 1) == 8);
+    CHECK(realms::GameServer::maxClientsFor(true, false, 0) == 8);
+    CHECK(realms::GameServer::maxClientsFor(true, false, 16) == 16);
+    CHECK(realms::GameServer::maxClientsFor(true, false, 1000) == Q2_MAX_CLIENTS);
+    CHECK(realms::GameServer::maxClientsFor(false, true, 1) == 4);
+    CHECK(realms::GameServer::maxClientsFor(false, true, 3) == 3);
+    CHECK(realms::GameServer::maxClientsFor(false, true, 5) == 4);
+    {
+        realms::GameServer idle; // nothing running: no clients, safe queries
+        realms::GameSnapshot snap;
+        idle.snapshot(2, snap, true);
+        CHECK(!snap.running && idle.maxClients() == 0 && idle.takeEvents(3).empty());
+        CHECK(idle.player(0) == nullptr && idle.userinfo(5)[0] == 0 && idle.inventory(9)[0] == 0);
+        std::string err;
+        CHECK(idle.connectClient("x", 90, 0, err) == -1 && !err.empty());
+    }
+
     std::string where, why;
     if (!gameLibrary.empty() || realms::GameServer::moduleAvailable({}, &where, &why)) {
         runGameChecks(engine, gameLibrary);
+        runClientChecks(engine, gameLibrary);
     } else {
         std::printf("[game] %d checks, %d failures; game module skipped: %s\n", gChecks, gFailures, why.c_str());
         engine.shutdown();
