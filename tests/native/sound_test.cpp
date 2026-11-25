@@ -5,7 +5,7 @@
 // Build (one line): g++ -std=c++17 -O2 -Irealms/include -Isys/android/app/src/main/cpp
 //   tests/native/sound_test.cpp sys/android/app/src/main/cpp/Sound{Decode,Mixer,Director,System}.cpp
 //   sys/android/app/src/main/cpp/GameSoundPlayer.cpp realms/src/GameSound.cpp
-//   realms/src/{Engine,NativeCore,NativeCModel,SandboxBoot,MeshMap,MapGeometry,MapWalker}.cpp
+//   realms/src/{Engine,NativeCore,NativeCModel,SandboxBoot,GameSave,MeshMap,MapGeometry,MapLighting,MapWalker}.cpp
 //   -ldl -lpthread -o /tmp/sound_test
 // Run from the repo root: /tmp/sound_test [assets dir]
 
