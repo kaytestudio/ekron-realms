@@ -959,11 +959,13 @@ void runNetworkChecks(realms::Engine &engine, const std::string &gameLibrary) {
     }
     // a client command for the game, its print to everyone
     client.sendCommand("say over the wire");
-    for (int i = 0; i < 20; i++) step(still);
+    for (int i = 0; i < 500 && !(hasText(hostEvents, "Visitor: over the wire") && hasText(visitorEvents, "Visitor: over the wire"));
+         i++)
+        step(still);
     CHECK(hasText(hostEvents, "Visitor: over the wire") && hasText(visitorEvents, "Visitor: over the wire"));
     // userinfo
     client.sendUserinfo("\\fov\\95\\hand\\2");
-    for (int i = 0; i < 20; i++) step(still);
+    for (int i = 0; i < 500 && !(view.playerState() && near(view.playerState()->fov, 95, 0.01f)); i++) step(still);
     CHECK(server.player(1) && server.player(1)->client && near(server.player(1)->client->ps.fov, 95, 0.01f));
     CHECK(std::string(server.userinfo(1)).find("\\hand\\2\\") != std::string::npos);
     CHECK(view.playerState() && near(view.playerState()->fov, 95, 0.01f));
@@ -979,7 +981,8 @@ void runNetworkChecks(realms::Engine &engine, const std::string &gameLibrary) {
     hostEvents.clear();
     client.disconnect(now);
     CHECK(client.state() == realms::GameNetClient::State::Disconnected && client.takeDisconnectReason().empty());
-    for (int i = 0; i < 20; i++) step(still);
+    for (int i = 0; i < 500 && (server.clientActive(1) || net.clientCount() > 0); i++) step(still);
+    for (int i = 0; i < 5; i++) step(still);
     CHECK(!server.clientActive(1) && server.clientCount() == 1 && net.clientCount() == 0);
     CHECK(hasText(hostEvents, "Visitor disconnected"));
 
@@ -991,8 +994,9 @@ void runNetworkChecks(realms::Engine &engine, const std::string &gameLibrary) {
     CHECK(server.clientActive(1));
     const uint16_t port = net.port();
     net.close("reconnect");
-    std::this_thread::sleep_for(std::chrono::milliseconds(5));
-    {
+    // (loopback datagrams aren't always there at once: macOS queues them)
+    for (int i = 0; i < 500 && client.state() == realms::GameNetClient::State::Active; i++) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
         std::vector<realms::GameSnapshot> snaps;
         client.frame(still, 0.02, now, snaps);
     }
@@ -1005,8 +1009,10 @@ void runNetworkChecks(realms::Engine &engine, const std::string &gameLibrary) {
     CHECK(client.state() == realms::GameNetClient::State::Loading && client.takeMapToLoad(map));
     // and quitting: the client is told why
     net.close();
-    std::this_thread::sleep_for(std::chrono::milliseconds(5));
-    client.poll(now);
+    for (int i = 0; i < 500 && client.state() == realms::GameNetClient::State::Loading; i++) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        client.poll(now);
+    }
     CHECK(client.state() == realms::GameNetClient::State::Disconnected);
     CHECK(client.takeDisconnectReason() == "Server disconnected: Server quit");
     server.stop();

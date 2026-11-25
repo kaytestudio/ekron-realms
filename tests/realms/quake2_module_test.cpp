@@ -750,6 +750,15 @@ void netWithoutGame(realms::Engine &engine) {
         serve();
         view.update(engine, in, 0.0f, 0.0f, 0.02f, false);
     };
+    // the client alone, until it has let go of the server (loopback
+    // datagrams aren't always there at once: macOS queues them)
+    const auto untilOffline = [&]() {
+        for (int i = 0; i < 500 && q2.connected(); i++) {
+            view.update(engine, {}, 0.0f, 0.0f, 0.02f, false);
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+        view.update(engine, {}, 0.0f, 0.0f, 0.02f, false); // the view's own message about it
+    };
     for (int i = 0; i < 100 && !view.gameRunning(); i++) update({});
     CHECK(view.gameRunning() && q2.client().configString(Q2_CS_NAME) == "Stand-in" && q2.stats().health == 77);
     CHECK(consoleHas(engine, "Player entered the stand-in")); // the server's prints
@@ -791,7 +800,7 @@ void netWithoutGame(realms::Engine &engine) {
     const uint16_t port = server.port();
     server.close("reconnect");
     game.active = false;
-    for (int i = 0; i < 5; i++) view.update(engine, {}, 0.0f, 0.0f, 0.02f, false);
+    untilOffline();
     CHECK(!q2.connected() && !view.gameRunning());
     CHECK(net.state() == realms::GameNetClient::State::Challenging);
     for (const std::string &m : view.takeMessages()) CHECK(m.find("Game stopped") == std::string::npos);
@@ -804,7 +813,7 @@ void netWithoutGame(realms::Engine &engine) {
 
     // "disconnect": back to walking, the server lets go
     engine.exec("disconnect\n");
-    for (int i = 0; i < 5; i++) update({});
+    for (int i = 0; i < 500 && (game.active || server.clientCount() > 0 || q2.connected()); i++) update({});
     CHECK(!q2.connected() && !view.gameRunning() && !game.active && server.clientCount() == 0);
     for (const std::string &m : view.takeMessages()) CHECK(m.find("Game stopped") == std::string::npos);
 
@@ -815,7 +824,7 @@ void netWithoutGame(realms::Engine &engine) {
     for (int i = 0; i < 100 && !view.gameRunning(); i++) update({});
     CHECK(view.gameRunning());
     server.close();
-    for (int i = 0; i < 5; i++) view.update(engine, {}, 0.0f, 0.0f, 0.02f, false);
+    untilOffline();
     CHECK(!q2.connected() && !view.gameRunning());
     {
         bool told = false;
@@ -833,7 +842,7 @@ void netWithoutGame(realms::Engine &engine) {
     engine.clearConsole();
     CHECK(engine.loadMap("maps/surfaces.bsp"));
     CHECK(view.open(engine, options, geometry, error) && !q2.connected() && !net.connected());
-    for (int i = 0; i < 5; i++) serve();
+    for (int i = 0; i < 500 && (game.active || server.clientCount() > 0); i++) serve();
     CHECK(!game.active && server.clientCount() == 0);
     // the server's map isn't the one here: refused
     server.setMap(mapPath, info.checksum ^ 1u);

@@ -308,21 +308,26 @@ void playChecks() {
         snaps.clear();
     }
     run.attack = false;
-    for (int i = 0; i < 5; i++) {
+    int settle = 0; // steps after the first 5, while the last snapshots come
+    for (int i = 0; i < 5 || (i < 500 && std::fabs(view.playerOrigin()[0] - float(pa.x)) >= 0.01f); i++) {
+        if (i >= 5) settle++;
         rig.step({&a}, realms::GameUserCmd{}, &snaps);
         for (auto &s : snaps) view.apply(std::move(s));
         snaps.clear();
     }
     std::printf("[netplay] ran %.1f units in %.2f s (%d usercmds)\n", pa.x, pa.seconds, pa.moves);
     CHECK(std::fabs(pa.x - 400.0 * sent) < 1.0 && pa.attack);
-    CHECK(pa.moves >= 90 && pa.moves <= 106);
+    CHECK(pa.moves >= 90 && pa.moves <= 106 + settle);
     CHECK(std::fabs(view.playerOrigin()[0] - float(pa.x)) < 0.01f);
 
     // commands and userinfo
     a.sendCommand("inven");
     a.sendCommand("say hello\nthere");
     a.sendUserinfo("\\fov\\120\\hand\\2");
-    for (int i = 0; i < 10; i++) {
+    for (int i = 0; i < 500 && (pa.commands.size() < 2 || !view.playerState() || view.playerState()->fov != 120.0f ||
+                                !hasPrint(events, "Alpha: hello there"));
+         i++) {
+        for (const auto &e : view.takeEvents()) events.push_back(e);
         rig.step({&a}, {}, &snaps);
         for (auto &s : snaps) view.apply(std::move(s));
         snaps.clear();
@@ -354,7 +359,7 @@ void playChecks() {
     CHECK(c.takeDisconnectReason() == "Connection to " + rig.address() + " refused: Server is full.");
     // ... and the game refusing one
     b.disconnect(rig.now);
-    for (int i = 0; i < 10; i++) rig.step({&a});
+    for (int i = 0; i < 500 && rig.server.clientCount() > 1; i++) rig.step({&a});
     CHECK(!rig.game.players[2].active && rig.server.clientCount() == 1);
     rig.game.refuse = "Password required or incorrect.";
     CHECK(c.connect(rig.address(), info, rig.now, error));
@@ -369,8 +374,8 @@ void playChecks() {
     // the server changes maps: "reconnect", then the new map
     const uint16_t port = rig.server.port();
     rig.server.close("reconnect");
-    std::this_thread::sleep_for(std::chrono::milliseconds(5));
-    rig.step({&a}, {}, nullptr, false);
+    // (loopback datagrams aren't always there at once: macOS queues them)
+    for (int i = 0; i < 500 && a.state() == State::Active; i++) rig.step({&a}, {}, nullptr, false);
     CHECK(a.state() == State::Challenging && a.takeDisconnectReason().empty());
     CHECK(!aSaid.empty() && aSaid.back().find("changing maps") != std::string::npos);
     for (int i = 0; i < 5; i++) rig.step({&a}, {}, nullptr, false); // the server loads its map
@@ -418,8 +423,7 @@ void playChecks() {
     for (int i = 0; i < 100 && a.playerNum() < 0; i++) rig.step({&a});
     CHECK(rig.game.players[1].active && rig.game.players[1].name == "Alpha");
     rig.server.close();
-    std::this_thread::sleep_for(std::chrono::milliseconds(5));
-    rig.step({&a}, {}, nullptr, false);
+    for (int i = 0; i < 500 && a.state() == State::Active; i++) rig.step({&a}, {}, nullptr, false);
     CHECK(a.state() == State::Disconnected && a.takeDisconnectReason() == "Server disconnected: Server quit");
     realms::GameNetClient never;
     CHECK(!never.reconnect(rig.now, error) && error == "no server to reconnect to");
@@ -461,7 +465,10 @@ void consoleChecks() {
     CHECK(!net.connected());
     CHECK(lastLine() == "connect: the server's map maps/stand-in.bsp isn't here");
     CHECK(rig.server.clientCount() == 1);
-    for (int i = 0; i < 10; i++) rig.server.receive(rig.game, realms::GameNetClient::clock());
+    for (int i = 0; i < 500 && rig.server.clientCount() > 0; i++) {
+        rig.server.receive(rig.game, realms::GameNetClient::clock());
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
     CHECK(rig.server.clientCount() == 0); // it said goodbye
     engine.exec("reconnect\n");
     CHECK(net.state() == State::Challenging && lastLine() == "Reconnecting to " + rig.address() + "...");
