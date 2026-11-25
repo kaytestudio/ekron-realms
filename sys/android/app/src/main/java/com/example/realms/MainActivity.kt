@@ -97,6 +97,9 @@ class MainActivity : GameActivity() {
     private lateinit var crouchControl: HudButton
     // Map mode with the Quake 2 game: hold to fire (native 51 pressed / 52 released).
     private lateinit var fireControl: HudButton
+    /** Quake 2's help computer and inventory (map mode with the game); the inventory row while it is open. */
+    private lateinit var gameScreenActions: LinearLayout
+    private lateinit var inventoryActions: LinearLayout
     private var mapGame = false
     private lateinit var proneControl: HudButton
     // Localized via res/values{,-ru,-pt-rPT,-es-rES}; resolved lazily because resources are not ready during construction.
@@ -161,6 +164,12 @@ class MainActivity : GameActivity() {
                     mapGame = nowGame
                     if (!nowGame && fireControl.isPressed) { fireControl.isPressed=false;nativeCommand(52) }
                     fireControl.visibility = if (nowGame) View.VISIBLE else View.GONE
+                    if (::gameScreenActions.isInitialized) gameScreenActions.visibility = if (nowGame) View.VISIBLE else View.GONE
+                }
+                // status slot 22: bit 1 = the game's inventory is open
+                if (::inventoryActions.isInitialized) {
+                    val inventoryOpen = nowGame && state.size >= 23 && (state[22].toInt() and 2) != 0
+                    inventoryActions.visibility = if (inventoryOpen) View.VISIBLE else View.GONE
                 }
                 // Re-read every poll: picking another map keeps map mode on.
                 if (nowMap) nativeMapPath().substringAfterLast('/').takeIf { it.isNotEmpty() }?.let { mapName = it }
@@ -197,7 +206,7 @@ class MainActivity : GameActivity() {
                 }
                 if(stage in 0..5 && state.size>=9)loadingText.append(" ${state[8].toInt()}%")
                 notice.text = if (mapMode) {
-                    if (mapGame) getString(R.string.notice_map_game, mapName, state[19].toInt(), state[20].toInt(), state[21].toInt())
+                    if (mapGame) getString(R.string.notice_map_game, mapName)
                     else if (flying) getString(R.string.notice_flying)
                     else if (mapTexturesLoading) getString(R.string.notice_map_textures, mapName)
                     else getString(R.string.notice_map_mode, mapName)
@@ -316,6 +325,17 @@ class MainActivity : GameActivity() {
         }
         for (control in listOf(fireControl,jump,crouchControl)) movement.addView(control, LinearLayout.LayoutParams(dp(actionSize),dp(actionSize)))
         overlay.addView(movement, FrameLayout.LayoutParams(-2,-2,Gravity.BOTTOM or Gravity.END).apply { bottomMargin=dp(8);rightMargin=dp(8) })
+        // Quake 2 (map mode with the game): help computer and inventory, left of pause;
+        // while the inventory is open, previous / next / use under them. The game draws both screens.
+        gameScreenActions = LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; visibility=View.GONE }
+        gameScreenActions.addView(action(getString(R.string.action_help),"help") { nativeCommand(53) }.apply { visualScale=.8f },LinearLayout.LayoutParams(dp(60),dp(60)))
+        gameScreenActions.addView(action(getString(R.string.action_inventory),"backpack") { nativeCommand(54) }.apply { visualScale=.8f },LinearLayout.LayoutParams(dp(60),dp(60)))
+        overlay.addView(gameScreenActions, FrameLayout.LayoutParams(-2,-2,Gravity.TOP or Gravity.END).apply { topMargin=dp(6);rightMargin=dp(72) })
+        inventoryActions = LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; visibility=View.GONE }
+        inventoryActions.addView(action("","left") { nativeCommand(55) }.apply { contentDescription=getString(R.string.action_inventory_previous) },LinearLayout.LayoutParams(dp(60),dp(60)))
+        inventoryActions.addView(action("","right") { nativeCommand(56) }.apply { contentDescription=getString(R.string.action_inventory_next) },LinearLayout.LayoutParams(dp(60),dp(60)))
+        inventoryActions.addView(action(getString(R.string.action_inventory_use),"check") { nativeCommand(57) },LinearLayout.LayoutParams(dp(60),dp(60)))
+        overlay.addView(inventoryActions, FrameLayout.LayoutParams(-2,-2,Gravity.TOP or Gravity.END).apply { topMargin=dp(70);rightMargin=dp(8) })
         toolWheel=ToolWheelView(this) { selectTool(it) }
         overlay.addView(toolWheel,FrameLayout.LayoutParams(-1,-1))
         // Click action is retained for accessibility; touch uses hold/drag/release.

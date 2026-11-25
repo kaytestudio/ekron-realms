@@ -1,10 +1,14 @@
 // GameLayout.cpp: Quake 2 layout programs (cl_scrn.c SCR_ExecuteLayoutString)
 // run against stats and config strings: the help computer as HelpComputer
 // (p_hud.c) sends it, the single-player status bar (g_spawn.c), number
-// fields, client blocks, pic paths, and bad or random programs.
+// fields, client blocks, pic paths, and bad or random programs. The inventory
+// screen (cl_inv.c CL_DrawInventory), and GameHudCanvas drawing items into
+// one image for the mobile HUD.
+#include "realms/GameHudCanvas.h"
 #include "realms/GameLayout.h"
 #include "realms/q2game.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdio>
 #include <map>
@@ -244,6 +248,120 @@ void inventoryChecks() {
     CHECK(realms::gameInventoryItems(nullptr, 0, config, 640, 480, true).empty());
 }
 
+// A 2 x 2 PCX: red, transparent (index 255) / green, red.
+std::vector<unsigned char> tinyPcx() {
+    std::vector<unsigned char> f(128, 0);
+    f[0] = 0x0a;
+    f[1] = 5;
+    f[2] = 1;
+    f[3] = 8;
+    f[8] = 1;  // xmax
+    f[10] = 1; // ymax
+    f[65] = 1;
+    f[66] = 2; // bytes per line
+    for (unsigned char b : {1, 0xc1, 0xff, 2, 1}) f.push_back(b);
+    f.push_back(0x0c);
+    std::vector<unsigned char> palette(768, 0);
+    palette[3] = 255;      // 1: red
+    palette[6 + 1] = 255;  // 2: green
+    f.insert(f.end(), palette.begin(), palette.end());
+    return f;
+}
+
+void canvasChecks() {
+    using realms::GameHudCanvas;
+    // the desktop and mobile scale: 320 x 240 filling most of the smaller side
+    CHECK(GameHudCanvas::scaleFor(640, 480) == 1);
+    CHECK(GameHudCanvas::scaleFor(1280, 720) == 2);
+    CHECK(GameHudCanvas::scaleFor(2400, 1080) == 3);
+    CHECK(GameHudCanvas::scaleFor(100, 100) == 1);
+
+    GameHudCanvas c;
+    c.begin(40, 30);
+    auto px = [&](int x, int y) {
+        const auto &img = c.image();
+        const unsigned char *p = &img.rgba[(size_t(y) * size_t(img.width) + size_t(x)) * 4];
+        return std::array<int, 4>{p[0], p[1], p[2], p[3]};
+    };
+    CHECK(c.image().width == 40 && c.image().height == 30 && c.image().rgba.size() == 40 * 30 * 4);
+    CHECK((px(0, 0) == std::array<int, 4>{0, 0, 0, 0}));
+    // a panel blends over transparent as itself, clipped to the image
+    c.fillRect(-5, -5, 10, 10, GameHudCanvas::kPanel);
+    CHECK((px(4, 4) == std::array<int, 4>{5, 10, 8, 209}));
+    CHECK((px(5, 5) == std::array<int, 4>{0, 0, 0, 0}));
+    // half white over opaque black: grey, opaque
+    c.fillRect(10, 10, 2, 2, {0, 0, 0, 255});
+    c.fillRect(10, 10, 1, 1, {255, 255, 255, 128});
+    CHECK((px(10, 10) == std::array<int, 4>{128, 128, 128, 255}));
+    CHECK((px(11, 11) == std::array<int, 4>{0, 0, 0, 255}));
+
+    // pics from the loader (cached: one load per name), index 255 transparent
+    int loads = 0;
+    std::vector<std::string> paths;
+    const GameHudCanvas::FileLoader load = [&](const std::string &path, std::vector<unsigned char> &out) {
+        ++loads;
+        paths.push_back(path);
+        if (path != "pics/dot.pcx" && path != "pics/num_1.pcx") return false;
+        out = tinyPcx();
+        return true;
+    };
+    c.begin(40, 30);
+    Item dot;
+    dot.kind = Kind::Pic;
+    dot.x = 20;
+    dot.y = 3;
+    dot.text = "dot";
+    c.drawItems({dot, dot}, load, 2);
+    CHECK(loads == 1 && paths[0] == "pics/dot.pcx");
+    CHECK((px(20, 5) == std::array<int, 4>{255, 0, 0, 255}));
+    CHECK((px(21, 5) == std::array<int, 4>{0, 0, 0, 0}));
+    CHECK((px(20, 6) == std::array<int, 4>{0, 255, 0, 255}));
+    CHECK((px(21, 6) == std::array<int, 4>{255, 0, 0, 255}));
+    // a missing pic draws nothing
+    dot.text = "nothing";
+    c.begin(40, 30);
+    c.drawItems({dot}, load);
+    size_t lit = 0;
+    for (size_t i = 3; i < c.image().rgba.size(); i += 4) lit += c.image().rgba[i] != 0;
+    CHECK(lit == 0);
+
+    // text: the built-in font, green when alt; "|" lights column 3 of the glyph
+    Item text;
+    text.kind = Kind::Text;
+    text.x = 1;
+    text.y = 1;
+    text.text = "||";
+    c.begin(40, 30);
+    c.drawItems({text}, load);
+    CHECK((px(1 + 3, 1 + 1) == std::array<int, 4>{237, 237, 224, 255}));
+    CHECK((px(9 + 3, 1 + 1) == std::array<int, 4>{237, 237, 224, 255}));
+    CHECK(px(1, 1)[3] == 0);
+    text.alt = true;
+    c.begin(40, 30);
+    c.drawItems({text}, load);
+    CHECK((px(1 + 3, 1 + 1) == std::array<int, 4>{140, 255, 140, 255}));
+
+    // numbers: digit pics 24 apart, or the font three times the size
+    Item number;
+    number.kind = Kind::Number;
+    number.x = 0;
+    number.y = 0;
+    number.text = "1";
+    c.begin(80, 30);
+    c.drawItems({number}, load);
+    CHECK((px(0, 0) == std::array<int, 4>{255, 0, 0, 255})); // pics/num_1.pcx
+    number.text = "77";
+    number.alt = true;
+    c.begin(80, 30);
+    c.drawItems({number}, load);
+    // '7' in the font: the top row is lit from column 1; at 3x, pixels 3..5 of row 0
+    CHECK((px(3, 0) == std::array<int, 4>{255, 82, 64, 255}));
+    CHECK((px(24 + 3, 0) == std::array<int, 4>{255, 82, 64, 255}));
+    CHECK(px(0, 0)[3] == 0);
+    // the digit pics for alt numbers are anum_*: looked up, missing, font used
+    CHECK(std::find(paths.begin(), paths.end(), "pics/anum_7.pcx") != paths.end());
+}
+
 void badProgramChecks() {
     Setup s;
     s.stats[0] = 9999; // not an image index
@@ -288,6 +406,7 @@ int main() {
     statusBarChecks();
     fieldAndTextChecks();
     inventoryChecks();
+    canvasChecks();
     badProgramChecks();
     std::printf("[game_layout] %d checks, %d failures\n", gChecks, gFailures);
     return gFailures == 0 ? 0 : 1;

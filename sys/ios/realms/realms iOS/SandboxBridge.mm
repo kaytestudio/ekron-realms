@@ -29,6 +29,7 @@
 #include "SoundSnapshot.h"
 #include "SoundSystem.h"
 #include "realms/Engine.h"
+#include "realms/GameHudCanvas.h"
 #include "realms/GameServer.h"
 #include "realms/GameView.h"
 #include "realms/SandboxBoot.h"
@@ -684,6 +685,46 @@ public:
     realms::Quake2Module::PlayerStats stats() const { return view_->module().stats(); }
     std::vector<std::string> takeMessages() { return view_->takeMessages(); }
 
+    // Quake 2's 2D HUD (status bar, help computer / scores, inventory) as one
+    // texture of width / scale x height / scale texels; nil when there is
+    // nothing to draw. A changed HUD gets a new texture: the previous one may
+    // still be in use by a frame in flight.
+    id<MTLTexture> hudTexture(realms::Engine &engine, id<MTLDevice> device, int width, int height, double seconds,
+                              int &scale) {
+        // the status bar at the bottom edge: the map mode's touch controls keep to the corners
+        const bool changed =
+            hud_.update(engine, view_->module(), width, height, height, engine.cvarBool("cl_statusbar", true), seconds);
+        if (hud_.empty()) {
+            hudTexture_ = nil;
+            return nil;
+        }
+        if (changed || !hudTexture_) {
+            const realms::RgbaImage &img = hud_.image();
+            MTLTextureDescriptor *desc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
+                                                                                            width:NSUInteger(img.width)
+                                                                                           height:NSUInteger(img.height)
+                                                                                        mipmapped:NO];
+            desc.usage = MTLTextureUsageShaderRead;
+            hudTexture_ = [device newTextureWithDescriptor:desc];
+            [hudTexture_ replaceRegion:MTLRegionMake2D(0, 0, NSUInteger(img.width), NSUInteger(img.height))
+                           mipmapLevel:0
+                             withBytes:img.rgba.data()
+                           bytesPerRow:NSUInteger(img.width) * 4];
+        }
+        scale = hud_.scale();
+        return hudTexture_;
+    }
+    // Bit 0: a layout screen is shown (help computer, scores); bit 1: the inventory.
+    int hudScreens() const {
+        if (!gameRunning()) return 0;
+        const realms::Quake2Module &q2 = view_->module();
+        return (q2.layoutShown() ? 1 : 0) | (q2.inventoryShown() ? 2 : 0);
+    }
+    // A Quake 2 client command for the game ("help", "inven", "invuse"...).
+    void gameCommand(const std::string &line) {
+        if (gameRunning()) view_->module().clientCommand(line);
+    }
+
     // The camera in render space (the game's player, or the walker).
     physics::Vec3 eye() const { return view_->eye(); }
     // Camera eye in the space draw() renders in.
@@ -770,7 +811,11 @@ public:
     std::array<float, 9> skyMatrix() const { return view_->skyMatrix(); }
 
 private:
+    realms::GameHudCanvas hud_;
+    id<MTLTexture> hudTexture_ = nil;
     void releaseGpu() {
+        hudTexture_ = nil;
+        hud_ = realms::GameHudCanvas(); // redrawn (and its pics reloaded) on the next texture
         if (prepare_.valid()) prepare_.wait();
         prepare_ = {};
         model_.release();
@@ -1174,6 +1219,7 @@ void IosSoundStart(const std::string &bundleRoot, realms::Engine &engine) {
     id<MTLRenderPipelineState> modelBlendedPipeline_;
     id<MTLRenderPipelineState> pipPipeline_;
     id<MTLRenderPipelineState> polyBlendPipeline_; // map mode screen blend (optional)
+    id<MTLRenderPipelineState> hudPipeline_;       // map mode Quake 2 HUD (optional)
     // Realms map mode with the Quake 2 stack
     id<MTLRenderPipelineState> quakeMapPipeline_;
     id<MTLRenderPipelineState> quakeMapBlendedPipeline_;
@@ -1286,6 +1332,7 @@ void IosSoundStart(const std::string &bundleRoot, realms::Engine &engine) {
     std::atomic<int> mapHealth_;                  // Quake 2 game runs, the
     std::atomic<int> mapArmor_;                   // player's health, armor
     std::atomic<int> mapAmmo_;                    // and ammo
+    std::atomic<int> mapScreens_;                 // status slot 22: MetalMapMode::hudScreens
     std::string mapPathShown_;                    // snapshotMutex_
 }
 
@@ -1574,6 +1621,7 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
     modelBlendedPipeline_ = makePipeline(@"modelVertex", @"sandboxFragment", YES, YES);
     pipPipeline_ = makePipeline(@"pipVertex", @"pipFragment", NO, YES);
     polyBlendPipeline_ = makePipeline(@"skyVertex", @"polyBlendFragment", YES, YES);
+    hudPipeline_ = makePipeline(@"skyVertex", @"hudFragment", YES, YES);
     quakeMapPipeline_ = makePipeline(@"quakeMapVertex", @"quakeMapFragment", NO, YES);
     quakeMapBlendedPipeline_ = makePipeline(@"quakeMapVertex", @"quakeMapFragment", YES, YES);
     quakeEntityOpaquePipeline_ = makePipeline(@"modelVertex", @"quakeMapFragment", NO, YES);
@@ -1901,6 +1949,10 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
                     verticalInput_ = 0.0f;
                 } else if (command == 51 || command == 52) {
                     mapAttack_ = command == 51; // fire pressed / released
+                } else if (command >= 53 && command <= 57) {
+                    // Quake 2's help computer and inventory (F1, Tab, [ ] and Enter on the desktop)
+                    static const char *kGameCommands[] = {"help", "inven", "invprev", "invnext", "invuse"};
+                    mapMode_.gameCommand(kGameCommands[command - 53]);
                 } else if (command == 8) {
                     mapJump_ = 0.2f;
                 } else if (command == 9) {
@@ -2893,6 +2945,7 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
     if (mapMode_.active()) mapMode_.close();
     mapState_ = 0;
     mapGame_ = 0;
+    mapScreens_ = 0;
     mapAttack_ = false;
     [self showMapPath:std::string()];
     if (path.empty() || !engine.mapLoaded()) {
@@ -2959,6 +3012,7 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
     mapHealth_ = stats.health;
     mapArmor_ = stats.armor;
     mapAmmo_ = stats.ammo;
+    mapScreens_ = mapMode_.hudScreens();
     if (gSoundHeard) {
         auto &sound = IosSound();
         sound.syncCvars(engine);
@@ -3028,6 +3082,22 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
             [encoder setDepthStencilState:skyDepthState_];
             [encoder setCullMode:MTLCullModeNone];
             [encoder setFragmentBytes:&blendColor length:sizeof(blendColor) atIndex:0];
+            [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+        }
+        // Quake 2's status bar, help computer and inventory over everything.
+        int hudScale = 1;
+        const double hudSeconds =
+            std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+        id<MTLTexture> hud = hudPipeline_ ? mapMode_.hudTexture(engine, device_, int(drawSize.width),
+                                                                int(drawSize.height), hudSeconds, hudScale)
+                                          : nil;
+        if (hud) {
+            const float scale = float(hudScale);
+            [encoder setRenderPipelineState:hudPipeline_];
+            [encoder setDepthStencilState:skyDepthState_];
+            [encoder setCullMode:MTLCullModeNone];
+            [encoder setFragmentTexture:hud atIndex:0];
+            [encoder setFragmentBytes:&scale length:sizeof(scale) atIndex:0];
             [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
         }
         [encoder endEncoding];
@@ -3145,8 +3215,9 @@ static realms::Engine &RealmsSharedEngine(const std::string &bundleRoot, const s
 
 - (NSInteger)pollStatus:(float *)outValues count:(NSInteger)count {
     if (!outValues || count <= 0) return 0;
-    std::array<float, 22> values{};
+    std::array<float, 23> values{};
     values[17] = float(mapState_.load());
+    values[22] = float(mapScreens_.load());
     values[18] = float(mapGame_.load());
     values[19] = float(mapHealth_.load());
     values[20] = float(mapArmor_.load());

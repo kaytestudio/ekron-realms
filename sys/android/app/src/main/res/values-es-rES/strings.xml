@@ -12,6 +12,11 @@
     <string name="action_jump">Saltar</string>
     <string name="action_crouch">Agacharse</string>
     <string name="action_fire">Disparar</string>
+    <string name="action_help">Ayuda</string>
+    <string name="action_inventory">Objetos</string>
+    <string name="action_inventory_previous">Objeto anterior</string>
+    <string name="action_inventory_next">Objeto siguiente</string>
+    <string name="action_inventory_use">Usar</string>
     <string name="action_prone">Tumbarse</string>
     <string name="tool_picker_title">Elegir herramienta</string>
     <string name="tool_gravity_gun">Pistola de gravedad</string>
@@ -136,7 +141,7 @@
     <string name="maps_title">Mapas</string>
     <string name="map_loading">Cargando %1$s…</string>
     <string name="notice_map_mode">Mapa: %1$s · pausa → Salir del mapa</string>
-    <string name="notice_map_game">Quake 2: %1$s · Salud %2$d · Armadura %3$d · Munición %4$d</string>
+    <string name="notice_map_game">Quake 2: %1$s</string>
     <string name="notice_map_textures">Mapa: %1$s · cargando texturas…</string>
     <string name="notice_map_failed">No se ha podido cargar el mapa.</string>
     <string name="maps_import">Importar mapa…</string>

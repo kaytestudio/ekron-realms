@@ -13,6 +13,7 @@
 #include "GltfRenderer.h"
 #include "Quake2Gles.h"
 #include "Quake2View.h"
+#include "realms/GameHudCanvas.h"
 
 #include <GLES3/gl3.h>
 
@@ -68,6 +69,16 @@ public:
     void playSounds(realms::Engine &engine, ekron::audio::Mixer &mixer, double dt, bool paused);
 
     bool gameRunning() const { return view_ && view_->gameRunning(); }
+    // Quake 2's 2D HUD (status bar, help computer / scores, inventory) as one
+    // texture of width / scale x height / scale texels, uploaded again when it
+    // changed (GL context current); 0 when there is nothing to draw.
+    GLuint hudTexture(realms::Engine &engine, int width, int height, double seconds, int &scale);
+    // Bit 0: a layout screen is shown (help computer, scores); bit 1: the inventory.
+    int hudScreens() const;
+    // A Quake 2 client command for the game ("help", "inven", "invuse"...).
+    void gameCommand(const std::string &line) {
+        if (gameRunning()) view_->module().clientCommand(line);
+    }
     realms::Quake2Module::PlayerStats stats() const;
     std::vector<std::string> takeMessages();
 
@@ -99,4 +110,6 @@ private:
     std::vector<mapview::EntityBatch> entityBatches_;
     std::vector<mapview::EffectVertex> effectVertices_;
     std::vector<mapview::DynamicLight> lights_;
+    realms::GameHudCanvas hud_;
+    GLuint hudTexture_ = 0;
 };

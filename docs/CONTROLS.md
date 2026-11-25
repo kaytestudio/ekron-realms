@@ -84,7 +84,7 @@ The engine mounts `pak0.pak` … `pak9.pak` from each place, at the top and in `
 
 ### Android and iOS
 
-**Pause menu → Maps…** lists the `.bsp`, `.glb` and `.gltf` files under `maps/` and `models/` in the app, plus imported maps. The APK and iOS device builds include the game; a Fire button appears above jump, and the pause menu has noclip, respawn and leave (`killserver`).
+**Pause menu → Maps…** lists the `.bsp`, `.glb` and `.gltf` files under `maps/` and `models/` in the app, plus imported maps. The APK and iOS device builds include the game; a Fire button appears above jump, and the pause menu has noclip, respawn and leave (`killserver`). The game's status bar is drawn at the bottom of the screen, and its help computer, scores and inventory over the view, as on the desktop. **Help** and **Items** buttons left of pause open and close the help computer and the inventory; while the inventory is open, a row under them selects the previous or next item and uses the selected one.
 
 **Import map…** copies files from the system picker into the app's `maps/` folder (Android internal storage, iOS `Application Support/EkronSandbox`). Pick a `.gltf` together with its `.bin` and texture files; folders are not kept. Accepted: `.bsp .glb .gltf .bin .png .jpg .jpeg`, up to 128 MB each, checked by file header. **Remove an imported map…** deletes one.
 

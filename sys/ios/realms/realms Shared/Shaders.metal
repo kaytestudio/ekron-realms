@@ -473,6 +473,18 @@ fragment float4 polyBlendFragment(constant float4 &blendColor [[buffer(0)]])
     return blendColor;
 }
 
+// Map mode: Quake 2's 2D HUD (realms::GameHudCanvas: status bar, help
+// computer, inventory), each texel `scale` drawable pixels from the top-left
+// corner, as the desktop draws it. skyVertex's triangle, alpha blended.
+fragment float4 hudFragment(float4 position [[position]],
+                            texture2d<float> hud [[texture(0)]],
+                            constant float &scale [[buffer(0)]])
+{
+    const uint2 p = uint2(floor(position.xy / scale));
+    if (p.x >= hud.get_width() || p.y >= hud.get_height()) discard_fragment();
+    return hud.read(p);
+}
+
 struct PipVaryings
 {
     float4 position [[position]];

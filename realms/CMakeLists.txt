@@ -53,6 +53,7 @@ add_library(realms_quake2 STATIC
     "${CMAKE_CURRENT_LIST_DIR}/src/GameEffects.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/src/GameSound.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/src/GameLayout.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/src/GameHudCanvas.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/src/MapLighting.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/src/MapSky.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/src/MapTextures.cpp"

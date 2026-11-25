@@ -57,6 +57,7 @@ std::vector<std::string> mapRequests;
 std::atomic<int> mapState{0}; // status slot 17: 0 sandbox, 1 map, 2 map with its textured model loading
 // Status slots 18-21: the Quake 2 game runs the map (1), its player's health, armor and ammo.
 std::atomic<int> mapGame{0},mapHealth{0},mapArmor{0},mapAmmo{0};
+std::atomic<int> mapScreens{0}; // AndroidMapMode::hudScreens: layout, inventory
 std::mutex mapPathMutex;
 std::string mapPathShown;
 void showMapPath(const std::string &path){std::lock_guard<std::mutex> lock(mapPathMutex);mapPathShown=path;}
@@ -252,6 +253,21 @@ precision mediump float;
 uniform vec4 blendColor;
 out vec4 outColor;
 void main(){outColor=blendColor;})";
+// Map mode: Quake 2's 2D HUD (AndroidMapMode::hudTexture) over everything,
+// each texel hudScale screen pixels from the top-left corner, as the
+// desktop draws it; with skyVertex's full-screen triangle.
+const char *hudFragment=R"(#version 300 es
+precision highp float;
+uniform sampler2D hudImage;
+uniform float screenHeight;
+uniform float hudScale;
+out vec4 outColor;
+void main(){
+ ivec2 size=textureSize(hudImage,0);
+ ivec2 p=ivec2(floor(vec2(gl_FragCoord.x,screenHeight-gl_FragCoord.y)/hudScale));
+ if(p.x>=size.x||p.y>=size.y)discard;
+ outColor=texelFetch(hudImage,p,0);
+})";
 GLuint compile(GLenum type,const char*text){GLuint s=glCreateShader(type);glShaderSource(s,1,&text,nullptr);glCompileShader(s);GLint ok=0;glGetShaderiv(s,GL_COMPILE_STATUS,&ok);if(!ok){char log[1024];glGetShaderInfoLog(s,sizeof(log),nullptr,log);__android_log_print(ANDROID_LOG_ERROR,"Ekron","Shader: %s",log);glDeleteShader(s);return 0;}return s;}
 GLuint link(const char *vsText,const char *fsText){
  const auto vs=compile(GL_VERTEX_SHADER,vsText),fs=compile(GL_FRAGMENT_SHADER,fsText);
@@ -308,7 +324,7 @@ extern "C" JNIEXPORT jstring JNICALL Java_com_example_realms_MainActivity_native
  return env->NewStringUTF(path.c_str());
 }
 extern "C" JNIEXPORT jfloatArray JNICALL Java_com_example_realms_MainActivity_nativeStatus(JNIEnv *env,jobject){
- std::array<float,22> values{};values[17]=float(mapState.load());
+ std::array<float,23> values{};values[17]=float(mapState.load());values[22]=float(mapScreens.load());
  values[18]=float(mapGame.load());values[19]=float(mapHealth.load());values[20]=float(mapArmor.load());values[21]=float(mapAmmo.load());{std::lock_guard<std::mutex> lock(snapshotMutex);std::copy_n(snapshot.begin(),4,values.begin());values[14]=snapshot[4];values[15]=snapshot[5];values[16]=snapshot[6];}
  values[13]=float(droneMode.load());
  values[12]=float(freezeState.load());
@@ -355,7 +371,7 @@ Renderer::Renderer(android_app *app):app_(app),last_(std::chrono::steady_clock::
  surface_=eglCreateWindowSurface(display_,config,app->window,nullptr);
  const EGLint contextAttributes[]={EGL_CONTEXT_CLIENT_VERSION,3,EGL_NONE};context_=eglCreateContext(display_,config,EGL_NO_CONTEXT,contextAttributes);
  if(surface_==EGL_NO_SURFACE||context_==EGL_NO_CONTEXT||!eglMakeCurrent(display_,surface_,surface_,context_))return;
- program_=link(vertex,fragment);skyProgram_=link(skyVertex,skyFragment);polyBlendProgram_=link(skyVertex,polyBlendFragment);if(!program_)return;
+ program_=link(vertex,fragment);skyProgram_=link(skyVertex,skyFragment);polyBlendProgram_=link(skyVertex,polyBlendFragment);hudProgram_=link(skyVertex,hudFragment);if(!program_)return;
  if(skyProgram_){glUseProgram(skyProgram_);glUniform1i(glGetUniformLocation(skyProgram_,"skyTextures"),4);glUniform1i(glGetUniformLocation(skyProgram_,"skyBox"),0);}
  // Each sampler keeps its own unit: albedo array 0, model 1, lightmap 2, map textures 3.
  glUseProgram(program_);glUniform1i(glGetUniformLocation(program_,"lightmap"),2);glUniform1i(glGetUniformLocation(program_,"mapLightmap"),0);glUniform1i(glGetUniformLocation(program_,"mapTextures"),3);glUniform1i(glGetUniformLocation(program_,"mapTextured"),0);glUniform1i(glGetUniformLocation(program_,"dlightCount"),0);
@@ -440,7 +456,7 @@ Renderer::~Renderer(){
  if(saveDirty_)world_.save(savePath_);
  if(mapMode_.active())retainedMap=RetainedMap{mapMode_.session().path(),mapMode_.session().walker(),mapYaw_,mapPitch_,mapCrouch_};
  if(assetsInstalled_){retainedWorld=world_;retainedDrone=drone_;retainedTool=tools_.tool;retainedFlying=flying_;}
- if(display_!=EGL_NO_DISPLAY){if(context_!=EGL_NO_CONTEXT&&surface_!=EGL_NO_SURFACE&&eglMakeCurrent(display_,surface_,surface_,context_)){if(mapMode_.gameRunning())retainedGame=mapMode_.releaseView();else mapMode_.close();droneModel_.release();remote_.release();car_.release();city_.release();textures_.release();if(skyProgram_)glDeleteProgram(skyProgram_);if(polyBlendProgram_)glDeleteProgram(polyBlendProgram_);if(buffer_)glDeleteBuffers(1,&buffer_);if(vao_)glDeleteVertexArrays(1,&vao_);if(program_)glDeleteProgram(program_);}eglMakeCurrent(display_,EGL_NO_SURFACE,EGL_NO_SURFACE,EGL_NO_CONTEXT);if(context_!=EGL_NO_CONTEXT)eglDestroyContext(display_,context_);if(surface_!=EGL_NO_SURFACE)eglDestroySurface(display_,surface_);eglTerminate(display_);}
+ if(display_!=EGL_NO_DISPLAY){if(context_!=EGL_NO_CONTEXT&&surface_!=EGL_NO_SURFACE&&eglMakeCurrent(display_,surface_,surface_,context_)){if(mapMode_.gameRunning())retainedGame=mapMode_.releaseView();else mapMode_.close();droneModel_.release();remote_.release();car_.release();city_.release();textures_.release();if(skyProgram_)glDeleteProgram(skyProgram_);if(polyBlendProgram_)glDeleteProgram(polyBlendProgram_);if(hudProgram_)glDeleteProgram(hudProgram_);if(buffer_)glDeleteBuffers(1,&buffer_);if(vao_)glDeleteVertexArrays(1,&vao_);if(program_)glDeleteProgram(program_);}eglMakeCurrent(display_,EGL_NO_SURFACE,EGL_NO_SURFACE,EGL_NO_CONTEXT);if(context_!=EGL_NO_CONTEXT)eglDestroyContext(display_,context_);if(surface_!=EGL_NO_SURFACE)eglDestroySurface(display_,surface_);eglTerminate(display_);}
 }
 void Renderer::resetInput(){verticalInput=0;leftId_=rightId_=-1;moveX_=moveY_=0;last_=std::chrono::steady_clock::now();}
 void Renderer::handleInput(){
@@ -464,6 +480,12 @@ void Renderer::handleInput(){
     if(command==6){mapMode_.toggleNoclip();verticalInput=0;}
     else if(command==51)mapAttack_=true;  // fire pressed / released (map mode with the game)
     else if(command==52)mapAttack_=false;
+    // Quake 2's help computer and inventory (F1, Tab, [ ] and Enter on the desktop)
+    else if(command==53)mapMode_.gameCommand("help");
+    else if(command==54)mapMode_.gameCommand("inven");
+    else if(command==55)mapMode_.gameCommand("invprev");
+    else if(command==56)mapMode_.gameCommand("invnext");
+    else if(command==57)mapMode_.gameCommand("invuse");
     else if(command==8)mapJump_=.2f;
     else if(command==9)mapCrouch_=!mapCrouch_;
     else if(command==35&&mapMode_.respawn(engine)){mapYaw_=mapMode_.spawnRenderYaw();mapPitch_=0;resetInput();}
@@ -784,7 +806,7 @@ void Renderer::handleMapChange(){
  if(auto *sound=android_sound::get())sound->director().reset();
  const std::string path=pendingMap_;
  if(mapMode_.active())mapMode_.close();
- mapState=0;mapGame=0;showMapPath("");mapAttack_=false;
+ mapState=0;mapGame=0;mapScreens=0;showMapPath("");mapAttack_=false;
  if(path.empty()||!engine.mapLoaded()){retainedMap.reset();retainedGame.reset();resetInput();stickRight=stickForward=verticalInput=0;return;}
  std::string error;
  if(!mapMode_.open(engine,city_,kCityAsset,error,std::move(retainedGame))){
@@ -870,6 +892,23 @@ void Renderer::renderMap(float dt){
   glDrawArrays(GL_TRIANGLES,0,3);
   glDisable(GL_BLEND);glDepthMask(GL_TRUE);glEnable(GL_DEPTH_TEST);
  }
+ // Quake 2's status bar, help computer and inventory; unit 5 is free of the scene's textures
+ glActiveTexture(GL_TEXTURE5);
+ int hudScale=1;
+ const double hudSeconds=std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+ const GLuint hud=hudProgram_?mapMode_.hudTexture(engine,width_,height_,hudSeconds,hudScale):0;
+ if(hud){
+  glDisable(GL_DEPTH_TEST);glDepthMask(GL_FALSE);glEnable(GL_BLEND);glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+  glUseProgram(hudProgram_);
+  glBindTexture(GL_TEXTURE_2D,hud);
+  glUniform1i(glGetUniformLocation(hudProgram_,"hudImage"),5);
+  glUniform1f(glGetUniformLocation(hudProgram_,"screenHeight"),float(height_));
+  glUniform1f(glGetUniformLocation(hudProgram_,"hudScale"),float(hudScale));
+  glDrawArrays(GL_TRIANGLES,0,3);
+  glDisable(GL_BLEND);glDepthMask(GL_TRUE);glEnable(GL_DEPTH_TEST);
+ }
+ glActiveTexture(GL_TEXTURE0);
+ mapScreens=mapMode_.hudScreens();
  if(eglSwapBuffers(display_,surface_)==EGL_TRUE){
   const auto &w=mapMode_.session().walker();const physics::Vec3 at=mapMode_.session().eye();
   std::lock_guard<std::mutex> lock(snapshotMutex);

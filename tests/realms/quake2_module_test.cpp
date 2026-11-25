@@ -11,6 +11,7 @@
 #include "Quake2View.h"
 
 #include "realms/Engine.h"
+#include "realms/GameHudCanvas.h"
 #include "realms/MapSky.h"
 #include "realms/MapTextures.h"
 #include "realms/Quake2Module.h"
@@ -770,9 +771,32 @@ void viewWithGame(realms::Engine &engine) {
         }
         CHECK(blaster && frame);
     }
+    // the mobile HUD image: 1280 x 960 at 3 screen pixels per Quake 2 pixel;
+    // the status bar's numbers (font digits without the paks) at the bottom,
+    // the inventory's panel; unchanged frames are not redrawn
+    realms::GameHudCanvas hud;
+    auto hudAlpha = [&hud](int x, int y) {
+        const realms::RgbaImage &img = hud.image();
+        if (x < 0 || y < 0 || x >= img.width || y >= img.height) return -1;
+        return int(img.rgba[(size_t(y) * size_t(img.width) + size_t(x)) * 4 + 3]);
+    };
+    CHECK(hud.update(engine, q2, 1280, 960, 960, true, 0.0));
+    CHECK(!hud.empty() && hud.scale() == 3 && hud.image().width == 426 && hud.image().height == 320);
+    {
+        int barLit = 0;
+        for (int y = 320 - 24; y < 320; y++)
+            for (int x = 0; x < 426; x++) barLit += hudAlpha(x, y) == 255;
+        CHECK(barLit > 0);
+    }
+    const int panelX = (426 - 256) / 2 - 8 + 1, panelY = (320 - 240) / 2 + 1;
+    CHECK(hudAlpha(panelX, panelY) == int(realms::GameHudCanvas::kPanel[3]));
+    CHECK(!hud.update(engine, q2, 1280, 960, 960, true, 0.0));
     q2.clientCommand("inven");
     for (int i = 0; i < 3; i++) view.update(engine, {}, yaw, 0.0f, 0.1f, false);
     CHECK(!q2.inventoryShown());
+    CHECK(hud.update(engine, q2, 1280, 960, 960, true, 0.0) && hudAlpha(panelX, panelY) == 0);
+    // the status bar off: nothing left to draw
+    CHECK(hud.update(engine, q2, 1280, 960, 960, false, 0.0) && hud.empty());
 
     // firing: the blaster's muzzle flash lights the view and the view weapon
     // (yellow, through R_LightPoint), its sound plays
