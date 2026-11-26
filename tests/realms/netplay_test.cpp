@@ -250,9 +250,9 @@ void playChecks() {
     Rig rig;
     if (!rig.open()) return;
     // "info" and handshake refusals, as raw packets
-    CHECK(ask(rig, "info") == "info\n1\nmaps/stand-in.bsp\n1\n3");
-    CHECK(ask(rig, "connect\n99\n5\n0\n\\name\\x") == "print\nServer is protocol 1, not 99.");
-    CHECK(ask(rig, "connect\n1\n5\n12345\n\\name\\x") == "print\nBad challenge.");
+    CHECK(ask(rig, "info") == "info\n2\nmaps/stand-in.bsp\n1\n3");
+    CHECK(ask(rig, "connect\n99\n5\n0\n\\name\\x") == "print\nServer is protocol 2, not 99.");
+    CHECK(ask(rig, "connect\n2\n5\n12345\n\\name\\x") == "print\nBad challenge.");
     CHECK(ask(rig, "getchallenge").rfind("challenge\n", 0) == 0);
     CHECK(rig.server.clientCount() == 0);
 

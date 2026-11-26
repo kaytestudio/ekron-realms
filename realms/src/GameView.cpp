@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <tuple>
+#include <utility>
 
 #if defined(__clang__)
 #pragma clang fp contract(off)
@@ -317,10 +319,80 @@ void mirrorModelVertices(std::vector<ModelVertex> &vertices, size_t first) {
     for (size_t i = first; i + 2 < vertices.size(); i += 3) std::swap(vertices[i + 1], vertices[i + 2]);
 }
 
+std::vector<std::string> gameWeaponModels(const GameClient &client) {
+    constexpr size_t kMaxClientWeaponModels = 20; // MAX_CLIENTWEAPONMODELS
+    std::vector<std::string> out{"weapon.md2"};
+    for (int i = 1; i < Q2_MAX_MODELS; i++) {
+        const std::string name = client.modelName(i);
+        if (name.empty()) break;
+        if (name[0] == '#' && out.size() < kMaxClientWeaponModels) out.push_back(name.substr(1));
+    }
+    return out;
+}
+
+std::vector<std::string> gameWeaponModelFiles(const std::vector<std::string> &weaponModels, const std::string &model,
+                                              int skinnum, bool vwep) {
+    constexpr int kMaxClientWeaponModels = 20;
+    int i = skinnum >> 8; // 0 is the default weapon model
+    if (!vwep || i < 0 || i > kMaxClientWeaponModels - 1) i = 0;
+    std::vector<std::string> files;
+    auto add = [&files](const std::string &f) {
+        if (std::find(files.begin(), files.end(), f) == files.end()) files.push_back(f);
+    };
+    const bool cyborg = model == "cyborg";
+    for (int w : {i, 0}) {
+        if (w >= int(weaponModels.size())) continue; // never loaded: no model
+        add("players/" + model + "/" + weaponModels[size_t(w)]);
+        if (cyborg) add("players/male/" + weaponModels[size_t(w)]);
+    }
+    add("players/male/weapon.md2"); // cl.baseclientinfo
+    return files;
+}
+
 void buildGameScene(const Engine &engine, const GameClient &client, const GameEntityLerp &lerp,
                     GameModelCache &models, const GameSceneOptions &options, GameScene &out) {
     out.clear();
     if (!client.running()) return;
+    std::vector<std::string> weaponModels; // filled on the first player weapon
+    auto firstModel = [&](const std::vector<std::string> &files) -> std::pair<const Md3Model *, std::string> {
+        for (const std::string &f : files)
+            if (const Md3Model *m = models.model(engine, f)) return {m, f};
+        return {nullptr, std::string()};
+    };
+    // cl_entities.c: "duplicate for linked models", in the entity's pose
+    // with no skin, shell or translucency of its own
+    auto addLinked = [&](const GameLerpedEntity &l) {
+        const GameRenderEntity *e = l.entity;
+        const int linked[3] = {e->modelindex2, e->modelindex3, e->modelindex4};
+        for (int k = 0; k < 3; k++) {
+            const int index = linked[k];
+            if (index <= 0) continue;
+            const Md3Model *md3 = nullptr;
+            std::string name;
+            if (k == 0 && index == 255) {
+                // CL_LoadClientinfo: the body model, or male without one
+                std::string model = GameServer::playerModelOf(client.configString(Q2_CS_PLAYERSKINS + (e->skinnum & 0xff)));
+                if (model != "male" && !models.model(engine, "players/" + model + "/tris.md2")) model = "male";
+                if (weaponModels.empty()) weaponModels = gameWeaponModels(client);
+                std::tie(md3, name) = firstModel(gameWeaponModelFiles(weaponModels, model, e->skinnum, options.vwep));
+            } else {
+                name = client.modelName(index);
+                if (!name.empty() && name[0] != '#' && isAliasModelName(name)) md3 = models.model(engine, name);
+            }
+            if (!md3) continue;
+            GameDrawBatch b;
+            b.entity = e->number;
+            b.model = name;
+            b.origin = l.origin;
+            b.angles = {-l.angles[0], l.angles[1], l.angles[2]};
+            b.color = modelColor(0);
+            // the defender sphere's shell (Rogue)
+            std::string lower = k == 0 ? client.modelName(index) : std::string();
+            for (char &c : lower) c = char(std::tolower(static_cast<unsigned char>(c)));
+            if (lower == "models/items/shell/tris.md2") b.color[3] = 0.32f;
+            appendModelBatches(*md3, b, l.frame, l.oldframe, l.backlerp, 0, out);
+        }
+    };
     for (const GameLerpedEntity &l : lerp.entities(client)) {
         const GameRenderEntity *e = l.entity;
         if (!e || e->inlineModel > 0 || endsWithSp2(e->model)) continue;
@@ -337,6 +409,7 @@ void buildGameScene(const Engine &engine, const GameClient &client, const GameEn
             b.fullbright = (e->renderfx & Q2_RF_FULLBRIGHT) != 0;
             b.angles = {-l.angles[0], l.angles[1], l.angles[2]}; // alias models: pitch negated
             appendModelBatches(*md3, b, l.frame, l.oldframe, l.backlerp, e->skinnum, out);
+            addLinked(l);
             continue;
         }
         b.first = int(out.vertices.size());
@@ -350,11 +423,10 @@ void buildGameScene(const Engine &engine, const GameClient &client, const GameEn
             appendBox(mn, mx, out.vertices);
             b.color = fallbackColor(*e, degenerate);
             b.fallbackBox = true; // axis-aligned like the bounds: no rotation
-        } else {
-            continue;
         }
         b.count = int(out.vertices.size()) - b.first;
         if (b.count > 0) out.batches.push_back(std::move(b));
+        addLinked(l);
     }
     if (options.viewWeapon && options.hand != 2) { // R_DrawAliasModel: no gun with r_lefthand 2
         const GameViewWeapon w = lerp.viewWeapon(client);

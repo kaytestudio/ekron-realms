@@ -12,7 +12,8 @@
 //                   plays demos/<name>.ekd on it (the writable root first,
 //                   then the other search roots)
 //
-// File: the magic "EKRDEMO", a version byte (1), the header (map path and
+// File: the magic "EKRDEMO", a version byte (2; version 1 files, without
+// the entities' linked models, still play), the header (map path and
 // its checksum), then records: a 32-bit little-endian length and that many
 // bytes. A record is one snapshot and the seconds since the previous one.
 // Strings (models, sounds, config strings, texts) are sent once and then
@@ -34,6 +35,10 @@ namespace realms {
 
 class Engine;
 
+// The version written; kGameDemoOldestVersion and later are read.
+constexpr int kGameDemoVersion = 2;
+constexpr int kGameDemoOldestVersion = 1;
+
 constexpr const char *kGameDemoDir = "demos";
 constexpr const char *kGameDemoExtension = ".ekd";
 // NOSET cvar: the demo ("demos/<name>.ekd") that "demomap" loaded the map
@@ -50,6 +55,7 @@ std::string gameDemoPath(const Engine &engine, const std::string &name);
 struct GameDemoHeader {
     std::string mapPath;      // Engine::mapPath() when recorded
     uint32_t mapChecksum = 0; // RealmsMapInfo::checksum (0: unknown)
+    int version = kGameDemoVersion; // read from the file; files are written as kGameDemoVersion
 };
 
 // Encoder / decoder state shared by both ends: the string table and the
@@ -59,6 +65,8 @@ struct GameDemoState {
     std::unordered_map<std::string, uint32_t> ids; // encoder only
     std::vector<uint32_t> player, origin, inventory;
     std::map<int, std::vector<uint32_t>> entities;
+    // The record format: version 1 has no linked models (they are 0).
+    int version = kGameDemoVersion;
 };
 
 // In memory, for the file classes below and tests.

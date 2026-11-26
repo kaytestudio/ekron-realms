@@ -676,6 +676,13 @@ bool drawsEntity(const std::vector<realms::GameRenderEntity> &ents, int number, 
     return false;
 }
 
+// The entity `number` in `ents` (nullptr when it isn't there).
+const realms::GameRenderEntity *findEntity(const std::vector<realms::GameRenderEntity> &ents, int number) {
+    for (const auto &e : ents)
+        if (e.number == number) return &e;
+    return nullptr;
+}
+
 bool atDeathmatchSpot(const realms::Vec3 &o) {
     for (const char *spot : kDeathmatchSpots) {
         float x = 0, y = 0;
@@ -745,6 +752,10 @@ void runClientChecks(realms::Engine &engine, const std::string &gameLibrary) {
         CHECK(drawsEntity(v0, 2, "players/male/tris.md2") && !drawsEntity(v0, 1));
         CHECK(drawsEntity(v1, 1, "players/male/tris.md2") && !drawsEntity(v1, 2));
         CHECK(server.renderEntities().size() == v0.size());
+        // the game's vwep: modelindex2 255, the weapon (WEAP_BLASTER 1) in skinnum >> 8
+        const realms::GameRenderEntity *second = findEntity(v0, 2);
+        CHECK(second && second->modelindex2 == 255 && second->skinnum == (1 | (1 << 8)));
+        CHECK(second && second->modelindex3 == 0 && second->modelindex4 == 0);
     }
     // client commands: "say" goes to everyone, "players" to the one asking
     server.clientCommand(1, "say hello there");
@@ -974,6 +985,15 @@ void runNetworkChecks(realms::Engine &engine, const std::string &gameLibrary) {
     CHECK(view.playerState() && near(view.playerState()->fov, 110, 0.01f));
     CHECK(view.configString(Q2_CS_MAXCLIENTS) == "4");
     CHECK(drawsEntity(view.renderEntities(), 1, "players/male/tris.md2") && !drawsEntity(view.renderEntities(), 2));
+    {
+        // the host's vwep over the wire, and the game's weapon models
+        const auto ents = view.renderEntities();
+        const realms::GameRenderEntity *host = findEntity(ents, 1);
+        CHECK(host && host->modelindex2 == 255 && host->skinnum == (0 | (1 << 8)));
+        const auto weapons = realms::gameWeaponModels(view);
+        CHECK(weapons.size() == 12 && weapons[0] == "weapon.md2" && weapons[1] == "w_blaster.md2");
+        CHECK(weapons.size() == 12 && weapons[6] == "a_grenades.md2" && weapons[11] == "w_bfg.md2");
+    }
     CHECK(hasText(visitorEvents, "Visitor entered the game") && hasText(hostEvents, "Visitor entered the game"));
 
     // its usercmds move it (and only it)

@@ -6,6 +6,7 @@
 #include "md3_builder.h"
 
 #include "realms/Engine.h"
+#include "realms/GameClient.h"
 #include "realms/GameEffects.h"
 #include "realms/GameSound.h"
 #include "realms/GameView.h"
@@ -664,6 +665,115 @@ void soundChecks() {
     CHECK(merged.size() == 1);
 }
 
+// Linked models (cl_entities.c): players' weapons (vwep) with
+// CL_LoadClientinfo's fallbacks, the defender shell, modelindex3.
+void linkedModelChecks() {
+    namespace fs = std::filesystem;
+    const fs::path tmp = fs::temp_directory_path() /
+                         ("realms-vwep-test-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::error_code ec;
+    const auto box = md3_builder::writeMd3(md3_builder::boxModel({{{-4, -4, -4}, {4, 4, 4}}}));
+    for (const char *f : {"players/female/tris.md3", "players/female/w_shotgun.md3", "players/male/tris.md3",
+                          "players/male/weapon.md3", "players/cyborg/tris.md3", "models/items/shell/tris.md3",
+                          "models/x/tris.md3"}) {
+        fs::create_directories((tmp / f).parent_path(), ec);
+        std::ofstream(tmp / f, std::ios::binary).write(reinterpret_cast<const char *>(box.data()), std::streamsize(box.size()));
+    }
+    realms::EngineConfig cfg;
+    cfg.backend = realms::BackendPreference::Native;
+    cfg.searchRoots = {tmp.string()};
+    realms::Engine engine;
+    CHECK(engine.init(cfg));
+
+    realms::GameSnapshot s;
+    s.running = true;
+    s.entitiesChanged = true;
+    s.configStrings = {{Q2_CS_MODELS + 1, "#w_blaster.md2"},
+                       {Q2_CS_MODELS + 2, "#w_shotgun.md2"},
+                       {Q2_CS_MODELS + 3, "models/items/shell/tris.md2"},
+                       {Q2_CS_MODELS + 4, "models/x/tris.md2"},
+                       {Q2_CS_MODELS + 6, "#w_hyperblaster.md2"}, // after an empty one: never a weapon model
+                       {Q2_CS_PLAYERSKINS + 0, "Ann\\female/athena"},
+                       {Q2_CS_PLAYERSKINS + 1, "Cy\\cyborg/oni911"},
+                       {Q2_CS_PLAYERSKINS + 2, "Zed\\nobody/x"}};
+    auto player = [](int number, int weapon) {
+        realms::GameRenderEntity e;
+        e.number = number;
+        e.modelindex = 255;
+        e.model = "players/" + std::string(number == 1 ? "female" : number == 2 ? "cyborg" : "nobody") + "/tris.md2";
+        e.skinnum = (number - 1) | (weapon << 8);
+        e.modelindex2 = 255;
+        e.origin = {float(number) * 100.0f, 0, 0};
+        e.angles = {10, 90, 0};
+        return e;
+    };
+    realms::GameRenderEntity item;
+    item.number = 4;
+    item.modelindex = 4;
+    item.model = "models/x/tris.md2";
+    item.modelindex2 = 3;
+    item.modelindex3 = 4;
+    s.entities = {player(1, 2), player(2, 2), player(3, 1), item};
+    realms::GameClient client;
+    client.apply(s);
+    const auto weapons = realms::gameWeaponModels(client);
+    CHECK(weapons == std::vector<std::string>({"weapon.md2", "w_blaster.md2", "w_shotgun.md2"}));
+    CHECK(realms::gameWeaponModelFiles(weapons, "female", 2 << 8, true) ==
+          std::vector<std::string>({"players/female/w_shotgun.md2", "players/female/weapon.md2", "players/male/weapon.md2"}));
+    CHECK(realms::gameWeaponModelFiles(weapons, "female", 2 << 8, false) ==
+          std::vector<std::string>({"players/female/weapon.md2", "players/male/weapon.md2"}));
+    CHECK(realms::gameWeaponModelFiles(weapons, "cyborg", 1 | (1 << 8), true) ==
+          std::vector<std::string>({"players/cyborg/w_blaster.md2", "players/male/w_blaster.md2",
+                                    "players/cyborg/weapon.md2", "players/male/weapon.md2"}));
+    CHECK(realms::gameWeaponModelFiles(weapons, "male", 9 << 8, true) == // not loaded: weapon.md2
+          std::vector<std::string>({"players/male/weapon.md2"}));
+    CHECK(realms::gameWeaponModelFiles(weapons, "male", 20 << 8, true) ==
+          std::vector<std::string>({"players/male/weapon.md2"}));
+
+    realms::GameEntityLerp lerp;
+    lerp.update(client);
+    realms::GameModelCache cache;
+    realms::GameSceneOptions opt;
+    opt.viewWeapon = false;
+    realms::GameScene scene;
+    auto modelsOf = [&scene](int entity) {
+        std::vector<std::string> out;
+        for (const auto &b : scene.batches)
+            if (b.entity == entity) out.push_back(b.model);
+        return out;
+    };
+    realms::buildGameScene(engine, client, lerp, cache, opt, scene);
+    CHECK(modelsOf(1) == std::vector<std::string>({"players/female/tris.md2", "players/female/w_shotgun.md2"}));
+    // a cyborg without its weapons: the male's, else its own weapon.md2, else the male's
+    CHECK(modelsOf(2) == std::vector<std::string>({"players/cyborg/tris.md2", "players/male/weapon.md2"}));
+    // a model that isn't there: the male body and weapons
+    CHECK(modelsOf(3) == std::vector<std::string>({"players/nobody/tris.md2", "players/male/weapon.md2"}));
+    CHECK(modelsOf(4) == std::vector<std::string>({"models/x/tris.md2", "models/items/shell/tris.md2", "models/x/tris.md2"}));
+    for (const auto &b : scene.batches) {
+        if (b.entity == 1) CHECK(b.origin == scene.batches[0].origin && near(b.angles[0], -10, 1e-6f) && b.angles[1] == 90);
+        const bool shell = b.model == "models/items/shell/tris.md2";
+        CHECK(near(b.color[3], shell ? 0.32f : 1.0f, 1e-6f));
+    }
+    // cl_vwep 0: everyone holds weapon.md2
+    opt.vwep = false;
+    realms::buildGameScene(engine, client, lerp, cache, opt, scene);
+    CHECK(modelsOf(1) == std::vector<std::string>({"players/female/tris.md2", "players/male/weapon.md2"}));
+    // no fallback boxes: a missing body still has its weapon
+    realms::GameRenderEntity ghost = player(1, 2);
+    ghost.model = "models/none/tris.md2";
+    ghost.modelindex = 7;
+    s.entities = {ghost};
+    s.configStrings.clear();
+    s.frameNumber = 1;
+    client.apply(s);
+    lerp.update(client);
+    opt.vwep = true;
+    opt.fallbackBoxes = false;
+    realms::buildGameScene(engine, client, lerp, cache, opt, scene);
+    CHECK(modelsOf(1) == std::vector<std::string>({"players/female/w_shotgun.md2"}));
+    fs::remove_all(tmp, ec);
+}
+
 } // namespace
 
 int main() {
@@ -675,6 +785,7 @@ int main() {
     dynamicLightLimitChecks();
     entityEffectChecks();
     sceneChecks();
+    linkedModelChecks();
     std::printf("[effects] %d checks, %d failures\n", gChecks, gFailures);
     return gFailures == 0 ? 0 : 1;
 }

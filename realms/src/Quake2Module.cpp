@@ -832,6 +832,7 @@ const GameScene &Quake2Module::buildScene(Engine &engine, const Vec3 &cameraOrig
     GameSceneOptions opt;
     opt.viewWeapon = viewWeapon && !noclip();
     opt.hand = hand;
+    opt.vwep = engine.cvarFloat("cl_vwep", 1.0f) != 0.0f;
     opt.hasCamera = true;
     opt.cameraOrigin = cameraOrigin;
     opt.cameraAngles = cameraAngles;

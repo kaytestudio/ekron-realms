@@ -152,6 +152,9 @@ struct GameSceneOptions {
     // left, as ref_gl does for r_lefthand 1; 2 (centre) doesn't draw it.
     int hand = 0;
     bool fallbackBoxes = true;
+    // cl_vwep: other players hold the weapon they use (the game's
+    // "#w_*.md2" models); off, they all hold players/<model>/weapon.md2.
+    bool vwep = true;
     // The view weapon follows this camera (map space, Quake 2 angles) when
     // set, so it can't lag the drawn view; else the game's view origin.
     bool hasCamera = false;
@@ -173,7 +176,22 @@ void mirrorModelVertices(std::vector<ModelVertex> &vertices, size_t first);
 // left to GameEffects, which draws them as glows. EF_QUAD / EF_PENT add the
 // blue / red shell and EF_BFG / EF_PLASMA / EF_SPHERETRANS fade the model,
 // like cl_ents.c.
+// Linked models (modelindex2..4) are drawn with their entity, in its pose,
+// as cl_entities.c does: modelindex2 255 is a player's weapon
+// (gameWeaponModelFiles), the defender sphere's shell is translucent.
 void buildGameScene(const Engine &engine, const GameClient &client, const GameEntityLerp &lerp,
                     GameModelCache &models, const GameSceneOptions &options, GameScene &out);
+
+// CL_PrepRefresh's cl_weaponmodels: "weapon.md2", then the game's player
+// weapon models ("#w_blaster.md2" in CS_MODELS -> "w_blaster.md2") in
+// order, up to the first empty model string; 20 at most.
+std::vector<std::string> gameWeaponModels(const GameClient &client);
+// The files to try, in order, for a player's weapon (modelindex2 255) on
+// a body of `model` ("female"): CL_LoadClientinfo's weapon models and
+// CL_AddPacketEntities' fallbacks. skinnum >> 8 picks the weapon (0, or
+// any when `vwep` is off: weapon.md2); a cyborg without the model borrows
+// the male one; then the model's weapon.md2; then players/male/weapon.md2.
+std::vector<std::string> gameWeaponModelFiles(const std::vector<std::string> &weaponModels, const std::string &model,
+                                              int skinnum, bool vwep);
 
 } // namespace realms
