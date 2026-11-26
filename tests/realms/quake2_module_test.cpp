@@ -650,7 +650,8 @@ struct NetStandIn : realms::GameNetServerGame {
     std::vector<realms::GameEvent> events;
     bool sentStrings = false;
     int maxClients() const override { return 4; }
-    int connectClient(const std::string &name, float f, int h, const std::string &, std::string &) override {
+    int connectClient(const std::string &name, float f, int h, const std::string &, const std::string &,
+                      const std::string &, std::string &) override {
         active = true;
         fov = f;
         hand = h;
@@ -666,6 +667,8 @@ struct NetStandIn : realms::GameNetServerGame {
     void clientCommand(int, const std::string &line) override { commands.push_back(line); }
     void setFov(int, float f) override { fov = f; }
     void setHand(int, int h) override { hand = h; }
+    void setSkin(int, const std::string &) override {}
+    void setGender(int, const std::string &) override {}
     void snapshot(int, realms::GameSnapshot &s, bool full) override {
         s = realms::GameSnapshot{};
         if (!active) return;
@@ -862,6 +865,36 @@ void netWithoutGame(realms::Engine &engine) {
     view.close();
     server.close();
     CHECK(engine.loadMap(mapPath));
+}
+
+// CL_FixUpGender on the cvars: skin, gender, gender_auto.
+void genderChecks(realms::Engine &engine) {
+    using realms::Quake2Module;
+    CHECK(engine.registerCvar("skin", "male/grunt", REALMS_CVAR_ARCHIVE | REALMS_CVAR_USERINFO));
+    CHECK(engine.registerCvar("gender", "male", REALMS_CVAR_ARCHIVE | REALMS_CVAR_USERINFO));
+    CHECK(engine.registerCvar("gender_auto", "1", REALMS_CVAR_ARCHIVE));
+    // the skin changes, the gender didn't: it follows the model
+    engine.setCvar("skin", "female/athena");
+    CHECK(Quake2Module::fixUpGender(engine, false) && engine.cvarString("gender") == "female");
+    CHECK(!engine.cvarModified("gender")); // cleared, as gender->modified = false
+    CHECK(!Quake2Module::fixUpGender(engine, false) && engine.cvarString("gender") == "female");
+    engine.setCvar("skin", "cyborg/oni911");
+    CHECK(Quake2Module::fixUpGender(engine, false) && engine.cvarString("gender") == "male");
+    engine.setCvar("skin", "crakhor/x");
+    CHECK(Quake2Module::fixUpGender(engine, false) && engine.cvarString("gender") == "none");
+    // the gender set itself: kept
+    engine.setCvar("skin", "female/venus");
+    engine.setCvar("gender", "male");
+    CHECK(!Quake2Module::fixUpGender(engine, engine.cvarModified("gender")) && engine.cvarString("gender") == "male");
+    // gender_auto 0: never touched
+    engine.setCvar("gender_auto", "0");
+    engine.setCvar("skin", "female/athena");
+    CHECK(!Quake2Module::fixUpGender(engine, false) && engine.cvarString("gender") == "male");
+    engine.setCvar("gender_auto", "1");
+    engine.setCvar("skin", "male/grunt");
+    engine.setCvar("gender", "male");
+    engine.cvarModified("skin");
+    engine.cvarModified("gender");
 }
 
 void viewWithoutGame(realms::Engine &engine) {
@@ -1715,6 +1748,8 @@ int main(int argc, char **argv) {
 
     step("wal decoding");
     walDecoding();
+    step("gender");
+    genderChecks(engine);
     step("sky math");
     skyMath();
     step("module without game");

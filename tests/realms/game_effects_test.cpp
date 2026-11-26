@@ -594,6 +594,14 @@ void soundChecks() {
     // S_SpatializeOrigin
     realms::GameListener ear;
     ear.origin = {0, 0, 0};
+    // S_RegisterSexedSound's fallback to the male model
+    CHECK(realms::sexedSoundFallback("players/female/pain25_1.wav") == "players/male/pain25_1.wav");
+    CHECK(realms::sexedSoundFallback("players/cyborg/fall1.wav") == "players/male/fall1.wav");
+    CHECK(realms::sexedSoundFallback("players/male/fall1.wav").empty());
+    CHECK(realms::sexedSoundFallback("players/males/fall1.wav") == "players/male/fall1.wav");
+    CHECK(realms::sexedSoundFallback("sound/player/step1.wav").empty());
+    CHECK(realms::sexedSoundFallback("players/female/").empty() && realms::sexedSoundFallback("players//x.wav").empty());
+    CHECK(realms::sexedSoundFallback("players/female/sub/x.wav").empty());
     ear.right = realms::gameRightVector({0, 0, 0}); // facing +x: right is -y
     CHECK(near(ear.right[1], -1, 1e-6f));
     ear.entity = 1;

@@ -841,6 +841,8 @@ bool GameServer::start(Engine &engine, const GameServerConfig &config, std::stri
     local.name = config.playerName;
     local.fov = config.fov;
     local.hand = clampHand(config.hand);
+    local.skin = config.skin;
+    local.gender = config.gender;
     if (!beginClient(0, error)) {
         if (ge_ && error.rfind("the game rejected", 0) == 0) stop();
         return false;
@@ -919,7 +921,8 @@ bool GameServer::beginClient(int client, std::string &error) {
     return true;
 }
 
-int GameServer::connectClient(const std::string &name, float fov, int hand, std::string &error, const std::string &ip) {
+int GameServer::connectClient(const std::string &name, float fov, int hand, std::string &error, const std::string &ip,
+                              const std::string &skin, const std::string &gender) {
     if (!running_) {
         error = "no game is running";
         return -1;
@@ -935,6 +938,8 @@ int GameServer::connectClient(const std::string &name, float fov, int hand, std:
     c.name = name;
     c.fov = fov;
     c.hand = clampHand(hand);
+    c.skin = skin;
+    c.gender = gender;
     c.ip = ip.empty() ? std::string("loopback") : ip;
     if (!beginClient(slot, error)) {
         if (slot < maxClients()) clients_[size_t(slot)].active = false;
@@ -1036,8 +1041,8 @@ void GameServer::prepWorldFrame() {
             ev.level = Q2_CHAN_BODY;
             break;
         case EV_FALLSHORT: ev.text = "sound/player/land1.wav"; break;
-        case EV_FALL: ev.text = "players/male/fall2.wav"; break;
-        case EV_FALLFAR: ev.text = "players/male/fall1.wav"; break;
+        case EV_FALL: ev.text = sexedSound(i, "fall2.wav"); break;
+        case EV_FALLFAR: ev.text = sexedSound(i, "fall1.wav"); break;
         case EV_PLAYER_TELEPORT:
         case EV_OTHER_TELEPORT:
             ev.text = "sound/misc/tele1.wav";
@@ -1180,9 +1185,13 @@ void GameServer::buildUserinfo(Client &c) {
         return out.empty() ? std::string(fallback) : out;
     };
     const std::string name = clean(c.name, "Player"), ip = clean(c.ip, "loopback");
+    // An empty skin or gender is left out, as Info_SetValueForKey does: the
+    // game then draws "male" and its obituaries say "itself".
+    const std::string skin = clean(c.skin, "").substr(0, 63), gender = clean(c.gender, "").substr(0, 15);
     std::snprintf(c.userinfo, sizeof(c.userinfo),
-                  "\\name\\%s\\skin\\male/grunt\\hand\\%d\\fov\\%g\\rate\\25000\\msg\\1\\spectator\\0\\ip\\%s",
-                  name.c_str(), c.hand, double(clampFov(c.fov)), ip.c_str());
+                  "\\name\\%s%s%s\\hand\\%d\\fov\\%g\\rate\\25000\\msg\\1%s%s\\spectator\\0\\ip\\%s", name.c_str(),
+                  skin.empty() ? "" : "\\skin\\", skin.c_str(), c.hand, double(clampFov(c.fov)),
+                  gender.empty() ? "" : "\\gender\\", gender.c_str(), ip.c_str());
 }
 
 void GameServer::userinfoChanged(int client) {
@@ -1198,6 +1207,29 @@ void GameServer::userinfoChanged(int client) {
 
 void GameServer::setFov(float fov) { setFov(0, fov); }
 void GameServer::setHand(int hand) { setHand(0, hand); }
+void GameServer::setSkin(const std::string &skin) { setSkin(0, skin); }
+void GameServer::setGender(const std::string &gender) { setGender(0, gender); }
+
+void GameServer::setSkin(int client, const std::string &skin) {
+    if (!running_ || !clientActive(client)) return;
+    clients_[size_t(client)].skin = skin;
+    userinfoChanged(client);
+}
+
+void GameServer::setGender(int client, const std::string &gender) {
+    if (!running_ || !clientActive(client)) return;
+    clients_[size_t(client)].gender = gender;
+    userinfoChanged(client);
+}
+
+std::string GameServer::genderForSkin(const std::string &skin) {
+    // Q_stricmp on the model part, which CL_FixUpGender copies into sk[80]
+    std::string model = skin.substr(0, std::min<size_t>(skin.find('/'), 79));
+    for (char &ch : model) ch = char(std::tolower(static_cast<unsigned char>(ch)));
+    if (model == "male" || model == "cyborg") return "male";
+    if (model == "female" || model == "crackhor") return "female";
+    return "none";
+}
 
 void GameServer::setFov(int client, float fov) {
     if (!running_ || !clientActive(client)) return;
@@ -1334,17 +1366,27 @@ double GameServer::lerpFraction() const {
     return std::clamp(frameAccumulator_ / kFrameSeconds, 0.0, 1.0);
 }
 
-std::string GameServer::playerModel(int skinnum) const {
+std::string GameServer::playerModelName(int client) const {
     // CL_LoadClientinfo: CS_PLAYERSKINS + n is "name\model/skin"
-    const std::string &cs = configString(Q2_CS_PLAYERSKINS + (skinnum & 0xff));
+    const std::string &cs = configString(Q2_CS_PLAYERSKINS + (client & 0xff));
     const size_t name = cs.find('\\');
     std::string model = name == std::string::npos ? std::string() : cs.substr(name + 1);
     model = model.substr(0, model.find('/'));
     bool ok = !model.empty();
     for (char ch : model)
         if (!std::isalnum(static_cast<unsigned char>(ch)) && ch != '_' && ch != '-') ok = false;
-    return "players/" + (ok ? model : std::string("male")) + "/tris.md2";
+    return ok ? model : std::string("male");
 }
+
+std::string GameServer::sexedSound(int entity, const std::string &base) const {
+    // S_RegisterSexedSound: a player's own model, others "male". The
+    // client plays players/male/<base> when the model hasn't got the sound
+    // (realms::sexedSoundFallback).
+    const std::string model = entity >= 1 && entity <= maxClients() ? playerModelName(entity - 1) : std::string("male");
+    return "players/" + model + "/" + base;
+}
+
+std::string GameServer::playerModel(int skinnum) const { return "players/" + playerModelName(skinnum) + "/tris.md2"; }
 
 std::vector<GameRenderEntity> GameServer::renderEntitiesFor(int client, bool withInline) const {
     std::vector<GameRenderEntity> out;
@@ -1545,7 +1587,7 @@ void GameServer::queueSound(const float *origin, q2edict_t *ent, int channel, in
         }
     }
     // S_RegisterSound: "*name" are the player model's sexed sounds.
-    ev.text = name[0] == '*' ? "players/male/" + name.substr(1) : "sound/" + name;
+    ev.text = name[0] == '*' ? sexedSound(ev.entity, name.substr(1)) : "sound/" + name;
     pushEvent(std::move(ev), 0);
 }
 

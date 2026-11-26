@@ -325,6 +325,9 @@ void buildGameScene(const Engine &engine, const GameClient &client, const GameEn
         const GameRenderEntity *e = l.entity;
         if (!e || e->inlineModel > 0 || endsWithSp2(e->model)) continue;
         const Md3Model *md3 = isAliasModelName(e->model) ? models.model(engine, e->model) : nullptr;
+        // CL_LoadClientinfo: a player model that isn't there is drawn as male
+        static const std::string kMale = "players/male/tris.md2";
+        if (!md3 && e->model.rfind("players/", 0) == 0 && e->model != kMale) md3 = models.model(engine, kMale);
         GameDrawBatch b;
         b.entity = e->number;
         b.model = e->model;

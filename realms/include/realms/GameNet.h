@@ -62,6 +62,8 @@ std::vector<uint8_t> encodeGameNetUserCmds(const std::vector<GameNetUserCmd> &cm
 bool decodeGameNetUserCmds(const uint8_t *data, size_t size, std::vector<GameNetUserCmd> &out);
 // Userinfo text ("\key\value..."): the value of `key`, "" without one.
 std::string gameNetInfoValue(const std::string &info, const std::string &key);
+// Whether the key is there, with a value or an empty one.
+bool gameNetInfoHas(const std::string &info, const std::string &key);
 
 // Server side, one per client.
 class GameNetEncoder {

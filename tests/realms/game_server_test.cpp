@@ -772,6 +772,35 @@ void runClientChecks(realms::Engine &engine, const std::string &gameLibrary) {
     CHECK(near(p2->client->ps.fov, 120, 0.01f) && near(p1->client->ps.fov, 90, 0.01f));
     CHECK(std::string(server.userinfo(1)).find("\\hand\\2\\") != std::string::npos);
     CHECK(std::string(server.userinfo(0)).find("\\hand\\0\\") != std::string::npos);
+    // skin and gender (cl_main.c's defaults), through ClientUserinfoChanged
+    CHECK(std::string(server.userinfo(1)).find("\\skin\\male/grunt\\") != std::string::npos);
+    CHECK(std::string(server.userinfo(1)).find("\\gender\\male\\") != std::string::npos);
+    CHECK(server.playerModelName(1) == "male" && server.sexedSound(2, "pain25_1.wav") == "players/male/pain25_1.wav");
+    server.setSkin(1, "female/athena");
+    CHECK(server.configString(Q2_CS_PLAYERSKINS + 1) == "Second\\female/athena");
+    CHECK(server.configString(Q2_CS_PLAYERSKINS + 0) == "Tester\\male/grunt");
+    CHECK(server.playerModelName(1) == "female");
+    CHECK(server.sexedSound(2, "pain25_1.wav") == "players/female/pain25_1.wav");
+    CHECK(server.sexedSound(1, "fall1.wav") == "players/male/fall1.wav");
+    CHECK(server.sexedSound(40, "fall1.wav") == "players/male/fall1.wav"); // not a player
+    server.setGender(1, "female");
+    CHECK(std::string(server.userinfo(1)).find("\\gender\\female\\") != std::string::npos);
+    CHECK(std::string(server.userinfo(1)).find("\\skin\\female/athena\\") != std::string::npos);
+    CHECK(near(p2->client->ps.fov, 120, 0.01f)); // the rest of the userinfo stays
+    {
+        const auto v0 = server.renderEntitiesFor(0);
+        CHECK(drawsEntity(v0, 2, "players/female/tris.md2"));
+    }
+    // no skin (Quake 2 leaves the key out): the game's "Second\\", drawn as male
+    server.setSkin(1, "");
+    CHECK(std::string(server.userinfo(1)).find("\\skin\\") == std::string::npos);
+    CHECK(server.configString(Q2_CS_PLAYERSKINS + 1) == "Second\\");
+    CHECK(server.playerModelName(1) == "male");
+    server.setSkin(1, "../evil/x"); // not a model name: male
+    CHECK(server.playerModelName(1) == "male" && server.sexedSound(2, "fall2.wav") == "players/male/fall2.wav");
+    server.setSkin(1, "male/grunt");
+    server.setGender(1, "male");
+    CHECK(server.configString(Q2_CS_PLAYERSKINS + 1) == "Second\\male/grunt");
     // moves: one client's usercmds move that player only
     {
         const realms::Vec3 a0 = server.playerOrigin(0), a1 = server.playerOrigin(1);
@@ -973,6 +1002,17 @@ void runNetworkChecks(realms::Engine &engine, const std::string &gameLibrary) {
     CHECK(server.player(1) && server.player(1)->client && near(server.player(1)->client->ps.fov, 95, 0.01f));
     CHECK(std::string(server.userinfo(1)).find("\\hand\\2\\") != std::string::npos);
     CHECK(view.playerState() && near(view.playerState()->fov, 95, 0.01f));
+    // the connect's skin and gender, then a changed skin, which the game
+    // puts in CS_PLAYERSKINS for everybody
+    CHECK(std::string(server.userinfo(1)).find("\\skin\\male/grunt\\") != std::string::npos);
+    CHECK(std::string(server.userinfo(1)).find("\\gender\\male\\") != std::string::npos);
+    client.sendUserinfo("\\skin\\female/jezebel\\gender\\female");
+    for (int i = 0; i < 500 && view.configString(Q2_CS_PLAYERSKINS + 1) != "Visitor\\female/jezebel"; i++) step(still);
+    CHECK(server.configString(Q2_CS_PLAYERSKINS + 1) == "Visitor\\female/jezebel");
+    CHECK(view.configString(Q2_CS_PLAYERSKINS + 1) == "Visitor\\female/jezebel");
+    CHECK(std::string(server.userinfo(1)).find("\\gender\\female\\") != std::string::npos);
+    CHECK(std::string(server.userinfo(1)).find("\\hand\\2\\") != std::string::npos);
+    CHECK(server.playerModelName(1) == "female");
     // begin again (the client opened the map again): everything again
     {
         view.reset();
@@ -1089,6 +1129,15 @@ int main(int argc, char **argv) {
     CHECK(realms::GameServer::maxClientsFor(false, true, 1) == 4);
     CHECK(realms::GameServer::maxClientsFor(false, true, 3) == 3);
     CHECK(realms::GameServer::maxClientsFor(false, true, 5) == 4);
+    // CL_FixUpGender's table
+    CHECK(realms::GameServer::genderForSkin("male/grunt") == "male");
+    CHECK(realms::GameServer::genderForSkin("Cyborg/oni911") == "male");
+    CHECK(realms::GameServer::genderForSkin("female/athena") == "female");
+    CHECK(realms::GameServer::genderForSkin("CRACKHOR/x") == "female");
+    CHECK(realms::GameServer::genderForSkin("crakhor/x") == "none");
+    CHECK(realms::GameServer::genderForSkin("female") == "female"); // no "/skin"
+    CHECK(realms::GameServer::genderForSkin("") == "none");
+    CHECK(realms::GameServer::genderForSkin("males/grunt") == "none");
     {
         realms::GameServer idle; // nothing running: no clients, safe queries
         realms::GameSnapshot snap;

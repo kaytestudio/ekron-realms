@@ -192,6 +192,11 @@ bool Quake2Module::startGame(Engine &engine, std::string &why) {
     engine.cvarModified("fov"); // sent with the connect
     config.hand = GameServer::clampHand(engine.cvarInt("hand", 0));
     engine.cvarModified("hand");
+    // the skin set in the city counts as a userinfo change (CL_FixUpGender)
+    if (engine.cvarModified("skin")) fixUpGender(engine, engine.cvarModified("gender", false));
+    config.skin = engine.cvarString("skin", GameServer::kDefaultSkin);
+    config.gender = engine.cvarString("gender", GameServer::kDefaultGender);
+    engine.cvarModified("gender");
     config.skill = engine.cvarInt("skill", 1);
     // SV_InitGame: the multiplayer cvars (registerGameNetCommands)
     config.deathmatch = engine.cvarFloat("deathmatch", 0.0f) != 0.0f;
@@ -251,6 +256,8 @@ bool Quake2Module::attachNet(Engine &engine, GameNetClient &net, std::string &wh
     // the connect sent the userinfo; changes from now on are sent
     engine.cvarModified("fov");
     engine.cvarModified("hand");
+    engine.cvarModified("skin");
+    engine.cvarModified("gender");
     net_ = &net;
     registerNetCommands(engine);
     viewEntity_ = net.playerNum() >= 0 ? net.playerNum() + 1 : 1;
@@ -529,6 +536,16 @@ std::string Quake2Module::takeGameFailure() {
     return out;
 }
 
+bool Quake2Module::fixUpGender(Engine &engine, bool genderModified) {
+    if (engine.cvarFloat("gender_auto", 1.0f) == 0.0f) return false;
+    if (genderModified) return false; // was set directly, don't override the user
+    const std::string gender = GameServer::genderForSkin(engine.cvarString("skin", GameServer::kDefaultSkin));
+    const bool changed = engine.cvarString("gender", GameServer::kDefaultGender) != gender;
+    if (changed) engine.setCvar("gender", gender);
+    engine.cvarModified("gender"); // gender->modified = false
+    return changed;
+}
+
 GameUserCmd Quake2Module::userCmd(const WalkInput &in, bool attack) {
     GameUserCmd cmd;
     cmd.forward = std::clamp(in.forward, -1.0f, 1.0f) * 400.0f;
@@ -787,13 +804,30 @@ const GameScene &Quake2Module::buildScene(Engine &engine, const Vec3 &cameraOrig
     const int hand = GameServer::clampHand(engine.cvarInt("hand", 0));
     const bool fovChanged = userinfo && engine.cvarModified("fov");
     const bool handChanged = userinfo && engine.cvarModified("hand");
+    const bool skinChanged = userinfo && engine.cvarModified("skin");
+    bool genderChanged = userinfo && engine.cvarModified("gender");
+    if (fovChanged || handChanged || skinChanged || genderChanged) {
+        // CL_SendCmd: CL_FixUpGender when the userinfo is sent
+        if (fixUpGender(engine, genderChanged)) genderChanged = true;
+    }
+    const std::string skin = engine.cvarString("skin", GameServer::kDefaultSkin);
+    const std::string gender = engine.cvarString("gender", GameServer::kDefaultGender);
     if (serverRunning()) {
         if (fovChanged) game_->setFov(fov);
         if (handChanged) game_->setHand(hand);
-    } else if (net_ && (fovChanged || handChanged)) {
+        if (skinChanged) game_->setSkin(skin);
+        if (genderChanged) game_->setGender(gender);
+    } else if (net_ && (fovChanged || handChanged || skinChanged || genderChanged)) {
         char info[64];
         std::snprintf(info, sizeof info, "\\fov\\%g\\hand\\%d", double(fov), hand);
-        net_->sendUserinfo(info);
+        std::string text = info;
+        auto safe = [](std::string v) {
+            v.erase(std::remove_if(v.begin(), v.end(), [](char c) { return c == '\\' || c == '"' || c == ';'; }), v.end());
+            return v;
+        };
+        if (skinChanged) text += "\\skin\\" + safe(skin);
+        if (genderChanged) text += "\\gender\\" + safe(gender);
+        net_->sendUserinfo(text);
     }
     GameSceneOptions opt;
     opt.viewWeapon = viewWeapon && !noclip();

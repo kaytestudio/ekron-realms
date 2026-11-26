@@ -32,6 +32,12 @@ void registerSharedCvars(Engine &engine, const std::string &platform) {
     // Quake 2's handedness (userinfo): 0 right, 1 left (the view weapon mirrored),
     // 2 centre (no view weapon); the game fires from that side.
     engine.registerCvar("hand", "0", REALMS_CVAR_ARCHIVE | REALMS_CVAR_USERINFO);
+    // cl_main.c: the player model and skin ("<model>/<skin>"), and the gender
+    // the game's obituaries read; gender_auto makes it follow the skin's
+    // model (Quake2Module::fixUpGender).
+    engine.registerCvar("skin", "male/grunt", REALMS_CVAR_ARCHIVE | REALMS_CVAR_USERINFO);
+    engine.registerCvar("gender", "male", REALMS_CVAR_ARCHIVE | REALMS_CVAR_USERINFO);
+    engine.registerCvar("gender_auto", "1", REALMS_CVAR_ARCHIVE);
     // Quake 2's screen size (realms/ViewSize.h): the 3D view in maps shrunk to
     // 40 .. 100 per cent, the rest tiled; "sizeup" / "sizedown" step it by 10
     // (SCR_SizeUp_f / SCR_SizeDown_f), within those bounds.
@@ -230,6 +236,9 @@ int boot(Engine &engine, const BootOptions &options) {
     }
     if (!options.commandLine.empty()) engine.addText(options.commandLine);
     engine.executeBuffer();
+    // CL_Init: gender->modified = false, so with gender_auto the gender
+    // follows the configured skin until it is set itself
+    engine.cvarModified("gender");
     return paks;
 }
 
