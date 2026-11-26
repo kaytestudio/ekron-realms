@@ -1,12 +1,17 @@
 // realms/ViewFov.h: map mode's focal length follows Quake 2's fov (Hor+,
 // the fov is the horizontal angle of a 4:3 screen), clamped like the game;
 // realms/ViewGamma.h: vid_gamma's exponent, and the cvar on the shared list;
-// realms/ViewSize.h: Quake 2's viewsize rectangle, the cvar and sizeup / sizedown.
+// realms/ViewSize.h: Quake 2's viewsize rectangle, the cvar and sizeup / sizedown;
+// realms/VideoSync.h: r_vsync's swap interval and when the desktop applies it.
 #include "realms/Engine.h"
 #include "realms/SandboxBoot.h"
 #include "realms/ViewFov.h"
 #include "realms/ViewGamma.h"
 #include "realms/ViewSize.h"
+#include "realms/VideoSync.h"
+
+#include <string>
+#include <vector>
 
 #include <cmath>
 #include <cstdio>
@@ -122,6 +127,39 @@ int main() {
         engine.executeNow("sizedown"); // 290, bounded as SCR_CalcVrect does
         CHECK(engine.cvarInt("viewsize", 0) == 100);
         engine.shutdown();
+    }
+
+    // r_vsync: 1 on, 2 adaptive (-1), anything else off, as GL3_SetVsync reads it.
+    CHECK(vsyncSwapInterval(1.0f) == 1);
+    CHECK(vsyncSwapInterval(2.0f) == -1);
+    CHECK(vsyncSwapInterval(0.0f) == 0);
+    CHECK(vsyncSwapInterval(1.5f) == 0 && vsyncSwapInterval(3.0f) == 0 && vsyncSwapInterval(-1.0f) == 0);
+    CHECK(vsyncSwapInterval(std::numeric_limits<float>::quiet_NaN()) == 0);
+    {
+        std::vector<int> calls;
+        int failInterval = 99; // the driver refuses this one
+        auto set = [&](int interval) {
+            calls.push_back(interval);
+            return interval == failInterval ? -1 : 0;
+        };
+        SwapIntervalControl swap;
+        CHECK(swap.requested() == 1);
+        // the context starts with vsync on: r_vsync 1 changes nothing
+        CHECK(swap.update(1.0f, false, set).empty() && calls.empty());
+        CHECK(swap.update(0.0f, false, set).empty() && (calls == std::vector<int>{0}) && swap.requested() == 0);
+        CHECK(swap.update(0.0f, false, set).empty() && calls.size() == 1); // only on a change
+        // a timedemo runs uncapped whatever r_vsync says, then it comes back
+        CHECK(swap.update(1.0f, true, set).empty() && calls.size() == 1);
+        CHECK(swap.update(1.0f, false, set).empty() && (calls == std::vector<int>{0, 1}));
+        CHECK(swap.update(1.0f, true, set).empty() && (calls == std::vector<int>{0, 1, 0}));
+        CHECK(swap.update(2.0f, false, set).empty() && (calls == std::vector<int>{0, 1, 0, -1}));
+        // no adaptive vsync here: say so once and use normal vsync
+        calls.clear();
+        swap.update(0.0f, false, set);
+        failInterval = -1;
+        CHECK(swap.update(2.0f, false, set) == kAdaptiveVsyncFailed && (calls == std::vector<int>{0, -1, 1}));
+        CHECK(swap.update(2.0f, false, set).empty() && calls.size() == 3); // not again every frame
+        CHECK(swap.requested() == -1);
     }
 
     std::printf("view_fov: %d/%d checks passed\n", gChecks - gFailures, gChecks);
