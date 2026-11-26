@@ -36,6 +36,10 @@ void registerSharedCvars(Engine &engine, const std::string &platform) {
     // 40 .. 100 per cent, the rest tiled; "sizeup" / "sizedown" step it by 10
     // (SCR_SizeUp_f / SCR_SizeDown_f), within those bounds.
     engine.registerCvar("viewsize", "100", REALMS_CVAR_ARCHIVE);
+    // Yamagi Quake II's frame rate counter (realms/FrameCounter.h) at the top
+    // right: 0 off, 1 the average, 2 slowest / fastest / average, 3 and the
+    // frame times.
+    engine.registerCvar("cl_showfps", "0", REALMS_CVAR_ARCHIVE);
     Engine *e = &engine;
     const auto resize = [e](int step) {
         const float now = e->cvarFloat("viewsize", 100.0f);

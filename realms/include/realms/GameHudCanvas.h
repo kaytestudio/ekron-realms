@@ -10,6 +10,7 @@
 // its digits at three times the size.
 #pragma once
 
+#include "realms/FrameCounter.h"
 #include "realms/GameLayout.h"
 #include "realms/Image.h"
 #include "realms/ViewSize.h"
@@ -39,9 +40,11 @@ public:
     // Redraws the HUD of a width x height screen (pixels): the tiles around a
     // view shrunk by "viewsize" (viewRect), the status bar (when `statusBar`)
     // with its bottom edge at `barBottom`, then the layout and the inventory
-    // when the game shows them. `seconds` drives the
-    // inventory cursor's 5 Hz blink. True when the image changed and needs
-    // uploading again; an unchanged HUD is not redrawn.
+    // when the game shows them, and cl_showfps's frame rate (also without
+    // the game). `seconds`, a steady clock read once per frame, drives the
+    // inventory cursor's 5 Hz blink and times the frames. True when the image
+    // changed and needs uploading again; an unchanged HUD is not redrawn.
+    // The frame rate shown changes kFpsRefresh seconds apart, not every frame.
     bool update(const Engine &engine, const Quake2Module &q2, int width, int height, int barBottom, bool statusBar,
                 double seconds);
 
@@ -70,6 +73,11 @@ public:
     // SCR_TileClear: everything outside `view` (image pixels) tiled with
     // pics/backtile.pcx from the top-left corner, or kBackFill without it.
     void tileClear(const ViewRect &view, const FileLoader &load);
+    // Yamagi Quake II's cl_showfps (realms/FrameCounter.h); 0 unregistered.
+    static float showFps(const Engine &engine);
+    // FrameCounter lines at the top right, one per 10 rows (SCR_Framecounter).
+    void drawFps(const std::vector<std::string> &lines);
+    static constexpr double kFpsRefresh = 0.25;
     // update() drew the game's crosshair pic: the client's own one stays off.
     bool crosshairDrawn() const { return crosshairDrawn_; }
     // Releases the pics (a new game's data may differ).
@@ -92,6 +100,10 @@ private:
     bool empty_ = true;
     bool crosshairDrawn_ = false;
     std::string signature_;
+    FrameCounter fps_;
+    std::vector<std::string> fpsLines_; // shown now
+    double fpsShownAt_ = -1.0;
+    int fpsLevel_ = 0;
 };
 
 } // namespace realms

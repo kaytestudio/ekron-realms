@@ -167,10 +167,51 @@ bool GameHudCanvas::drawCrosshair(int style, const FileLoader &load) {
     return true;
 }
 
+float GameHudCanvas::showFps(const Engine &engine) {
+    const float v = engine.cvarFloat("cl_showfps", 0.0f);
+    return std::isfinite(v) ? v : 0.0f;
+}
+
+void GameHudCanvas::drawFps(const std::vector<std::string> &lines) {
+    for (size_t i = 0; i < lines.size(); i++) {
+        const int width = int(lines[i].size()) * ekron::font::kGlyphW + 2;
+        drawText(image_.width - width, int(i) * 10, lines[i], kText, 1);
+    }
+}
+
 bool GameHudCanvas::update(const Engine &engine, const Quake2Module &q2, int width, int height, int barBottom,
                            bool statusBar, double seconds) {
+    // cl_showfps: the lines shown change every kFpsRefresh seconds (or with the cvar)
+    fps_.frame(seconds);
+    const float showfps = showFps(engine);
+    const int level = showfps < 1.0f ? 0 : showfps < 2.0f ? 1 : showfps > 2.0f ? 3 : 2;
+    if (level == 0) {
+        fpsLines_.clear();
+        fpsShownAt_ = -1.0;
+    } else if (level != fpsLevel_ || fpsShownAt_ < 0.0 || !(seconds - fpsShownAt_ < kFpsRefresh) ||
+               seconds < fpsShownAt_ || (fpsLines_.empty() && fps_.count() > 0)) {
+        fpsLines_ = fps_.lines(showfps);
+        fpsShownAt_ = seconds;
+    }
+    fpsLevel_ = level;
+    std::string fpsSig;
+    for (const std::string &line : fpsLines_) fpsSig += line + '\n';
+
     if (!q2.gameRunning() || width <= 0 || height <= 0) {
         crosshairDrawn_ = false;
+        if (!fpsLines_.empty() && width > 0 && height > 0) {
+            // no game: only the frame rate
+            const int s = scaleFor(width, height);
+            const int w = width / s, h = height / s;
+            std::string sig = "fps " + std::to_string(w) + 'x' + std::to_string(h) + '\n' + fpsSig;
+            if (!empty_ && sig == signature_) return false;
+            signature_ = std::move(sig);
+            scale_ = s;
+            empty_ = false;
+            begin(w, h);
+            drawFps(fpsLines_);
+            return true;
+        }
         if (empty_) return false;
         empty_ = true;
         signature_.clear();
@@ -200,7 +241,8 @@ bool GameHudCanvas::update(const Engine &engine, const Quake2Module &q2, int wid
     appendSignature(sig, layout);
     sig += "--\n";
     appendSignature(sig, inventory);
-    const bool nothing = bar.empty() && !layoutOn && !inventoryOn && !crosshair && size >= 100;
+    sig += "--\n" + fpsSig;
+    const bool nothing = bar.empty() && !layoutOn && !inventoryOn && !crosshair && size >= 100 && fpsLines_.empty();
     crosshairDrawn_ = crosshair;
     if (sig == signature_ && empty_ == nothing) return false;
     signature_ = std::move(sig);
@@ -225,6 +267,7 @@ bool GameHudCanvas::update(const Engine &engine, const Quake2Module &q2, int wid
         fillRect(p.x, p.y, p.w, p.h, kPanel);
         drawItems(inventory, load);
     }
+    drawFps(fpsLines_); // last, over everything
     return true;
 }
 

@@ -1291,6 +1291,18 @@ void viewWithGame(realms::Engine &engine) {
     CHECK(hud.update(engine, q2, 1280, 960, 960, true, 0.0) && hudAlpha(panelX, panelY) == 0);
     // the status bar off: nothing left to draw
     CHECK(hud.update(engine, q2, 1280, 960, 960, false, 0.0) && hud.empty());
+    // cl_showfps over the game's HUD, at the top right
+    engine.registerCvar("cl_showfps", "0", REALMS_CVAR_ARCHIVE);
+    engine.setCvar("cl_showfps", "1");
+    CHECK(hud.update(engine, q2, 1280, 960, 960, false, 0.05) && !hud.empty());
+    {
+        int fpsLit = 0, elsewhere = 0;
+        for (int y = 0; y < 320; y++)
+            for (int x = 0; x < 426; x++) (y < 8 && x >= 426 - 66 ? fpsLit : elsewhere) += hudAlpha(x, y) > 0;
+        CHECK(fpsLit > 0 && elsewhere == 0); // "20.00fps" alone: the status bar is off
+    }
+    engine.setCvar("cl_showfps", "0");
+    CHECK(hud.update(engine, q2, 1280, 960, 960, false, 0.1) && hud.empty());
 
     // firing: the blaster's muzzle flash lights the view and the view weapon
     // (yellow, through R_LightPoint), its sound plays

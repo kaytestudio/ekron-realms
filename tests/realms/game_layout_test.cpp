@@ -7,11 +7,13 @@
 #include "realms/Engine.h"
 #include "realms/GameHudCanvas.h"
 #include "realms/GameLayout.h"
+#include "realms/Quake2Module.h"
 #include "realms/SandboxBoot.h"
 #include "realms/q2game.h"
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdio>
 #include <map>
 #include <random>
@@ -511,7 +513,83 @@ void viewSizeChecks() {
     CHECK((npx(7, 5) == std::array<int, 4>{fill[0], fill[1], fill[2], fill[3]}));
 }
 
+// Yamagi Quake II's cl_showfps: FrameCounter's 60 frames and lines
+// (SCR_Framecounter), and GameHudCanvas drawing them at the top right, with
+// or without a game, changed kFpsRefresh seconds apart.
+void showFpsChecks() {
+    using realms::FrameCounter;
+    using realms::GameHudCanvas;
+    FrameCounter f;
+    CHECK(f.count() == 0 && f.average() == 0.0 && f.lines(1.0f).empty());
+    f.frame(10.0); // starts the timing
+    CHECK(f.count() == 0 && f.lines(3.0f).empty());
+    // 20 ms, then 10 ms and 40 ms frames
+    f.frame(10.02);
+    f.frame(10.03);
+    f.frame(10.07);
+    CHECK(f.count() == 3);
+    CHECK(std::fabs(f.shortest() - 0.01) < 1e-9 && std::fabs(f.longest() - 0.04) < 1e-9);
+    CHECK(std::fabs(f.average() - 0.07 / 3.0) < 1e-9);
+    CHECK(f.lines(0.0f).empty() && f.lines(0.9f).empty() && f.lines(-1.0f).empty());
+    CHECK(f.lines(1.0f) == std::vector<std::string>{"42.86fps"});
+    CHECK(f.lines(1.5f) == std::vector<std::string>{"42.86fps"});
+    CHECK(f.lines(2.0f) == std::vector<std::string>{"Min:   25.00fps, Max:  100.00fps, Avg:   42.86fps"});
+    const std::vector<std::string> three = f.lines(3.0f);
+    CHECK(three.size() == 2 && three[0] == "Min:   25.00fps, Max:  100.00fps, Avg:   42.86fps");
+    CHECK(three.size() == 2 && three[1] == "Max: 40.00ms, Min: 10.00ms, Avg: 23.33ms");
+    // a clock going back only starts again; the last 60 frames count
+    f.frame(5.0);
+    CHECK(f.count() == 3);
+    for (int i = 1; i <= 100; i++) f.frame(5.0 + i * 0.016);
+    CHECK(f.count() == FrameCounter::kFrames && std::fabs(f.longest() - 0.016) < 1e-9);
+    CHECK(f.lines(1.0f) == std::vector<std::string>{"62.50fps"});
+    f.reset();
+    CHECK(f.count() == 0);
+
+    // the cvar
+    realms::Engine engine;
+    realms::EngineConfig cfg;
+    cfg.backend = realms::BackendPreference::Native;
+    CHECK(engine.init(cfg));
+    CHECK(GameHudCanvas::showFps(engine) == 0.0f); // unregistered: off
+    realms::sandbox::registerSharedCvars(engine, "layout-test");
+    CHECK(engine.hasCvar("cl_showfps") && (engine.cvarFlags("cl_showfps") & REALMS_CVAR_ARCHIVE));
+    CHECK(engine.cvarString("cl_showfps") == "0" && GameHudCanvas::showFps(engine) == 0.0f);
+
+    // the canvas, without a game: only the frame rate, at the top right
+    realms::Quake2Module q2;
+    GameHudCanvas c;
+    CHECK(!c.update(engine, q2, 640, 480, 480, true, 1.0) && c.empty());
+    engine.executeNow("cl_showfps 1");
+    CHECK(!c.update(engine, q2, 640, 480, 480, true, 1.0) && c.empty()); // one frame: nothing timed yet
+    CHECK(c.update(engine, q2, 640, 480, 480, true, 1.02) && !c.empty());
+    CHECK(c.image().width == 640 && c.image().height == 480 && c.scale() == 1);
+    const auto lit = [&](int x0, int y0, int x1, int y1) {
+        int n = 0;
+        const auto &img = c.image();
+        for (int y = y0; y < y1; y++)
+            for (int x = x0; x < x1; x++) n += img.rgba[(size_t(y) * size_t(img.width) + size_t(x)) * 4 + 3] != 0;
+        return n;
+    };
+    // "50.00fps": 8 glyphs of 8 pixels ending 2 pixels from the right
+    CHECK(lit(640 - 66, 0, 640 - 2, 8) > 0 && lit(0, 0, 640 - 66, 480) == 0);
+    CHECK(lit(640 - 2, 0, 640, 480) == 0 && lit(0, 8, 640, 480) == 0);
+    // a faster frame within kFpsRefresh: the same text, not redrawn
+    CHECK(!c.update(engine, q2, 640, 480, 480, true, 1.03));
+    CHECK(c.update(engine, q2, 640, 480, 480, true, 1.03 + GameHudCanvas::kFpsRefresh)); // 33.43fps now
+    // level 3: two lines, the second 10 rows down; at 800 x 600 in 2 x 2 pixels
+    engine.executeNow("cl_showfps 3");
+    CHECK(c.update(engine, q2, 800, 600, 600, true, 1.40));
+    CHECK(c.scale() == 2 && c.image().width == 400 && lit(0, 10, 400, 18) > 0 && lit(0, 18, 400, 300) == 0);
+    // off again: nothing to draw
+    engine.executeNow("cl_showfps 0");
+    CHECK(c.update(engine, q2, 800, 600, 600, true, 1.41) && c.empty());
+    CHECK(!c.update(engine, q2, 800, 600, 600, true, 1.42) && c.empty());
+    engine.shutdown();
+}
+
 int main() {
+    showFpsChecks();
     helpComputerChecks();
     statusBarChecks();
     fieldAndTextChecks();
