@@ -1502,6 +1502,11 @@ int main(int argc, char **argv)
 
     auto lastTick = std::chrono::steady_clock::now();
     bool swapUncapped = false; // vsync off while a timedemo runs
+    // cl_showfps: the frame rate at the top right, its text changed 4 times a second
+    realms::FrameCounter fpsCounter;
+    std::vector<std::string> fpsLines;
+    double fpsShownAt = -1.0;
+    float fpsShownFor = 0.0f;
 
     while (running) {
         int winW = 1280, winH = 720;
@@ -2590,6 +2595,23 @@ int main(int argc, char **argv)
         }
 
         console.draw(renderer, hudW, hudH, engine, dt);
+
+        // cl_showfps over everything, as SCR_Framecounter draws it last
+        {
+            const double frameAt = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+            fpsCounter.frame(frameAt);
+            const float showfps = realms::GameHudCanvas::showFps(engine);
+            if (showfps != fpsShownFor || !(frameAt - fpsShownAt < realms::GameHudCanvas::kFpsRefresh) ||
+                (fpsLines.empty() && showfps >= 1.0f)) {
+                fpsLines = fpsCounter.lines(showfps);
+                fpsShownAt = frameAt;
+                fpsShownFor = showfps;
+            }
+            constexpr float kFpsScale = 1.5f;
+            for (size_t i = 0; i < fpsLines.size(); ++i)
+                renderer.drawText(float(hudW) - 8.0f - ekron::font::measureTextWidth(fpsLines[i], kFpsScale),
+                                  6.0f + float(i) * 15.0f, fpsLines[i], kFpsScale, {0.93f, 0.93f, 0.88f, 1.0f});
+        }
 
         renderer.flushUi(gl, drawW, drawH);
         // timedemo measures how fast frames can be drawn: no vsync meanwhile
