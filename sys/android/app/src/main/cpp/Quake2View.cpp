@@ -133,7 +133,10 @@ bool Quake2View::open(realms::Engine &engine, const Quake2ViewOptions &options, 
         session_.summary() += ", demo";
         q2_.mirrorPlayer(session_.walker());
         syncPoses();
-    } else if (q2_.gameRunning()) {
+    } else if (q2_.connected()) {
+        session_.summary() += ", online";
+        engine.print("map: playing on " + realms::GameNetClient::instance().serverName() + "\n");
+    } else if (q2_.gameRunning() && q2_.game()) {
         session_.summary() += ", game";
         engine.print("map: Quake 2 game running (" + q2_.game()->moduleOrigin() + "); " +
                      std::to_string(q2_.game()->numEdicts()) + " edicts\n");
@@ -193,7 +196,17 @@ void Quake2View::update(realms::Engine &engine, const realms::WalkInput &input, 
         poses_.clear();
     }
     if (!q2_.gameRunning()) {
-        session_.update(engine, input, renderYaw, renderPitch, dt);
+        // connected to a server, before its first snapshot: walk, but keep
+        // the messages going
+        if (q2_.connected())
+            q2_.frame(realms::Quake2Module::userCmd(walkInput(input, renderYaw, renderPitch), attack), dt);
+        if (!q2_.gameRunning()) {
+            session_.update(engine, input, renderYaw, renderPitch, dt);
+            return;
+        }
+        // the server's first snapshot just came
+        q2_.mirrorPlayer(session_.walker());
+        syncPoses();
         return;
     }
     q2_.setKickAngles(engine.cvarBool("cl_kickangles", true)); // Yamagi Quake II's cl_kickangles
@@ -238,6 +251,7 @@ bool Quake2View::placedTransform(int model, std::array<float, 16> &out) const {
 
 bool Quake2View::respawn(realms::Engine &engine) {
     if (!session_.active()) return false;
+    if (q2_.connected()) return false; // the server's game respawns its players
     if (q2_.gameRunning()) {
         std::string why;
         if (q2_.restartGame(engine, why)) {

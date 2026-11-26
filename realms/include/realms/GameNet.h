@@ -24,13 +24,44 @@
 #include <climits>
 #include <cstdint>
 #include <deque>
+#include <string>
 #include <utility>
 #include <vector>
 
 namespace realms {
 
-// Reliable message types (the first byte).
-enum : uint8_t { kGameNetEvents = 1 };
+// The version of everything below and of the connect handshake
+// (realms/GameNetServer.h); client and server must have the same.
+constexpr int kGameNetProtocol = 1;
+
+// Reliable message types (the first byte), server to client:
+// kGameNetEvents (see the top), kGameNetServerCommand + text: "playernum <n>"
+// (the client's slot: it views from edict n + 1), "disconnect\n<reason>"
+// (dropped), "reconnect" (the server changes maps: connect again).
+enum : uint8_t { kGameNetEvents = 1, kGameNetServerCommand = 2 };
+// Client to server, each followed by its text: a client command for the
+// game ("inven", "use shotgun", "say hi"...), userinfo changes
+// ("\fov\100\hand\1"), begin (the map is loaded: enter the game,
+// or get everything again), disconnect.
+enum : uint8_t { kGameNetStringCmd = 1, kGameNetUserinfo = 2, kGameNetBegin = 3, kGameNetDisconnect = 4 };
+
+// One usercmd and the time it covers, numbered by the client (1, 2, ...).
+// Each client message's unreliable part is its newest usercmds (the last
+// kGameNetUserCmdsPerMessage), so a lost message loses no movement: the
+// server applies the ones numbered after the last it applied.
+struct GameNetUserCmd {
+    uint32_t number = 0;
+    float seconds = 0.0f;
+    GameUserCmd cmd;
+};
+constexpr size_t kGameNetUserCmdsPerMessage = 3;
+// varint count, varint first number, then each: f32 seconds, forward,
+// side, up, pitch, yaw, u8 buttons (1 attack, 2 use), varint impulse.
+// The numbers must follow each other.
+std::vector<uint8_t> encodeGameNetUserCmds(const std::vector<GameNetUserCmd> &cmds);
+bool decodeGameNetUserCmds(const uint8_t *data, size_t size, std::vector<GameNetUserCmd> &out);
+// Userinfo text ("\key\value..."): the value of `key`, "" without one.
+std::string gameNetInfoValue(const std::string &info, const std::string &key);
 
 // Server side, one per client.
 class GameNetEncoder {

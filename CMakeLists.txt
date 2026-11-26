@@ -792,6 +792,12 @@ add_test(NAME realms_game_demo COMMAND realms_game_demo_test)
 add_executable(realms_net_test tests/realms/net_test.cpp)
 target_link_libraries(realms_net_test PRIVATE realms_quake2)
 add_test(NAME realms_net COMMAND realms_net_test)
+# Multiplayer on 127.0.0.1: the connect handshake, snapshots and usercmds
+# with a stand-in game, and connect / disconnect / reconnect.
+add_executable(realms_netplay_test tests/realms/netplay_test.cpp)
+target_link_libraries(realms_netplay_test PRIVATE realms_quake2)
+add_test(NAME realms_netplay COMMAND realms_netplay_test)
+set_tests_properties(realms_netplay PROPERTIES ENVIRONMENT "REALMS_CORE=")
 
 # Quake 2 client effects (realms::GameEffects): temp entities, muzzle
 # flashes, trails, lights, explosions - no game module needed.

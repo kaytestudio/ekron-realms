@@ -297,7 +297,7 @@ struct GameImports {
         if (!gServer) return;
         q2::PmoveParams params;
         params.airAccelerate = gServer->engine_->cvarFloat("sv_airaccelerate", 0.0f) *
-                               (gServer->engine_->cvarFloat("deathmatch", 0.0f) != 0.0f ? 1.0f : 0.0f);
+                               (gServer->deathmatch_ ? 1.0f : 0.0f);
         q2::Pmove(pm, params);
     }
     static void multicast(q2vec3_t origin, q2multicast_t) {
@@ -697,10 +697,13 @@ bool GameServer::start(Engine &engine, const GameServerConfig &config, std::stri
     deathmatch_ = config.deathmatch;
     coop_ = config.coop && !config.deathmatch;
     const int slots = maxClientsFor(deathmatch_, coop_, config.maxClients);
-    engine.registerCvar("deathmatch", "0", REALMS_CVAR_LATCH);
-    engine.registerCvar("coop", "0", REALMS_CVAR_LATCH);
-    engine.registerCvar("skill", std::to_string(config.skill), REALMS_CVAR_LATCH);
-    engine.registerCvar("maxclients", "1", REALMS_CVAR_SERVERINFO | REALMS_CVAR_LATCH);
+    // Not latched in the engine: the game's copies of its latched cvars
+    // stay as they were at Init (syncCvars), so "deathmatch 1" typed during
+    // a game is for the next one, as Cvar_GetLatchedVars makes it.
+    engine.registerCvar("deathmatch", "0", REALMS_CVAR_SERVERINFO);
+    engine.registerCvar("coop", "0", 0);
+    engine.registerCvar("skill", std::to_string(config.skill), 0);
+    engine.registerCvar("maxclients", "1", REALMS_CVAR_SERVERINFO);
     engine.forceSetCvar("deathmatch", deathmatch_ ? "1" : "0");
     engine.forceSetCvar("coop", coop_ ? "1" : "0");
     engine.forceSetCvar("maxclients", std::to_string(slots));
@@ -1713,13 +1716,16 @@ int GameServer::findIndex(const char *name, int start, int max, bool create) {
 
 q2cvar_t *GameServer::cvarGet(const char *name, const char *value, int flags) {
     if (!name || !engine_) return nullptr;
+    // CVAR_LATCH stays with the game's copy (see syncCvars): the engine's
+    // cvar takes new values at once, the game sees them from its next Init
+    const int32_t engineFlags = flags & ~int32_t(REALMS_CVAR_LATCH);
     for (auto &m : cvars_)
         if (m->name == name) {
-            if (flags) engine_->registerCvar(name, value ? value : "", flags);
+            if (engineFlags) engine_->registerCvar(name, value ? value : "", engineFlags);
             m->cv.flags |= flags;
             return &m->cv;
         }
-    engine_->registerCvar(name, value ? value : "", flags);
+    engine_->registerCvar(name, value ? value : "", engineFlags);
     auto m = std::make_unique<CvarMirror>();
     m->name = name;
     m->value = engine_->cvarString(name, value ? value : "");
@@ -1740,13 +1746,16 @@ q2cvar_t *GameServer::cvarSet(const char *name, const char *value, bool force) {
     const int32_t r = force ? engine_->forceSetCvar(name, v) : engine_->setCvar(name, v);
     if (r == REALMS_CVAR_SET_UNKNOWN) engine_->registerCvar(name, v, 0);
     q2cvar_t *cv = cvarGet(name, v.c_str(), 0);
-    syncCvars();
+    syncCvars(name); // the game's own set reaches its copy, latched or not
     return cv;
 }
 
-void GameServer::syncCvars() {
+void GameServer::syncCvars(const char *alsoLatched) {
     if (!engine_) return;
     for (auto &m : cvars_) {
+        // Cvar_GetLatchedVars: a latched cvar (deathmatch, coop, maxclients,
+        // skill...) keeps its value until the next game
+        if ((m->cv.flags & REALMS_CVAR_LATCH) && !(alsoLatched && m->name == alsoLatched)) continue;
         std::string now = engine_->cvarString(m->name, m->value);
         if (now != m->value) {
             m->value = std::move(now);

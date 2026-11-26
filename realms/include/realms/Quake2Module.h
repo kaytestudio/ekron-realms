@@ -9,6 +9,8 @@
 #include "realms/GameDemo.h"
 #include "realms/GameEffects.h"
 #include "realms/GameLayout.h"
+#include "realms/GameNetClient.h"
+#include "realms/GameNetServer.h"
 #include "realms/GameServer.h"
 #include "realms/GameSound.h"
 #include "realms/GameView.h"
@@ -58,19 +60,33 @@ public:
 
     // The engine's loaded map: lightmaps (BSP face geometry), then the game
     // when it is wanted, available and the map starts with a worldspawn.
+    // A deathmatch or coop game (the cvars deathmatch, coop, maxclients)
+    // is a listen server: others connect on UDP port `port` (27910) and the
+    // local player plays as client 0. When the network client
+    // (realms/GameNetClient.h) is connected to a server whose map this is,
+    // the module plays that server's game instead (connected()).
     // `geometry` is what the sandbox draws (from loadMapGeometry). Never
     // fails: without a game the sandbox walks the map itself; `why` says
     // why the game isn't running ("" when it is, or wasn't wanted).
     void open(Engine &engine, const MapGeometry &geometry, const Quake2ModuleConfig &config, std::string &why);
     void close();
-    // Restarts the game on the same map (respawn; it ends a playing demo);
-    // false + why on failure.
+    // Restarts the game on the same map (respawn; it ends a playing demo;
+    // a listen server's clients reconnect); false + why on failure, and
+    // while connected to a server.
     bool restartGame(Engine &engine, std::string &why);
 
     // ---- game
-    // The game or a demo runs: there is a game to draw and play. Everything
-    // below reads the client (client()), so it works the same for both.
+    // The game, a demo or a server's game runs: there is a game to draw and
+    // play. Everything below reads the client (client()), so it works the
+    // same for all three.
     bool gameRunning() const;
+    // Playing a server's game: frame() sends the usercmds to it and applies
+    // its snapshots (gameRunning() from the first one). Ends when the
+    // server drops the client (takeGameFailure has why) or changes maps
+    // (the new map is loaded when it answers again).
+    bool connected() const { return net_ != nullptr; }
+    // The listen server of a deathmatch or coop game (nullptr: none).
+    const GameNetServer *listenServer() const { return listen_.get(); }
     // The server, while the game itself runs (nullptr during a demo).
     const GameServer *game() const;
     GameServer *game();
@@ -145,7 +161,8 @@ public:
     // ---- demos (realms/GameDemo.h)
     // Quake 2's "record <name>": what the client gets from now on goes to
     // <writable root>/demos/<name>.ekd, starting with everything it holds.
-    // Only while the game runs (not during a demo); false + why.
+    // Only while the game or a server's game runs (not during a demo);
+    // false + why.
     bool startRecording(Engine &engine, const std::string &name, std::string &why);
     // "stop": closes the demo file ("Stopped demo: ..." on the console);
     // false when not recording. A map change or the game stopping stops it too.
@@ -221,6 +238,15 @@ public:
 private:
     bool serverRunning() const { return game_ && game_->running(); }
     bool startGame(Engine &engine, std::string &why);
+    // Ends the game and its listen server (which tells its clients `command`).
+    void stopServer(const std::string &command);
+    void startListening(Engine &engine);
+    // Plays the connected server's game on this map; false + why when it can't.
+    bool attachNet(Engine &engine, GameNetClient &net, std::string &why);
+    void detachNet();
+    void netFrame(const GameUserCmd &cmd, double dt);
+    // A snapshot to the demo being recorded.
+    void record(const GameSnapshot &snapshot, float seconds);
     bool startDemo(Engine &engine, const std::string &file, std::string &why);
     void advanceDemo(double dt);
     void finishDemo();
@@ -236,6 +262,10 @@ private:
     std::string executableDir_;
     Engine *engine_ = nullptr; // open()'s, for console messages
     std::unique_ptr<GameServer> game_;
+    std::unique_ptr<GameNetServer> listen_;
+    std::unique_ptr<GameServerNetGame> listenGame_;
+    GameNetClient *net_ = nullptr; // connected to a server
+    int viewEntity_ = 1;           // the player's edict (client number + 1)
     GameClient client_;
     GameDemoWriter recorder_;
     std::string recordFile_; // "demos/<name>.ekd", for messages

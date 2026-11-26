@@ -206,6 +206,10 @@ public:
     // Frame clock: accumulates real time and advances the core in whole
     // milliseconds, running the command buffer (Qcommon_Frame).
     void frame(double seconds);
+    // Called by every frame() after the command buffer ran, with its
+    // seconds (the network client's handshake, realms/GameNetClient.h).
+    // Dropped by shutdown().
+    void addFrameHook(std::function<void(double seconds)> hook);
 
     // Console ---------------------------------------------------------------
     const std::deque<ConsoleLine> &console() const { return console_; }
@@ -235,6 +239,7 @@ private:
     std::deque<ConsoleLine> console_;
     uint64_t consoleRevision_ = 0;
     double msecAccumulator_ = 0.0;
+    std::vector<std::function<void(double)>> frameHooks_;
     MeshMap meshMap_;
     std::string mapPath_;
 };

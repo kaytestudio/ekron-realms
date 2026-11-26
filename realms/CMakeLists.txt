@@ -53,6 +53,8 @@ add_library(realms_quake2 STATIC
     "${CMAKE_CURRENT_LIST_DIR}/src/GameServer.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/src/GameClient.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/src/GameNet.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/src/GameNetClient.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/src/GameNetServer.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/src/Net.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/src/NetChannel.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/src/GameView.cpp"
