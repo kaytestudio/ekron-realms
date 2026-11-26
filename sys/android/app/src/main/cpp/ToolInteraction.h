@@ -57,6 +57,7 @@ public:
  void rotate(World&w,const physics::CollisionMesh*mesh=nullptr){
   if(!holding())return;
   Object candidate=w.objects[held];candidate.rotation=(candidate.rotation+1)%4;
+  if(candidate.type==8)candidate.yaw+=1.57079632679f; // cars steer by yaw (driverSeat, the car model)
   if((mesh&&objectOverlap(*mesh,candidate,display))||overlapsBodies(w,candidate,held,held,display))return;
   w.objects[held]=candidate;
  }

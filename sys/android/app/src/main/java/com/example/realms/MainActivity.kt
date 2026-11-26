@@ -22,6 +22,7 @@ import android.provider.OpenableColumns
 import android.provider.Settings
 import android.graphics.Color
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -45,6 +46,8 @@ class MainActivity : GameActivity() {
     private external fun nativeVertical(value: Float)
     private external fun nativeDroneInput(throttle:Float,yaw:Float,pitch:Float,roll:Float)
     private external fun nativeMove(right: Float, forward: Float)
+    private external fun nativeDriveSteer(steer: Float)
+    private external fun nativeDriveThrottle(throttle: Float)
     private external fun nativeLook(dx: Float, dy: Float)
     private external fun nativeRemotePlayers(values: FloatArray)
     private external fun nativeLoadMap(path: String)
@@ -82,6 +85,9 @@ class MainActivity : GameActivity() {
     private var worldReady = false
     private var flyingNow = false
     private lateinit var joystick: StickView
+    private lateinit var driveStick: StickView
+    private lateinit var movementControls: LinearLayout
+    private var wasDriving = false
     private val toolsState = ToolState()
     private var requestedTool: HandTool? = null
     private lateinit var toolActions: LinearLayout
@@ -103,6 +109,7 @@ class MainActivity : GameActivity() {
     private var mapGame = false
     private lateinit var crosshair: TextView
     private lateinit var proneControl: HudButton
+    private lateinit var viewToggle: HudButton
     // Localized via res/values{,-ru,-pt-rPT,-es-rES}; resolved lazily because resources are not ready during construction.
     private val items by lazy { BuildCatalog.entries.map { getString(it.labelRes) }.toTypedArray() }
     private val catalogImages=arrayOfNulls<Bitmap>(BuildCatalog.entries.size)
@@ -153,9 +160,20 @@ class MainActivity : GameActivity() {
                     if(state.size>=12){interactionCode=state[11].toInt();interactionControl.visibility=if(interactionCode>0)View.VISIBLE else View.GONE
                         interactionControl.caption=when(interactionCode){6->getString(R.string.interaction_connect);1->getString(R.string.interaction_open);2->getString(R.string.interaction_close);3->getString(R.string.interaction_sit);4->getString(R.string.interaction_exit);else->""}
                         interactionControl.contentDescription=interactionControl.caption;interactionControl.invalidate()
+                        if(::driveStick.isInitialized){val driving=interactionCode==4;driveStick.visibility=if(driving)View.VISIBLE else View.GONE
+                            if(!driving){driveStick.reset();if(wasDriving){joystick.reset();nativeDriveThrottle(0f)}}
+                            wasDriving=driving
+                            // Keep the exit button clear of the drive stick area.
+                            val stick=(resources.configuration.screenHeightDp*.32f).toInt().coerceIn(120,184)
+                            val lp=interactionControl.layoutParams as FrameLayout.LayoutParams
+                            val margin=dp(if(driving)stick+30 else 8)
+                            if(lp.bottomMargin!=margin){lp.bottomMargin=margin;interactionControl.layoutParams=lp}
+                        }
                     }
                     if(state.size>=13){freezeControl.caption=if(state[12]>.5f) getString(R.string.action_unfreeze) else getString(R.string.action_freeze);freezeControl.contentDescription=freezeControl.caption;freezeControl.invalidate()}
                     if(state.size>=15){crouchControl.isSelected=state[14].toInt()==1;proneControl.isSelected=state[14].toInt()==2}
+                    // status slot 23: the sandbox camera is in the third person
+                    if(state.size>=24 && ::viewToggle.isInitialized){ viewToggle.isSelected=state[23]>.5f }
                     renderTools()
                 }
                 val nowMap = state.size >= 18 && state[17] > 0.5f
@@ -267,6 +285,7 @@ class MainActivity : GameActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        collectExitReport()
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         val overlay = FrameLayout(this).apply { isMotionEventSplittingEnabled = true }
         hud=overlay
@@ -298,9 +317,18 @@ class MainActivity : GameActivity() {
         val screenHeight = resources.configuration.screenHeightDp
         val actionSize = (screenHeight * .145f).toInt().coerceIn(60, 64)
         val stickSize = (screenHeight * .32f).toInt().coerceIn(120, 184)
-        joystick = StickView(this) { right, forward -> weapon.moving=kotlin.math.hypot(right,forward)>.1f;nativeMove(right, forward) }
+        joystick = StickView(this) { right, forward ->
+            // Behind the wheel the left stick is the gas pedal: up = forward, down = reverse.
+            if(interactionCode==4){weapon.moving=false;nativeDriveThrottle(forward)}
+            else {weapon.moving=kotlin.math.hypot(right,forward)>.1f;nativeMove(right, forward)}
+        }
         overlay.addView(joystick, FrameLayout.LayoutParams(dp(stickSize), dp(stickSize), Gravity.BOTTOM or Gravity.START).apply {
             leftMargin = dp(14); bottomMargin = dp(22)
+        })
+        // Right stick only steers; the throttle lives on the left stick.
+        driveStick = StickView(this) { steer, _ -> nativeDriveSteer(steer) }.apply { visibility = View.GONE }
+        overlay.addView(driveStick, FrameLayout.LayoutParams(dp(stickSize), dp(stickSize), Gravity.BOTTOM or Gravity.END).apply {
+            rightMargin = dp(14); bottomMargin = dp(22)
         })
         fun action(caption: String, icon: String, click: () -> Unit): HudButton = HudButton(this, caption, icon).apply {
             setOnClickListener { click() }
@@ -308,6 +336,8 @@ class MainActivity : GameActivity() {
         val pause = action("", "pause") { showPauseMenu() }.apply { visualScale=.73f }
         pause.contentDescription = getString(R.string.pause)
         overlay.addView(pause, FrameLayout.LayoutParams(dp(60), dp(60), Gravity.TOP or Gravity.END).apply { topMargin=dp(6); rightMargin=dp(8) })
+        viewToggle=action("", "eye") { if(worldReady && active && !paused){ nativeCommand(46); viewToggle.isSelected=!viewToggle.isSelected } }.apply { visualScale=.73f; contentDescription=getString(R.string.action_view_toggle) }
+        overlay.addView(viewToggle, FrameLayout.LayoutParams(dp(60), dp(60), Gravity.TOP or Gravity.END).apply { topMargin=dp(126); rightMargin=dp(8) })
         val movement = LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; gravity=Gravity.CENTER; isMotionEventSplittingEnabled=true }
         val jump = action(getString(R.string.action_jump), "jump") { nativeCommand(8) }
         // Fire on press, not release. The joystick keeps its own pointer and axes untouched.
@@ -335,6 +365,7 @@ class MainActivity : GameActivity() {
             true
         }
         for (control in listOf(fireControl,jump,crouchControl)) movement.addView(control, LinearLayout.LayoutParams(dp(actionSize),dp(actionSize)))
+        movementControls=movement
         overlay.addView(movement, FrameLayout.LayoutParams(-2,-2,Gravity.BOTTOM or Gravity.END).apply { bottomMargin=dp(8);rightMargin=dp(8) })
         // Quake 2 (map mode with the game): help computer and inventory, left of pause;
         // while the inventory is open, previous / next / use under them. The game draws both screens.
@@ -395,7 +426,8 @@ class MainActivity : GameActivity() {
         selectedSlot.addView(selectedImage,FrameLayout.LayoutParams(-1,-1))
         selectedSwatch=MaterialBlockView(this,selectedSurface)
         selectedSlot.addView(selectedSwatch,FrameLayout.LayoutParams(dp(25),dp(25),Gravity.BOTTOM or Gravity.END))
-        // Selection art remains available inside the catalogue, not as a duplicate HUD opener.
+        // Show the current selection right next to the place button so it is always visible.
+        spawnActions.addView(selectedSlot,LinearLayout.LayoutParams(dp(64),dp(64)).apply { bottomMargin=dp(4);rightMargin=dp(4) })
         addControl(spawnActions,"","build") { if(requestedTool==null)nativeCommand(200+BuildCatalog.entries[selected].nativeType) }.apply { contentDescription=getString(R.string.action_place_selected) }
         val turns=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
         addControl(turns,"","left") { nativeCommand(31) }.apply { contentDescription=getString(R.string.action_turn_left) }
@@ -516,7 +548,8 @@ class MainActivity : GameActivity() {
         panel.addView(heading)
         val height=resources.configuration.screenHeightDp
         val left=(height*.32f).toInt().coerceIn(120,184)+28
-        hud.addView(panel,FrameLayout.LayoutParams((hud.width-dp(left+150)).coerceAtLeast(dp(260)),dp((height-144).coerceAtLeast(152)),Gravity.TOP or Gravity.START).apply { leftMargin=dp(left);topMargin=dp(60) })
+        // Large grid area: keep only the right-side controls clear, use most of the screen height.
+        hud.addView(panel,FrameLayout.LayoutParams((hud.width-dp(left+96)).coerceAtLeast(dp(260)),dp((height-104).coerceAtLeast(152)),Gravity.TOP or Gravity.START).apply { leftMargin=dp(left);topMargin=dp(52) })
         popup=panel;return panel
     }
     private fun renderTools() {
@@ -524,6 +557,9 @@ class MainActivity : GameActivity() {
         val tools=interactionCode!=4&&!mapMode
         weapon.tool=toolsState.tool
         weapon.visibility=if(toolsState.viewmodelVisible&&tools)View.VISIBLE else View.GONE
+        // Jump/crouch sit on top of the drive stick corner; hide them while driving.
+        if(::movementControls.isInitialized)movementControls.visibility=if(interactionCode!=4||mapMode)View.VISIBLE else View.GONE
+        if(::viewToggle.isInitialized)viewToggle.visibility=if(!mapMode)View.VISIBLE else View.GONE
         updateSelectedIcon()
         catalogControl.visibility=if(tools)View.VISIBLE else View.GONE
         if(::switchControl.isInitialized)switchControl.visibility=if(!mapMode)View.VISIBLE else View.GONE
@@ -582,19 +618,17 @@ class MainActivity : GameActivity() {
             override fun getView(row: Int, convertView: View?, parent: ViewGroup): View = LinearLayout(this@MainActivity).apply {
                 val position=visibleItems[row]
                 orientation=LinearLayout.VERTICAL;gravity=Gravity.CENTER
-                contentDescription=items[position];minimumHeight=dp(84)
-                layoutParams=AbsListView.LayoutParams(-1,dp(84))
+                contentDescription=items[position];minimumHeight=dp(88)
+                layoutParams=AbsListView.LayoutParams(-1,dp(88))
                 background=GradientDrawable().apply {setColor(if(position==selected)0xaa477264.toInt() else 0x443b4652);cornerRadius=dp(6).toFloat();if(position==selected)setStroke(dp(1),0xff92d9ac.toInt())}
-                val item=BuildCatalog.entries[position]
-                val illustration: View=if(item.nativeType==0||item.nativeType==9||item.nativeType==10||item.nativeType==11||item.nativeType==12)MaterialBlockView(this@MainActivity,item.defaultSurface).apply { texture=materialImages[item.defaultSurface] }
-                else ImageView(this@MainActivity).apply {
+                val illustration: View = ImageView(this@MainActivity).apply {
                     scaleType=ImageView.ScaleType.FIT_CENTER
                     val image=catalogImages[position]
                     if(image!=null)setImageBitmap(image) else setImageResource(android.R.drawable.ic_menu_gallery)
                 }
                 illustration.isClickable=false;illustration.isFocusable=false
                 addView(illustration,LinearLayout.LayoutParams(-1,0,1f))
-                addView(label(items[position],10f).apply { gravity=Gravity.CENTER;isClickable=false },LinearLayout.LayoutParams(-1,dp(22)))
+                addView(label(items[position],10f).apply { gravity=Gravity.CENTER;isClickable=false;maxLines=2 },LinearLayout.LayoutParams(-1,dp(28)))
             }
         }
         catalogAdapter=adapter;grid.adapter=adapter;container.addView(grid,LinearLayout.LayoutParams(-1,0,1f))
@@ -608,7 +642,7 @@ class MainActivity : GameActivity() {
     }
     private fun setPaused(value: Boolean) {
         if(::toolWheel.isInitialized)toolWheel.cancel()
-        closePopup(false);paused=value;joystick.reset();lookArea.reset();weapon.running=!value && active;nativeVertical(0f)
+        closePopup(false);paused=value;joystick.reset();lookArea.reset();if(::driveStick.isInitialized)driveStick.reset();weapon.running=!value && active;nativeVertical(0f)
         nativeReady(worldReady && active && !paused)
     }
     private fun showPauseMenu() {
@@ -616,7 +650,8 @@ class MainActivity : GameActivity() {
         setPaused(true)
         val dialog=AlertDialog.Builder(this).setTitle(R.string.pause)
             .setItems(arrayOf(R.string.pause_resume,if(flyingNow) R.string.pause_flight_off else R.string.pause_flight_on,R.string.pause_road,R.string.pause_restore_uaz,
-                R.string.pause_spawn,R.string.pause_online,R.string.pause_disconnect,R.string.pause_language,R.string.pause_maps).map { getString(it) }.toTypedArray()) { _, which ->
+                R.string.pause_spawn,R.string.pause_online,R.string.pause_disconnect,R.string.pause_language,R.string.pause_maps,
+                R.string.pause_camera,R.string.pause_exit_report).map { getString(it) }.toTypedArray()) { _, which ->
                 uiSound(0);setPaused(false)
                 if(which==1)nativeCommand(6)
                 if(which==2)nativeCommand(7)
@@ -626,6 +661,8 @@ class MainActivity : GameActivity() {
                 if(which==6)online.disconnect()
                 if(which==7)handler.post { openLanguageSettings() }
                 if(which==8)handler.post { showMapPicker() }
+                if(which==9)nativeCommand(46)
+                if(which==10)handler.post { showExitReport() }
             }.create()
         dialog.setOnDismissListener { setPaused(false);hideSystemUi() }
         dialog.setOnCancelListener { uiSound(2) }
@@ -826,7 +863,53 @@ class MainActivity : GameActivity() {
         }
         dialog.show()
     }
-
+    @Volatile private var exitReport: String? = null
+    /** Android's record of the last process exits (API 30), gathered off the UI thread for the pause menu. */
+    private fun collectExitReport() {
+        catalogExecutor.execute {
+            val report = runCatching {
+                val manager=getSystemService(ACTIVITY_SERVICE) as android.app.ActivityManager
+                val memory=android.app.ActivityManager.MemoryInfo().also { manager.getMemoryInfo(it) }
+                val exits=manager.getHistoricalProcessExitReasons(packageName,0,3)
+                val version=runCatching { packageManager.getPackageInfo(packageName,0).versionName }.getOrNull().orEmpty()
+                buildString {
+                    append("${getString(R.string.app_name)} $version\n")
+                    append(getString(R.string.exit_report_device,android.os.Build.MANUFACTURER,android.os.Build.MODEL)).append('\n')
+                    append("Android: ${android.os.Build.VERSION.RELEASE}\n")
+                    append(getString(R.string.exit_report_memory,(memory.totalMem/1048576).toInt(),(memory.availMem/1048576).toInt())).append('\n')
+                    if(exits.isEmpty())append(getString(R.string.exit_report_none)).append('\n')
+                    for(e in exits){
+                        val reason=when(e.reason){
+                            android.app.ApplicationExitInfo.REASON_CRASH_NATIVE -> getString(R.string.exit_reason_native)
+                            android.app.ApplicationExitInfo.REASON_CRASH -> getString(R.string.exit_reason_crash)
+                            android.app.ApplicationExitInfo.REASON_LOW_MEMORY -> getString(R.string.exit_reason_low_memory)
+                            android.app.ApplicationExitInfo.REASON_ANR -> getString(R.string.exit_reason_anr)
+                            else -> getString(R.string.exit_reason_code,e.reason)
+                        }
+                        append("\n${java.util.Date(e.timestamp)}: $reason, status=${e.status}, PSS=${e.pss} KB, RSS=${e.rss} KB\n${e.description.orEmpty()}\n")
+                        runCatching { if(e.reason==android.app.ApplicationExitInfo.REASON_ANR) e.traceInputStream?.use { input ->
+                            val data=ByteArray(8000);val n=input.read(data);if(n>0)append(String(data,0,n,Charsets.UTF_8))
+                            Unit
+                        }; Unit }
+                    }
+                }.take(28000)
+            }.getOrElse { getString(R.string.exit_report_failed,it.javaClass.simpleName) }
+            exitReport=report
+        }
+    }
+    private fun showExitReport(){
+        setPaused(true)
+        val report=exitReport ?: getString(R.string.exit_report_pending)
+        AlertDialog.Builder(this).setTitle(R.string.exit_report_title).setMessage(report)
+            .setPositiveButton(R.string.exit_report_copy) { _,_ ->
+                (getSystemService(CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Ekron crash",report))
+            }.setNegativeButton(R.string.close,null).setOnDismissListener { setPaused(false);hideSystemUi() }.show()
+    }
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        // V: first / third person in the sandbox (a Realms map keeps its own key bindings)
+        if(keyCode==KeyEvent.KEYCODE_V && worldReady && !paused && !mapMode){nativeCommand(46);return true}
+        return super.onKeyUp(keyCode,event)
+    }
     override fun onResume() {
         super.onResume()
         active = true
@@ -839,7 +922,7 @@ class MainActivity : GameActivity() {
         if(::fpvControls.isInitialized)fpvControls.reset()
         closePopup();weapon.running=false
         active = false; nativeReady(false)
-        if (::joystick.isInitialized) joystick.reset();if (::lookArea.isInitialized)lookArea.reset()
+        if (::joystick.isInitialized) joystick.reset();if (::driveStick.isInitialized) driveStick.reset();if (::lookArea.isInitialized)lookArea.reset()
         try { player?.pause() } catch (_: IllegalStateException) {}
         handler.removeCallbacks(poll); nativeVertical(0f)
         super.onPause()
@@ -852,7 +935,7 @@ class MainActivity : GameActivity() {
     override fun onDestroy() { catalogExecutor.shutdownNow();mapImportExecutor.shutdown();nativeReady(false); player?.release(); player = null; handler.removeCallbacks(poll); super.onDestroy() }
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) hideSystemUi() else { nativeVertical(0f); if (::joystick.isInitialized) joystick.reset();if (::lookArea.isInitialized)lookArea.reset() }
+        if (hasFocus) hideSystemUi() else { nativeVertical(0f); if (::joystick.isInitialized) joystick.reset();if (::driveStick.isInitialized) driveStick.reset();if (::lookArea.isInitialized)lookArea.reset() }
     }
     @Suppress("DEPRECATION")
     private fun hideSystemUi() {

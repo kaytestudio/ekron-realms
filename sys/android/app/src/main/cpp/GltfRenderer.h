@@ -16,13 +16,14 @@ public:
     // modelTransform (glTF maps): for batches of inline model n > 0, the
     // objectTransform to draw them with; false skips them (hidden). The
     // caller's objectTransform is restored to identity afterwards.
+    // rotorAngle: radians the rotor meshes are turned about their centres.
     using ModelTransform=std::function<bool(int model,std::array<float,16>&out)>;
-    void draw(GLuint program,float eyeX,float eyeZ,bool hologram=false,const ModelTransform *modelTransform=nullptr)const;
+    void draw(GLuint program,float eyeX,float eyeZ,bool hologram=false,const ModelTransform *modelTransform=nullptr,float rotorAngle=0)const;
     void release(); // Call while owning context is current.
     bool ready()const{return !uploading_&&!meshes_.empty();}
     const Scene &scene()const{return scene_;}
 private:
-    struct Mesh {GLuint vao=0,vbo=0;GLsizei count=0;int material=-1;int model=0;float x=0,z=0;};
+    struct Mesh {GLuint vao=0,vbo=0;GLsizei count=0;int material=-1;int model=0;float x=0,z=0;bool rotor=false;std::array<float,3> pivot{};};
     Scene scene_;
     bool uploading_=false;
     size_t nextMaterial_=0,nextBatch_=0;

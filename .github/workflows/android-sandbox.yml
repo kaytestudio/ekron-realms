@@ -239,6 +239,12 @@ jobs:
             "/tmp/$out"
           }
 
+          # Broadphase memory bounds and invalid states, under the sanitizers
+          g++ -std=c++17 -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -Wall -Wextra -Werror -pedantic tests/native/broadphase_safety_test.cpp -o /tmp/ekron-broadphase-safety
+          /tmp/ekron-broadphase-safety
+          run_test ekron-player-blast-drone -O2 tests/native/player_blast_drone_test.cpp
+          run_test ekron-archive-catalog -O2 tests/native/archive_catalog_test.cpp
+          run_test ekron-car-yaw -O2 tests/native/car_yaw_test.cpp
           run_test ekron-contact-energy -O2 tests/native/contact_energy_test.cpp
           run_test ekron-fpv-drone -O2 tests/native/fpv_drone_test.cpp
           run_test ekron-fpv-assets -O2 tests/native/fpv_assets_test.cpp sys/android/app/src/main/cpp/GltfScene.cpp sys/android/app/src/main/cpp/ImageDecode.cpp

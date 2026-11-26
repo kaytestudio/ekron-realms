@@ -22,9 +22,19 @@ struct Material {
     float roughness=.9f;
     bool worldSpaceUV=false;
 };
+// Identical source image + wrap modes can share GPU storage. Material color,
+// roughness and transparency remain per draw, not part of the texture object.
+inline size_t sharedTextureOwner(const std::vector<Material>&materials,size_t index){
+ const auto&m=materials.at(index);
+ for(size_t j=0;j<index;j++){const auto&p=materials[j];if(p.image==m.image&&p.wrapS==m.wrapS&&p.wrapT==m.wrapT)return j;}
+ return index;
+}
 // model: the Realms inline model (door, platform) the node belongs to, 0 = world.
-struct Batch { std::vector<Vertex> vertices;int material=-1;bool decorativeWire=false;int model=0; };
+// rotor: a spinning drone propeller (LoadOptions::animateRotors).
+struct Batch { std::vector<Vertex> vertices;int material=-1;bool decorativeWire=false;int model=0;bool rotor=false; };
 struct LoadOptions {
+    // Mark the FPV drone's four propeller nodes as rotors (GltfRenderer spins them).
+    bool animateRotors=false;
     bool level=true;
     bool buildPhysics=true;
     // Keep the file's own coordinates (node transforms applied, no
