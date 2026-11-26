@@ -17,6 +17,7 @@
 | `V` / `H` | Toggle FPV/chase drone camera / Return FPV drone home |
 | `N` / `P` / `F11` / `Esc` | Toggle `noclip` flight / Copy `spawn.json` / Fullscreen / Pause menu |
 | `G` / `L` | Open the in-game store / Cycle UI language (English → Русский → Português → Español) |
+| `F12` | Screenshot (Quake 2's `screenshot`, see [Screenshots](#screenshots)) |
 | `` ` `` | Realms console (Quake 2 style: `set`, `seta`, `alias`, `exec`, `cvarlist`, `cmdlist`, `noclip`, `respawn`, `play`, `soundlist`, `s_volume`, `quit`…) |
 
 ## Gamepad
@@ -115,6 +116,15 @@ glTF maps run the game too. Name nodes (Blender empties, for example) after Quak
 - Demos are kept in the user data folder (see [Quake 2 data](#quake-2-data-baseq2)) as `demos/<name>.ekd`. `demomap` looks for them in the other data places too. A name is up to 32 letters, digits, `_` or `-`.
 - Recording goes on through a respawn. It stops on its own when the map changes or the game stops. A demo recorded on another version of the map is refused. A file cut short, by a crash for example, plays up to where it ends.
 - `timedemo 1`, then `demomap <name>`: a benchmark, as in Quake 2. Each recorded frame is drawn once, one after the other, as fast as the computer can draw them, and at the end the console shows `<frames> frames, <seconds> seconds: <fps> fps`. On the desktop, vsync is off while it runs. On Android and iOS the frame rate can't go above the screen's refresh rate. `timedemo 0` (the default) plays demos at their own speed again.
+
+### Screenshots
+
+`F12` or `screenshot` in the console saves what is on the screen, on the desktop, in maps and in the city alike. This is Quake 2's command with Yamagi Quake II's options: `screenshot [tga|bmp|png|jpg] [quality]`.
+
+- The format is `tga` when left out. The number is the `png` compression level (0 to 9, default 7) or the `jpg` quality (1 to 100, default 85); the other formats ignore it.
+- The picture is the whole window at its full resolution, with the HUD, the console and any menu that is open. It goes to the `scrnshot` folder in the desktop's settings folder (`~/.local/share/KayteStudio/EkronRealms/scrnshot/` on Linux, `~/Library/Application Support/KayteStudio/EkronRealms/scrnshot/` on macOS, `%APPDATA%\KayteStudio\EkronRealms\scrnshot\` on Windows), named `q2_0000.tga`, `q2_0001.tga` and so on: the first free number from 0000 to 9999. The console and a message on screen show the name, as in `Wrote q2_0000.tga`.
+- Ekron writes the files itself: uncompressed 24-bit TGA and BMP, PNG, and baseline JPEG without colour subsampling.
+- Android and iOS have no console; use the device's own screenshot there.
 
 ### Multiplayer
 

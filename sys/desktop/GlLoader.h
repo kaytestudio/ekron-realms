@@ -66,6 +66,7 @@ constexpr GLenum GL_CULL_FACE              = 0x0B44;
 constexpr GLenum GL_DEPTH_TEST             = 0x0B71;
 constexpr GLenum GL_BLEND                  = 0x0BE2;
 constexpr GLenum GL_UNPACK_ALIGNMENT       = 0x0CF5;
+constexpr GLenum GL_PACK_ALIGNMENT         = 0x0D05;
 constexpr GLenum GL_UNPACK_ROW_LENGTH      = 0x0CF2;
 constexpr GLenum GL_TEXTURE_2D             = 0x0DE1;
 constexpr GLenum GL_UNSIGNED_BYTE          = 0x1401;
@@ -119,6 +120,7 @@ using PFN_glDepthMask              = void (APIENTRYP)(GLboolean);
 using PFN_glDepthFunc              = void (APIENTRYP)(GLenum);
 using PFN_glBlendFunc              = void (APIENTRYP)(GLenum, GLenum);
 using PFN_glPixelStorei            = void (APIENTRYP)(GLenum, GLint);
+using PFN_glReadPixels             = void (APIENTRYP)(GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, void *);
 using PFN_glDrawArrays             = void (APIENTRYP)(GLenum, GLint, GLsizei);
 using PFN_glGenTextures            = void (APIENTRYP)(GLsizei, GLuint *);
 using PFN_glDeleteTextures         = void (APIENTRYP)(GLsizei, const GLuint *);
@@ -227,6 +229,7 @@ struct Api {
     PFN_glDepthFunc               DepthFunc = nullptr;
     PFN_glBlendFunc               BlendFunc = nullptr;
     PFN_glPixelStorei             PixelStorei = nullptr;
+    PFN_glReadPixels              ReadPixels = nullptr; // screenshot
     PFN_glDrawArrays              DrawArrays = nullptr;
     PFN_glGenTextures             GenTextures = nullptr;
     PFN_glDeleteTextures          DeleteTextures = nullptr;
@@ -298,6 +301,7 @@ struct Api {
         resolve(DepthFunc, "glDepthFunc");
         resolve(BlendFunc, "glBlendFunc");
         resolve(PixelStorei, "glPixelStorei");
+        resolve(ReadPixels, "glReadPixels");
         resolve(DrawArrays, "glDrawArrays");
         resolve(GenTextures, "glGenTextures");
         resolve(DeleteTextures, "glDeleteTextures");
