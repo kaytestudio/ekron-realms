@@ -114,6 +114,22 @@ std::string gameNetInfoValue(const std::string &info, const std::string &key) {
     return {};
 }
 
+bool gameNetInfoHas(const std::string &info, const std::string &key) {
+    // Info_ValueForKey: \key\value\key\value
+    size_t at = 0;
+    while (at < info.size()) {
+        if (info[at] == '\\') at++;
+        const size_t keyEnd = info.find('\\', at);
+        if (keyEnd == std::string::npos) return false;
+        const size_t valueEnd = info.find('\\', keyEnd + 1);
+        const std::string k = info.substr(at, keyEnd - at);
+        if (k == key) return true;
+        if (valueEnd == std::string::npos) return false;
+        at = valueEnd;
+    }
+    return false;
+}
+
 void GameNetEncoder::encode(const GameSnapshot &s, uint32_t sequence, uint32_t acked, std::vector<uint8_t> &unreliable,
                             std::vector<uint8_t> &reliable) {
     if (s.running) {

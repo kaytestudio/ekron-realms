@@ -9,7 +9,7 @@
 //   client: "getchallenge"
 //   server: "challenge\n<number>"
 //   client: "connect\n<protocol>\n<qport>\n<challenge>\n<userinfo>"
-//           (userinfo "\name\Player\fov\90\hand\0")
+//           (userinfo "\name\Player\fov\90\hand\0\skin\male/grunt\gender\male")
 //   server: "client_connect\n<map path>\n<map checksum>" or
 //           "print\n<why not>" (wrong protocol or challenge, server full)
 // The client loads the map, then sends kGameNetBegin over the channel and
@@ -38,13 +38,15 @@ public:
     virtual ~GameNetServerGame() = default;
     virtual int maxClients() const = 0;
     // -1 + error when the game refuses the client.
-    virtual int connectClient(const std::string &name, float fov, int hand, const std::string &ip,
-                              std::string &error) = 0;
+    virtual int connectClient(const std::string &name, float fov, int hand, const std::string &skin,
+                              const std::string &gender, const std::string &ip, std::string &error) = 0;
     virtual void disconnectClient(int client) = 0;
     virtual void clientMove(int client, const GameUserCmd &cmd, double seconds) = 0;
     virtual void clientCommand(int client, const std::string &line) = 0;
     virtual void setFov(int client, float fov) = 0;
     virtual void setHand(int client, int hand) = 0;
+    virtual void setSkin(int client, const std::string &skin) = 0;
+    virtual void setGender(int client, const std::string &gender) = 0;
     virtual void snapshot(int client, GameSnapshot &out, bool full) = 0;
 };
 
@@ -52,9 +54,9 @@ class GameServerNetGame : public GameNetServerGame {
 public:
     explicit GameServerNetGame(GameServer &server) : server_(server) {}
     int maxClients() const override { return server_.maxClients(); }
-    int connectClient(const std::string &name, float fov, int hand, const std::string &ip,
-                      std::string &error) override {
-        return server_.connectClient(name, fov, hand, error, ip);
+    int connectClient(const std::string &name, float fov, int hand, const std::string &skin, const std::string &gender,
+                      const std::string &ip, std::string &error) override {
+        return server_.connectClient(name, fov, hand, error, ip, skin, gender);
     }
     void disconnectClient(int client) override { server_.disconnectClient(client); }
     void clientMove(int client, const GameUserCmd &cmd, double seconds) override {
@@ -63,6 +65,8 @@ public:
     void clientCommand(int client, const std::string &line) override { server_.clientCommand(client, line); }
     void setFov(int client, float fov) override { server_.setFov(client, fov); }
     void setHand(int client, int hand) override { server_.setHand(client, hand); }
+    void setSkin(int client, const std::string &skin) override { server_.setSkin(client, skin); }
+    void setGender(int client, const std::string &gender) override { server_.setGender(client, gender); }
     void snapshot(int client, GameSnapshot &out, bool full) override { server_.snapshot(client, out, full); }
 
 private:

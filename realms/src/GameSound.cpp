@@ -93,6 +93,16 @@ bool decodeGameWav(const uint8_t *data, size_t size, GameWav &out, std::string *
     return true;
 }
 
+std::string sexedSoundFallback(const std::string &name) {
+    static const std::string prefix = "players/";
+    if (name.compare(0, prefix.size(), prefix) != 0) return std::string();
+    const size_t slash = name.find('/', prefix.size());
+    if (slash == std::string::npos || slash == prefix.size() || slash + 1 >= name.size()) return std::string();
+    if (name.find('/', slash + 1) != std::string::npos) return std::string(); // players/<model>/<file> only
+    if (name.compare(prefix.size(), slash - prefix.size(), "male") == 0 && slash - prefix.size() == 4) return std::string();
+    return prefix + "male" + name.substr(slash);
+}
+
 std::array<float, 3> gameRightVector(const std::array<float, 3> &angles) {
     constexpr float d = 3.14159265358979f / 180.0f;
     const float sy = std::sin(angles[1] * d), cy = std::cos(angles[1] * d);

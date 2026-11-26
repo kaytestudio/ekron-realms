@@ -141,6 +141,8 @@ struct GameServerConfig {
     std::string playerName = "Player";
     float fov = 90.0f;            // the userinfo fov (player_state_t::fov), clamped by realms::clampFov
     int hand = 0;                 // the userinfo hand: 0 right, 1 left, 2 centre (GameServer::clampHand)
+    std::string skin = "male/grunt"; // the userinfo skin: "<model>/<skin>" (CS_PLAYERSKINS, sexed sounds)
+    std::string gender = "male";  // the userinfo gender the game's obituaries read (IsFemale / IsNeutral)
     int skill = 1;                // 0 easy .. 3 nightmare
     std::string spawnPoint;       // targetname of an info_player_start ("" = the default one)
     // SV_InitGame: deathmatch makes maxclients 1 into 8; coop makes 1 or
@@ -210,7 +212,8 @@ public:
     // (1 .. maxClients() - 1); -1 + error when the server is full or the
     // game refuses it (ClientConnect's "rejmsg").
     int connectClient(const std::string &name, float fov, int hand, std::string &error,
-                      const std::string &ip = "loopback");
+                      const std::string &ip = "loopback", const std::string &skin = kDefaultSkin,
+                      const std::string &gender = kDefaultGender);
     // SV_DropClient: ClientDisconnect. Not for client 0 (stop() ends the game).
     void disconnectClient(int client);
     // A client's usercmds for dt seconds (split into <= 250 ms commands,
@@ -221,6 +224,10 @@ public:
     void clientCommand(int client, const std::string &line);
     void setFov(int client, float fov);
     void setHand(int client, int hand);
+    // A new userinfo skin / gender (ClientUserinfoChanged): the game puts
+    // "name\\skin" in CS_PLAYERSKINS and reads gender for its obituaries.
+    void setSkin(int client, const std::string &skin);
+    void setGender(int client, const std::string &gender);
     const char *userinfo(int client) const;
     const q2edict_t *player(int client) const;
     const q2player_state_t *playerState(int client) const;
@@ -243,6 +250,23 @@ public:
     // A new userinfo hand (the "hand" cvar): the side the game fires
     // projectiles from (P_ProjectSource) and the view weapon is drawn on.
     void setHand(int hand);
+    // The local client's skin and gender.
+    void setSkin(const std::string &skin);
+    void setGender(const std::string &gender);
+    // Quake 2's userinfo defaults (cl_main.c).
+    static constexpr const char *kDefaultSkin = "male/grunt";
+    static constexpr const char *kDefaultGender = "male";
+    // CL_FixUpGender: the gender gender_auto gives a skin's model: male and
+    // cyborg "male", female and "crackhor" "female" (spelt so in Quake 2
+    // and yquake2: the crakhor model gets "none"), any other "none".
+    static std::string genderForSkin(const std::string &skin);
+    // The model of client n's CS_PLAYERSKINS string ("female" for
+    // "Name\\female/athena"); "male" when there is none or it isn't a
+    // plain name (letters, digits, _ and -).
+    std::string playerModelName(int client) const;
+    // A sexed sound ("*pain100_1.wav" without the "*") of an entity:
+    // "players/<model>/<base>" with a player's model, "male" for others.
+    std::string sexedSound(int entity, const std::string &base) const;
     // Quake 2's hand values: 1 left, 2 centre; anything else is right (0),
     // as P_ProjectSource treats it.
     static int clampHand(int hand) { return hand == 1 || hand == 2 ? hand : 0; }
@@ -311,6 +335,7 @@ private:
         std::string name = "Player", ip = "loopback";
         float fov = 90.0f;
         int hand = 0;
+        std::string skin = kDefaultSkin, gender = kDefaultGender;
         char userinfo[512] = {};
         q2usercmd_t lastCmd{};
         double msecAccumulator = 0.0;

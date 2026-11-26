@@ -47,6 +47,12 @@ struct GameSpatial {
 GameSpatial gameSpatialize(const std::array<float, 3> &origin, int entity, float volume, float attenuation,
                            const GameListener &listener);
 
+// S_RegisterSexedSound's fallback: a player model without its own sexed
+// sound ("players/female/pain25_1.wav" missing) uses the male one
+// ("players/male/pain25_1.wav"). "" when `name` isn't another model's
+// sexed sound.
+std::string sexedSoundFallback(const std::string &name);
+
 // The right vector of view angles (degrees), as AngleVectors.
 std::array<float, 3> gameRightVector(const std::array<float, 3> &angles);
 

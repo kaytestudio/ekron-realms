@@ -15,7 +15,9 @@ int GameSoundPlayer::clip(realms::Engine &engine, Mixer &mixer, const std::strin
         std::vector<unsigned char> bytes;
         realms::GameWav wav;
         std::string error;
-        if (!engine.loadFile(name, bytes)) {
+        // a player model without its own sexed sound plays the male one
+        const std::string male = realms::sexedSoundFallback(name);
+        if (!engine.loadFile(name, bytes) && (male.empty() || !engine.loadFile(male, bytes))) {
             error = "not found";
         } else if (realms::decodeGameWav(bytes.data(), bytes.size(), wav, &error)) {
             Pcm pcm;

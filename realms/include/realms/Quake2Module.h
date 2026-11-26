@@ -101,6 +101,12 @@ public:
     // A GameUserCmd from walk input (-1..1 axes, Quake 2 angles): Quake 2's
     // always-run speeds (cl_forwardspeed / cl_sidespeed / cl_upspeed 200, x2).
     static GameUserCmd userCmd(const WalkInput &mapInput, bool attack);
+    // CL_FixUpGender, run before the userinfo goes to the game: with
+    // gender_auto on, the gender follows the skin's model
+    // (GameServer::genderForSkin) unless the gender cvar itself changed
+    // since the last userinfo (`genderModified`), which the user's choice
+    // then keeps. True when it changed the gender cvar.
+    static bool fixUpGender(Engine &engine, bool genderModified);
 
     // The view the client draws (CL_CalcViewValues): the player's origin plus
     // the interpolated ps.viewoffset (view height, bob, fall).

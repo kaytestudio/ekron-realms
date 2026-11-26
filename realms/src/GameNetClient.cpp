@@ -154,8 +154,11 @@ void GameNetClient::poll(double now) {
         if (state_ == State::Challenging) {
             sendConnectionless("getchallenge");
         } else {
-            const std::string info = "\\name\\" + infoSafe(userinfo_.name) + "\\fov\\" + formatFloat(userinfo_.fov) +
-                                     "\\hand\\" + std::to_string(userinfo_.hand);
+            std::string info = "\\name\\" + infoSafe(userinfo_.name) + "\\fov\\" + formatFloat(userinfo_.fov) +
+                               "\\hand\\" + std::to_string(userinfo_.hand);
+            // Info_SetValueForKey leaves out empty values
+            if (!infoSafe(userinfo_.skin).empty()) info += "\\skin\\" + infoSafe(userinfo_.skin);
+            if (!infoSafe(userinfo_.gender).empty()) info += "\\gender\\" + infoSafe(userinfo_.gender);
             sendConnectionless("connect\n" + std::to_string(kGameNetProtocol) + "\n" + std::to_string(qport_) + "\n" +
                                std::to_string(challenge_) + "\n" + info);
         }
@@ -297,6 +300,8 @@ void GameNetClient::sendUserinfo(const std::string &info) {
     const std::string fov = gameNetInfoValue(info, "fov"), hand = gameNetInfoValue(info, "hand");
     if (!fov.empty()) userinfo_.fov = float(std::atof(fov.c_str()));
     if (!hand.empty()) userinfo_.hand = std::atoi(hand.c_str());
+    if (gameNetInfoHas(info, "skin")) userinfo_.skin = gameNetInfoValue(info, "skin");
+    if (gameNetInfoHas(info, "gender")) userinfo_.gender = gameNetInfoValue(info, "gender");
 }
 
 std::string GameNetClient::takeDisconnectReason() {
@@ -324,6 +329,8 @@ void registerGameNetCommands(Engine &engine) {
         info.name = e->cvarString("name", "Player");
         info.fov = e->cvarFloat("fov", 90.0f);
         info.hand = GameServer::clampHand(e->cvarInt("hand", 0));
+        info.skin = e->cvarString("skin", GameServer::kDefaultSkin);
+        info.gender = e->cvarString("gender", GameServer::kDefaultGender);
         return info;
     };
     if (!engine.commandExists("connect"))
