@@ -822,7 +822,8 @@ target_link_libraries(realms_map_entity_transform_test PRIVATE realms_quake2)
 add_test(NAME realms_map_entity_transform COMMAND realms_map_entity_transform_test)
 
 # realms/ViewFov.h: map mode's focal length from Quake 2's fov; realms/ViewGamma.h:
-# vid_gamma's exponent; realms/VideoSync.h: r_vsync's swap interval.
+# vid_gamma's exponent; realms/VideoSync.h: r_vsync's swap interval;
+# realms/FrameLimit.h: vid_maxfps.
 # Header-only (the engine for the shared cvars).
 add_executable(realms_view_fov_test tests/realms/view_fov_test.cpp)
 target_link_libraries(realms_view_fov_test PRIVATE realms_engine)

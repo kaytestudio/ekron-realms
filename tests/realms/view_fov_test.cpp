@@ -2,13 +2,15 @@
 // the fov is the horizontal angle of a 4:3 screen), clamped like the game;
 // realms/ViewGamma.h: vid_gamma's exponent, and the cvar on the shared list;
 // realms/ViewSize.h: Quake 2's viewsize rectangle, the cvar and sizeup / sizedown;
-// realms/VideoSync.h: r_vsync's swap interval and when the desktop applies it.
+// realms/VideoSync.h: r_vsync's swap interval and when the desktop applies it;
+// realms/FrameLimit.h: vid_maxfps's target frame rate and the frame pacing.
 #include "realms/Engine.h"
 #include "realms/SandboxBoot.h"
 #include "realms/ViewFov.h"
 #include "realms/ViewGamma.h"
 #include "realms/ViewSize.h"
 #include "realms/VideoSync.h"
+#include "realms/FrameLimit.h"
 
 #include <string>
 #include <vector>
@@ -160,6 +162,41 @@ int main() {
         CHECK(swap.update(2.0f, false, set) == kAdaptiveVsyncFailed && (calls == std::vector<int>{0, -1, 1}));
         CHECK(swap.update(2.0f, false, set).empty() && calls.size() == 3); // not again every frame
         CHECK(swap.requested() == -1);
+    }
+
+    // vid_maxfps: 1 .. 999, anything else is set back to 999.
+    CHECK(!maxFpsOutOfRange(300.0f) && !maxFpsOutOfRange(1.0f) && !maxFpsOutOfRange(999.0f));
+    CHECK(maxFpsOutOfRange(0.0f) && maxFpsOutOfRange(0.5f) && maxFpsOutOfRange(1000.0f) && maxFpsOutOfRange(-60.0f));
+    CHECK(maxFpsOutOfRange(std::numeric_limits<float>::quiet_NaN()));
+    // vsync off: vid_maxfps is the target.
+    CHECK(near(renderFrameRate(300.0f, false, 60.0f), 300.0f));
+    CHECK(near(renderFrameRate(144.0f, false, 60.0f), 144.0f));
+    CHECK(near(renderFrameRate(5000.0f, false, 60.0f), 999.0f));
+    // vsync on: only a cap clearly under the refresh rate counts, else refresh * 1.2.
+    CHECK(near(renderFrameRate(300.0f, true, 60.0f), 72.0f));
+    CHECK(near(renderFrameRate(58.5f, true, 60.0f), 72.0f)); // within 2 Hz of 60
+    CHECK(near(renderFrameRate(30.0f, true, 60.0f), 30.0f));
+    CHECK(near(renderFrameRate(120.0f, true, 144.0f), 120.0f));
+    CHECK(near(renderFrameRate(300.0f, true, 0.0f), 72.0f)); // unknown refresh: 60
+    CHECK(near(renderFrameRate(30.0f, true, std::numeric_limits<float>::quiet_NaN()), 30.0f));
+    {
+        FrameLimiter limiter;
+        // the first frame never waits
+        CHECK(limiter.frameStart(10.0, 100.0f) == 10.0);
+        // early: wait for the interval; late: at once, and count from there
+        CHECK(near(float(limiter.frameStart(10.002, 100.0f) - 10.0), 0.01f, 1e-6f));
+        CHECK(near(float(limiter.frameStart(10.05, 100.0f) - 10.0), 0.05f, 1e-6f));
+        CHECK(near(float(limiter.frameStart(10.051, 100.0f) - 10.0), 0.06f, 1e-6f)); // no catching up
+        // a steady stream of ready frames comes out at the target rate
+        double t = 20.0, start = limiter.frameStart(t, 250.0f);
+        for (int i = 0; i < 250; i++) start = limiter.frameStart(start + 0.0005, 250.0f);
+        CHECK(near(float(start - t), 1.0f, 1e-4f));
+        // no target (timedemo): never waits
+        CHECK(limiter.frameStart(30.0, 0.0f) == 30.0 && limiter.frameStart(30.0001, 0.0f) == 30.0001);
+        // a clock that goes back doesn't wait for the old time
+        CHECK(limiter.frameStart(5.0, 60.0f) == 5.0);
+        limiter.reset();
+        CHECK(limiter.frameStart(5.001, 60.0f) == 5.001);
     }
 
     std::printf("view_fov: %d/%d checks passed\n", gChecks - gFailures, gChecks);
