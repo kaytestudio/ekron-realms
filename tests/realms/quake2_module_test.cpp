@@ -651,7 +651,7 @@ struct NetStandIn : realms::GameNetServerGame {
     bool sentStrings = false;
     int maxClients() const override { return 4; }
     int connectClient(const std::string &name, float f, int h, const std::string &, const std::string &,
-                      const std::string &, std::string &) override {
+                      const std::string &, const std::string &, const std::string &, std::string &) override {
         active = true;
         fov = f;
         hand = h;
@@ -669,6 +669,8 @@ struct NetStandIn : realms::GameNetServerGame {
     void setHand(int, int h) override { hand = h; }
     void setSkin(int, const std::string &) override {}
     void setGender(int, const std::string &) override {}
+    void setSpectator(int, const std::string &) override {}
+    void setPassword(int, const std::string &) override {}
     void snapshot(int, realms::GameSnapshot &s, bool full) override {
         s = realms::GameSnapshot{};
         if (!active) return;
@@ -895,6 +897,30 @@ void genderChecks(realms::Engine &engine) {
     engine.setCvar("gender", "male");
     engine.cvarModified("skin");
     engine.cvarModified("gender");
+}
+
+// svc_stufftext: only "spectator <value>" is run.
+void stuffTextChecks(realms::Engine &engine) {
+    using realms::Quake2Module;
+    CHECK(engine.registerCvar("spectator", "0", REALMS_CVAR_USERINFO));
+    engine.registerCvar("hand", "0", REALMS_CVAR_ARCHIVE | REALMS_CVAR_USERINFO);
+    engine.setCvar("hand", "0");
+    engine.setCvar("spectator", "1");
+    CHECK(Quake2Module::stuffText(engine, "spectator 0\n") == 1 && engine.cvarString("spectator") == "0");
+    CHECK(Quake2Module::stuffText(engine, "SPECTATOR \"secret word\"\n") == 1 &&
+          engine.cvarString("spectator") == "secret word");
+    // anything else is ignored, also after a ';' or in a later line
+    CHECK(Quake2Module::stuffText(engine, "hand 2\n") == 0 && engine.cvarString("hand") == "0");
+    CHECK(Quake2Module::stuffText(engine, "spectator 1; hand 2\nquit\n") == 1);
+    CHECK(engine.cvarString("spectator") == "1" && engine.cvarString("hand") == "0");
+    // a quoted ';' stays in the value, which a userinfo cvar refuses
+    CHECK(Quake2Module::stuffText(engine, "spectator \"a;hand 2\"\n") == 0 && engine.cvarString("spectator") == "1");
+    CHECK(engine.cvarString("hand") == "0");
+    CHECK(Quake2Module::stuffText(engine, "spectator\n") == 0 && Quake2Module::stuffText(engine, "spectator 1 2\n") == 0);
+    CHECK(Quake2Module::stuffText(engine, "") == 0 && Quake2Module::stuffText(engine, "\n;\n") == 0);
+    engine.setCvar("spectator", "0");
+    engine.cvarModified("spectator");
+    engine.cvarModified("hand");
 }
 
 void viewWithoutGame(realms::Engine &engine) {
@@ -1750,6 +1776,8 @@ int main(int argc, char **argv) {
     walDecoding();
     step("gender");
     genderChecks(engine);
+    step("stufftext");
+    stuffTextChecks(engine);
     step("sky math");
     skyMath();
     step("module without game");

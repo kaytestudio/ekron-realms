@@ -42,6 +42,8 @@ public:
         int hand = 0;
         std::string skin = GameServer::kDefaultSkin;     // left out of the userinfo when empty
         std::string gender = GameServer::kDefaultGender; // left out of the userinfo when empty
+        std::string spectator = "0";                     // left out of the userinfo when empty
+        std::string password;                            // left out of the userinfo when empty
     };
 
     // The process's client (the console commands and Quake2Module use it).

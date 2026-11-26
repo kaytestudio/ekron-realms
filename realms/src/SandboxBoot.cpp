@@ -40,6 +40,10 @@ void registerSharedCvars(Engine &engine, const std::string &platform) {
     engine.registerCvar("gender_auto", "1", REALMS_CVAR_ARCHIVE);
     // cl_main.c: other players hold the weapon they use (realms/GameView.h)
     engine.registerCvar("cl_vwep", "1", REALMS_CVAR_ARCHIVE);
+    // cl_main.c: joining a deathmatch as a spectator (not "0"; also the
+    // spectator password) and the password a server asks for. Not saved.
+    engine.registerCvar("spectator", "0", REALMS_CVAR_USERINFO);
+    engine.registerCvar("password", "", REALMS_CVAR_USERINFO);
     // Quake 2's screen size (realms/ViewSize.h): the 3D view in maps shrunk to
     // 40 .. 100 per cent, the rest tiled; "sizeup" / "sizedown" step it by 10
     // (SCR_SizeUp_f / SCR_SizeDown_f), within those bounds.

@@ -843,6 +843,8 @@ bool GameServer::start(Engine &engine, const GameServerConfig &config, std::stri
     local.hand = clampHand(config.hand);
     local.skin = config.skin;
     local.gender = config.gender;
+    local.spectator = config.spectator;
+    local.password = config.password;
     if (!beginClient(0, error)) {
         if (ge_ && error.rfind("the game rejected", 0) == 0) stop();
         return false;
@@ -922,7 +924,8 @@ bool GameServer::beginClient(int client, std::string &error) {
 }
 
 int GameServer::connectClient(const std::string &name, float fov, int hand, std::string &error, const std::string &ip,
-                              const std::string &skin, const std::string &gender) {
+                              const std::string &skin, const std::string &gender, const std::string &spectator,
+                              const std::string &password) {
     if (!running_) {
         error = "no game is running";
         return -1;
@@ -940,6 +943,8 @@ int GameServer::connectClient(const std::string &name, float fov, int hand, std:
     c.hand = clampHand(hand);
     c.skin = skin;
     c.gender = gender;
+    c.spectator = spectator;
+    c.password = password;
     c.ip = ip.empty() ? std::string("loopback") : ip;
     if (!beginClient(slot, error)) {
         if (slot < maxClients()) clients_[size_t(slot)].active = false;
@@ -1188,10 +1193,12 @@ void GameServer::buildUserinfo(Client &c) {
     // An empty skin or gender is left out, as Info_SetValueForKey does: the
     // game then draws "male" and its obituaries say "itself".
     const std::string skin = clean(c.skin, "").substr(0, 63), gender = clean(c.gender, "").substr(0, 15);
+    const std::string spectator = clean(c.spectator, "").substr(0, 63), password = clean(c.password, "").substr(0, 63);
     std::snprintf(c.userinfo, sizeof(c.userinfo),
-                  "\\name\\%s%s%s\\hand\\%d\\fov\\%g\\rate\\25000\\msg\\1%s%s\\spectator\\0\\ip\\%s", name.c_str(),
+                  "\\name\\%s%s%s\\hand\\%d\\fov\\%g\\rate\\25000\\msg\\1%s%s%s%s%s%s\\ip\\%s", name.c_str(),
                   skin.empty() ? "" : "\\skin\\", skin.c_str(), c.hand, double(clampFov(c.fov)),
-                  gender.empty() ? "" : "\\gender\\", gender.c_str(), ip.c_str());
+                  gender.empty() ? "" : "\\gender\\", gender.c_str(), password.empty() ? "" : "\\password\\",
+                  password.c_str(), spectator.empty() ? "" : "\\spectator\\", spectator.c_str(), ip.c_str());
 }
 
 void GameServer::userinfoChanged(int client) {
@@ -1209,6 +1216,20 @@ void GameServer::setFov(float fov) { setFov(0, fov); }
 void GameServer::setHand(int hand) { setHand(0, hand); }
 void GameServer::setSkin(const std::string &skin) { setSkin(0, skin); }
 void GameServer::setGender(const std::string &gender) { setGender(0, gender); }
+void GameServer::setSpectator(const std::string &spectator) { setSpectator(0, spectator); }
+void GameServer::setPassword(const std::string &password) { setPassword(0, password); }
+
+void GameServer::setSpectator(int client, const std::string &spectator) {
+    if (!running_ || !clientActive(client)) return;
+    clients_[size_t(client)].spectator = spectator;
+    userinfoChanged(client);
+}
+
+void GameServer::setPassword(int client, const std::string &password) {
+    if (!running_ || !clientActive(client)) return;
+    clients_[size_t(client)].password = password;
+    userinfoChanged(client);
+}
 
 void GameServer::setSkin(int client, const std::string &skin) {
     if (!running_ || !clientActive(client)) return;
@@ -1771,6 +1792,21 @@ int GameServer::findIndex(const char *name, int start, int max, bool create) {
 
 // ------------------------------------------------------------ cvars
 
+namespace {
+
+// The game's copy of a cvar's value. ClientConnect and spectator_respawn
+// test `*password->string && strcmp(password->string, "none") && ...` in
+// Quake 2; the Pascal port tests the string pointer instead of its first
+// character, so an empty password would refuse everyone who sends a
+// password or a spectator value. Empty is given to the game as "none",
+// Quake 2's other way of saying "no password".
+std::string gameCvarValue(const std::string &name, std::string value) {
+    if (value.empty() && (name == "password" || name == "spectator_password")) return "none";
+    return value;
+}
+
+} // namespace
+
 q2cvar_t *GameServer::cvarGet(const char *name, const char *value, int flags) {
     if (!name || !engine_) return nullptr;
     // CVAR_LATCH stays with the game's copy (see syncCvars): the engine's
@@ -1785,7 +1821,7 @@ q2cvar_t *GameServer::cvarGet(const char *name, const char *value, int flags) {
     engine_->registerCvar(name, value ? value : "", engineFlags);
     auto m = std::make_unique<CvarMirror>();
     m->name = name;
-    m->value = engine_->cvarString(name, value ? value : "");
+    m->value = gameCvarValue(m->name, engine_->cvarString(name, value ? value : ""));
     m->cv.name = m->name.data();
     m->cv.string = m->value.data();
     m->cv.latched_string = nullptr;
@@ -1813,7 +1849,7 @@ void GameServer::syncCvars(const char *alsoLatched) {
         // Cvar_GetLatchedVars: a latched cvar (deathmatch, coop, maxclients,
         // skill...) keeps its value until the next game
         if ((m->cv.flags & REALMS_CVAR_LATCH) && !(alsoLatched && m->name == alsoLatched)) continue;
-        std::string now = engine_->cvarString(m->name, m->value);
+        std::string now = gameCvarValue(m->name, engine_->cvarString(m->name, m->value));
         if (now != m->value) {
             m->value = std::move(now);
             m->cv.string = m->value.data();

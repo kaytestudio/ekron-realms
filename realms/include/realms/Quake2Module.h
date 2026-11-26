@@ -107,6 +107,12 @@ public:
     // since the last userinfo (`genderModified`), which the user's choice
     // then keeps. True when it changed the gender cvar.
     static bool fixUpGender(Engine &engine, bool genderModified);
+    // svc_stufftext: Quake 2 runs whatever the server sends as console
+    // commands. Ekron runs only the ones the game library sends,
+    // "spectator <value>" (spectator_respawn putting the cvar back when it
+    // refuses a change); everything else is ignored, so a server can't
+    // run commands on its players. The number of commands run.
+    static int stuffText(Engine &engine, const std::string &text);
 
     // The view the client draws (CL_CalcViewValues): the player's origin plus
     // the interpolated ps.viewoffset (view height, bob, fall).

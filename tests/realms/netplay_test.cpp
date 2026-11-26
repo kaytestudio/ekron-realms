@@ -42,7 +42,7 @@ struct StandInGame : realms::GameNetServerGame {
         std::string name, ip;
         float fov = 90.0f;
         int hand = 0;
-        std::string skin, gender;
+        std::string skin, gender, spectator, password;
         double x = 0.0, seconds = 0.0;
         int moves = 0;
         bool attack = false;
@@ -57,7 +57,8 @@ struct StandInGame : realms::GameNetServerGame {
     StandInGame() { players[0].active = true; }
     int maxClients() const override { return max; }
     int connectClient(const std::string &name, float fov, int hand, const std::string &skin, const std::string &gender,
-                      const std::string &ip, std::string &error) override {
+                      const std::string &spectator, const std::string &password, const std::string &ip,
+                      std::string &error) override {
         if (!refuse.empty()) {
             error = refuse;
             return -1;
@@ -73,6 +74,8 @@ struct StandInGame : realms::GameNetServerGame {
             p.hand = hand;
             p.skin = skin;
             p.gender = gender;
+            p.spectator = spectator;
+            p.password = password;
             broadcast(name + " entered the game");
             return i;
         }
@@ -98,6 +101,8 @@ struct StandInGame : realms::GameNetServerGame {
     void setHand(int client, int hand) override { players[client].hand = hand; }
     void setSkin(int client, const std::string &skin) override { players[client].skin = skin; }
     void setGender(int client, const std::string &gender) override { players[client].gender = gender; }
+    void setSpectator(int client, const std::string &v) override { players[client].spectator = v; }
+    void setPassword(int client, const std::string &v) override { players[client].password = v; }
     void broadcast(const std::string &text) {
         realms::GameEvent ev;
         ev.kind = realms::GameEvent::Kind::Print;
@@ -265,6 +270,7 @@ void playChecks() {
     info.hand = 1;
     info.skin = "female/athena";
     info.gender = "female";
+    info.password = "letmein";
     std::string error;
     CHECK(!a.connect("bad host!", info, rig.now, error) && error == "bad address bad host!");
     CHECK(a.state() == State::Disconnected);
@@ -298,6 +304,7 @@ void playChecks() {
     StandInGame::Player &pa = rig.game.players[1];
     CHECK(pa.active && pa.name == "Alpha" && pa.ip == "127.0.0.1" && pa.fov == 105.0f && pa.hand == 1);
     CHECK(pa.skin == "female/athena" && pa.gender == "female"); // the connect's userinfo
+    CHECK(pa.spectator == "0" && pa.password == "letmein");
     CHECK(rig.server.playingCount() == 1);
     CHECK(view.configString(Q2_CS_NAME) == "Stand-in" && view.playerState()->fov == 105.0f);
     for (const auto &e : view.takeEvents()) events.push_back(e);
@@ -351,6 +358,9 @@ void playChecks() {
     a.sendUserinfo("\\skin\\cyborg/oni911\\gender\\");
     for (int i = 0; i < 500 && pa.skin != "cyborg/oni911"; i++) rig.step({&a});
     CHECK(pa.skin == "cyborg/oni911" && pa.gender.empty() && pa.fov == 120.0f && pa.hand == 2);
+    a.sendUserinfo("\\spectator\\watch\\password\\");
+    for (int i = 0; i < 500 && pa.spectator != "watch"; i++) rig.step({&a});
+    CHECK(pa.spectator == "watch" && pa.password.empty() && pa.skin == "cyborg/oni911");
     for (const auto &e : view.takeEvents()) events.push_back(e);
     CHECK(hasPrint(events, "Alpha: hello there"));
 
@@ -441,6 +451,7 @@ void playChecks() {
     CHECK(rig.game.players[1].active && rig.game.players[1].name == "Alpha");
     // the userinfo as last sent: no gender key now, so none
     CHECK(rig.game.players[1].skin == "cyborg/oni911" && rig.game.players[1].gender.empty());
+    CHECK(rig.game.players[1].spectator == "watch" && rig.game.players[1].password.empty());
     rig.server.close();
     for (int i = 0; i < 500 && a.state() == State::Active; i++) rig.step({&a}, {}, nullptr, false);
     CHECK(a.state() == State::Disconnected && a.takeDisconnectReason() == "Server disconnected: Server quit");

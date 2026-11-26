@@ -851,7 +851,45 @@ void runClientChecks(realms::Engine &engine, const std::string &gameLibrary) {
     CHECK(server.connectClient("Third", 90, 0, error) == -1);
     CHECK(error.find("Password required or incorrect.") != std::string::npos);
     CHECK(server.clientCount() == 2 && !server.clientActive(2));
+    // the right one (the userinfo "password") gets in
+    const std::string skin = realms::GameServer::kDefaultSkin, gender = realms::GameServer::kDefaultGender;
+    CHECK(server.connectClient("Third", 90, 0, error, "loopback", skin, gender, "0", "secret") == 2);
+    CHECK(std::string(server.userinfo(2)).find("\\password\\secret\\") != std::string::npos);
+    server.disconnectClient(2);
     engine.setCvar("password", "");
+    // without a password, one sent anyway is fine (the game gets "none")
+    CHECK(server.connectClient("Third", 90, 0, error, "loopback", skin, gender, "0", "anything") == 2);
+    server.disconnectClient(2);
+    // a spectator: no body, not drawn; with spectator 0 it joins the game
+    {
+        const int watcher = server.connectClient("Watcher", 90, 0, error, "loopback", skin, gender, "1");
+        if (watcher < 0) std::fprintf(stderr, "  spectator connect failed: %s\n", error.c_str());
+        CHECK(watcher == 2);
+        const q2edict_t *w = server.player(2);
+        CHECK(w && w->inuse && (w->svflags & Q2_SVF_NOCLIENT) != 0);
+        CHECK(!drawsEntity(server.renderEntitiesFor(0), 3));
+        CHECK(std::string(server.userinfo(2)).find("\\spectator\\1\\") != std::string::npos);
+        server.takeEvents(0);
+        server.takeEvents(2);
+        server.setSpectator(2, "0");
+        for (int i = 0; i < 14; i++) server.advance(0.5); // spectator_respawn after 5 s
+        CHECK(hasText(server.takeEvents(0), "Watcher joined the game"));
+        CHECK(w && (w->svflags & Q2_SVF_NOCLIENT) == 0 && drawsEntity(server.renderEntitiesFor(0), 3));
+        // back to the sidelines with a wrong spectator password: refused,
+        // and the game stuffs "spectator 0" to put the cvar back
+        engine.setCvar("spectator_password", "pw");
+        server.takeEvents(2);
+        server.setSpectator(2, "1");
+        for (int i = 0; i < 14; i++) server.advance(0.5);
+        const auto ew = server.takeEvents(2);
+        CHECK(hasText(ew, "Spectator password incorrect."));
+        CHECK(std::any_of(ew.begin(), ew.end(), [](const realms::GameEvent &e) {
+            return e.kind == realms::GameEvent::Kind::StuffText && e.text == "spectator 0\n";
+        }));
+        CHECK(w && (w->svflags & Q2_SVF_NOCLIENT) == 0);
+        engine.setCvar("spectator_password", "");
+        if (watcher == 2) server.disconnectClient(2);
+    }
     // a client's address goes in its userinfo "ip"
     CHECK(server.connectClient("Remote", 90, 0, error, "10.1.2.3") == 2);
     CHECK(std::string(server.userinfo(2)).find("\\ip\\10.1.2.3") != std::string::npos);

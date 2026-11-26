@@ -159,6 +159,8 @@ void GameNetClient::poll(double now) {
             // Info_SetValueForKey leaves out empty values
             if (!infoSafe(userinfo_.skin).empty()) info += "\\skin\\" + infoSafe(userinfo_.skin);
             if (!infoSafe(userinfo_.gender).empty()) info += "\\gender\\" + infoSafe(userinfo_.gender);
+            if (!infoSafe(userinfo_.password).empty()) info += "\\password\\" + infoSafe(userinfo_.password);
+            if (!infoSafe(userinfo_.spectator).empty()) info += "\\spectator\\" + infoSafe(userinfo_.spectator);
             sendConnectionless("connect\n" + std::to_string(kGameNetProtocol) + "\n" + std::to_string(qport_) + "\n" +
                                std::to_string(challenge_) + "\n" + info);
         }
@@ -302,6 +304,8 @@ void GameNetClient::sendUserinfo(const std::string &info) {
     if (!hand.empty()) userinfo_.hand = std::atoi(hand.c_str());
     if (gameNetInfoHas(info, "skin")) userinfo_.skin = gameNetInfoValue(info, "skin");
     if (gameNetInfoHas(info, "gender")) userinfo_.gender = gameNetInfoValue(info, "gender");
+    if (gameNetInfoHas(info, "spectator")) userinfo_.spectator = gameNetInfoValue(info, "spectator");
+    if (gameNetInfoHas(info, "password")) userinfo_.password = gameNetInfoValue(info, "password");
 }
 
 std::string GameNetClient::takeDisconnectReason() {
@@ -331,6 +335,8 @@ void registerGameNetCommands(Engine &engine) {
         info.hand = GameServer::clampHand(e->cvarInt("hand", 0));
         info.skin = e->cvarString("skin", GameServer::kDefaultSkin);
         info.gender = e->cvarString("gender", GameServer::kDefaultGender);
+        info.spectator = e->cvarString("spectator", "0");
+        info.password = e->cvarString("password", "");
         return info;
     };
     if (!engine.commandExists("connect"))
