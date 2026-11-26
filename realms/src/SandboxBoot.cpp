@@ -40,6 +40,10 @@ void registerSharedCvars(Engine &engine, const std::string &platform) {
     // right: 0 off, 1 the average, 2 slowest / fastest / average, 3 and the
     // frame times.
     engine.registerCvar("cl_showfps", "0", REALMS_CVAR_ARCHIVE);
+    // Quake 2's r_drawentities (map mode, mapview::Quake2View): 0 draws none of
+    // the game's entities (models, the view weapon, doors and platforms).
+    // Not saved, as in Quake 2.
+    engine.registerCvar("r_drawentities", "1", 0);
     Engine *e = &engine;
     const auto resize = [e](int step) {
         const float now = e->cvarFloat("viewsize", 100.0f);

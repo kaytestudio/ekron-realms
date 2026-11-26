@@ -210,6 +210,7 @@ void Quake2View::update(realms::Engine &engine, const realms::WalkInput &input, 
         return;
     }
     q2_.setKickAngles(engine.cvarBool("cl_kickangles", true)); // Yamagi Quake II's cl_kickangles
+    drawEntities_ = engine.cvarBool("r_drawentities", true);
     // Quake 2 client: always-run speeds and the camera's absolute angles.
     q2_.frame(realms::Quake2Module::userCmd(walkInput(input, renderYaw, renderPitch), attack), dt);
     q2_.mirrorPlayer(session_.walker()); // HUD, sound director, retained state
@@ -220,7 +221,7 @@ void Quake2View::syncPoses() {
     const std::vector<realms::Quake2ModelPose> &poses = q2_.modelPoses();
     poses_.assign(poses.size(), ModelPose{});
     for (size_t m = 1; m < poses.size(); m++) {
-        poses_[m].visible = poses[m].visible;
+        poses_[m].visible = poses[m].visible && drawEntities_; // r_drawentities 0: brush entities too
         poses_[m].frame = poses[m].frame;
         if (!poses[m].visible) continue;
         poses_[m].transform = entityTransform(poses[m].origin.data(), poses[m].angles.data(), session_.unitsPerMetre());
@@ -293,7 +294,10 @@ void Quake2View::entities(realms::Engine &engine, float renderYaw, float renderP
                           std::vector<EntityVertex> &vertices, std::vector<EntityBatch> &batches) {
     vertices.clear();
     batches.clear();
-    if (!q2_.gameRunning()) return;
+    // ref_gl's R_DrawEntitiesOnList: r_drawentities 0 draws none (models, the
+    // view weapon, effect models); particles and dynamic lights are drawn
+    // apart (effects() drops the beams and sprite glows)
+    if (!q2_.gameRunning() || !engine.cvarBool("r_drawentities", true)) return;
     const realms::GameScene &scene =
         q2_.buildScene(engine, q2_.viewOrigin(), cameraAngles(renderYaw, renderPitch), viewWeapon);
     // Model space (Quake 2 units, x forward, y left, z up) to the render
@@ -328,7 +332,8 @@ void Quake2View::effects(float renderYaw, float renderPitch, size_t maxLights, s
     lights.clear();
     if (!q2_.gameRunning()) return;
     const float upm = session_.unitsPerMetre();
-    q2_.buildEffects(q2_.viewOrigin(), cameraAngles(renderYaw, renderPitch), maxLights, fxQuads_, fxLights_);
+    q2_.buildEffects(q2_.viewOrigin(), cameraAngles(renderYaw, renderPitch), maxLights, fxQuads_, fxLights_,
+                     drawEntities_);
     vertices.reserve(fxQuads_.size());
     for (const realms::Quake2EffectVertex &q : fxQuads_) {
         const physics::Vec3 r = toRender(realms::Vec3{q.x, q.y, q.z}, upm);

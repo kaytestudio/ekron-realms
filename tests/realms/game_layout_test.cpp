@@ -555,6 +555,9 @@ void showFpsChecks() {
     realms::sandbox::registerSharedCvars(engine, "layout-test");
     CHECK(engine.hasCvar("cl_showfps") && (engine.cvarFlags("cl_showfps") & REALMS_CVAR_ARCHIVE));
     CHECK(engine.cvarString("cl_showfps") == "0" && GameHudCanvas::showFps(engine) == 0.0f);
+    // r_drawentities (mapview::Quake2View): on, not saved, as in Quake 2
+    CHECK(engine.hasCvar("r_drawentities") && engine.cvarString("r_drawentities") == "1");
+    CHECK((engine.cvarFlags("r_drawentities") & REALMS_CVAR_ARCHIVE) == 0);
 
     // the canvas, without a game: only the frame rate, at the top right
     realms::Quake2Module q2;

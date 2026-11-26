@@ -200,8 +200,11 @@ public:
     const GameScene &scene() const { return scene_; }
     // Particle / glow / beam quads (6 vertices each) facing the camera, and
     // up to `maxLights` dynamic lights, the closest to the camera first.
+    // entities false (r_drawentities 0) leaves out what Quake 2 draws as
+    // entities: the beams and lasers, and the sprite glows.
     void buildEffects(const Vec3 &cameraOrigin, const Vec3 &cameraAngles, size_t maxLights,
-                      std::vector<Quake2EffectVertex> &quads, std::vector<GameDynamicLight> &lights);
+                      std::vector<Quake2EffectVertex> &quads, std::vector<GameDynamicLight> &lights,
+                      bool entities = true);
     const GameEffects &effects() const { return effects_; }
 
     // ---- sound

@@ -1141,6 +1141,23 @@ void viewWithGame(realms::Engine &engine) {
     CHECK(inRange && shard && weapon);
     view.entities(engine, yaw, 0.0f, false, ev, eb);
     for (const auto &b : eb) CHECK(!b.viewWeapon); // cl_gun 0
+    // r_drawentities 0: no entities, the door hidden too (after an update;
+    // no time passes); back with 1
+    {
+        std::array<float, 16> placed{};
+        engine.executeNow("set r_drawentities 0");
+        view.entities(engine, yaw, 0.0f, true, ev, eb);
+        CHECK(eb.empty() && ev.empty());
+        view.update(engine, {}, yaw, 0.0f, 0.0f, false);
+        CHECK(view.modelPoses().size() == 2 && !view.modelPoses()[1].visible);
+        CHECK(!view.placedTransform(1, placed));
+        engine.executeNow("set r_drawentities 1");
+        view.update(engine, {}, yaw, 0.0f, 0.0f, false);
+        CHECK(view.modelPoses().size() == 2 && view.modelPoses()[1].visible);
+        CHECK(view.placedTransform(1, placed));
+        view.entities(engine, yaw, 0.0f, true, ev, eb);
+        CHECK(!eb.empty());
+    }
     // hand 1: the view weapon mirrored to the left (render z is map -y), the
     // userinfo sent again; hand 2: no view weapon; hand 0: back on the right
     {

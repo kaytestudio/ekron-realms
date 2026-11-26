@@ -160,7 +160,8 @@ public:
     // Centre prints, pickups and "Game stopped: ..." since the last call.
     std::vector<std::string> takeMessages();
 
-    // Brush model poses (index = model number; empty without a game).
+    // Brush model poses (index = model number; empty without a game). All
+    // hidden while r_drawentities is 0 (from the next update()).
     const std::vector<ModelPose> &modelPoses() const { return poses_; }
     // Transform for an inline model drawn from the textured glTF (the batch
     // model of city::Scene): identity for the world, without the game or at
@@ -169,10 +170,13 @@ public:
     // glTF maps: node index -> inline model of each brush entity node, for
     // city::LoadOptions::nodeModels. Empty for BSP maps.
     const std::map<int, int> &gltfNodeModels() const { return nodeModels_; }
-    // The game's entities for this camera. Empty without a game.
+    // The game's entities for this camera. Empty without a game, or while
+    // r_drawentities is 0.
     void entities(realms::Engine &engine, float renderYaw, float renderPitch, bool viewWeapon,
                   std::vector<EntityVertex> &vertices, std::vector<EntityBatch> &batches);
     // Effect quads and up to maxLights dynamic lights. Empty without a game.
+    // Without beams and sprite glows while r_drawentities is 0 (from the next
+    // update()): those are entities in Quake 2.
     void effects(float renderYaw, float renderPitch, size_t maxLights, std::vector<EffectVertex> &vertices,
                  std::vector<DynamicLight> &lights);
 
@@ -204,6 +208,7 @@ private:
     std::map<int, int> nodeModels_;
     std::vector<std::vector<int>> animations_; // per slot: the layer of each frame
     bool translucent_ = false;
+    bool drawEntities_ = true; // r_drawentities, read by update()
     std::vector<std::string> messages_;
     double skyTime_ = 0.0;
     std::vector<realms::Quake2EffectVertex> fxQuads_;

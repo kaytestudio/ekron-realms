@@ -1099,7 +1099,7 @@ void GameEffects::update(double t) {
         if (d.radius > 0.0f && d.die < t) d.radius = 0.0f;
 }
 
-void GameEffects::particles(double t, std::vector<GameParticle> &out) const {
+void GameEffects::particles(double t, std::vector<GameParticle> &out, bool withSprites) const {
     out.clear();
     out.reserve(particles_.size() + frameGlows_.size());
     for (const Particle &p : particles_) {
@@ -1115,6 +1115,7 @@ void GameEffects::particles(double t, std::vector<GameParticle> &out) const {
         g.color = {c[0], c[1], c[2], alpha};
         out.push_back(g);
     }
+    if (!withSprites) return;
     for (const GameParticle &g : frameGlows_) out.push_back(g);
     // explosions drawn with a sprite in Quake 2 (BFG): a glow
     for (const Explosion &ex : explosions_) {
