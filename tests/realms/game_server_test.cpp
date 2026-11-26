@@ -589,6 +589,10 @@ void runGameChecks(realms::Engine &engine, const std::string &gameLibrary) {
     engine.exec("notarget\n");
     events = server.takeEvents();
     CHECK(hasEvent(events, realms::GameEvent::Kind::Print, "notarget ON"));
+    // "say", the chat (Cmd_Say_f) - "say" is a client command too
+    engine.exec("say hello  there\n");
+    events = server.takeEvents();
+    CHECK(hasEvent(events, realms::GameEvent::Kind::Print, ": hello there"));
     // firing: muzzle flash and the shotgun sound
     realms::GameUserCmd fire;
     fire.attack = true;

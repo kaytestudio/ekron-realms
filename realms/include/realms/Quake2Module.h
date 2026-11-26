@@ -244,6 +244,10 @@ private:
     // Plays the connected server's game on this map; false + why when it can't.
     bool attachNet(Engine &engine, GameNetClient &net, std::string &why);
     void detachNet();
+    // While connected, the game's client commands (GameServer::
+    // forwardedCommands, "cmd") go to the server's game.
+    void registerNetCommands(Engine &engine);
+    void unregisterNetCommands();
     void netFrame(const GameUserCmd &cmd, double dt);
     // A snapshot to the demo being recorded.
     void record(const GameSnapshot &snapshot, float seconds);
@@ -265,6 +269,7 @@ private:
     std::unique_ptr<GameNetServer> listen_;
     std::unique_ptr<GameServerNetGame> listenGame_;
     GameNetClient *net_ = nullptr; // connected to a server
+    std::vector<std::string> netCommands_; // registerNetCommands'
     int viewEntity_ = 1;           // the player's edict (client number + 1)
     GameClient client_;
     GameDemoWriter recorder_;

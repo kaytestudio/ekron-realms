@@ -784,6 +784,12 @@ void netWithoutGame(realms::Engine &engine) {
     view.entities(engine, 0.0f, 0.0f, true, ev, eb); // sends the changed userinfo
     for (int i = 0; i < 100 && (game.commands.size() < 2 || !near(q2.stats().fov, 100.0f, 1e-3f)); i++) update({});
     CHECK(game.commands.size() == 2 && game.commands[0] == "inven" && game.commands[1] == "noclip");
+    // the game's console commands go to the server's game too
+    CHECK(engine.commandExists("give") && engine.commandExists("say") && engine.commandExists("cmd"));
+    engine.exec("say hello  there\ngive \"rocket launcher\"\ncmd playerlist all\n");
+    for (int i = 0; i < 500 && game.commands.size() < 5; i++) update({});
+    CHECK(game.commands.size() == 5 && game.commands[2] == "say hello there" &&
+          game.commands[3] == "give \"rocket launcher\"" && game.commands[4] == "playerlist all");
     CHECK(near(game.fov, 100.0f, 1e-3f) && near(q2.stats().fov, 100.0f, 1e-3f));
     engine.exec("set fov 90\n");
     // no restart on someone else's server
@@ -815,6 +821,7 @@ void netWithoutGame(realms::Engine &engine) {
     engine.exec("disconnect\n");
     for (int i = 0; i < 500 && (game.active || server.clientCount() > 0 || q2.connected()); i++) update({});
     CHECK(!q2.connected() && !view.gameRunning() && !game.active && server.clientCount() == 0);
+    CHECK(!engine.commandExists("give") && !engine.commandExists("say") && !engine.commandExists("cmd"));
     for (const std::string &m : view.takeMessages()) CHECK(m.find("Game stopped") == std::string::npos);
 
     // the server quitting: the view says why

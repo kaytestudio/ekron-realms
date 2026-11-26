@@ -194,6 +194,13 @@ public:
     // ---- clients
     // SV_InitGame's maxclients for GameServerConfig's three settings.
     static int maxClientsFor(bool deathmatch, bool coop, int requested);
+    // The game's client commands (g_cmds.c ClientCommand) the console
+    // forwards to it, as Quake 2 forwards commands it doesn't know: "give",
+    // "say", "kill"... While the game runs they are console commands.
+    static const std::vector<std::string> &forwardedCommands();
+    // A console command's arguments back into one command line, quoting
+    // the ones with spaces or semicolons.
+    static std::string commandLine(const std::vector<std::string> &args, size_t first = 0);
     int maxClients() const { return int(clients_.size()); }
     bool clientActive(int client) const;
     int clientCount() const; // active clients, the local one included

@@ -850,6 +850,26 @@ bool GameServer::start(Engine &engine, const GameServerConfig &config, std::stri
     return true;
 }
 
+const std::vector<std::string> &GameServer::forwardedCommands() {
+    static const std::vector<std::string> kForwarded = {
+        "give",     "god",      "notarget", "noclip",   "kill",     "use",        "drop",     "inven",
+        "invuse",   "invdrop",  "invnext",  "invprev",  "invnextw", "invprevw",   "invnextp", "invprevp",
+        "weapnext", "weapprev", "weaplast", "putaway",  "wave",     "help",       "score",    "players",
+        "say",      "say_team", "playerlist"};
+    return kForwarded;
+}
+
+std::string GameServer::commandLine(const std::vector<std::string> &args, size_t first) {
+    std::string line;
+    for (size_t i = first; i < args.size(); i++) {
+        const std::string &a = args[i];
+        if (!line.empty()) line += ' ';
+        const bool quote = a.empty() || a.find_first_of(" \t;") != std::string::npos;
+        line += quote ? "\"" + a + "\"" : a;
+    }
+    return line;
+}
+
 int GameServer::maxClientsFor(bool deathmatch, bool coop, int requested) {
     if (deathmatch) return requested <= 1 ? 8 : std::min(requested, int(Q2_MAX_CLIENTS));
     if (coop) return requested <= 1 || requested > 4 ? 4 : requested;
@@ -1205,20 +1225,8 @@ void GameServer::registerCommands() {
     if (!engine_) return;
     // Client commands the game module handles (g_cmds.c ClientCommand),
     // forwarded like Quake 2's "cmd" forwarding of unknown commands.
-    static const char *kForwarded[] = {"give", "god", "notarget", "noclip", "kill", "use", "drop", "inven",
-                                       "invuse", "invdrop", "invnext", "invprev", "invnextw", "invprevw",
-                                       "invnextp", "invprevp", "weapnext", "weapprev", "weaplast", "putaway",
-                                       "wave", "help", "score", "players"};
-    auto quoteArgs = [](const CommandArgs &args) {
-        std::string line;
-        for (const auto &a : args) {
-            if (!line.empty()) line += ' ';
-            const bool quote = a.empty() || a.find_first_of(" \t;") != std::string::npos;
-            line += quote ? "\"" + a + "\"" : a;
-        }
-        return line;
-    };
-    for (const char *name : kForwarded) {
+    auto quoteArgs = [](const CommandArgs &args) { return commandLine(args); };
+    for (const std::string &name : forwardedCommands()) {
         if (engine_->commandExists(name)) continue;
         if (engine_->addCommand(name, [this, quoteArgs](const CommandArgs &args) { clientCommand(quoteArgs(args)); }))
             commands_.emplace_back(name);
