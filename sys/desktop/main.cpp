@@ -48,6 +48,7 @@
 #include "realms/GameServer.h"
 #include "realms/SandboxBoot.h"
 #include "realms/Screenshot.h"
+#include "realms/FrameLimit.h"
 #include "realms/VideoSync.h"
 #include "realms/ViewGamma.h"
 
@@ -928,6 +929,7 @@ int main(int argc, char **argv)
     }
     engine.registerCvar("vid_fullscreen", "0", REALMS_CVAR_ARCHIVE);
     engine.registerCvar("r_vsync", "1", REALMS_CVAR_ARCHIVE); // yquake2: 0 off, 1 on, 2 adaptive
+    engine.registerCvar("vid_maxfps", "300", REALMS_CVAR_ARCHIVE); // yquake2: frames a second, 1 .. 999
     // "map" / "killserver" may run before the GL context exists (+map on the
     // command line, autoexec.cfg): the main loop applies the latest change.
     std::optional<std::string> pendingMapChange;
@@ -1509,6 +1511,9 @@ int main(int argc, char **argv)
 
     auto lastTick = std::chrono::steady_clock::now();
     realms::SwapIntervalControl swapInterval; // r_vsync; vsync off while a timedemo runs
+    realms::FrameLimiter frameLimiter;        // vid_maxfps
+    float displayRefresh = 0.0f;              // Hz, 0 unknown; asked again every 2 s
+    double displayRefreshAt = -10.0;
     // cl_showfps: the frame rate at the top right, its text changed 4 times a second
     realms::FrameCounter fpsCounter;
     std::vector<std::string> fpsLines;
@@ -2645,6 +2650,31 @@ int main(int argc, char **argv)
             if (!vsyncMessage.empty()) engine.print(vsyncMessage);
         }
         SDL_GL_SwapWindow(window);
+
+        // vid_maxfps: wait until the next frame is due (Qcommon_Frame's rfps)
+        {
+            auto seconds = [] {
+                return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+            };
+            if (realms::maxFpsOutOfRange(engine.cvarFloat("vid_maxfps", realms::kDefaultMaxFps)))
+                engine.setCvar("vid_maxfps", "999");
+            const double ready = seconds();
+            if (ready - displayRefreshAt > 2.0) {
+                SDL_DisplayMode mode;
+                const int display = SDL_GetWindowDisplayIndex(window);
+                displayRefresh = (display >= 0 && SDL_GetCurrentDisplayMode(display, &mode) == 0) ? float(mode.refresh_rate) : 0.0f;
+                displayRefreshAt = ready;
+            }
+            const bool timedemo = mapMode.active() && mapMode.quake2().timeDemoRunning();
+            const float fps = timedemo ? 0.0f
+                                       : realms::renderFrameRate(engine.cvarFloat("vid_maxfps", realms::kDefaultMaxFps),
+                                                                 SDL_GL_GetSwapInterval() != 0, displayRefresh);
+            const double start = frameLimiter.frameStart(ready, fps);
+            for (double left = start - seconds(); left > 0.0; left = start - seconds()) {
+                if (left > 0.002) SDL_Delay(Uint32((left - 0.001) * 1000.0)); // sleep most of it
+                else std::this_thread::yield();                                // then the last bit
+            }
+        }
     }
 
     realms::sandbox::saveUserConfig(engine);
