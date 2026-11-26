@@ -32,7 +32,8 @@ namespace realms {
 
 // The version of everything below and of the connect handshake
 // (realms/GameNetServer.h); client and server must have the same.
-constexpr int kGameNetProtocol = 1;
+// 2: entities carry their linked models (modelindex2..4).
+constexpr int kGameNetProtocol = 2;
 
 // Reliable message types (the first byte), server to client:
 // kGameNetEvents (see the top), kGameNetServerCommand + text: "playernum <n>"

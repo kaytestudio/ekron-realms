@@ -87,6 +87,10 @@ struct GameRenderEntity {
     int svflags = 0;
     int solid = 0; // q2solid_t
     std::string sound; // looping sound (s.sound), "" if none
+    // Linked models drawn with it (s.modelindex2..4), 0 for none. 255 in
+    // modelindex2 is a player's weapon (vwep), picked by the client from
+    // skinnum >> 8 (realms/GameView.h gameWeaponModelFiles).
+    int modelindex2 = 0, modelindex3 = 0, modelindex4 = 0;
 };
 
 // An RF_BEAM entity (target_laser): a beam from `origin` to `oldOrigin`,
@@ -264,6 +268,8 @@ public:
     // "Name\\female/athena"); "male" when there is none or it isn't a
     // plain name (letters, digits, _ and -).
     std::string playerModelName(int client) const;
+    // The same from a CS_PLAYERSKINS string itself (clients have their own).
+    static std::string playerModelOf(const std::string &playerSkins);
     // A sexed sound ("*pain100_1.wav" without the "*") of an entity:
     // "players/<model>/<base>" with a player's model, "male" for others.
     std::string sexedSound(int entity, const std::string &base) const;

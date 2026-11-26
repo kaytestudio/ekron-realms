@@ -49,6 +49,10 @@ realms::GameRenderEntity entity(int number, const std::string &model, float x) {
     e.svflags = 0;
     e.solid = 2;
     e.sound = number == 2 ? "world/amb10.wav" : "";
+    if (number == 7) { // linked models: a player's weapon and another
+        e.modelindex2 = 255;
+        e.modelindex3 = 5;
+    }
     return e;
 }
 
@@ -125,7 +129,8 @@ bool sameEntity(const realms::GameRenderEntity &a, const realms::GameRenderEntit
            a.inlineModel == b.inlineModel && a.origin == b.origin && a.oldOrigin == b.oldOrigin &&
            a.angles == b.angles && a.mins == b.mins && a.maxs == b.maxs && a.frame == b.frame &&
            a.skinnum == b.skinnum && a.effects == b.effects && a.renderfx == b.renderfx && a.svflags == b.svflags &&
-           a.solid == b.solid && a.sound == b.sound;
+           a.solid == b.solid && a.sound == b.sound && a.modelindex2 == b.modelindex2 &&
+           a.modelindex3 == b.modelindex3 && a.modelindex4 == b.modelindex4;
 }
 
 bool sameEvent(const realms::GameEvent &a, const realms::GameEvent &b) {
@@ -231,7 +236,7 @@ void roundTrip() {
     realms::encodeGameDemoHeader(header, file);
     const size_t headerBytes = file.size();
     CHECK(headerBytes == 7 + 1 + 1 + header.mapPath.size() + 4);
-    CHECK(std::memcmp(file.data(), "EKRDEMO\x01", 8) == 0);
+    CHECK(std::memcmp(file.data(), "EKRDEMO\x02", 8) == 0);
     realms::GameDemoState state;
     std::vector<size_t> sizes;
     for (size_t i = 0; i < snaps.size(); i++) {
@@ -343,13 +348,53 @@ void roundTrip() {
         CHECK(!r.open(bad, error) && error == "not an Ekron demo");
         CHECK(!realms::GameDemoReader::readHeader({}, h, error) && error == "not an Ekron demo");
         bad = file;
-        bad[7] = 2;
-        CHECK(!r.open(bad, error) && error == "demo version 2 (this build plays version 1)");
+        bad[7] = 3;
+        CHECK(!r.open(bad, error) && error == "demo version 3 (this build plays versions 1 to 2)");
+        bad[7] = 0;
+        CHECK(!r.open(bad, error) && error == "demo version 0 (this build plays versions 1 to 2)");
+        CHECK(realms::GameDemoReader::readHeader(file, h, error) && h.version == 2);
         std::vector<uint8_t> empty;
         realms::encodeGameDemoHeader(realms::GameDemoHeader{}, empty);
         CHECK(!realms::GameDemoReader::readHeader(empty, h, error) && error == "damaged demo header");
         CHECK(realms::GameDemoReader::readHeader(file, h, error) && h.mapPath == "maps/arena.bsp");
     }
+}
+
+// Version 1 demos (before the linked models) still play: the same
+// records without modelindex2..4, which read back as 0.
+void versionOne() {
+    const std::vector<realms::GameSnapshot> snaps = session();
+    std::vector<uint8_t> file;
+    realms::GameDemoHeader header;
+    header.mapPath = "maps/arena.bsp";
+    realms::encodeGameDemoHeader(header, file);
+    file[7] = 1;
+    const size_t headerBytes = file.size();
+    realms::GameDemoState state;
+    state.version = 1;
+    std::vector<uint8_t> v2;
+    realms::GameDemoState state2;
+    for (size_t i = 0; i < snaps.size(); i++) {
+        realms::encodeGameDemoRecord(state, snaps[i], 0.0f, file);
+        realms::encodeGameDemoRecord(state2, snaps[i], 0.0f, v2);
+    }
+    CHECK(file.size() - headerBytes < v2.size()); // without the three words
+    realms::GameDemoReader reader;
+    std::string error;
+    CHECK(reader.open(file, error) && reader.header().version == 1);
+    realms::GameSnapshot got;
+    float seconds = 0.0f;
+    size_t matched = 0, linked = 0;
+    for (size_t i = 0; i < snaps.size() && reader.next(got, seconds); i++) {
+        realms::GameSnapshot want = snaps[i];
+        for (auto &e : want.entities) {
+            linked += e.modelindex2 != 0;
+            e.modelindex2 = e.modelindex3 = e.modelindex4 = 0;
+        }
+        if (sameSnapshot(got, want)) matched++;
+        else std::fprintf(stderr, "  version 1 record %zu differs\n", i);
+    }
+    CHECK(matched == snaps.size() && linked > 0 && reader.error().empty());
 }
 
 void namesAndFiles() {
@@ -414,6 +459,7 @@ void namesAndFiles() {
 
 int main() {
     roundTrip();
+    versionOne();
     namesAndFiles();
     std::printf("[demo] %d checks, %d failures\n", gChecks, gFailures);
     return gFailures ? 1 : 0;

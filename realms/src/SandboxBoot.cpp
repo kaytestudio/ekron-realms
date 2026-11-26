@@ -38,6 +38,8 @@ void registerSharedCvars(Engine &engine, const std::string &platform) {
     engine.registerCvar("skin", "male/grunt", REALMS_CVAR_ARCHIVE | REALMS_CVAR_USERINFO);
     engine.registerCvar("gender", "male", REALMS_CVAR_ARCHIVE | REALMS_CVAR_USERINFO);
     engine.registerCvar("gender_auto", "1", REALMS_CVAR_ARCHIVE);
+    // cl_main.c: other players hold the weapon they use (realms/GameView.h)
+    engine.registerCvar("cl_vwep", "1", REALMS_CVAR_ARCHIVE);
     // Quake 2's screen size (realms/ViewSize.h): the 3D view in maps shrunk to
     // 40 .. 100 per cent, the rest tiled; "sizeup" / "sizedown" step it by 10
     // (SCR_SizeUp_f / SCR_SizeDown_f), within those bounds.

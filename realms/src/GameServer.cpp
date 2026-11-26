@@ -1367,8 +1367,11 @@ double GameServer::lerpFraction() const {
 }
 
 std::string GameServer::playerModelName(int client) const {
+    return playerModelOf(configString(Q2_CS_PLAYERSKINS + (client & 0xff)));
+}
+
+std::string GameServer::playerModelOf(const std::string &cs) {
     // CL_LoadClientinfo: CS_PLAYERSKINS + n is "name\model/skin"
-    const std::string &cs = configString(Q2_CS_PLAYERSKINS + (client & 0xff));
     const size_t name = cs.find('\\');
     std::string model = name == std::string::npos ? std::string() : cs.substr(name + 1);
     model = model.substr(0, model.find('/'));
@@ -1417,6 +1420,10 @@ std::vector<GameRenderEntity> GameServer::renderEntitiesFor(int client, bool wit
         r.renderfx = e->s.renderfx;
         r.svflags = e->svflags;
         r.solid = int(e->solid);
+        auto linked = [](int index) { return index > 0 && index < Q2_MAX_MODELS ? index : 0; };
+        r.modelindex2 = e->s.modelindex2 == 255 ? 255 : linked(e->s.modelindex2);
+        r.modelindex3 = linked(e->s.modelindex3);
+        r.modelindex4 = linked(e->s.modelindex4);
         if (e->s.sound > 0 && e->s.sound < Q2_MAX_SOUNDS) {
             const std::string &snd = configString(Q2_CS_SOUNDS + e->s.sound);
             if (!snd.empty()) r.sound = "sound/" + snd;

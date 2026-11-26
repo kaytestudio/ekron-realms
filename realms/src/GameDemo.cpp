@@ -17,7 +17,6 @@ namespace realms {
 namespace {
 
 constexpr char kMagic[7] = {'E', 'K', 'R', 'D', 'E', 'M', 'O'};
-constexpr uint8_t kVersion = 1;
 constexpr uint32_t kMaxRecordBytes = 64u << 20;
 constexpr size_t kMaxStringBytes = 1u << 20;
 constexpr size_t kMaxStrings = 1u << 20;
@@ -27,7 +26,9 @@ constexpr size_t kMaxCount = 1u << 16;
 // fixed order, so changes can be sent word by word.
 constexpr size_t kPlayerWords = 68;
 constexpr size_t kOriginWords = 3;
-constexpr size_t kEntityWords = 25;
+constexpr size_t kEntityWords = 28;
+constexpr size_t kEntityWordsV1 = 25; // without modelindex2..4
+size_t entityWordsFor(int version) { return version >= 2 ? kEntityWords : kEntityWordsV1; }
 constexpr size_t kBeamWords = 9;
 constexpr size_t kLoopWords = 5;
 constexpr size_t kEventWords = 29;
@@ -241,6 +242,11 @@ std::vector<uint32_t> entityWords(const GameRenderEntity &e, Encoder &enc) {
     w.push_back(ibits(e.svflags));
     w.push_back(ibits(e.solid));
     w.push_back(enc.id(e.sound));
+    if (enc.state.version >= 2) {
+        w.push_back(ibits(e.modelindex2));
+        w.push_back(ibits(e.modelindex3));
+        w.push_back(ibits(e.modelindex4));
+    }
     return w;
 }
 
@@ -263,6 +269,11 @@ GameRenderEntity entityFrom(int number, const std::vector<uint32_t> &w, Decoder 
     e.svflags = bitsi(w[k++]);
     e.solid = bitsi(w[k++]);
     e.sound = dec.str(w[k++]);
+    if (w.size() >= kEntityWords) {
+        e.modelindex2 = bitsi(w[k++]);
+        e.modelindex3 = bitsi(w[k++]);
+        e.modelindex4 = bitsi(w[k++]);
+    }
     return e;
 }
 
@@ -444,7 +455,7 @@ bool decodeRecord(GameDemoState &st, In &in, GameSnapshot &s, float &seconds) {
             const uint64_t number = in.var();
             if (number > uint64_t(INT32_MAX)) return false;
             std::vector<uint32_t> &ref = st.entities[int(number)];
-            getDelta(in, w, ref, kEntityWords);
+            getDelta(in, w, ref, entityWordsFor(st.version));
             if (!in.ok) return false;
             ref = w;
             s.entities.push_back(entityFrom(int(number), w, dec));
@@ -490,11 +501,12 @@ bool parseHeader(const std::vector<uint8_t> &bytes, GameDemoHeader &header, std:
     }
     in.p += sizeof kMagic;
     const uint8_t version = in.u8();
-    if (in.ok && version != kVersion) {
-        error = "demo version " + std::to_string(version) + " (this build plays version " +
-                std::to_string(kVersion) + ")";
+    if (in.ok && (version < kGameDemoOldestVersion || version > kGameDemoVersion)) {
+        error = "demo version " + std::to_string(version) + " (this build plays versions " +
+                std::to_string(kGameDemoOldestVersion) + " to " + std::to_string(kGameDemoVersion) + ")";
         return false;
     }
+    header.version = version;
     header.mapPath = in.str();
     header.mapChecksum = in.u32();
     if (!in.ok || header.mapPath.empty()) {
@@ -527,7 +539,7 @@ std::string gameDemoPath(const Engine &engine, const std::string &name) {
 void encodeGameDemoHeader(const GameDemoHeader &header, std::vector<uint8_t> &out) {
     Out o{out};
     out.insert(out.end(), kMagic, kMagic + sizeof kMagic);
-    o.u8(kVersion);
+    o.u8(uint8_t(kGameDemoVersion));
     o.str(header.mapPath);
     o.u32(header.mapChecksum);
 }
@@ -612,6 +624,7 @@ bool GameDemoReader::open(std::vector<uint8_t> bytes, std::string &error) {
     *this = GameDemoReader{};
     size_t pos = 0;
     if (!parseHeader(bytes, header_, error, pos)) return false;
+    state_.version = header_.version;
     bytes_ = std::move(bytes);
     pos_ = pos;
     return true;
