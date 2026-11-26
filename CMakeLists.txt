@@ -827,6 +827,12 @@ add_executable(realms_view_fov_test tests/realms/view_fov_test.cpp)
 target_link_libraries(realms_view_fov_test PRIVATE realms_engine)
 add_test(NAME realms_view_fov COMMAND realms_view_fov_test)
 
+# realms/Screenshot.h: Quake 2's screenshot command (yquake2's arguments and
+# q2_NNNN names) and its TGA / BMP / PNG / JPEG encoders, read back with stb_image.
+add_executable(realms_screenshot_test tests/realms/screenshot_test.cpp)
+target_link_libraries(realms_screenshot_test PRIVATE realms_quake2)
+add_test(NAME realms_screenshot COMMAND realms_screenshot_test)
+
 add_executable(realms_fpc_library_environ_test tests/realms/fpc_library_environ_test.cpp)
 target_include_directories(realms_fpc_library_environ_test PRIVATE realms/src)
 add_test(NAME realms_fpc_library_environ COMMAND realms_fpc_library_environ_test)

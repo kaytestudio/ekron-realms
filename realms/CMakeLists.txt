@@ -68,6 +68,7 @@ add_library(realms_quake2 STATIC
     "${CMAKE_CURRENT_LIST_DIR}/src/Md3Model.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/src/Image.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/src/Quake2Module.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/src/Screenshot.cpp"
 )
 target_link_libraries(realms_quake2 PUBLIC realms_engine)
 if(WIN32)

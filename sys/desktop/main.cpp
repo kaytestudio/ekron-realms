@@ -47,6 +47,7 @@
 #include "realms/GameSave.h"
 #include "realms/GameServer.h"
 #include "realms/SandboxBoot.h"
+#include "realms/Screenshot.h"
 #include "realms/ViewGamma.h"
 
 #include <algorithm>
@@ -797,6 +798,7 @@ void printHelp(const char *exe) {
         << "  E                   Interact (door, UAZ-469, sofa, FPV drone)\n"
         << "  V / H               Toggle FPV/Chase camera / Return drone home\n"
         << "  N / P / F11 / Esc   Noclip flight / Copy spawn.json / Fullscreen / Pause menu\n"
+        << "  F12                 Screenshot (console: screenshot [tga|bmp|png|jpg] [quality])\n"
         << "  L                   Cycle UI language (English / Русский / Português / Español)\n"
         << "  `                   Realms console (cvarlist, cmdlist, set, alias, exec, noclip, quit...)\n"
         << "  F1 (Quake 2 maps)   Help computer: objectives, kills, goals and secrets\n"
@@ -1397,6 +1399,9 @@ int main(int argc, char **argv)
     engine.addCommand("teleport_road", [&](const realms::CommandArgs &) { teleportToRoad(); });
     engine.addCommand("restore_car", [&](const realms::CommandArgs &) { respawnCar(); });
     engine.addCommand("copy_spawn", [&](const realms::CommandArgs &) { copySpawnJson(); });
+    // Quake 2's screenshot (F12): the frame is read back just before it is shown
+    realms::Screenshots screenshots;
+    screenshots.registerCommand(engine);
     engine.addCommand("lang", [&](const realms::CommandArgs &args) {
         if (args.size() < 2) { cycleLanguage(); return; }
         if (auto lang = i18n::parseLanguageTag(args[1])) {
@@ -1554,6 +1559,8 @@ int main(int argc, char **argv)
                     syncMouseCapture();
                 } else if (key == SDLK_F11) {
                     engine.setCvar("vid_fullscreen", fullscreen ? "0" : "1");
+                } else if (key == SDLK_F12) {
+                    engine.exec("screenshot\n"); // Quake 2's default.cfg: bind F12 screenshot
                 } else if (mapMode.active()) {
                     // Map mode: sandbox tools, catalog and shop are off.
                     if (!pauseOpen && key == SDLK_n) toggleNoclip();
@@ -2614,6 +2621,20 @@ int main(int argc, char **argv)
         }
 
         renderer.flushUi(gl, drawW, drawH);
+        if (screenshots.pending()) {
+            // R_ScreenShot: the finished back buffer, bottom row first. RGBA
+            // reads work on OpenGL ES contexts too.
+            std::vector<uint8_t> pixels(size_t(std::max(drawW, 0)) * size_t(std::max(drawH, 0)) * 4);
+            if (pixels.empty()) {
+                screenshots.cancel(engine, "the window has no size");
+            } else {
+                gl.BindFramebuffer(GL_FRAMEBUFFER, 0);
+                gl.PixelStorei(GL_PACK_ALIGNMENT, 1);
+                gl.ReadPixels(0, 0, drawW, drawH, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+                screenshots.deliver(engine, drawW, drawH, pixels.data(), 4, false, true);
+                showToast(screenshots.lastMessage());
+            }
+        }
         // timedemo measures how fast frames can be drawn: no vsync meanwhile
         const bool uncapped = mapMode.active() && mapMode.quake2().timeDemoRunning();
         if (uncapped != swapUncapped) {
