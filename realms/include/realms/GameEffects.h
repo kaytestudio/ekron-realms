@@ -132,8 +132,10 @@ public:
     // Frees what has faded or ended by timeMs.
     void update(double timeMs);
 
-    // What to draw at timeMs.
-    void particles(double timeMs, std::vector<GameParticle> &out) const;
+    // What to draw at timeMs. withSprites false leaves out the glows that
+    // stand for sprite entities (the BFG ball and its explosion): they are
+    // entities in Quake 2 (r_drawentities), the particles are not.
+    void particles(double timeMs, std::vector<GameParticle> &out, bool withSprites = true) const;
     void lights(double timeMs, std::vector<GameDynamicLight> &out) const;
     void models(double timeMs, std::vector<GameEffectModel> &out) const;
     // Lasers and beam entities; each picks one of its four colours per call.

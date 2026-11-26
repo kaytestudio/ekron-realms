@@ -410,6 +410,10 @@ void entityEffectChecks() {
     CHECK(fx.particleCount() == 162);
     fx.particles(500, parts);
     CHECK(parts.size() == 163 && parts.back().size > 1.0f && parts.back().color[1] > parts.back().color[0]);
+    // r_drawentities 0: the sprite's glow goes (an entity), its particles stay
+    fx.particles(500, parts, false);
+    CHECK(parts.size() == 162);
+    for (const realms::GameParticle &p : parts) CHECK(!(p.size > 1.0f));
     fx.lights(500, lights);
     CHECK(lights.size() == 1 && lights[0].color[1] == 1.0f && lights[0].color[0] == 0.0f);
     fx.update(520);

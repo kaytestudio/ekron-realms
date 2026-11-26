@@ -813,7 +813,8 @@ const GameScene &Quake2Module::buildScene(Engine &engine, const Vec3 &cameraOrig
 }
 
 void Quake2Module::buildEffects(const Vec3 &eye, const Vec3 &cameraAngles, size_t maxLights,
-                                std::vector<Quake2EffectVertex> &quads, std::vector<GameDynamicLight> &lights) {
+                                std::vector<Quake2EffectVertex> &quads, std::vector<GameDynamicLight> &lights,
+                                bool entities) {
     quads.clear();
     lights.clear();
     if (!gameRunning()) return;
@@ -829,7 +830,7 @@ void Quake2Module::buildEffects(const Vec3 &eye, const Vec3 &cameraAngles, size_
         }
     };
 
-    effects_.particles(now, fxParticles_);
+    effects_.particles(now, fxParticles_, entities);
     quads.reserve(fxParticles_.size() * 6 + 64);
     for (const GameParticle &p : fxParticles_) {
         // gl_rpart.c: about one unit up close, growing with distance
@@ -847,7 +848,8 @@ void Quake2Module::buildEffects(const Vec3 &eye, const Vec3 &cameraAngles, size_
         }
         quad(c, p.color, 0.0f);
     }
-    effects_.beams(now, fxBeams_);
+    if (entities) effects_.beams(now, fxBeams_);
+    else fxBeams_.clear(); // RF_BEAM entities in Quake 2
     for (const GameBeam &b : fxBeams_) {
         const std::array<float, 3> dir{b.end[0] - b.start[0], b.end[1] - b.start[1], b.end[2] - b.start[2]};
         const std::array<float, 3> mid{(b.start[0] + b.end[0]) * 0.5f - eye[0], (b.start[1] + b.end[1]) * 0.5f - eye[1],
