@@ -137,6 +137,7 @@ void Quake2Module::close() {
         // playing a server's game and another map (or none) is opened
         if (net_->state() == GameNetClient::State::Active) net_->disconnect(GameNetClient::clock());
         net_ = nullptr;
+        unregisterNetCommands();
     }
     viewEntity_ = 1;
     if (gActiveModule == this) gActiveModule = nullptr;
@@ -251,6 +252,7 @@ bool Quake2Module::attachNet(Engine &engine, GameNetClient &net, std::string &wh
     engine.cvarModified("fov");
     engine.cvarModified("hand");
     net_ = &net;
+    registerNetCommands(engine);
     viewEntity_ = net.playerNum() >= 0 ? net.playerNum() + 1 : 1;
     gActiveModule = this;
     net.begin(GameNetClient::clock());
@@ -261,11 +263,32 @@ void Quake2Module::detachNet() {
     if (!net_) return;
     failure_ = net_->takeDisconnectReason(); // "" when the server changes maps
     net_ = nullptr;
+    unregisterNetCommands();
     viewEntity_ = 1;
     stopRecording();
     resetClientSide();
     poses_.clear();
     scene_.clear();
+}
+
+void Quake2Module::registerNetCommands(Engine &engine) {
+    unregisterNetCommands();
+    engine_ = &engine;
+    for (const std::string &name : GameServer::forwardedCommands()) {
+        if (engine.commandExists(name)) continue;
+        if (engine.addCommand(name, [this](const CommandArgs &args) { clientCommand(GameServer::commandLine(args)); }))
+            netCommands_.push_back(name);
+    }
+    if (!engine.commandExists("cmd") && engine.addCommand("cmd", [this](const CommandArgs &args) {
+            if (args.size() >= 2) clientCommand(GameServer::commandLine(args, 1));
+        }))
+        netCommands_.push_back("cmd");
+}
+
+void Quake2Module::unregisterNetCommands() {
+    if (engine_)
+        for (const std::string &name : netCommands_) engine_->removeCommand(name);
+    netCommands_.clear();
 }
 
 void Quake2Module::netFrame(const GameUserCmd &cmd, double dt) {

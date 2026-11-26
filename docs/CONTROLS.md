@@ -80,7 +80,7 @@ glTF maps run the game too. Name nodes (Blender empties, for example) after Quak
 | `F1` | Help computer (Quake 2's `cmd help`): skill, level name, the map's objectives, kills, goals and secrets; `F1` again closes it. In the console, `help` does the same and `score` shows the scores |
 | `Tab` / `[` `]` / `Enter` | Inventory (Quake 2's `inven`): open or close it, select the previous / next item (`invprev` / `invnext`), use the selected one (`invuse`) |
 | `F6` / `F9` | Quick save / quick load (Quake 2's `save quick` / `load quick`) |
-| `` ` `` | Console: Quake 2 client commands such as `give all`, `give shotgun`, `use blaster`, `god`, `notarget`, `kill`, `weapnext`, `cmd <command>`, server commands with `sv <command>`, and `killserver` |
+| `` ` `` | Console: Quake 2 client commands such as `give all`, `give shotgun`, `use blaster`, `god`, `notarget`, `kill`, `weapnext`, `say <text>`, `cmd <command>`, server commands with `sv <command>`, and `killserver` |
 
 - `sv_game 0`: walk maps without the game.
 - `cl_gun 0`: hide the view weapon.
@@ -123,7 +123,7 @@ Deathmatch and coop work as in Quake 2, over UDP, with the same console commands
 - `port` (default `27910`) is the UDP port the host listens on, on all its network interfaces. Others on the internet can only join if that port is reachable (forwarded on the router).
 - To join: `connect <address>`, for example `connect 192.168.1.20` or `connect example.net:27911` (the port is 27910 when left out). The host's map is opened from your own data, so you need the same map: a map that isn't there, or a different version of it, is refused with a message. Joining doesn't need `librealms_game`: the host runs the game.
 - `disconnect` leaves the game; the map is then walked as without the game. `reconnect` joins the last server again. When the host changes map, its players follow it; when it quits, or nothing comes from it for a while, the console says so.
-- `name`, `fov` and `hand` are sent to the host, when joining and when they change. While connected, `record` records what you see in the host's game. The game's console commands (`give`, `kill`, `cmd`...) only work on the host for now.
+- `name`, `fov` and `hand` are sent to the host, when joining and when they change. While connected, `record` records what you see in the host's game. The game's console commands (`say`, `give`, `kill`, `cmd <command>`...) go to the host's game, which answers on your console.
 - Other players are drawn with `players/<model>/tris.md3`, so they look like boxes without those models (see [Models](#models-md3)).
 
 ### Models (`.md3`)
