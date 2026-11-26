@@ -39,7 +39,8 @@ public:
     virtual int maxClients() const = 0;
     // -1 + error when the game refuses the client.
     virtual int connectClient(const std::string &name, float fov, int hand, const std::string &skin,
-                              const std::string &gender, const std::string &ip, std::string &error) = 0;
+                              const std::string &gender, const std::string &spectator, const std::string &password,
+                              const std::string &ip, std::string &error) = 0;
     virtual void disconnectClient(int client) = 0;
     virtual void clientMove(int client, const GameUserCmd &cmd, double seconds) = 0;
     virtual void clientCommand(int client, const std::string &line) = 0;
@@ -47,6 +48,8 @@ public:
     virtual void setHand(int client, int hand) = 0;
     virtual void setSkin(int client, const std::string &skin) = 0;
     virtual void setGender(int client, const std::string &gender) = 0;
+    virtual void setSpectator(int client, const std::string &spectator) = 0;
+    virtual void setPassword(int client, const std::string &password) = 0;
     virtual void snapshot(int client, GameSnapshot &out, bool full) = 0;
 };
 
@@ -55,8 +58,9 @@ public:
     explicit GameServerNetGame(GameServer &server) : server_(server) {}
     int maxClients() const override { return server_.maxClients(); }
     int connectClient(const std::string &name, float fov, int hand, const std::string &skin, const std::string &gender,
-                      const std::string &ip, std::string &error) override {
-        return server_.connectClient(name, fov, hand, error, ip, skin, gender);
+                      const std::string &spectator, const std::string &password, const std::string &ip,
+                      std::string &error) override {
+        return server_.connectClient(name, fov, hand, error, ip, skin, gender, spectator, password);
     }
     void disconnectClient(int client) override { server_.disconnectClient(client); }
     void clientMove(int client, const GameUserCmd &cmd, double seconds) override {
@@ -67,6 +71,8 @@ public:
     void setHand(int client, int hand) override { server_.setHand(client, hand); }
     void setSkin(int client, const std::string &skin) override { server_.setSkin(client, skin); }
     void setGender(int client, const std::string &gender) override { server_.setGender(client, gender); }
+    void setSpectator(int client, const std::string &spectator) override { server_.setSpectator(client, spectator); }
+    void setPassword(int client, const std::string &password) override { server_.setPassword(client, password); }
     void snapshot(int client, GameSnapshot &out, bool full) override { server_.snapshot(client, out, full); }
 
 private:

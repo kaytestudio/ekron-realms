@@ -44,6 +44,7 @@ struct GameNetServer::Remote {
     float fov = 90.0f;
     int hand = 0;
     std::string skin = GameServer::kDefaultSkin, gender = GameServer::kDefaultGender;
+    std::string spectator = "0", password;
     int client = -1;   // the game's client index once it has begun
     bool full = true;  // the next snapshot sends everything
     uint32_t lastCmd = 0;
@@ -223,6 +224,8 @@ void GameNetServer::connectionless(GameNetServerGame &game, const NetAddress &fr
         // left out: Quake 2 would have no key, and the game draws "male" / says "itself"
         r->skin = gameNetInfoValue(userinfo, "skin").substr(0, 63);
         r->gender = gameNetInfoValue(userinfo, "gender").substr(0, 15);
+        r->spectator = gameNetInfoValue(userinfo, "spectator").substr(0, 63);
+        r->password = gameNetInfoValue(userinfo, "password").substr(0, 63);
         r->connected = r->lastReceived = now;
         say(r->name + " connected from " + from.toString() + ".");
         remotes_.push_back(std::move(r));
@@ -239,7 +242,7 @@ void GameNetServer::message(GameNetServerGame &game, Remote &r, const NetMessage
         case kGameNetBegin: // SV_Begin_f; again: everything again (the client started over)
             if (r.client < 0) {
                 std::string error;
-                const int client = game.connectClient(r.name, r.fov, r.hand, r.skin, r.gender, ipString(r.address), error);
+                const int client = game.connectClient(r.name, r.fov, r.hand, r.skin, r.gender, r.spectator, r.password, ipString(r.address), error);
                 if (client < 1) {
                     if (error.empty()) error = "Server is full.";
                     drop(game, r, "disconnect\n" + error, r.name + " was refused: " + error);
@@ -277,6 +280,14 @@ void GameNetServer::message(GameNetServerGame &game, Remote &r, const NetMessage
             if (gameNetInfoHas(text, "gender")) {
                 r.gender = gameNetInfoValue(text, "gender").substr(0, 15);
                 if (r.client >= 0) game.setGender(r.client, r.gender);
+            }
+            if (gameNetInfoHas(text, "spectator")) {
+                r.spectator = gameNetInfoValue(text, "spectator").substr(0, 63);
+                if (r.client >= 0) game.setSpectator(r.client, r.spectator);
+            }
+            if (gameNetInfoHas(text, "password")) {
+                r.password = gameNetInfoValue(text, "password").substr(0, 63);
+                if (r.client >= 0) game.setPassword(r.client, r.password);
             }
             break;
         }

@@ -147,6 +147,8 @@ struct GameServerConfig {
     int hand = 0;                 // the userinfo hand: 0 right, 1 left, 2 centre (GameServer::clampHand)
     std::string skin = "male/grunt"; // the userinfo skin: "<model>/<skin>" (CS_PLAYERSKINS, sexed sounds)
     std::string gender = "male";  // the userinfo gender the game's obituaries read (IsFemale / IsNeutral)
+    std::string spectator = "0";  // the userinfo spectator: not "0" joins a deathmatch as a spectator
+    std::string password;         // the userinfo password (the game checks it against its "password" cvar)
     int skill = 1;                // 0 easy .. 3 nightmare
     std::string spawnPoint;       // targetname of an info_player_start ("" = the default one)
     // SV_InitGame: deathmatch makes maxclients 1 into 8; coop makes 1 or
@@ -217,7 +219,8 @@ public:
     // game refuses it (ClientConnect's "rejmsg").
     int connectClient(const std::string &name, float fov, int hand, std::string &error,
                       const std::string &ip = "loopback", const std::string &skin = kDefaultSkin,
-                      const std::string &gender = kDefaultGender);
+                      const std::string &gender = kDefaultGender, const std::string &spectator = "0",
+                      const std::string &password = std::string());
     // SV_DropClient: ClientDisconnect. Not for client 0 (stop() ends the game).
     void disconnectClient(int client);
     // A client's usercmds for dt seconds (split into <= 250 ms commands,
@@ -232,6 +235,12 @@ public:
     // "name\\skin" in CS_PLAYERSKINS and reads gender for its obituaries.
     void setSkin(int client, const std::string &skin);
     void setGender(int client, const std::string &gender);
+    // A new userinfo spectator / password. In a deathmatch the game moves
+    // the player to the sidelines (spectator not "0", which is also the
+    // spectator password) or back into the game (with the right password)
+    // once 5 seconds have passed since its last respawn.
+    void setSpectator(int client, const std::string &spectator);
+    void setPassword(int client, const std::string &password);
     const char *userinfo(int client) const;
     const q2edict_t *player(int client) const;
     const q2player_state_t *playerState(int client) const;
@@ -257,6 +266,8 @@ public:
     // The local client's skin and gender.
     void setSkin(const std::string &skin);
     void setGender(const std::string &gender);
+    void setSpectator(const std::string &spectator);
+    void setPassword(const std::string &password);
     // Quake 2's userinfo defaults (cl_main.c).
     static constexpr const char *kDefaultSkin = "male/grunt";
     static constexpr const char *kDefaultGender = "male";
@@ -342,6 +353,7 @@ private:
         float fov = 90.0f;
         int hand = 0;
         std::string skin = kDefaultSkin, gender = kDefaultGender;
+        std::string spectator = "0", password;
         char userinfo[512] = {};
         q2usercmd_t lastCmd{};
         double msecAccumulator = 0.0;

@@ -197,6 +197,10 @@ bool Quake2Module::startGame(Engine &engine, std::string &why) {
     config.skin = engine.cvarString("skin", GameServer::kDefaultSkin);
     config.gender = engine.cvarString("gender", GameServer::kDefaultGender);
     engine.cvarModified("gender");
+    config.spectator = engine.cvarString("spectator", "0");
+    config.password = engine.cvarString("password", "");
+    engine.cvarModified("spectator");
+    engine.cvarModified("password");
     config.skill = engine.cvarInt("skill", 1);
     // SV_InitGame: the multiplayer cvars (registerGameNetCommands)
     config.deathmatch = engine.cvarFloat("deathmatch", 0.0f) != 0.0f;
@@ -258,6 +262,8 @@ bool Quake2Module::attachNet(Engine &engine, GameNetClient &net, std::string &wh
     engine.cvarModified("hand");
     engine.cvarModified("skin");
     engine.cvarModified("gender");
+    engine.cvarModified("spectator");
+    engine.cvarModified("password");
     net_ = &net;
     registerNetCommands(engine);
     viewEntity_ = net.playerNum() >= 0 ? net.playerNum() + 1 : 1;
@@ -536,6 +542,49 @@ std::string Quake2Module::takeGameFailure() {
     return out;
 }
 
+int Quake2Module::stuffText(Engine &engine, const std::string &text) {
+    // Cbuf_Execute: commands end at a newline or a ';' outside quotes
+    std::vector<std::string> lines(1);
+    bool quoted = false;
+    for (char c : text) {
+        if (c == '"') quoted = !quoted;
+        if (c == '\n' || (c == ';' && !quoted)) {
+            lines.emplace_back();
+            quoted = false;
+        } else {
+            lines.back() += c;
+        }
+    }
+    int run = 0;
+    for (const std::string &line : lines) {
+        // Cmd_TokenizeString: words, or "quoted" ones
+        std::vector<std::string> args;
+        for (size_t i = 0; i < line.size();) {
+            if (static_cast<unsigned char>(line[i]) <= ' ') {
+                i++;
+            } else if (line[i] == '"') {
+                const size_t end = line.find('"', i + 1);
+                args.push_back(line.substr(i + 1, end == std::string::npos ? std::string::npos : end - i - 1));
+                i = end == std::string::npos ? line.size() : end + 1;
+            } else {
+                size_t end = i;
+                while (end < line.size() && static_cast<unsigned char>(line[end]) > ' ') end++;
+                args.push_back(line.substr(i, end - i));
+                i = end;
+            }
+        }
+        if (args.empty()) continue;
+        std::string command = args[0];
+        for (char &c : command) c = char(std::tolower(static_cast<unsigned char>(c)));
+        if (command == "spectator" && args.size() == 2) {
+            if (engine.setCvar("spectator", args[1]) == REALMS_CVAR_SET_OK) run++;
+        } else {
+            engine.print("ignored a command from the server: " + line + "\n", REALMS_PRINT_DEVELOPER);
+        }
+    }
+    return run;
+}
+
 bool Quake2Module::fixUpGender(Engine &engine, bool genderModified) {
     if (engine.cvarFloat("gender_auto", 1.0f) == 0.0f) return false;
     if (genderModified) return false; // was set directly, don't override the user
@@ -621,6 +670,8 @@ void Quake2Module::receive(GameSnapshot snapshot) {
         if ((demo_ || net_) && engine_ && ev.kind == GameEvent::Kind::Print && !ev.text.empty()) engine_->print(ev.text);
         if (ev.kind == GameEvent::Kind::Sound) sounds_.push_back(ev);
         if (ev.kind == GameEvent::Kind::Layout) layout_ = ev.text;
+        // svc_stufftext from the game (not replayed from a demo)
+        if (ev.kind == GameEvent::Kind::StuffText && !demo_ && engine_) stuffText(*engine_, ev.text);
         if (ev.kind == GameEvent::Kind::CenterPrint && !ev.text.empty()) {
             std::string t = ev.text;
             while (!t.empty() && (t.back() == '\n' || t.back() == ' ')) t.pop_back();
@@ -806,18 +857,24 @@ const GameScene &Quake2Module::buildScene(Engine &engine, const Vec3 &cameraOrig
     const bool handChanged = userinfo && engine.cvarModified("hand");
     const bool skinChanged = userinfo && engine.cvarModified("skin");
     bool genderChanged = userinfo && engine.cvarModified("gender");
-    if (fovChanged || handChanged || skinChanged || genderChanged) {
+    const bool spectatorChanged = userinfo && engine.cvarModified("spectator");
+    const bool passwordChanged = userinfo && engine.cvarModified("password");
+    if (fovChanged || handChanged || skinChanged || genderChanged || spectatorChanged || passwordChanged) {
         // CL_SendCmd: CL_FixUpGender when the userinfo is sent
         if (fixUpGender(engine, genderChanged)) genderChanged = true;
     }
     const std::string skin = engine.cvarString("skin", GameServer::kDefaultSkin);
     const std::string gender = engine.cvarString("gender", GameServer::kDefaultGender);
+    const std::string spectator = engine.cvarString("spectator", "0");
+    const std::string password = engine.cvarString("password", "");
     if (serverRunning()) {
         if (fovChanged) game_->setFov(fov);
         if (handChanged) game_->setHand(hand);
         if (skinChanged) game_->setSkin(skin);
         if (genderChanged) game_->setGender(gender);
-    } else if (net_ && (fovChanged || handChanged || skinChanged || genderChanged)) {
+        if (spectatorChanged) game_->setSpectator(spectator);
+        if (passwordChanged) game_->setPassword(password);
+    } else if (net_ && (fovChanged || handChanged || skinChanged || genderChanged || spectatorChanged || passwordChanged)) {
         char info[64];
         std::snprintf(info, sizeof info, "\\fov\\%g\\hand\\%d", double(fov), hand);
         std::string text = info;
@@ -827,6 +884,8 @@ const GameScene &Quake2Module::buildScene(Engine &engine, const Vec3 &cameraOrig
         };
         if (skinChanged) text += "\\skin\\" + safe(skin);
         if (genderChanged) text += "\\gender\\" + safe(gender);
+        if (spectatorChanged) text += "\\spectator\\" + safe(spectator);
+        if (passwordChanged) text += "\\password\\" + safe(password);
         net_->sendUserinfo(text);
     }
     GameSceneOptions opt;
