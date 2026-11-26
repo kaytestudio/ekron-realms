@@ -48,6 +48,7 @@
 #include "realms/GameServer.h"
 #include "realms/SandboxBoot.h"
 #include "realms/Screenshot.h"
+#include "realms/VideoSync.h"
 #include "realms/ViewGamma.h"
 
 #include <algorithm>
@@ -926,6 +927,7 @@ int main(int argc, char **argv)
         return 1;
     }
     engine.registerCvar("vid_fullscreen", "0", REALMS_CVAR_ARCHIVE);
+    engine.registerCvar("r_vsync", "1", REALMS_CVAR_ARCHIVE); // yquake2: 0 off, 1 on, 2 adaptive
     // "map" / "killserver" may run before the GL context exists (+map on the
     // command line, autoexec.cfg): the main loop applies the latest change.
     std::optional<std::string> pendingMapChange;
@@ -1506,7 +1508,7 @@ int main(int argc, char **argv)
     gamepads.openAll(); // controllers plugged in during the intro
 
     auto lastTick = std::chrono::steady_clock::now();
-    bool swapUncapped = false; // vsync off while a timedemo runs
+    realms::SwapIntervalControl swapInterval; // r_vsync; vsync off while a timedemo runs
     // cl_showfps: the frame rate at the top right, its text changed 4 times a second
     realms::FrameCounter fpsCounter;
     std::vector<std::string> fpsLines;
@@ -2635,11 +2637,12 @@ int main(int argc, char **argv)
                 showToast(screenshots.lastMessage());
             }
         }
-        // timedemo measures how fast frames can be drawn: no vsync meanwhile
-        const bool uncapped = mapMode.active() && mapMode.quake2().timeDemoRunning();
-        if (uncapped != swapUncapped) {
-            SDL_GL_SetSwapInterval(uncapped ? 0 : 1);
-            swapUncapped = uncapped;
+        // r_vsync; timedemo measures how fast frames can be drawn: no vsync meanwhile
+        {
+            const bool uncapped = mapMode.active() && mapMode.quake2().timeDemoRunning();
+            const std::string vsyncMessage = swapInterval.update(
+                engine.cvarFloat("r_vsync", 1.0f), uncapped, [](int interval) { return SDL_GL_SetSwapInterval(interval); });
+            if (!vsyncMessage.empty()) engine.print(vsyncMessage);
         }
         SDL_GL_SwapWindow(window);
     }
